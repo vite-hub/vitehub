@@ -107,16 +107,21 @@ describe("vitehub agent invocations --url is the app URL", () => {
     expect(result.stderr).toContain("--server is now --url")
   })
 
-  it("cancels on a dev server without a Console through its dev endpoint", async () => {
+  it.each([false, true])("cancels through the dev endpoint (discovered: %s)", async discovered => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-url-"))
     const serverId = `${process.pid + 1}:5173`
     await refreshWorkspaceDevToken(rootDir, { serverId })
     try {
-      const app = localApp({ root: rootDir, serverId })
+      if (discovered) {
+        await mkdir(join(rootDir, ".vitehub"))
+        await writeFile(join(rootDir, ".vitehub/dev-server.json"), JSON.stringify({ root: rootDir, url: "http://localhost:5173/" }))
+      }
+      const app = localApp({ root: rootDir, serverId, ...(discovered ? { console: () => { throw new Error("The Console must not be called") } } : {}) })
       const result = await run(["cancel", "ainv_1", "--url", "http://localhost:5173"], app.fetch, rootDir)
 
       expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ainv_1 cancel requested\n" })
       expect(app.calls.at(-1)).toEqual({ method: "POST", url: "http://localhost:5173/__vitehub/agent/invocations/dev" })
+      expect(app.calls.some(call => call.url.endsWith("/_vitehub/rpc"))).toBe(!discovered)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

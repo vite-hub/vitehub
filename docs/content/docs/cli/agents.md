@@ -92,7 +92,7 @@ Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [sig
 
 `--url` is the app URL, as in every `vitehub` command: `https://app.example.com`, or `http://localhost:3000` for a local production build or a dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
 
-`--url` is the app URL. A Console URL, such as `http://localhost:3000/_vitehub`, fails with the app URL to pass instead. A localhost app without the Console is read through its dev server.
+`--url` is the app URL. A Console URL, such as `http://localhost:3000/_vitehub`, fails with the app URL to pass instead. Cancellation uses the guarded dev endpoint when the URL matches this project's dev server. A local production build still uses its Console.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 

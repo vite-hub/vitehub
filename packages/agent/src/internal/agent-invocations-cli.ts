@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, isViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -380,7 +380,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations show <id>` lists." })
   if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
   if (!parsed.help && parsed.action === "undo" && !parsed.console) {
-    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000/_vitehub." })
+    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000." })
   }
   if (!parsed.urlSet && !env.VITEHUB_AGENT_INVOCATIONS_URL && parsed.database === undefined && fileActions.has(parsed.action)) {
     parsed.database = env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim() || undefined
@@ -1206,10 +1206,18 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
  * guesses a port, since another project may use it. Returns false when no dev server runs.
  */
 function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
-  if (parsed.urlSet || (parsed.database !== undefined && fileActions.has(parsed.action))) return true
-  if (parsed.action !== "cancel" && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
+  if (parsed.database !== undefined && fileActions.has(parsed.action)) return true
+  if (parsed.action !== "cancel" && (parsed.urlSet || !fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
   const rootDir = context.rootDir ?? process.cwd()
-  const found = findViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], context.env)
+  const roots = [rootDir, resolveViteHubProjectRoot(rootDir)]
+  if (parsed.urlSet) {
+    if (isViteHubDevServerUrl(new URL(parsed.url), roots, context.env)) {
+      delete parsed.console
+      delete parsed.consoleFallback
+    }
+    return true
+  }
+  const found = findViteHubDevServerUrl(roots, context.env)
   // cancel asks the Nitro runtime of the dev server, not its Console.
   if (parsed.action === "cancel") {
     if (!found) return false

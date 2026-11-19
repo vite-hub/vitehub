@@ -2,18 +2,13 @@ import { rewriteCliCalls } from "../shared/cli-calls.ts"
 
 import type { Codemod, CodemodContext, CodemodResult } from "../types.ts"
 
-/** `--url` is the app in every `vitehub` command, so `--server <url>` is `--url <url>`. */
-function rewrite(args: string): string {
-  return args.replace(/(\s)--server(=|\s)/g, "$1--url$2")
-}
-
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
-  const { calls, edits } = await rewriteCliCalls(cwd, rewrite)
+  const { edits, followUps } = await rewriteCliCalls(cwd)
   return {
-    summary: edits.length ? `moved ${calls} vitehub call(s) from --server to --url` : "found no vitehub call with --server",
+    summary: edits.length ? `moved vitehub calls from --server to --url in ${edits.length} file(s)` : "no vitehub calls migrated",
     edits,
-    followUps: [],
-    notes: calls ? ["`--server` is now `--url`, the app URL. A `--url` that names the Console (a `/_vitehub` path) now fails: pass the app URL without `/_vitehub`."] : [],
+    followUps,
+    notes: edits.length ? ["`--server` is now `--url`, the app URL. A `--url` that names the Console (a `/_vitehub` path) now fails: pass the app URL without `/_vitehub`."] : [],
     nextSteps: [],
   }
 }
@@ -23,8 +18,9 @@ export const cliUrlFlag: Codemod = {
   description: "Use --url, the app URL, in vitehub calls of scripts and CI instead of --server",
   usage: "[dir]",
   async detect({ cwd }) {
-    const [edit] = (await migrate({ cwd })).edits
-    return edit ? { reason: `${edit.path} passes --server to vitehub` } : undefined
+    const { edits, followUps } = await migrate({ cwd })
+    const file = edits[0]?.path ?? followUps[0]?.file
+    return file ? { reason: `${file} may pass --server to vitehub` } : undefined
   },
   run: migrate,
 }

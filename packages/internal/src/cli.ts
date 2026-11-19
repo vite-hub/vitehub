@@ -646,3 +646,16 @@ export function requireViteHubDevServerUrl(roots: readonly string[], env: NodeJS
   if (!url) throw internalErrorDiagnostics.INTERNAL_DEV_SERVER_NOT_FOUND({ command })
   return url
 }
+
+/** Whether an explicit app URL identifies this project's discovered dev listener. */
+export function isViteHubDevServerUrl(app: URL, roots: readonly string[], env: NodeJS.ProcessEnv): boolean {
+  const configured = findViteHubDevServerUrl(roots, env)
+  if (!configured) return false
+  try {
+    const dev = new URL(configured)
+    return app.origin === dev.origin && app.pathname.replace(/\/+$/, "") === dev.pathname.replace(/\/+$/, "")
+  }
+  catch {
+    return false
+  }
+}

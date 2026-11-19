@@ -7,6 +7,7 @@ import {
   requireViteHubDevServerUrl,
 } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import {
   readWorkspaceDevToken,
@@ -361,7 +362,7 @@ export async function runWorkspaceDevCli(
     parsed = parseWorkspaceDevArgs(args, context.env, context.rootDir)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeWorkspaceDevUsage(context)
     return 1
   }

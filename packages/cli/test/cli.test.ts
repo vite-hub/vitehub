@@ -735,6 +735,30 @@ export default ({ mode }) => ({
   })
 
   it.each([
+    { provider: "cloudflare" as const, args: ["run", "--dry-run"], env: { CLOUDFLARE_API_TOKEN: "token", CLOUDFLARE_ACCOUNT_ID: "shell-account" }, expected: { CLOUDFLARE_ACCOUNT_ID: "linked-account" } },
+    { provider: "vercel" as const, args: ["status"], env: { VERCEL_TOKEN: "token", VERCEL_TEAM_ID: "team_shell", VERCEL_PROJECT_ID: "prj_shell" }, expected: { VERCEL_TEAM_ID: "team_linked", VERCEL_PROJECT_ID: "prj_linked" } },
+  ])("uses the linked $provider scope for provision $args", async ({ provider, args, env, expected }) => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "package.json"), '{"name":"app"}\n')
+    await mkdir(join(rootDir, ".vitehub"))
+    await writeFile(join(rootDir, ".vitehub/link.json"), JSON.stringify({
+      schemaVersion: 2,
+      targets: { [provider]: {
+        account: { id: provider === "cloudflare" ? "linked-account" : "team_linked" },
+        project: { id: "prj_linked", name: "app" },
+        verified: true, linkedAt: "2026-11-19T00:00:00.000Z",
+      } },
+    }))
+    const plan = vi.fn(async (_context: ProvisionContext) => [])
+    const plugin = { vitehub: { cli: { namespaces: [], provision: [{ id: `test:${provider}`, provider, plan }] } } }
+    await expect(runViteHubCli({
+      args: ["provision", ...args], cwd: rootDir, env, runHostCli: noHostCli,
+      loadConfig: async () => ({ plugins: [plugin], root: rootDir }), stderr: stream(), stdout: stream(),
+    })).resolves.toBe(0)
+    expect(plan).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining(expected) }))
+  })
+
+  it.each([
     [["--host"], "Option --host requires a value."],
     [["--host="], "Option --host requires a value."],
     [["--provider", "cloudflare"], "Option --provider is now --host.\nfix: run `vitehub provision run --host cloudflare`."],

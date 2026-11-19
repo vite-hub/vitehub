@@ -117,7 +117,7 @@ describe("agent CLI", () => {
     const channel = {
       ...base,
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      webhooks: { ...base.webhooks as object, secretToken: "new-secret" },
+      webhooks: { ...base.webhooks as object, secret: () => "new-secret" },
     }
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
@@ -317,9 +317,9 @@ describe("agent CLI", () => {
     expect(loadTargets).not.toHaveBeenCalled()
   })
 
-  it("signs stripe-sha256 Channel history requests", async () => {
+  it("signs stripe Channel history requests", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-stripe-"))
-    const registration = { id: "productlane", provider: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: "stripe-sha256" }
+    const registration = { id: "productlane", provider: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: "stripe" }
     let verified: unknown
     try {
       const exitCode = await runAgentChannelHistoryCli([
@@ -336,7 +336,7 @@ describe("agent CLI", () => {
       }, {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "productlane" }, status: 204 })
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "productlane:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "productlane", mode: "webhook" as const, provider: "productlane", registration }],
@@ -345,8 +345,8 @@ describe("agent CLI", () => {
       expect(exitCode).toBe(0)
       expect(verified).toMatchObject({ verified: true })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: { preset: "stripe-sha256", toleranceSeconds: 600 } } } as never, {}, "productlane"))
-        .resolves.toMatchObject({ signature: "stripe-sha256" })
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "productlane", secretHeader: "x-test-signature", secret: () => "webhook-secret", signature: { type: "stripe", tolerance: "10m" } } } as never, {}, "productlane"))
+        .resolves.toMatchObject({ secretToken: "webhook-secret", signature: "stripe" })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -356,7 +356,7 @@ describe("agent CLI", () => {
   it("signs hmac-sha256 Channel history requests with the preset options", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-hmac-"))
     const secretToken = Buffer.from("airtable-mac-secret").toString("base64")
-    const signature = { encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" } as const
+    const signature = { encoding: "base64", type: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" } as const
     const registration = { id: "airtable", provider: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature }
     let verified: unknown
     try {
@@ -374,7 +374,7 @@ describe("agent CLI", () => {
       }, {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "airtable" }, status: 204 })
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "airtable:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "airtable", mode: "webhook" as const, provider: "airtable", registration }],
@@ -383,7 +383,7 @@ describe("agent CLI", () => {
       expect(exitCode).toBe(0)
       expect(verified).toMatchObject({ verified: true })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature } } as never, {}, "airtable"))
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "airtable", secretHeader: "x-airtable-content-mac", secret: () => secretToken, signature } } as never, {}, "airtable"))
         .resolves.toMatchObject({ signature })
     }
     finally {
@@ -449,7 +449,7 @@ describe("agent CLI", () => {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "prefect" }, status: 204 })
           expect(new Headers(init?.headers).get("authorization")).toBe("Bearer history-secret")
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "prefect:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "prefect", mode: "webhook" as const, provider: "prefect", registration }],
@@ -468,8 +468,8 @@ describe("agent CLI", () => {
     const channel = {
       kind: "http",
       webhooks: [
-        { path: "/first", secretToken: "first" },
-        { path: "/second", secretToken: "second" },
+        { path: "/first", secret: () => "first" },
+        { path: "/second", secret: () => "second" },
       ],
     } as never
 
@@ -1232,7 +1232,7 @@ describe("agent CLI", () => {
         "      botToken: process.env.TELEGRAM_BOT_TOKEN,",
         "      webhooks: {",
         "        secretHeader: 'x-telegram-bot-api-secret-token',",
-        "        secretToken: { resolve: () => process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN },",
+        "        secret: 'TELEGRAM_WEBHOOK_SECRET_TOKEN',",
         "      },",
         "    }),",
         "  },",

@@ -11,6 +11,7 @@ import * as v from "valibot"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { isLoopbackHost } from "./api-key.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -544,8 +545,13 @@ export async function runConnectionsCli(command: string, args: string[], context
     return (await entry.run(parsed, context, options)) ?? 0
   }
   catch (error) {
-    const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    if (error instanceof Error && "code" in error && error.code === "INTERNAL_DEV_SERVER_NOT_FOUND") {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    }
+    else {
+      const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    }
     return 1
   }
 }

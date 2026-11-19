@@ -148,11 +148,11 @@ function supportedHost(host: string): DeployHost {
  * The host that `vitehub deploy` picks without `--host`: the default target, else the only target, else the config host.
  * `vitehub provision` resolves its host the same way.
  */
-export async function resolveDefaultDeployHost(root: string, env: NodeJS.ProcessEnv, command: string): Promise<string> {
+export async function resolveDefaultDeployTarget(root: string, env: NodeJS.ProcessEnv, command: string): Promise<{ host: string, link: SetupLink | undefined }> {
   const project = await readSetupProject(root, env)
   const selected = selectSetupLink(await readSetupLinks(project.root))
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, command)
-  return selected.link?.host ?? setupStatus(project, env).host.name
+  return { host: selected.link?.host ?? setupStatus(project, env).host.name, link: selected.link }
 }
 
 /** `--host`, else the default target, else the only target, else the config host. The CLI host wins over the config. */

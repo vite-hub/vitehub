@@ -156,7 +156,7 @@ describe("vitehub channels replay", () => {
     expect(stderr.chunks.join("")).toContain("Channel replay returned a repeated pagination cursor.")
   })
 
-  it("calls the channels.replay operation of the deployed app with a signed call and fails on item failures", async () => {
+  it.each(["https://mail.example.com", "http://localhost:3000"])("signs the channels.replay operation on %s and fails on item failures", async origin => {
     const stdout = output()
     const requests: Array<{ body: Record<string, unknown>, headers: Headers, url: string }> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -166,7 +166,7 @@ describe("vitehub channels replay", () => {
       return operationRpcResponse(init?.body, { ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
     })
     const code = await runAgentChannelReplayCli(
-      ["--agent", "labeller", "--channel", "mailbox", "--url", "https://mail.example.com/app", "--dry-run", "--folder", "inbox"],
+      ["--agent", "labeller", "--channel", "mailbox", "--url", `${origin}/app`, "--dry-run", "--folder", "inbox"],
       {
         env: {
           VITEHUB_CONSOLE_AUTHORIZATION: "Basic abc",
@@ -184,7 +184,7 @@ describe("vitehub channels replay", () => {
       { input: { agent: "labeller", channel: "mailbox", describe: true }, operation: "channels.replay" },
       { input: { agent: "labeller", channel: "mailbox", dryRun: true, limit: 10, query: { folder: "inbox" } }, operation: "channels.replay" },
     ])
-    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc")
+    expect(requests[1]?.url).toBe(`${origin}/app/_vitehub/rpc`)
     // A bearer token is not a Console credential: the call carries only the signature.
     expect(requests[1]?.headers.has("authorization")).toBe(false)
     expect(requests[1]?.headers.get("x-vitehub-signature")).toContain("key=CI")

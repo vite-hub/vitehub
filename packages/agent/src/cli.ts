@@ -642,7 +642,7 @@ const agentDevTargetErrors = {
   unknownOption: (message: string) => agentDiagnostics.AGENT_R0395({ message }),
 }
 
-function parseDevArgs(args: string[], env: NodeJS.ProcessEnv, rootDir: string): ParsedDevArgs {
+function parseDevArgs(args: string[]): Omit<ParsedDevArgs, "url"> & { url?: string } {
   const message: string[] = []
   const parsed: Omit<ParsedDevArgs, "url"> & { url?: string } = { help: false }
 
@@ -730,8 +730,7 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv, rootDir: string): 
     throw agentDiagnostics.AGENT_R0397({ message: "Pass either --cli or Agent message/trigger input, not both." })
   }
   if (text) parsed.message = text
-  // Help needs no server. Without --url, the command uses the dev server of this project and never guesses a port.
-  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], env, "agent dev")) }
+  return parsed
 }
 
 function isFileNotFound(error: unknown): boolean {
@@ -1218,9 +1217,9 @@ export async function runAgentDevCli(
   context: AgentCliContext,
   options: AgentDevCliOptions = {},
 ): Promise<number> {
-  let parsed: ParsedDevArgs
+  let parsed: ReturnType<typeof parseDevArgs>
   try {
-    parsed = parseDevArgs(args, context.env, context.rootDir)
+    parsed = parseDevArgs(args)
   }
   catch (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
@@ -1249,14 +1248,23 @@ export async function runAgentDevCli(
   }
 
   const fetchImpl = options.fetch || globalThis.fetch
-  const target = await readDiscovery(parsed, context, fetchImpl)
+  let url: string
+  try {
+    url = parsed.url ?? requireViteHubDevServerUrl([context.rootDir, resolveViteHubProjectRoot(context.rootDir)], context.env, "agent dev")
+  }
+  catch (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    return 1
+  }
+  const resolvedArgs = { ...parsed, url }
+  const target = await readDiscovery(resolvedArgs, context, fetchImpl)
   if (!target) return 1
 
   if (parsed.cli) {
-    return await sendDevCliCommand(target, parsed, context, fetchImpl)
+    return await sendDevCliCommand(target, resolvedArgs, context, fetchImpl)
   }
   if (workspaceCommand) {
-    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.root, target.tokenOptions)
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, resolvedArgs, context, fetchImpl, target.root, target.tokenOptions)
   }
 
   const payloadStartsInvocation = parsed.payload && (
@@ -1264,13 +1272,13 @@ export async function runAgentDevCli(
     || Array.isArray(parsed.payload.messages) && parsed.payload.messages.length > 0
   )
   if (parsed.message || payloadStartsInvocation) {
-    return await sendDevMessage(target, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
+    return await sendDevMessage(target, parsed.message || "", [], resolvedArgs, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {
     context.stderr.write("Pass a message or run in an interactive terminal.\n")
     return 1
   }
-  return await runInteractiveDevLoop(parsed, context, fetchImpl, target)
+  return await runInteractiveDevLoop(resolvedArgs, context, fetchImpl, target)
 }
 
 export function createAgentCliContributor(options?: false | AgentCliContributorOptions): AgentCliContributor | undefined {
@@ -1339,7 +1347,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             description: "Send past Channel messages from a Channel history through its trigger.",
             name: "replay",
             run: async (args, context) => await runAgentChannelReplayCli(args, context),
-            usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--label <label>] [--query <key=value>]... [--limit <n>]",
+            usage: "vitehub channels replay --agent <name> --channel <name> [--url <app>] [--dry-run] [--force] [--label <label>] [--query <key=value>]... [--limit <n>]",
           },
           {
             description: "Inspect and synchronize provider-owned Channel webhooks and account resources for a deployed stage.",

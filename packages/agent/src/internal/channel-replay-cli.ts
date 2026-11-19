@@ -1,5 +1,5 @@
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { isViteHubDevServerUrl, requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperation, operationCredentialHint } from "@vite-hub/internal/operations"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
@@ -140,13 +140,14 @@ function baseUrl(value: string, label: string): URL {
   return url
 }
 
-/** `--url` is the app. A localhost app is a dev server. Without `--url`, the dev server of the project, never a guessed port. */
+/** `--url` is the app. A known dev server uses the guarded dev route. Without `--url`, the dev server of the project, never a guessed port. */
 function replayTarget(parsed: ParsedChannelReplayArgs, context: ChannelReplayCliContext): ReplayTarget {
   const app = parsed.url ? baseUrl(parsed.url, "--url") : undefined
   const consolePath = app && /(?:^|\/)_vitehub(?:\/|$)/.exec(app.pathname)
   if (app && consolePath) throw cliError(`--url is the app URL, not the Console URL. Pass --url ${app.origin}${app.pathname.slice(0, consolePath.index)}.`)
-  if (app && !isLoopback(app)) return { remote: true, url: app.href }
-  const server = app ?? baseUrl(requireViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env, "channels replay"), "The dev server URL")
+  const roots = [context.rootDir, resolveViteHubProjectRoot(context.rootDir)]
+  if (app && !isViteHubDevServerUrl(app, roots, context.env)) return { remote: true, url: app.href }
+  const server = app ?? baseUrl(requireViteHubDevServerUrl(roots, context.env, "channels replay"), "The dev server URL")
   const headers = new Headers({ accept: "application/json", "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue })
   return { headers, remote: false, url: new URL(agentInvocationStreamRoute, server).href }
 }

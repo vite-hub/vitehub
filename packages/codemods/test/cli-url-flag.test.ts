@@ -25,10 +25,13 @@ describe("cli-url-flag", () => {
     const cwd = await project({
       "package.json": `${JSON.stringify({ scripts: {
         cancel: "vitehub agent invocations cancel inv_1 --server http://localhost:3000",
-        replay: "pnpm vitehub channels replay --agent a --channel c --server=http://localhost:3000 --dry-run",
+        replay: 'pnpm vitehub channels replay --agent "a" --channel c --server=http://localhost:3000 --dry-run',
+        delegated: "vitehub workspace dev docs exec my-tool --server localhost && vitehub agent dev --cli tool -- --server localhost",
+        direct: "vitehub agent dev '!my-tool' --server localhost",
+        unrelated: "acme-vitehub dev --server localhost; echo 'vitehub agent dev --server localhost'",
         serve: "nuxt dev --server http://x",
       } }, null, 2)}\n`,
-      ".github/workflows/ci.yml": "steps:\n  - run: pnpm vitehub workspace dev docs exec ls --server http://localhost:3000\n",
+      ".github/workflows/ci.yml": "steps:\n  - run: pnpm vitehub workspace dev docs --server http://localhost:3000 exec ls\n",
     })
     expect(upgradeCodemods.map(codemod => codemod.name)).toContain("cli-url-flag")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-url-flag")
@@ -36,10 +39,21 @@ describe("cli-url-flag", () => {
     await runCodemod("cli-url-flag", { cwd, dryRun: false })
     expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).scripts).toEqual({
       cancel: "vitehub agent invocations cancel inv_1 --url http://localhost:3000",
-      replay: "pnpm vitehub channels replay --agent a --channel c --url=http://localhost:3000 --dry-run",
+      replay: 'pnpm vitehub channels replay --agent "a" --channel c --url=http://localhost:3000 --dry-run',
+      delegated: "vitehub workspace dev docs exec my-tool --server localhost && vitehub agent dev --cli tool -- --server localhost",
+      direct: "vitehub agent dev '!my-tool' --server localhost",
+      unrelated: "acme-vitehub dev --server localhost; echo 'vitehub agent dev --server localhost'",
       serve: "nuxt dev --server http://x",
     })
-    expect(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8")).toContain("exec ls --url http://localhost:3000\n")
+    expect(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8")).toContain("docs --url http://localhost:3000 exec ls\n")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("cli-url-flag")
+  })
+
+  it("reports ambiguous shell syntax rather than editing heredoc data", async () => {
+    const script = "#!/bin/sh\ncat <<EOF\nvitehub agent dev --server http://localhost:3000\nEOF\n"
+    const cwd = await project({ "example.sh": script })
+    const { result } = await runCodemod("cli-url-flag", { cwd, dryRun: false })
+    expect(result.followUps).toEqual([expect.objectContaining({ file: "example.sh" })])
+    expect(await readFile(join(cwd, "example.sh"), "utf8")).toBe(script)
   })
 })

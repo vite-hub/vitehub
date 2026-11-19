@@ -15,6 +15,8 @@ import type {
   ProvisionStep,
 } from "@vite-hub/internal/provision"
 
+import type { SetupLink } from "./setup/link.ts"
+
 type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "runHostCli" | "stderr" | "stdout">
 type ProvisionCommand = "run" | "status"
 
@@ -59,8 +61,7 @@ function setVariable(env: NodeJS.ProcessEnv, name: string, value: string | undef
 
 /**
  * The environment of a Provision Step: `env` with the host credentials that `resolveHostCredentials` found, such as a
- * `wrangler login` token, and the account and project ids of the host link. The selected deploy link wins over
- * environment scope; standalone provision has no link.
+ * `wrangler login` token, and the account and project ids of the host link. The selected link wins over environment scope.
  */
 export function provisionEnv(env: NodeJS.ProcessEnv, credentials: HostCredentials, link: ProvisionLinkIds = {}): NodeJS.ProcessEnv {
   if (!credentials.ok) return env
@@ -146,7 +147,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
 }
 
 // Resolves the arguments shared by every provision command. Returns an exit code on failure or help.
-async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): Promise<{ exitCode: number } | { host: ProvisionProvider }> {
+async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): Promise<{ exitCode: number } | { host: ProvisionProvider, link?: SetupLink }> {
   if (parsed.help) {
     writeUsage(command, context.stdout)
     return { exitCode: 0 }
@@ -157,11 +158,14 @@ async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArg
     return { exitCode: 1 }
   }
   let host = parsed.host
+  let link: SetupLink | undefined
   if (host === undefined) {
     // The same host as `vitehub deploy`. The setup module loads only when --host is missing.
-    const { resolveDefaultDeployHost } = await import("./setup/deploy.ts")
+    const { resolveDefaultDeployTarget } = await import("./setup/deploy.ts")
     try {
-      host = await resolveDefaultDeployHost(resolveViteHubProjectRoot(context.rootDir), context.env, `vitehub provision ${command}`)
+      const target = await resolveDefaultDeployTarget(resolveViteHubProjectRoot(context.rootDir), context.env, `vitehub provision ${command}`)
+      host = target.host
+      link = target.link
     }
     catch (error) {
       context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
@@ -177,7 +181,7 @@ async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArg
     writeUsage(command, context.stderr)
     return { exitCode: 1 }
   }
-  return { host }
+  return { host, ...(link ? { link } : {}) }
 }
 
 function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContext["env"]): boolean {
@@ -185,9 +189,12 @@ function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContex
 }
 
 /** The context with the credentials of `resolveHostCredentials` in its env, so a `wrangler login` works as in deploy. */
-async function withHostCredentials(host: ProvisionProvider, context: ProvisionFeatureContext): Promise<ProvisionFeatureContext> {
+async function withHostCredentials(host: ProvisionProvider, context: ProvisionFeatureContext, link?: SetupLink): Promise<ProvisionFeatureContext> {
   const credentials = await resolveHostCredentials(host, { cwd: context.rootDir, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
-  return { ...context, env: provisionEnv(context.env, credentials) }
+  return { ...context, env: provisionEnv(context.env, credentials, {
+    ...(link?.account?.id ? { accountId: link.account.id } : {}),
+    ...(link?.project.id ? { projectId: link.project.id } : {}),
+  }) }
 }
 
 // Runs only the plan phase. Step messages go to stderr so stdout stays one JSON document in --json mode.
@@ -309,7 +316,7 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
   const { env = cliContext.env, rootDir, steps } = await load(provider)
-  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir }, resolved.link)
 
   // Fail closed outside --dry-run: a credential-less run silently creating
   // nothing would mask missing CI secrets behind a green step.
@@ -373,7 +380,7 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
   const { env = cliContext.env, rootDir, steps } = await load(provider)
-  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir }, resolved.link)
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
   const undeclared = findUndeclaredEntries(provider, recorded, steps, context.env)
