@@ -139,7 +139,7 @@ describe("hubEmail", () => {
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
     expect(source).toContain("RESEND_API_KEY")
-    expect(source).toContain("options[\"apiKey\"]?.unseal()")
+    expect(source).toMatch(/options(?:\.apiKey|\[["'`]apiKey["'`]\])\?\.unseal\(\)/)
     expect(source).not.toContain(secret)
   })
 
@@ -218,8 +218,8 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     const source = await loadConfiguredDefinition(plugin)
-    expect(source).toMatch(/import\s*\{\s*env as vitehubEmailEnv\s*\}\s*from\s*"cloudflare:workers"/)
-    expect(source).toContain("runWithCloudflareEnv(vitehubEmailEnv,()=>resolveServerEnv(registry))")
+    expect(source).toMatch(/import\s*\{\s*env\s*\}\s*from\s*"cloudflare:workers"/)
+    expect(source).toContain("runWithCloudflareEnv(env,()=>resolveServerEnv(registry))")
   })
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
@@ -240,7 +240,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("cloudflare:email")
-    expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
+    expect(source).toContain("binding:env.EMAIL")
     expect(source).toContain("EmailMessage")
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })

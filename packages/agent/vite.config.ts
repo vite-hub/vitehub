@@ -1,6 +1,5 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
-import { fileURLToPath } from "node:url";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path

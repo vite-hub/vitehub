@@ -547,7 +547,7 @@ export async function writeVercelScheduleFunctions(options: {
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
       define: options.bundleDefines,
-      external: options.bundleExternal,
+      external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
       format: "esm",
       platform: "node",
       plugins: [createSchedulePublicAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
@@ -763,7 +763,7 @@ async function writeNetlifyScheduleFunctions(options: {
           await bundleEsmEntry(wrapperFile, output.file, {
             alias: options.bundleAlias,
             define: options.bundleDefines,
-            external: options.bundleExternal,
+            external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
             format: "esm",
             platform: "node",
             plugins: [createSchedulePublicAliasPlugin()],

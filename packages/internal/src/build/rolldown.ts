@@ -474,14 +474,16 @@ function createWasmModulePlugin(outdir: string, workingDir: string, copy: boolea
 }
 
 /**
- * Leaves every package import as an import, like esbuild's `packages: "external"`, including `#` imports of the
- * package.json `imports` field. Runs after every other resolver.
+ * Leaves package imports external. Resolve package.json import mappings first, and preserve unmapped host imports.
  */
 function createExternalPackagesPlugin(): Plugin {
   return {
     name: "vitehub-external-packages",
-    resolveId(source) {
-      if ((source.startsWith("#") || isBareSpecifier(source)) && !isBuiltin(source)) return { id: source, external: true }
+    async resolveId(source, importer, extra) {
+      if (source.startsWith("#")) {
+        return await this.resolve(source, importer, { kind: extra.kind }) ?? { id: source, external: true }
+      }
+      if (isBareSpecifier(source) && !isBuiltin(source)) return { id: source, external: true }
     },
   }
 }
