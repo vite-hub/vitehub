@@ -1,10 +1,10 @@
 import { webhooksErrors } from "./errors.ts"
 import { sealEndpoint, unsealEndpoint } from "./sealing.ts"
 import { checkWebhookUrl } from "./url-guard.ts"
-import { createDeliveryId, memberWebhookPrefix, postDelivery, requireMemberEndpoints, wake, webhookTimeoutMs } from "./runtime.ts"
+import { createDeliveryId, deliverMemberClaim, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { MemberEndpoint, StoredMemberEndpoint } from "./database.ts"
+import type { MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint } from "./database.ts"
 import type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode } from "./errors.ts"
 
 /** The hosts that a member endpoint URL may use when `createMemberEndpoint()` gets no `hosts`: the T3 Code relay. */
@@ -14,6 +14,13 @@ export const memberEndpointHosts: readonly string[] = ["relay.t3.codes"]
 export type CreateMemberEndpointOptions = {
   /** The member, such as the Auth user id. A member has one endpoint: a new one replaces the old one. */
   owner: string
+  /** The name of the member that admins read in the Console, such as `"Ana Ruiz"`. */
+  ownerName?: string
+  /**
+   * The email of the member, only when it is verified. The ViteHub Console signs in with its own accounts, so a Console
+   * account acts as the owner, such as for Redeliver, when its email equals this one.
+   */
+  ownerEmail?: string
   /** A name that people read, such as `"Launch plan thread"`. */
   name: string
   /** The agent that receives, such as `"t3"`, `"claude-code"`, or `"codex"`. */
@@ -50,10 +57,7 @@ export interface SendToMemberEndpointResult {
   status: "sent" | "inbox" | "pending" | "failed"
 }
 
-/** How long the Queue waits before it tries a failed member delivery again. */
-const memberRetryDelayMs = webhookTimeoutMs
-
-const limits = { owner: 256, name: 120, agent: 64, secret: 1024, url: 2048 }
+const limits = { owner: 256, name: 120, agent: 64, email: 320, secret: 1024, url: 2048 }
 
 function toMemberEndpoint({ sealed: _sealed, ...endpoint }: StoredMemberEndpoint): MemberEndpoint {
   return endpoint
@@ -97,6 +101,8 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
   const { endpoints } = requireMemberEndpoints()
   const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
+    ?? (options.ownerName === undefined ? undefined : text(options.ownerName, "ownerName", limits.name))
+    ?? (options.ownerEmail === undefined ? undefined : text(options.ownerEmail, "ownerEmail", limits.email))
   if (problem) return invalid(problem)
   // The options can come from a request body, so check the kind at runtime too.
   const kind: unknown = options.kind
@@ -105,12 +111,15 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
   const endpoint: StoredMemberEndpoint = {
     id: `whe_${crypto.randomUUID()}`,
     owner: options.owner,
+    ownerName: options.ownerName?.trim() ?? null,
+    ownerEmail: options.ownerEmail?.trim().toLowerCase() ?? null,
     name: options.name.trim(),
     kind: options.kind,
     agent: options.agent?.trim() ?? null,
     host: null,
     sealed: null,
     disabledAt: null,
+    disabledBy: null,
     createdAt: now,
     updatedAt: now,
   }
@@ -157,14 +166,48 @@ export async function removeMemberEndpoint(owner: string, id: string): Promise<R
   }
 }
 
+/** A member endpoint with the newest delivery to it, as the Console lists them. */
+export interface MemberEndpointWithLastDelivery extends MemberEndpoint {
+  /** The newest delivery to the endpoint, or `null` before the first send. */
+  last: MemberLastDelivery | null
+}
+
 /**
- * Disables a member endpoint, so it gets no more sends, without the owner. Check that the caller may do this, such
- * as an admin, before you call it. The member enables it again by connecting their agent again.
+ * Every member endpoint, the oldest first, with the newest delivery to each, as `[error, endpoints]`. The rows never
+ * hold the URL or the secret. Check that the caller may read them, such as an admin, before you call it.
  */
-export async function disableMemberEndpoint(id: string): Promise<Result<MemberEndpoint, MemberEndpointErrorCode>> {
+export async function listMemberEndpoints(options: { limit?: number } = {}): Promise<Result<MemberEndpointWithLastDelivery[], MemberEndpointErrorCode>> {
+  const { endpoints, store } = requireMemberEndpoints()
+  try {
+    const [rows, results] = await Promise.all([endpoints.list(options), store.memberResults()])
+    return [undefined, rows.map(row => ({ ...toMemberEndpoint(row), last: results.get(`${memberWebhookPrefix}${row.id}`) ?? null }))]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/**
+ * Disables a member endpoint, so it gets no more sends, without the owner. `by` names who did it, such as the admin,
+ * for the Console. Check that the caller may do this before you call it. `enableMemberEndpoint()` undoes it, and so
+ * does the member when they connect their agent again.
+ */
+export async function disableMemberEndpoint(id: string, options: { by?: string } = {}): Promise<Result<MemberEndpoint, MemberEndpointErrorCode>> {
   const { endpoints } = requireMemberEndpoints()
   try {
-    const endpoint = await endpoints.disable(id, Date.now())
+    const endpoint = await endpoints.disable(id, Date.now(), options.by?.trim() || null)
+    return endpoint ? [undefined, toMemberEndpoint(endpoint)] : [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` }), undefined]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/** Enables a member endpoint that an admin disabled, so it gets sends again. Check that the caller may do this first. */
+export async function enableMemberEndpoint(id: string): Promise<Result<MemberEndpoint, MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    const endpoint = await endpoints.enable(id, Date.now())
     return endpoint ? [undefined, toMemberEndpoint(endpoint)] : [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` }), undefined]
   }
   catch (error) {
@@ -217,21 +260,7 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     const claim = await store.claim(recorded.id, recorded.revision, now, 0)
     // Another server, such as a Queue flush, claimed it first.
     if (!claim) return [undefined, { id: recorded.id, status: "pending" }]
-    if (!target) {
-      await store.sent(claim, { status: null, error: null }, Date.now())
-      return [undefined, { id: claim.id, status: "inbox" }]
-    }
-    const result = await postDelivery(claim, { ...target, signature: "github", guard: true })
-    if (result.ok) {
-      await store.sent(claim, { status: result.status, error: null }, Date.now())
-      return [undefined, { id: claim.id, status: "sent" }]
-    }
-    const retry = installed.wake !== undefined && !result.final
-    const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), !retry)
-    if (state !== "pending") return [undefined, { id: claim.id, status: "failed" }]
-    const wakeError = await wake(installed, claim, memberRetryDelayMs)
-    if (wakeError) return [wakeError, undefined]
-    return [undefined, { id: claim.id, status: "pending" }]
+    return await deliverMemberClaim(installed, claim, target)
   }
   catch (error) {
     return [storeError(error), undefined]

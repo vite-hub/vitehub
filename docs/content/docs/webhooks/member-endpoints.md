@@ -25,9 +25,12 @@ A ViteHub feature that sends to members turns member endpoints on, such as Send 
 import { createMemberEndpoint } from 'vite-hub/webhooks'
 
 /** Runs after Ana allows her T3 Code thread to get her comments. */
-export async function connectAgent(userId: string, url: string, secret: string) {
+export async function connectAgent(user: { id: string, name: string, email: string, emailVerified: boolean }, url: string, secret: string) {
   const [error, endpoint] = await createMemberEndpoint({
-    owner: userId,
+    owner: user.id,
+    ownerName: user.name,
+    // Only a verified email. A Console account with this email acts as Ana.
+    ownerEmail: user.emailVerified ? user.email : undefined,
     name: 'Launch plan thread',
     agent: 't3',
     kind: 'url',
@@ -40,6 +43,7 @@ export async function connectAgent(userId: string, url: string, secret: string) 
 ```
 
 - `owner` is the member, such as the Auth user id. A member has one endpoint. A new one replaces the old one.
+- `ownerName` is the name that admins see in the Console. `ownerEmail` is the member's email, only when it is verified. See [Who owns an endpoint](#who-owns-an-endpoint).
 - `url` must be `https` on the T3 Code relay, `relay.t3.codes`. Pass `hosts` to allow other hosts. See [The URL guard](#the-url-guard).
 - `kind: 'inbox'` takes no URL. Webhooks posts nothing, and the member's agent reads the delivery, such as Claude Code or Codex through MCP.
 
@@ -111,10 +115,32 @@ openssl rand -base64 32
 | Function | Does |
 | --- | --- |
 | `getMemberEndpoint(owner)` | The endpoint of a member, or `null` |
+| `listMemberEndpoints()` | Every endpoint, with `last`, the newest delivery to it |
 | `removeMemberEndpoint(owner, id)` | Removes the endpoint when the member owns it |
-| `disableMemberEndpoint(id)` | Stops sends to the endpoint. Check that the caller is an admin first. |
+| `disableMemberEndpoint(id, { by })` | Stops sends to the endpoint. `by` names who did it. Check that the caller is an admin first. |
+| `enableMemberEndpoint(id)` | Starts sends to a disabled endpoint again |
 
-Each returns `[error, endpoint]`. An endpoint has `id`, `owner`, `name`, `kind`, `agent`, `host`, `disabledAt`, `createdAt`, and `updatedAt`. It never holds the URL or the secret.
+Each returns `[error, endpoint]`. An endpoint has `id`, `owner`, `ownerName`, `ownerEmail`, `name`, `kind`, `agent`, `host`, `disabledAt`, `disabledBy`, `createdAt`, and `updatedAt`. It never holds the URL or the secret.
+
+## In the Console
+
+The **Webhooks** section of the [Console](/docs/console) lists the member endpoints for admins, read-only: the owner, the agent, the host, and the last result, such as `202` or `401, 3 in a row`. Admins cannot create or edit an endpoint, and never see its URL or secret. They can **Disable** one, which stops its sends, and **Enable** it again. The delivery log filters by owner and by endpoint.
+
+`vitehub webhooks endpoints`, `vitehub webhooks disable-endpoint <id>`, and `vitehub webhooks enable-endpoint <id>` do the same from the CLI, and `vitehub webhooks deliveries --owner <id>` lists the deliveries of one member.
+
+## Who owns an endpoint
+
+Only the member who owns an endpoint can send to it again: **Redeliver** and **Send now** of a member delivery work for the owner, and everyone else gets `403` with [`WEBHOOKS_DELIVERY_NOT_OWNER`](/docs/webhooks/diagnostics/webhooks_delivery_not_owner). The Console shows the buttons only on your own deliveries.
+
+| Caller | Owns the endpoint when |
+| --- | --- |
+| An app user, such as through the app's MCP | Its user id is `owner` |
+| A ViteHub Console account | Its email equals the `ownerEmail` of the endpoint |
+| The CLI with a key | Never: a key names no person |
+
+Console accounts are not app users, so their ids never match `owner`. The app stores `ownerEmail` only when the member verified it, and the Console signs the email of the account. An endpoint without `ownerEmail` can be redelivered only by the app user.
+
+In server code, pass the caller: `redeliverWebhookDelivery(id, { caller: { id: user.id } })` from `vite-hub/webhooks/runtime`.
 
 ::details{summary="Turn on member endpoints from a Vite plugin"}
 A package that sends to members turns member endpoints on from its Vite plugin with `vitehub.webhooks`. Webhooks then adds the table and installs the endpoint store, with no `server/webhooks/` files and no Queue:

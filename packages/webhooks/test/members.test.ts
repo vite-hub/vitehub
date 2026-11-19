@@ -171,7 +171,7 @@ describe("member endpoints", () => {
 
   it("stores no plaintext URL or secret, and returns only the host", async () => {
     const endpoint = await connect()
-    expect(endpoint).toEqual({ id: expect.stringMatching(/^whe_/), owner: "user_ana", name: "Launch plan thread", kind: "url", agent: "t3", host: publicHost, disabledAt: null, createdAt: expect.any(Number), updatedAt: expect.any(Number) })
+    expect(endpoint).toEqual({ id: expect.stringMatching(/^whe_/), owner: "user_ana", ownerName: null, ownerEmail: null, name: "Launch plan thread", kind: "url", agent: "t3", host: publicHost, disabledAt: null, disabledBy: null, createdAt: expect.any(Number), updatedAt: expect.any(Number) })
     await sendToMemberEndpoint("user_ana", { threads: ["thr_1"] }, { event: "comments.send", key: "k1" })
     const rows = await client.execute("SELECT * FROM vitehub_webhook_endpoints")
     const deliveries = await client.execute("SELECT * FROM vitehub_webhook_deliveries")

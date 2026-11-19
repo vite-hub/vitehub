@@ -297,8 +297,9 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
         : [],
     },
     vitehub: {
-      // The Console, `vitehub webhooks`, and MCP list, test, flush, cancel, and redeliver through these operations.
-      operations: () => usesWebhooks(project({}))
+      // The Console, `vitehub webhooks`, and MCP list, test, flush, cancel, and redeliver through these operations. Member
+      // endpoints use them too; the `config` hook finds those before anything collects the operations.
+      operations: () => memberEndpointsOn || usesWebhooks(project({}))
         ? [{ export: "webhooksOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).webhooksOperations, module: imports.operations }]
         : [],
       async databases(context) {

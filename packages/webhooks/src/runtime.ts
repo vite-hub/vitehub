@@ -9,8 +9,10 @@ import { checkWebhookUrl } from "./url-guard.ts"
 import type { Duration, Result, ResultError } from "@vite-hub/runtime"
 import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
-import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhookEndpointStore, WebhooksDatabase } from "./database.ts"
+import type { ListWebhookDeliveriesOptions, MemberEndpoint, WebhookDelivery, WebhookDeliveryStore, WebhookEndpointStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
+import type { SendToMemberEndpointResult } from "./members.ts"
+import type { EndpointTarget } from "./sealing.ts"
 
 export { webhooksQueueName } from "./queue-name.ts"
 
@@ -202,6 +204,45 @@ async function resolveMemberTarget(installed: InstalledWebhooks, id: string): Pr
   return [undefined, { ...target, signature: "github", guard: true }]
 }
 
+/**
+ * Who asks for an action on a member delivery, such as Redeliver. `id` is an app user. A ViteHub Console account is
+ * not an app user, so the Console passes `consoleEmail`, the email that it signs for the account.
+ */
+export type MemberCaller = { id: string } | { consoleEmail: string }
+
+/**
+ * Whether `caller` owns the member endpoint: an app user with the owner id, or a ViteHub Console account whose email
+ * equals the verified email that the app stored with the endpoint. Without a stored email, only the app user matches.
+ */
+export function ownsMemberEndpoint(endpoint: Pick<MemberEndpoint, "owner" | "ownerEmail">, caller: MemberCaller | undefined): boolean {
+  if (!caller) return false
+  if ("id" in caller) return caller.id === endpoint.owner
+  return endpoint.ownerEmail !== null && caller.consoleEmail.trim().toLowerCase() === endpoint.ownerEmail
+}
+
+/**
+ * Posts a claimed member delivery now, or keeps it for the inbox when `target` is `undefined`. A failed post is tried
+ * again through the Queue when the app has one, so its status is `"pending"`; without Queue it is `"failed"`.
+ */
+export async function deliverMemberClaim(installed: InstalledWebhooks, claim: WebhookDelivery, target: EndpointTarget | undefined): Promise<[WakeError, undefined] | [undefined, SendToMemberEndpointResult]> {
+  const { store } = installed
+  if (!target) {
+    await store.sent(claim, { status: null, error: null }, Date.now())
+    return [undefined, { id: claim.id, status: "inbox" }]
+  }
+  const result = await postDelivery(claim, { ...target, signature: "github", guard: true })
+  if (result.ok) {
+    await store.sent(claim, { status: result.status, error: null }, Date.now())
+    return [undefined, { id: claim.id, status: "sent" }]
+  }
+  const retry = installed.wake !== undefined && !result.final
+  const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), !retry)
+  if (state !== "pending") return [undefined, { id: claim.id, status: "failed" }]
+  const wakeError = await wake(installed, claim, webhookTimeoutMs)
+  if (wakeError) return [wakeError, undefined]
+  return [undefined, { id: claim.id, status: "pending" }]
+}
+
 export function createDeliveryId(): string {
   return `whd_${crypto.randomUUID()}`
 }
@@ -378,7 +419,12 @@ const deliveryErrorCodes: readonly string[] = [
   "WEBHOOKS_DATABASE_MISSING",
   "WEBHOOKS_DELIVERY_ACTIVE",
   "WEBHOOKS_DELIVERY_NOT_FOUND",
+  "WEBHOOKS_DELIVERY_NOT_OWNER",
   "WEBHOOKS_DELIVERY_NOT_PENDING",
+  "WEBHOOKS_ENDPOINT_DISABLED",
+  "WEBHOOKS_ENDPOINT_NOT_FOUND",
+  "WEBHOOKS_KEY_INVALID",
+  "WEBHOOKS_KEY_UNSET",
   "WEBHOOKS_STORE_FAILED",
   "WEBHOOKS_WAKE_FAILED",
 ] satisfies readonly WebhookDeliveryErrorCode[]
@@ -439,9 +485,31 @@ export function getWebhookDelivery(id: string): Promise<Result<WebhookDelivery, 
   return attempt(installed => findDelivery(installed, id))
 }
 
-/** Delivers a pending delivery now, without the rest of its debounce. */
-export function flushWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
+/** What the delivery functions that send take. */
+export interface WebhookDeliveryActionOptions {
+  /** Who asks. A delivery to a member endpoint goes out again only for its owner: see `ownsMemberEndpoint()`. */
+  caller?: MemberCaller
+}
+
+/** The member endpoint of a member delivery, when `caller` owns it. Throws the error that the action returns. */
+async function ownedMemberEndpoint(installed: InstalledWebhooks, delivery: WebhookDelivery, caller: MemberCaller | undefined) {
+  const id = delivery.webhook.slice(memberWebhookPrefix.length)
+  const endpoint = await installed.endpoints?.find(id)
+  if (!endpoint) throw webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` })
+  if (!ownsMemberEndpoint(endpoint, caller)) throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_OWNER({ id: JSON.stringify(delivery.id) })
+  return endpoint
+}
+
+/**
+ * Delivers a pending delivery now, without the rest of its debounce. A pending member delivery, which waits for a
+ * Queue retry, goes out only for its owner, so pass `caller`.
+ */
+export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
   return attempt(async (installed) => {
+    if (installed.endpoints) {
+      const current = await findDelivery(installed, id)
+      if (current.webhook.startsWith(memberWebhookPrefix)) await ownedMemberEndpoint(installed, current, options.caller)
+    }
     const delivery = await installed.store.due(id, Date.now())
     if (!delivery) {
       const current = await findDelivery(installed, id)
@@ -466,11 +534,16 @@ export function cancelWebhookDelivery(id: string): Promise<Result<WebhookDeliver
 /**
  * Sends a sent, dead, or cancelled delivery again, now, as a new delivery with a new id. It keeps the body, the event,
  * and the count. The webhook must still exist.
+ *
+ * A delivery to a member endpoint goes out again only for the owner of the endpoint, so pass `caller`. Anyone else gets
+ * `WEBHOOKS_DELIVERY_NOT_OWNER`. It posts in the request, as `sendToMemberEndpoint()` does, and returns its status.
  */
-export function redeliverWebhookDelivery(id: string): Promise<Result<SendWebhookResult, WebhookDeliveryErrorCode>> {
-  return attempt(async (installed) => {
+export function redeliverWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<SendWebhookResult | SendToMemberEndpointResult, WebhookDeliveryErrorCode>> {
+  return attempt(async (installed): Promise<SendWebhookResult | SendToMemberEndpointResult> => {
     const source = await findDelivery(installed, id)
+    const endpoint = source.webhook.startsWith(memberWebhookPrefix) ? await ownedMemberEndpoint(installed, source, options.caller) : undefined
     if (source.state === "pending" || source.state === "sending") throw webhooksErrors.WEBHOOKS_DELIVERY_ACTIVE({ id: JSON.stringify(id), state: source.state })
+    if (endpoint) return await redeliverToMember(installed, source, endpoint)
     if (!installed.webhooks.has(source.webhook)) throw webhooksErrors.WEBHOOKS_NOT_FOUND({ name: JSON.stringify(source.webhook) })
     const now = Date.now()
     const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
@@ -478,4 +551,22 @@ export function redeliverWebhookDelivery(id: string): Promise<Result<SendWebhook
     if (error) throw error
     return { id: recorded.id, status: "pending" as const }
   })
+}
+
+async function redeliverToMember(installed: InstalledWebhooks, source: WebhookDelivery, endpoint: MemberEndpoint & { sealed: string | null }): Promise<SendToMemberEndpointResult> {
+  if (endpoint.disabledAt !== null) throw webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id })
+  let target: EndpointTarget | undefined
+  if (endpoint.sealed !== null) {
+    const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+    if (keyError) throw keyError
+    target = opened
+  }
+  const now = Date.now()
+  const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
+  // `0` claims only a pending delivery, never one that another server is sending.
+  const claim = await installed.store.claim(recorded.id, recorded.revision, now, 0)
+  if (!claim) return { id: recorded.id, status: "pending" }
+  const [wakeError, result] = await deliverMemberClaim(installed, claim, target)
+  if (wakeError) throw wakeError
+  return result
 }

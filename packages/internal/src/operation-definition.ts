@@ -36,6 +36,11 @@ export interface OperationAccess {
    */
   readonly sections: "all" | readonly string[]
   readonly user?: OperationUser
+  /**
+   * Who signed the call: `"console"` when the ViteHub Console signed it for a person, whose `user` is then a Console
+   * account and not an app user, or `"cli"` for a key. Not set for other calls.
+   */
+  readonly via?: "console" | "cli"
 }
 
 export interface OperationContext {

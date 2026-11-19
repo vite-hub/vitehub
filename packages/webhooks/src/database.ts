@@ -52,12 +52,18 @@ const endpointKinds = ["url", "inbox"] as const satisfies readonly MemberEndpoin
 export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
   id: text("id").primaryKey(),
   owner: text("owner").notNull(),
+  /** The name of the owner that people read, such as `Ana Ruiz`. */
+  ownerName: text("owner_name"),
+  /** The verified email of the owner. A ViteHub Console account with this email acts as the owner. */
+  ownerEmail: text("owner_email"),
   name: text("name").notNull(),
   kind: text("kind", { enum: endpointKinds }).notNull(),
   agent: text("agent"),
   host: text("host"),
   sealed: text("sealed"),
   disabledAt: integer("disabled_at"),
+  /** Who disabled it, such as the name of an admin. */
+  disabledBy: text("disabled_by"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, table => [
@@ -78,7 +84,7 @@ export const webhooksTables: readonly string[] = [
   "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_pending` ON `vitehub_webhook_deliveries` (`webhook`,`key`) WHERE state = 'pending'",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_webhook` ON `vitehub_webhook_deliveries` (`webhook`,`created_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_state` ON `vitehub_webhook_deliveries` (`state`,`due_at`)",
-  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `name` text NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
   "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`)",
 ]
 
@@ -181,6 +187,21 @@ export interface WebhookDeliveryStore {
   due: (id: string, now: number) => Promise<WebhookDelivery | undefined>
   /** Cancels a pending delivery. */
   cancel: (id: string, now: number) => Promise<WebhookDelivery | undefined>
+  /** The newest delivery of each member endpoint, by its `webhook` value `@<endpoint id>`. */
+  memberResults: () => Promise<Map<string, MemberLastDelivery>>
+}
+
+/** The newest delivery of a member endpoint, as the Console shows it next to the endpoint. */
+export interface MemberLastDelivery {
+  state: WebhookDeliveryState
+  /** The HTTP status of its last attempt, when the receiver answered. */
+  status: number | null
+  /** Why its last attempt failed. It never holds the URL or the secret. */
+  error: string | null
+  /** When it last changed. */
+  at: number
+  /** How many deliveries in a row are dead, the newest first. `0` when the newest is not dead. */
+  failures: number
 }
 
 async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
@@ -311,6 +332,17 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       const [row] = await db().update(t).set({ state: "cancelled", updatedAt: now }).where(and(eq(t.id, id), eq(t.state, "pending"))).returning()
       return row ? toDelivery(row) : undefined
     }),
+    memberResults: () => guarded("read the member deliveries", async () => {
+      // Member deliveries name their endpoint as `@<id>`. `@` < `A`, so the range reads them through the webhook index.
+      const rows = await db().all<{ webhook: string, state: WebhookDeliveryState, status: number | null, error: string | null, at: number, failures: number }>(sql`
+        SELECT d.webhook AS webhook, d.state AS state, d.last_status AS status, d.last_error AS error, d.updated_at AS at,
+          (SELECT count(*) FROM vitehub_webhook_deliveries AS f WHERE f.webhook = d.webhook AND f.state = 'dead'
+            AND f.created_at > coalesce((SELECT max(s.created_at) FROM vitehub_webhook_deliveries AS s WHERE s.webhook = d.webhook AND s.state <> 'dead'), -1)) AS failures
+        FROM vitehub_webhook_deliveries AS d
+        WHERE d.webhook >= '@' AND d.webhook < 'A'
+          AND NOT EXISTS (SELECT 1 FROM vitehub_webhook_deliveries AS n WHERE n.webhook = d.webhook AND (n.created_at > d.created_at OR (n.created_at = d.created_at AND n.id > d.id)))`)
+      return new Map(rows.map(({ webhook, ...result }) => [webhook, { ...result, failures: Number(result.failures) }]))
+    }),
   }
 }
 
@@ -318,6 +350,10 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
 export interface MemberEndpoint {
   id: string
   owner: string
+  /** The name of the owner that people read, such as `Ana Ruiz`. */
+  ownerName: string | null
+  /** The verified email of the owner. A ViteHub Console account with this email acts as the owner. */
+  ownerEmail: string | null
   name: string
   kind: MemberEndpointKind
   /** The agent that receives, such as `"t3"`, `"claude-code"`, or `"codex"`. */
@@ -326,6 +362,8 @@ export interface MemberEndpoint {
   host: string | null
   /** When an admin disabled it. A disabled endpoint gets no sends. */
   disabledAt: number | null
+  /** Who disabled it, such as the name of an admin. */
+  disabledBy: string | null
   createdAt: number
   updatedAt: number
 }
@@ -345,8 +383,12 @@ export interface WebhookEndpointStore {
   find: (id: string) => Promise<StoredMemberEndpoint | undefined>
   /** Removes the endpoint when the owner has it. Returns the removed endpoint. */
   remove: (owner: string, id: string) => Promise<StoredMemberEndpoint | undefined>
+  /** The endpoints, the oldest first. */
+  list: (options?: { limit?: number }) => Promise<StoredMemberEndpoint[]>
   /** Disables the endpoint. Returns the endpoint after the change. */
-  disable: (id: string, now: number) => Promise<StoredMemberEndpoint | undefined>
+  disable: (id: string, now: number, by: string | null) => Promise<StoredMemberEndpoint | undefined>
+  /** Enables a disabled endpoint. Returns the endpoint after the change. */
+  enable: (id: string, now: number) => Promise<StoredMemberEndpoint | undefined>
 }
 
 /** Member endpoints in a Drizzle SQLite Database. Pass a function when the Database connects per request. */
@@ -359,12 +401,15 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
         target: t.owner,
         set: {
           id: endpoint.id,
+          ownerName: endpoint.ownerName,
+          ownerEmail: endpoint.ownerEmail,
           name: endpoint.name,
           kind: endpoint.kind,
           agent: endpoint.agent,
           host: endpoint.host,
           sealed: endpoint.sealed,
           disabledAt: null,
+          disabledBy: null,
           createdAt: endpoint.createdAt,
           updatedAt: endpoint.updatedAt,
         },
@@ -382,9 +427,19 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
       const [row] = await db().delete(t).where(and(eq(t.owner, owner), eq(t.id, id))).returning()
       return row
     }),
-    disable: (id, now) => guarded("disable a member endpoint", async () => {
-      // Disabling twice keeps the first time.
-      const [row] = await db().update(t).set({ disabledAt: sql`coalesce(${t.disabledAt}, ${now})`, updatedAt: now }).where(eq(t.id, id)).returning()
+    list: (options = {}) => guarded("list the member endpoints", async () => {
+      return await db().select().from(t).orderBy(asc(t.createdAt), asc(t.id)).limit(Math.min(Math.max(options.limit ?? 500, 1), 500))
+    }),
+    disable: (id, now, by) => guarded("disable a member endpoint", async () => {
+      // Disabling twice keeps the first time and the first person.
+      const [row] = await db().update(t)
+        .set({ disabledAt: sql`coalesce(${t.disabledAt}, ${now})`, disabledBy: sql`CASE WHEN ${t.disabledAt} IS NULL THEN ${by} ELSE ${t.disabledBy} END`, updatedAt: now })
+        .where(eq(t.id, id))
+        .returning()
+      return row
+    }),
+    enable: (id, now) => guarded("enable a member endpoint", async () => {
+      const [row] = await db().update(t).set({ disabledAt: null, disabledBy: null, updatedAt: now }).where(eq(t.id, id)).returning()
       return row
     }),
   }
