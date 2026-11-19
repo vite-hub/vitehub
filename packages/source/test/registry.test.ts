@@ -45,8 +45,8 @@ describe("@vite-hub/source registry", () => {
     await expect(useSource(file({ content: "# Inline\n", workspacePath: "inline.md" })).read("inline.md")).resolves.toBe("# Inline\n")
   })
 
-  it("throws a source-specific error for missing registrations", () => {
-    expect(() => useSource("missing" as any)).toThrow(expect.objectContaining({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" }))
+  it("reports missing registrations on the first operation", async () => {
+    await expect(useSource("missing" as "docs").keys()).rejects.toMatchObject({ code: "SOURCE_NOT_FOUND", name: "ViteHubError" })
   })
 
   it("passes the abort signal to custom Source methods", async () => {

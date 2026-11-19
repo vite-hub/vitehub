@@ -64,7 +64,10 @@ export function useSource<TName extends SourceName>(name: TName, context?: Parti
 export function useSource<const TSource extends Source>(source: TSource, context?: Partial<SourceContext>): SourceReader<TSource>
 export function useSource(input: string | Source, context?: Partial<SourceContext>): SourceReader<Source> {
   if (typeof input !== "string") return createSource(input, context)
-  const entry = sourceRegistry().get(input)
-  if (!entry) throw sourceNotFoundError(input)
-  return openSource(() => loadRegistered(entry), input, { ...context, source: context?.source ?? input })
+  let entry: RegisteredEntry | undefined
+  return openSource(() => {
+    entry ??= sourceRegistry().get(input)
+    if (!entry) throw sourceNotFoundError(input)
+    return loadRegistered(entry)
+  }, input, { ...context, source: context?.source ?? input })
 }

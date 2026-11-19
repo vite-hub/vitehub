@@ -39,6 +39,7 @@ afterEach(() => {
 
 it("registers each server/sources file by its name and loads it on the first read", async () => {
   const projectRoot = await project({
+    "server/sources/__proto__.mjs": trackedSource("__proto__", ["proto.md"]),
     "server/sources/custom.mjs": trackedSource("custom", ["intro.md"]),
     "server/sources/team/handbook.mjs": trackedSource("handbook", ["a.md"]),
   })
@@ -49,16 +50,17 @@ it("registers each server/sources file by its name and loads it on the first rea
   const types = await readFile(join(projectRoot, ".vitehub/types/source/sources.d.ts"), "utf8")
   expect(types).toContain(`"custom": typeof import(${JSON.stringify(join(projectRoot, "server/sources/custom.mjs"))})["default"]`)
   expect(types).toContain(`"team/handbook": typeof import(`)
-  expect(await readFile(registry, "utf8")).toContain(`"team/handbook": () => import(${JSON.stringify(pathToFileURL(join(projectRoot, "server/sources/team/handbook.mjs")).href)}),`)
+  expect(await readFile(registry, "utf8")).toContain(`["team/handbook"]: () => import(${JSON.stringify(pathToFileURL(join(projectRoot, "server/sources/team/handbook.mjs")).href)}),`)
 
-  await import(pathToFileURL(registry).href)
   // Server start and opening a reader evaluate no Source module.
   const reader = useSource("custom")
+  await import(pathToFileURL(registry).href)
   expect(evaluated()).toEqual([])
 
   await expect(reader.get("intro.md")).resolves.toEqual({ key: "intro.md", content: "# Intro" })
   await expect(useSource("custom").keys()).resolves.toEqual(["intro.md"])
   expect(evaluated()).toEqual(["custom"])
+  await expect(useSource("__proto__").keys()).resolves.toEqual(["proto.md"])
 })
 
 it("removes the registry when server/sources is empty", async () => {

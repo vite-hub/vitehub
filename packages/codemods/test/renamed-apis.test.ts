@@ -35,6 +35,29 @@ describe("renamed-apis", () => {
     expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "server/sources.ts", line: 1, message: expect.stringContaining("server/sources/<name>.ts") }))
   })
 
+  it("lists Source files from the old tutorial without removing their named exports", async () => {
+    const { after, run } = await migrate({
+      "server/sources/docs.ts": "import { glob } from 'vite-hub/source'\nexport const docs = glob({ cwd: 'docs' })\n",
+      "server/sources/team/handbook.ts": "export { docs as default } from '../docs'\n",
+      "server/api/docs.get.ts": "import { createSource } from 'vite-hub/source'\nimport { docs } from '../sources/docs'\nexport default () => createSource(docs).keys()\n",
+    })
+    expect(after["server/api/docs.get.ts"]).toContain("useSource(docs)")
+    expect(after["server/sources/docs.ts"]).toBeUndefined()
+    expect(run.result.followUps).toEqual([
+      expect.objectContaining({ file: "server/sources/docs.ts", message: expect.stringContaining("keep any named exports") }),
+    ])
+  })
+
+  it.each([
+    ["import { createSource } from 'vite-hub/source'\nconst useSource = 1\n", "import { useSource as createSource } from 'vite-hub/source'\nconst useSource = 1\n"],
+    ["import { createSource } from 'vite-hub/source'\nfunction read(useSource) { return createSource(docs) }\n", "import { useSource as createSource } from 'vite-hub/source'\nfunction read(useSource) { return createSource(docs) }\n"],
+    ["const { createSource, useSource } = await import('vite-hub/source')\n", "const { useSource: createSource, useSource } = await import('vite-hub/source')\n"],
+    ["const [{ createSource, useSource }] = await Promise.all([import('vite-hub/source')])\n", "const [{ useSource: createSource, useSource }] = await Promise.all([import('vite-hub/source')])\n"],
+  ])("keeps the createSource binding when useSource is already in use: %s", async (input, expected) => {
+    const { after } = await migrate({ "server/api/docs.get.ts": `${input}createSource(docs)\n` })
+    expect(after["server/api/docs.get.ts"]).toBe(`${expected}createSource(docs)\n`)
+  })
+
   it("composes root accessors and API renames in the release upgrade", async () => {
     const { cwd } = await migrate({
       "server/api/a.ts": "import { deriveSecret } from '#vitehub/env/server'\nimport { db } from 'vite-hub/database/drizzle'\nimport { kv } from 'vite-hub/kv'\nexport const secret = deriveSecret('app', event)\nexport const remove = () => kv.del('a')\nexport { db }\n",

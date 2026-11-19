@@ -47,6 +47,7 @@ const renamedStrings = new Map([
 ])
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
+const sourceDefinitionPath = /(?:^|\/)server\/sources\/.+\.[cm]?[jt]s$/
 const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|\bcreateSource\b|\bregisterSources?\b|\bclearSources\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
@@ -146,6 +147,11 @@ function importSource(node: Node | null | undefined): string | undefined {
  * pattern. Returns false when the block declares the name again, so the codemod cannot tell the uses apart.
  */
 function renameReferences(context: FileContext, from: string, to: string, declaration: Node, binding?: Node): boolean {
+  let newNameInUse = false
+  walk(context.program, (node) => {
+    if (node.type === "Identifier" && node.name === to) newNameInUse = true
+  })
+  if (newNameInUse) return false
   if (localDeclarations(context.program, binding).has(from)) {
     followUp(context, declaration, `\`${from}\` is also declared in this file, so the codemod renamed only the import. Rename the uses of the import to \`${to}\` by hand.`)
     return false
@@ -195,11 +201,6 @@ function rewriteExports(context: FileContext) {
         overwrite(context, specifier.imported, to)
         continue
       }
-      // `import { createSource, useSource }` already binds the new name. Keep the old local name as an alias.
-      if (program.program.body.some(other => other.type === "ImportDeclaration" && other.specifiers.some(imported => imported.local.name === to))) {
-        overwrite(context, specifier, `${to} as ${name}`)
-        continue
-      }
       overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
     }
   }
@@ -237,7 +238,11 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
       overwrite(context, property.key, to)
       continue
     }
-    overwrite(context, property, renameReferences(context, from, to, property, property.value) ? to : `${to}: ${from}`)
+    if (property.value.type === "AssignmentPattern") {
+      overwrite(context, property.key, `${to}: ${from}`)
+      continue
+    }
+    overwrite(context, property.key, renameReferences(context, from, to, property, property.value) ? to : `${to}: ${from}`)
   }
 }
 
@@ -333,6 +338,18 @@ function sourceRegistryFollowUps(context: FileContext) {
   }
 }
 
+function sourceFileFollowUp(context: FileContext) {
+  const hasDefault = context.program.program.body.some((statement) => {
+    if (statement.type === "ExportDefaultDeclaration") return statement.declaration.type !== "TSInterfaceDeclaration"
+    return statement.type === "ExportNamedDeclaration" && statement.exportKind !== "type" && statement.specifiers.some((specifier) => {
+      if (specifier.type === "ExportDefaultSpecifier" || (specifier.type === "ExportSpecifier" && specifier.exportKind === "type")) return false
+      return (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default"
+    })
+  })
+  if (hasDefault) return
+  context.followUps.push({ file: context.file, message: "Each file under `server/sources/` must now default-export a Source. Add a default export and keep any named exports that other files import, or move the file outside `server/sources/` if you only use it directly." })
+}
+
 /** Renames the operation and Console MCP tool names in string literals, such as a client allowlist. */
 function rewriteStrings(context: FileContext) {
   const { block } = context
@@ -383,7 +400,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
-    if (!needle.test(source)) continue
+    const isSourceDefinition = sourceDefinitionPath.test(file) && !/\.d\.[cm]?ts$/.test(file)
+    if (!isSourceDefinition && !needle.test(source)) continue
     const output = new MagicString(source)
     for (const block of scriptBlocks(file, source)) {
       let program: File
@@ -400,6 +418,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       rewriteSecrets(context)
       rewriteStrings(context)
       sourceRegistryFollowUps(context)
+      if (isSourceDefinition) sourceFileFollowUp(context)
     }
     if (output.hasChanged()) edits.push({ path: file, before: source, after: output.toString() })
   }

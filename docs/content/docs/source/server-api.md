@@ -80,7 +80,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- ViteHub registers every file in `server/sources/` when the server starts, so `useSource('handbook')` works in each route.
+- You can create the reader at module scope. Read from it in a handler or plugin callback. The first read looks up the name and loads the file. It rejects with `SOURCE_NOT_FOUND` if the name is not registered.
 - The generated `.vitehub` types map each name to the type of its Source. A name without a file is a type error.
 - `server/sources/team/handbook.ts` is the Source `team/handbook`.
 - In Nuxt, `useSource` is auto-imported in server code.

@@ -420,13 +420,13 @@ async function writeSourceArtifacts(options: SourceGenerationOptions, sources: D
     `import { registerSourceLoaders } from ${JSON.stringify(toRuntimeModuleSpecifier(ownModule(import.meta.url, "internal/registry")))}`,
     "",
     "registerSourceLoaders({",
-    ...sources.map(({ file, name }) => `  ${JSON.stringify(name)}: () => import(${JSON.stringify(toRuntimeModuleSpecifier(file))}),`),
+    ...sources.map(({ file, name }) => `  [${JSON.stringify(name)}]: () => import(${JSON.stringify(toRuntimeModuleSpecifier(file))}),`),
     "})",
     "",
     "export default () => {}",
     "",
   ].join("\n"))
-  // The plugin runs first, so other plugins and every route can open a Source by its name.
+  // Register before plugin callbacks read their Sources. Creating a reader does not require registration yet.
   return [{ handler: registry, plugin: true, position: "start" }]
 }
 
