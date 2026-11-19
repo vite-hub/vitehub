@@ -98,7 +98,9 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
   const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
   if (problem) return invalid(problem)
-  if (options.kind !== "url" && options.kind !== "inbox") return invalid(`\`kind\` must be "url" or "inbox", not ${JSON.stringify(options.kind)}`)
+  // The options can come from a request body, so check the kind at runtime too.
+  const kind: unknown = options.kind
+  if (kind !== "url" && kind !== "inbox") return invalid(`\`kind\` must be "url" or "inbox", not ${JSON.stringify(kind)}`)
   const now = Date.now()
   const endpoint: StoredMemberEndpoint = {
     id: `whe_${crypto.randomUUID()}`,

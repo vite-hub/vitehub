@@ -313,7 +313,7 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
   const [targetError, target] = claim.webhook.startsWith(memberWebhookPrefix)
     ? await resolveMemberTarget(installed, claim.webhook.slice(memberWebhookPrefix.length))
     : resolveFileTarget(installed, claim.webhook)
-  if (targetError) {
+  if (targetError !== undefined) {
     // A missing variable or endpoint needs a fix, so retries cannot help. Redeliver after the fix.
     await store.failed(claim, { status: null, error: targetError }, Date.now(), true)
     return
