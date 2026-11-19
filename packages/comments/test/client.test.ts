@@ -24,6 +24,16 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it("drops the Agent of an earlier resolution in the memory transport", async () => {
+    const seeded = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+    const thread = { ...seeded, status: "resolved" as const, resolvedBy: ana, resolvedActor: { id: "claude", name: "Claude" }, resolvedAt: 1 }
+    const store = createMemoryTransport({ user: ben, threads: [thread] })
+    const byBen = await store.resolve({ threadId: thread.id })
+    expect(byBen.resolvedBy).toEqual(ben)
+    expect(byBen).not.toHaveProperty("resolvedActor")
+    expect(await createMemoryTransport({ user: ben, threads: [thread] }).reopen({ threadId: thread.id })).not.toHaveProperty("resolvedActor")
+  })
+
   it("preserves independent metadata copies in the memory transport", async () => {
     const { store } = setup()
     const metadata = { version: 3, emptyBody: true, category: "feedback" }

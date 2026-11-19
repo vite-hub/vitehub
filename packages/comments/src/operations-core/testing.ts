@@ -214,6 +214,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       const found = copy(thread(store, input.threadId))
       found.status = "resolved"
       found.resolvedBy = copy(user)
+      delete found.resolvedActor
       found.resolvedAt = store.now()
       return save(found)
     },
@@ -221,6 +222,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       const found = copy(thread(store, input.threadId))
       found.status = "open"
       delete found.resolvedBy
+      delete found.resolvedActor
       delete found.resolvedAt
       return save(found)
     },

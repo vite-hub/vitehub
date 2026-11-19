@@ -184,7 +184,6 @@ async function assertOk(response: Response): Promise<void> {
   throw blobBrowserDiagnostics.BLOB_UPLOAD_REQUEST_FAILED({ body: message, status: response.status })
 }
 
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The matching upload route defines each response shape at its call site.
 async function readJson<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
   await assertOk(response)
   let body: unknown

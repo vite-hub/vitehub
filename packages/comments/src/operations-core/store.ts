@@ -79,9 +79,16 @@ function messageOf(row: MessageRow): CommentMessage {
   }
 }
 
+/** `resolved_by` keeps the person, with the agent that acted for them as `actor`. Rows from before it hold the person alone. */
+function resolver(json: string | null): Pick<CommentThread, "resolvedBy" | "resolvedActor"> {
+  const found = parseJson<(CommentUser & { actor?: CommentActor }) | undefined>(json, undefined)
+  if (!found) return {}
+  const { actor, ...by } = found
+  return { resolvedBy: by, ...(actor ? { resolvedActor: actor } : {}) }
+}
+
 function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
   const actor = parseJson<CommentActor | undefined>(row.actor, undefined)
-  const resolvedBy = parseJson<CommentUser | undefined>(row.resolvedBy, undefined)
   const metadata = parseJson<CommentMetadata | undefined>(row.metadata, undefined)
   const context = parseJson<CommentContext | undefined>(row.context, undefined)
   return {
@@ -96,7 +103,7 @@ function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
     subject: { id: row.subjectId, kind: row.subjectKind },
     updatedAt: row.updatedAt,
     ...(actor ? { actor } : {}),
-    ...(resolvedBy ? { resolvedBy } : {}),
+    ...resolver(row.resolvedBy),
     ...(row.resolvedAt === null ? {} : { resolvedAt: row.resolvedAt }),
     ...(metadata ? { metadata } : {}),
     ...(context ? { context } : {}),
@@ -178,7 +185,8 @@ export interface CommentsStore {
   deleteMessage: (threadId: string, messageId: string, now: number) => Promise<CommentThread>
   /** With `ownerId`, delete only if every message still belongs to that owner at mutation time. */
   deleteThread: (threadId: string, ownerId?: string) => Promise<boolean>
-  setStatus: (threadId: string, status: CommentStatus, by: CommentUser, now: number) => Promise<CommentThread>
+  /** `actor`: the agent that resolves it for `by`. Reopening clears both. */
+  setStatus: (threadId: string, status: CommentStatus, by: CommentUser, now: number, actor?: CommentActor) => Promise<CommentThread>
   /** Deletes every thread of a scope with its messages, and returns their ids. Numbers of the scope are never reused. */
   deleteScope: (scope: string) => Promise<string[]>
   /**
@@ -455,10 +463,10 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       ])
       return await find(threadId) === null
     },
-    async setStatus(threadId, status, by, now) {
+    async setStatus(threadId, status, by, now, actor) {
       await one(threadId)
       await touching(db, threadId, now, status === "resolved"
-        ? { resolvedBy: JSON.stringify(by), status }
+        ? { resolvedBy: JSON.stringify(actor ? { ...by, actor } : by), status }
         : { resolvedAt: null, resolvedBy: null, status })
       return one(threadId)
     },

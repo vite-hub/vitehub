@@ -11,6 +11,7 @@ import type { Result } from "@vite-hub/runtime"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsRuntime } from "./operations-core/service.ts"
 import type {
+  CommentActor,
   CommentMessage,
   CommentSubject,
   CommentThread,
@@ -56,7 +57,8 @@ export interface Comments {
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   /** Adds a message to an open thread. Runs `onComment`. */
   reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
-  resolve(threadId: string, options: { by: CommentUser }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** `actor`: the agent that resolves it for `by`, as on `reply`. */
+  resolve(threadId: string, options: { by: CommentUser, actor?: CommentActor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its messages. */
   remove(threadId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
@@ -205,11 +207,11 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
         return [resultError(error, threadId), undefined]
       }
     },
-    async resolve(threadId, { by }) {
+    async resolve(threadId, { by, actor }) {
       const current = await runtime()
       if (!current) return notInstalled()
       if (!await current.store.getById(threadId)) return notFound(threadId)
-      const thread = await current.store.setStatus(threadId, "resolved", by, Date.now()).catch(gone)
+      const thread = await current.store.setStatus(threadId, "resolved", by, Date.now(), actor).catch(gone)
       if (!thread) return notFound(threadId)
       current.forge?.changed(threadId)
       return [undefined, thread]

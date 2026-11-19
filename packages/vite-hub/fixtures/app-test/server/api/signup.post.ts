@@ -22,7 +22,7 @@ export default defineHandler(async (event) => {
   const [sendError] = await email.send({ from: useServerEnv().mailFrom, subject: "Welcome", text: "Thanks for signing up.", to: user.email })
   if (sendError) throw sendError
 
-  const [queueError] = await sendQueue("welcome", { userId: user.id }, { delaySeconds: 86_400 })
+  const [queueError] = await sendQueue("welcome", { userId: user.id }, { delay: "1d" })
   if (queueError) throw queueError
 
   const [workflowError] = await startWorkflow("onboarding", { userId: user.id })

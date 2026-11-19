@@ -2464,7 +2464,11 @@ function createManualDeliveryProgressUpdater(
 
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
-      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || typeof event.text !== "string") return
+      // Codex sends most of its live progress as reasoning summaries, such as "**Inspecting the config**".
+      // Only a provider Driver emits `reasoning-delta`; reasoning text that a custom Driver marks with a phase stays hidden.
+      const progress = isRecord(event) && typeof event.text === "string"
+        && ((event.type === "text-delta" && event.phase === "commentary") || event.type === "reasoning-delta")
+      if (!progress) return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
       if (event.id !== undefined) {
         if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
@@ -3018,7 +3022,7 @@ async function postChatStream(
     }
     const previousAdapter = chatThread._adapter
     const previousFallback = chatThread._fallbackStreamingPlaceholderText
-    // ponytail: Chat SDK does not expose whether native streaming was accepted (https://github.com/vercel/chat/issues/1178).
+    // Chat SDK does not expose whether native streaming was accepted (https://github.com/vercel/chat/issues/1178).
     chatThread._adapter = new Proxy(adapter, {
       get(target, property) {
         if (property === "stream") {
@@ -3060,7 +3064,7 @@ async function postChatStream(
     return
   }
 
-  // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one
+  // Chat SDK has no per-stream fallback option; replace this when it exposes one
   // (https://github.com/vercel/chat/issues/1178).
   const adapter = thread.adapter
   const placeholder = fallback === null ? Promise.resolve(undefined) : adapter.postMessage(thread.id, fallback)
@@ -4419,22 +4423,37 @@ function chatSdkOption<T>(
 }
 
 interface ChatLockTracker {
+  queuedDeliveryId(message: ChatSdkMessage): string | undefined
   refresh(lockKey: string): () => void
   state: StateAdapter
 }
 
-function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promise<void>): ChatLockTracker {
+function createChatLockTracker(state: StateAdapter, beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>): ChatLockTracker {
   const locks = new Map<string, { lock: Lock; ttlMs: number }>()
+  const queuedDeliveries = new WeakMap<object, string>()
   const trackedState = new Proxy(state, {
     get(target, property) {
       if (property === "enqueue" && beforeEnqueue) {
-        return async (...args: Parameters<StateAdapter["enqueue"]>) => {
-          await beforeEnqueue()
-          return await target.enqueue(...args)
+        return async (threadId: string, entry: QueueEntry, maxSize: number) => {
+          const channelDeliveryId = await beforeEnqueue(true)
+          const queuedEntry = channelDeliveryId ? { ...entry, channelDeliveryId } : entry
+          return await target.enqueue(threadId, queuedEntry, maxSize)
+        }
+      }
+      if (property === "dequeue") {
+        return async (threadId: string) => {
+          const entry = await target.dequeue(threadId)
+          if (entry && "channelDeliveryId" in entry && typeof entry.channelDeliveryId === "string" && isRecord(entry.message.raw)) {
+            queuedDeliveries.set(entry.message.raw, entry.channelDeliveryId)
+          }
+          return entry
         }
       }
       if (property === "acquireLock") {
         return async (lockKey: string, ttlMs: number) => {
+          // Chat enqueues a message right after it finds the thread lock busy. Resolve the delivery before that check,
+          // so the enqueue does not wait for a State write while the lock holder drains the queue and releases the lock.
+          await beforeEnqueue?.(false)
           const lock = await target.acquireLock(lockKey, ttlMs)
           if (lock) locks.set(lockKey, { lock, ttlMs })
           return lock
@@ -4464,6 +4483,7 @@ function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promis
   })
 
   return {
+    queuedDeliveryId: (message) => isRecord(message.raw) ? queuedDeliveries.get(message.raw) : undefined,
     refresh(lockKey) {
       const tracked = locks.get(lockKey)
       if (!tracked) return () => undefined
@@ -7584,8 +7604,11 @@ async function handleChatSdkMessages(
       try {
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
-        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
-        const queuedDelivery = individualMessages
+        const queuedDeliveryId = individualMessages ? lockTracker.queuedDeliveryId(queuedMessage) : undefined
+        const payloadFingerprint = individualMessages && !queuedDeliveryId ? await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined) : undefined
+        const queuedDelivery = queuedDeliveryId
+          ? await resumeAgentChannelDelivery(state.state, queuedDeliveryId)
+          : individualMessages
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined) ||
             (queuedMessageId
               ? (await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)) ||
@@ -7601,7 +7624,7 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
-        const delivery = queuedDelivery || (queuedMessage === message && (!individualMessages || !requestDelivery?.claimed) ? requestDelivery : undefined)
+        const delivery = queuedDelivery || (!queuedDeliveryId && queuedMessage === message && (!individualMessages || !requestDelivery?.claimed) ? requestDelivery : undefined)
         if (delivery) delivery.claimed = true
         claimedDelivery = delivery
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage, options) : await resolveDeliveryKind(queuedMessage)
@@ -7858,7 +7881,7 @@ async function createChannelChat(
     workflowCustodySupported?: boolean
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<void>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<Chat> {
   // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
   if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
@@ -8830,7 +8853,7 @@ async function createChatWebhookHandler(
   maximumInvocationDeadline?: number,
   state?: { state: StateAdapter; titleKeyPrefix: string },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<void>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
   const chat = await createChannelChat(
     agent,
@@ -10358,6 +10381,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
           const burst = chatSteerBurst(chatOptions) !== undefined
           const queued = ["serial", "queue"].includes(chatOptions?.concurrency ?? "")
+          const storeQueuedDelivery = adapter.name === "telegram"
           let queuedForBurst = false
           const handler = await createChatWebhookHandler(
             agent,
@@ -10370,9 +10394,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             maximumInvocationDeadline,
             chatDeliveryState,
             resolveChannelDelivery,
-            burst ? async () => {
-              await resolveChannelDelivery()
-              queuedForBurst = true
+            burst || (queued && storeQueuedDelivery) ? async (enqueue) => {
+              const delivery = await resolveChannelDelivery()
+              if (enqueue) queuedForBurst = burst
+              return storeQueuedDelivery ? delivery.delivery.id : undefined
             } : undefined,
           )
           webhookDeadlineAbort?.signal.throwIfAborted()

@@ -1,9 +1,9 @@
 # @vite-hub/cli
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcli&icon=npm)](https://npmx.dev/package/@vite-hub/cli)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fcli&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/cli)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/cli)](https://npmx.dev/package/@vite-hub/cli)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/cli)](https://npmx.dev/package/@vite-hub/cli)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/cli` runs the development commands contributed by a ViteHub project's active Vite plugins. It loads the local Vite or Nuxt config, combines their command namespaces, and adds the built-in `inspect` and `provision` namespaces. User docs: [CLI](https://vitehub.dev/docs/cli).
 
@@ -51,7 +51,7 @@ Available namespaces:
 
 ## Inspect the project
 
-`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. `inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with each method, path, owner, and handler file. Routes in `server/routes` and `server/api` are not listed. These three commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
+`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. `inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with each method, path, owner, and handler file. Routes in `server/routes` and `server/api` are not listed. These three commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. `provision run` and `provision status` load the config of a build for their `--host` the same way as `vitehub deploy --host`: with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, so a config that picks its stores with `detectHost()` plans the resources of that host. Other commands use development configuration.
 
 ```sh
 pnpm vitehub inspect definitions --kind queue

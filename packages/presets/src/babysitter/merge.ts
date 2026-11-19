@@ -345,8 +345,8 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
   const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
   // A pass that assessed this head with every feedback item covered also judged the review checks, whose
-  // verdict comes from the same reviews. The exact evidence key still drifted after such passes: #2156
-  // took three passes on one head. So the key gates only other failures.
+  // verdict comes from the same reviews. The exact evidence key can still drift after such passes and
+  // cost more passes on one head. So the key gates only other failures.
   const otherFailure = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !reviewChecks.has(check.name.toLowerCase()))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !reviewChecks.has(status.context.toLowerCase()));
   const reviewChecksAssessed = failedChecks && !otherFailure && !unassessed && hasRuntimeType(assessment.reviewedEvidenceKey, "string");

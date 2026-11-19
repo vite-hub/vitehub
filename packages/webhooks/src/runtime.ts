@@ -6,7 +6,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
 
-import type { Result, ResultError } from "@vite-hub/runtime"
+import type { Duration, Result, ResultError } from "@vite-hub/runtime"
 import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
 import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhooksDatabase } from "./database.ts"
@@ -30,7 +30,7 @@ export interface WebhookWake {
 }
 
 /** Sends a wake to the `vitehub-webhooks` Queue. `dynamicQueue.send()` of `@vite-hub/queue` fits. */
-export type WebhookWakeSender = (wake: WebhookWake, options: { delaySeconds: number }) => Promise<readonly [unknown, unknown]>
+export type WebhookWakeSender = (wake: WebhookWake, options: { delay: Duration }) => Promise<readonly [unknown, unknown]>
 
 /** What the generated server code of a ViteHub app passes. */
 export interface InstallWebhooksOptions {
@@ -190,7 +190,7 @@ function createDeliveryId(): string {
 async function wake(installed: InstalledWebhooks, delivery: { id: string, revision: number, webhook: string }, delayMs: number): Promise<WakeError | undefined> {
   try {
     // Hosted Queues take whole seconds, so a debounce waits at least until the next whole second.
-    const [error] = await installed.wake({ id: delivery.id, revision: delivery.revision }, { delaySeconds: Math.ceil(Math.max(0, delayMs) / 1000) })
+    const [error] = await installed.wake({ id: delivery.id, revision: delivery.revision }, { delay: `${Math.ceil(Math.max(0, delayMs) / 1000)}s` })
     return error === undefined ? undefined : webhooksErrors.WEBHOOKS_WAKE_FAILED({ webhook: delivery.webhook, cause: error })
   }
   catch (cause) {

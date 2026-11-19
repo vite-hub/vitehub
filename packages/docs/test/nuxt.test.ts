@@ -615,7 +615,8 @@ describe("docs Nuxt setup", () => {
     const root = mkdtempSync(join(tmpdir(), "docs-new-content-"))
     roots.push(root)
     const content = join(root, "nested/content")
-    const options = await setupDocs({ dir: content }, "/", true)
+    await setupDocs({ dir: content, base: "/docs" }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
     expect(watchContent).toHaveBeenCalledWith(root, { recursive: true }, expect.any(Function))
     mkdirSync(join(content, "docs"), { recursive: true })
     writeFileSync(join(content, "docs/index.md"), "---\ntitle: First page\n---\n# First page")
@@ -624,7 +625,7 @@ describe("docs Nuxt setup", () => {
     await vi.advanceTimersByTimeAsync(100)
     // The manifest reads the files through Content, so the run ends after real I/O, not after a timer.
     await vi.waitFor(() => expect(templates.get("docs/manifest.mjs")?.()).toContain("First page"))
-    expect(options.buildDir).toBeTruthy()
+    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
   })
 
   it.each([false, true])(
@@ -685,7 +686,141 @@ describe("docs Nuxt setup", () => {
     },
   );
 
-  it("restarts development when an edit adds or removes an agent copy, which the files module lists", async () => {
+  /** Nuxt's Vite dev server with Nitro as its `nitro` environment, as `vite:serverCreated` passes it. */
+  function devServer(nitro = true) {
+    const files = { id: "#docs/files" }
+    // One module per file that Nitro imported.
+    const byFile = new Map<string, object>()
+    const moduleOf = (file: string) => byFile.get(file) ?? byFile.set(file, { file }).get(file)!
+    const server = {
+      watcher: { emit: vi.fn() },
+      environments: nitro
+        ? { nitro: { moduleGraph: { getModuleById: vi.fn((id: string) => id === files.id ? files : undefined), getModulesByFile: (file: string) => new Set([moduleOf(file)]), invalidateModule: vi.fn() } } }
+        : {},
+    }
+    return { server, files, moduleOf }
+  }
+
+  it("shows a new page in development without a restart", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-new-page-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    const options = await setupDocs({ dir: content }, "/", true)
+    const { server, files } = devServer()
+    await callHook("vite:serverCreated", server)
+    writeFileSync(join(content, "docs/new.md"), "---\ntitle: New page\n---\n# New page")
+    watchContent.mock.calls[0]![2]!("rename", "docs/new.md")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(server.watcher.emit).toHaveBeenCalledWith("change", join(options.buildDir, "docs/manifest.mjs")))
+    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
+    expect(findDocsPage(manifestTemplate() as never, "/docs/new")?.page.title).toBe("New page")
+    // The app and the server read the new manifest, and `#docs/files` lists the new file when Nitro loads it again.
+    const filter = updateTemplates.mock.calls[0]![0].filter
+    expect(["docs/manifest.mjs", "docs/app-manifest.mjs", "docs/examples.mjs"].filter(filename => filter({ filename }))).toEqual(["docs/manifest.mjs", "docs/app-manifest.mjs"])
+    expect(server.environments.nitro!.moduleGraph.invalidateModule).toHaveBeenCalledWith(files)
+  })
+
+  it("makes Nuxt's own run for an added page wait for the new manifest", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-wait-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    writeFileSync(join(content, "docs/new.md"), "---\ntitle: New page\n---\n# New page")
+    // Nuxt calls `builder:watch` before it generates the app for the new file.
+    await callHook("builder:watch", "add", relative("/app", join(content, "docs/new.md")))
+    const generated = templates.get("docs/manifest.mjs")!() as unknown
+    expect(generated).toBeInstanceOf(Promise)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await generated).toContain("New page")
+  })
+
+  it("updates both manifests when a second save arrives before Nuxt evaluates the templates", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-overlapping-saves-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs/guide"), { recursive: true })
+    writeFileSync(join(content, "docs/guide/index.md"), "---\ntitle: Guide\n---\n# Guide")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    const save = (title: string) => {
+      writeFileSync(join(content, "docs/guide/.navigation.yml"), `title: ${title}\n`)
+      watchContent.mock.calls[0]![2]!("change", "docs/guide/.navigation.yml")
+    }
+    const resume = Promise.withResolvers<void>()
+    const stop = Promise.withResolvers<undefined>()
+    let generated: string[] | undefined
+    const manifests = ["docs/manifest.mjs", "docs/app-manifest.mjs"]
+    updateTemplates.mockImplementationOnce(async () => {
+      await resume.promise
+      generated = await Promise.race([
+        Promise.all(manifests.map(filename => templates.get(filename)!())),
+        stop.promise,
+      ])
+    })
+    try {
+      save("First save")
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => expect(updateTemplates).toHaveBeenCalledTimes(1))
+      save("Second save")
+      resume.resolve()
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => {
+        expect(generated).toEqual(manifests.map(() => expect.stringContaining("Second save")))
+        expect(updateTemplates).toHaveBeenCalledTimes(2)
+      })
+    }
+    finally {
+      resume.resolve()
+      stop.resolve(undefined)
+    }
+  })
+
+  it.each(["add", "remove"])("restarts when a directory %s changes the inferred docs base", async (event) => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-inferred-base-"))
+    roots.push(content)
+    writeFileSync(join(content, "about.md"), "---\ntitle: About\n---\n# About")
+    const docs = join(content, "docs")
+    if (event === "remove") mkdirSync(docs)
+    const options = await setupDocs({ dir: content }, "/", true)
+    expect(options.runtimeConfig.public.docs.base).toBe(event === "add" ? "/" : "/docs")
+    await callHook("vite:serverCreated", devServer().server)
+    if (event === "add") {
+      mkdirSync(join(docs, "guide"), { recursive: true })
+      writeFileSync(join(docs, "guide/index.md"), "---\ntitle: Guide\n---\n# Guide")
+    }
+    else rmSync(docs, { recursive: true })
+    watchContent.mock.calls[0]![2]!("rename", "docs")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["Nitro does not run in Vite", false, "docs/new.md"],
+    // The page route is mounted at `/docs` when Nuxt starts, and a page outside it moves the mount to `/`.
+    ["a page moves the docs mount", true, "about.md"],
+  ])("restarts development when %s", async (_case, nitro, file) => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-restart-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer(nitro).server)
+    writeFileSync(join(content, file), "---\ntitle: New page\n---\n# New page")
+    watchContent.mock.calls[0]![2]!("rename", file)
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
+  it("reloads Nitro once when a page or its agent copy changes", async () => {
     vi.useFakeTimers()
     const content = mkdtempSync(join(tmpdir(), "docs-copies-"))
     roots.push(content)
@@ -694,23 +829,51 @@ describe("docs Nuxt setup", () => {
     writeFileSync(page, "---\ntitle: Page\n---\n# Tools")
     // Only a page with tools has an agent copy.
     const options = await setupDocs({ dir: content, rawMarkdown: source => source.replace("# Tools", "# Tools for agents") }, "/", true)
+    const { server, files, moduleOf } = devServer()
+    await callHook("vite:serverCreated", server)
     await callHook("build:before")
     const copy = join(options.buildDir, "docs/agent/docs_0/docs/index.md")
     expect(existsSync(copy)).toBe(true)
+    const manifestFile = join(options.buildDir, "docs/manifest.mjs")
+    const { invalidateModule } = server.environments.nitro!.moduleGraph
     const changed = watchContent.mock.calls[0]![2]!
     const edit = async (body: string) => {
+      server.watcher.emit.mockClear()
+      invalidateModule.mockClear()
       writeFileSync(page, `---\ntitle: Page\n---\n${body}`)
       changed("change", "docs/index.md")
       await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => expect(server.watcher.emit).toHaveBeenCalled())
     }
-    // The copy changes, and Vite reloads it.
+    // Nitro loads the page and its copy again, and nothing else.
     await edit("# Tools\n\nMore.")
-    await vi.waitFor(() => expect(readFileSync(copy, "utf8")).toContain("More."))
-    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
+    expect(readFileSync(copy, "utf8")).toContain("More.")
+    expect(invalidateModule.mock.calls.map(([module]) => module)).toEqual([moduleOf(page), moduleOf(copy)])
+    expect(server.watcher.emit.mock.calls).toEqual([["change", manifestFile]])
     // The copy is gone, and the files module would still import it.
     await edit("# No tools")
-    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(invalidateModule).toHaveBeenCalledWith(files)
+    expect(server.watcher.emit.mock.calls).toEqual([["change", manifestFile]])
     expect(existsSync(copy)).toBe(false)
+    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
+  it("keeps Vite from reloading Nitro for a page, which the docs watcher reloads after the manifest", async () => {
+    const content = mkdtempSync(join(tmpdir(), "docs-hot-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    await setupDocs({ dir: content }, "/", true)
+    const config: { plugins?: Array<{ name: string, applyToEnvironment: (environment: { name: string }) => boolean, hotUpdate: { handler: (options: { file: string }) => unknown } }> } = {}
+    await callHook("vite:extend", { config })
+    const plugin = config.plugins!.find(candidate => candidate.name === "vite-hub:docs-content")!
+    expect(["nitro", "ssr", "client"].filter(name => plugin.applyToEnvironment({ name }))).toEqual(["nitro"])
+    const hotUpdate = (file: string) => plugin.hotUpdate.handler({ file })
+    expect(hotUpdate(join(content, "docs/index.md"))).toEqual([])
+    expect(hotUpdate(join(content, "docs/.navigation.yml"))).toEqual([])
+    expect(hotUpdate(join(content, "docs/image.png"))).toBeUndefined()
+    expect(hotUpdate("/elsewhere/index.md")).toBeUndefined()
   })
 
   it("gives the page route and search the app's parser module", async () => {
