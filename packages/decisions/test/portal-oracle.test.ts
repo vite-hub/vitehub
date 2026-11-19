@@ -54,7 +54,7 @@ describe("portal filter search parity", () => {
   it("selects the same values as the portal for the same Jev answers", async () => {
     const gateway: { ask: AiGatewayAsk } = {
       // Our keys are `g<group>_o<option>`. The portal keys are `<group>_<option>`.
-      ask: async () => ({ supported: { chance: 0.9, type: "chance" }, ...Object.fromEntries(Object.entries(jevAnswers).map(([key, value]) => [`g${key.replace("_", "_o")}`, value])) }) as never,
+      ask: async () => [undefined, { supported: { chance: 0.9, type: "chance" }, ...Object.fromEntries(Object.entries(jevAnswers).map(([key, value]) => [`g${key.replace("_", "_o")}`, value])) } as never],
     }
     const choices = defineChoices({
       gateway,

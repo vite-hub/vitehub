@@ -32,7 +32,7 @@ async function setup(ownership: (deliveryId: string) => AgentWebhookInvocationOw
             },
           },
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

@@ -44,7 +44,7 @@ The build stops because `i18n.workspace` names a Workspace that the app does not
 
 ### I18N_INVALID_TRANSLATION
 
-`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text, or whose source or translation exceeds the rich-text validation limit above. Nothing was saved. Fix the translation or split the message and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
+`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text, or whose source or translation exceeds the rich-text validation limit above. It also comes back when Diglot refuses a review step, such as verifying a rejected record before an edit. Nothing was saved. Fix the translation or split the message and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
 
 ### I18N_NO_WORKSPACE
 

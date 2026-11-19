@@ -545,19 +545,19 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
 }
 
 /**
- * Records which attachments a Driver prepared, and why it left out the others. Records nothing when the
+ * Records which attachments the model received, and why the others were left out. Records nothing when the
  * messages had no attachments.
  */
 export async function traceAgentInputAttachments<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   report: InputAttachmentsReport,
 ): Promise<void> {
-  if (!report.prepared.length && !report.skipped.length) return
+  if (!report.sent.length && !report.skipped.length) return
   await traceAgentEvent(context, {
     attributes: {
-      "input.attachments.prepared": report.prepared,
-      "input.attachments.preparedBytes": report.prepared.reduce((total, item) => total + item.bytes, 0),
-      "input.attachments.preparedCount": report.prepared.length,
+      "input.attachments.sent": report.sent,
+      "input.attachments.sentBytes": report.sent.reduce((total, item) => total + item.bytes, 0),
+      "input.attachments.sentCount": report.sent.length,
       "input.attachments.skipped": report.skipped,
       "input.attachments.skippedCount": report.skipped.length,
       "vitehub.action.name": "input.attachments",

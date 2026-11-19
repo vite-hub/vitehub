@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import { discord, github, http, slack, teams, telegram, webChat } from "../src/channels.ts"
+import { channelAdapter, discord, github, slack, teams, telegram, webChat } from "../src/channels.ts"
 import type { AgentChannelMessageOf, AgentRuntimeConfig } from "../src/types.ts"
 
 const schema = {
@@ -65,7 +65,7 @@ describe("built-in Channel message inference", () => {
   })
 
   it("preserves http message data and methods", () => {
-    const channel = http({
+    const channel = channelAdapter("http", {
       message: {
         data: schema,
         methods: {
@@ -87,7 +87,7 @@ describe("built-in Channel message inference", () => {
     expectTypeOf<Message["data"]>().toEqualTypeOf<{ id: string }>()
     expectTypeOf<Message["label"]>().toEqualTypeOf<(value: string) => Promise<string | undefined>>()
     expectTypeOf<Message["subject"]>().toEqualTypeOf<() => Promise<string>>()
-    expectTypeOf(http<AgentRuntimeConfig>().kind).toEqualTypeOf<"http">()
+    expectTypeOf(channelAdapter("http").kind).toEqualTypeOf<"http">()
   })
 
   it("preserves slack message data and methods", () => {

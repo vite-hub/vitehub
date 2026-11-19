@@ -82,7 +82,7 @@ function ticketsAgent(options: {
             },
           }),
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run: host },
