@@ -1,9 +1,9 @@
 # @vite-hub/queue
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fqueue&icon=npm)](https://npmx.dev/package/@vite-hub/queue)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fqueue&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/queue)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/queue)](https://npmx.dev/package/@vite-hub/queue)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/queue)](https://npmx.dev/package/@vite-hub/queue)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/queue` discovers background job handlers during a Vite build and connects `sendQueue()` to Cloudflare Queues, Vercel Queues, or a Node server that runs the jobs from Postgres or from local files. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
