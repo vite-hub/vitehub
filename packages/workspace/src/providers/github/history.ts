@@ -11,6 +11,7 @@ import {
   historyConflict,
   normalizeHistoryPath,
   normalizeHistoryRef,
+  rejectHistoryHead,
 } from "../../core/history.ts"
 import {
   contentToBytes,
@@ -756,7 +757,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // A conflict means the cached head was stale, so the next read asks GitHub.
     if (actual !== commitOptions.ifHead) {
       heads.delete(branch)
-      throw historyConflict(ref, commitOptions.ifHead, actual)
+      rejectHistoryHead(commitOptions, historyConflict(ref, commitOptions.ifHead, actual))
     }
     // GitHub stores refs as independent branches, so the cross-ref expectation
     // cannot be included in the ref update itself. Recheck every expected ref
@@ -813,7 +814,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       repository: client(),
     }).catch((error: unknown) => {
       // The branch moved after the read above, so the cached head is stale too.
-      if (isWorkspaceConflict(error)) heads.delete(branch)
+      if (isWorkspaceConflict(error)) {
+        heads.delete(branch)
+        rejectHistoryHead(commitOptions, error)
+      }
       throw error
     })
     heads.set(branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(commitSha) })
