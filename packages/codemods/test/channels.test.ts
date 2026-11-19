@@ -99,4 +99,13 @@ describe("channels", () => {
     expect(after).toEqual({})
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/agents/factory.ts", line: 2, message: expect.stringContaining("channelAdapter(\"http\", options)") })])
   })
+
+  it.each([
+    "<script>\nimport { http } from 'vite-hub/agent/channels'\n</script>\n<script setup>\nconst channel = http()\n</script>",
+    "<script setup>\nimport { http as makeChannel } from 'vite-hub/agent/channels'\n</script>\n<template>\n<div>{{ makeChannel() }}</div>\n</template>",
+  ])("reports Vue references outside the parsed script", async (source) => {
+    const { after, run } = await migrate({ "Channels.vue": source })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "Channels.vue", line: 2, message: expect.stringContaining("Vue") })])
+  })
 })

@@ -28,6 +28,9 @@ interface Block {
   lineOffset: number
   jsx: boolean
   typescript: boolean
+  hasOtherScript?: boolean
+  templateNames?: Set<string>
+  hasExternalTemplate?: boolean
 }
 
 function scriptBlocks(file: string, source: string): Block[] {
@@ -35,7 +38,9 @@ function scriptBlocks(file: string, source: string): Block[] {
     return [{ code: source, offset: 0, lineOffset: 0, jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) }]
   }
   const { descriptor } = parseSfc(source, { filename: file })
-  return [descriptor.script, descriptor.scriptSetup].flatMap((block) => {
+  const { script, scriptSetup, template } = descriptor
+  const templateNames = new Set(template?.content.match(/[$\p{ID_Continue}\u200c\u200d]+/gu))
+  return [script, scriptSetup].flatMap((block) => {
     if (!block || block.src) return []
     const lang = block.lang ?? "js"
     return [{
@@ -44,6 +49,9 @@ function scriptBlocks(file: string, source: string): Block[] {
       lineOffset: block.loc.start.line - 1,
       jsx: lang === "tsx" || lang === "jsx",
       typescript: lang === "ts" || lang === "tsx",
+      hasOtherScript: !!(script && scriptSetup),
+      templateNames,
+      hasExternalTemplate: !!template?.src,
     }]
   })
 }
@@ -144,6 +152,10 @@ function replaceHttp(context: FileContext) {
   const kind = quoteString("http", style)
   for (const { statement, specifier } of imports) {
     if (specifier.type !== "ImportSpecifier" || mocked.has(statement.source.value)) continue
+    if (block.hasOtherScript || block.hasExternalTemplate || block.templateNames?.has(specifier.local.name)) {
+      followUp(context, specifier, `Check this Vue import and its references in other scripts or the template. ${manualHttp}`)
+      continue
+    }
     if (statement.importKind === "type" || specifier.importKind === "type") {
       followUp(context, specifier, manualHttp)
       continue
@@ -189,7 +201,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
       }
       catch (error) {
-        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Import Channel adapters from \`vite-hub/channels\`, and replace \`http(options)\` with \`channelAdapter("http", options)\` by hand.` })
+        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). ${manualHttp}` })
         continue
       }
       const before = output.toString()

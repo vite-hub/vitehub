@@ -1,6 +1,6 @@
 import { consoleBytes } from "../../../client/format.ts";
 
-// Reads the `agent.input.attachments` observation that a Driver records before handoff.
+// Reads the `agent.input.attachments` observation: the attachments the model received and the ones left out.
 
 export const inputAttachmentsObservation = "agent.input.attachments";
 
@@ -10,7 +10,6 @@ interface AttachmentRow {
   messageId?: string;
   name?: string;
   origin?: string;
-  path?: string;
   reason?: string;
 }
 
@@ -28,16 +27,16 @@ function noun(items: readonly AttachmentRow[], total: number): string {
   return `${images ? "image" : "attachment"}${total === 1 ? "" : "s"}`;
 }
 
-/** `Prepared 3 images (2.1 MB), skipped 1: byte-budget` */
+/** `Sent 3 images (2.1 MB), skipped 1: byte-budget` */
 export function inputAttachmentsTitle(attributes: Record<string, unknown>): string {
-  const prepared = rows(attributes["input.attachments.prepared"]);
+  const sent = rows(attributes["input.attachments.sent"]);
   const skipped = rows(attributes["input.attachments.skipped"]);
-  const preparedCount = count(attributes, "input.attachments.preparedCount", prepared.length);
+  const sentCount = count(attributes, "input.attachments.sentCount", sent.length);
   const skippedCount = count(attributes, "input.attachments.skippedCount", skipped.length);
-  const bytes = count(attributes, "input.attachments.preparedBytes", prepared.reduce((total, item) => total + (item.bytes ?? 0), 0));
-  const title = preparedCount
-    ? `Prepared ${preparedCount} ${noun(prepared, preparedCount)} (${consoleBytes(bytes)})`
-    : `Prepared no ${noun(skipped, 2)}`;
+  const bytes = count(attributes, "input.attachments.sentBytes", sent.reduce((total, item) => total + (item.bytes ?? 0), 0));
+  const title = sentCount
+    ? `Sent ${sentCount} ${noun(sent, sentCount)} (${consoleBytes(bytes)})`
+    : `Sent no ${noun(skipped, 2)}`;
   if (!skippedCount) return title;
   const shortened = attributes["vitehub.observation.truncatedAttributes"];
   const shortenedSkips = attributes["vitehub.observation.truncated"] === true
@@ -57,13 +56,13 @@ function line(item: AttachmentRow, outcome: string): string {
     item.origin === "history" ? "from history" : item.origin === "current" ? "from current input" : undefined,
     item.messageId ? `message \`${item.messageId}\`` : undefined,
   ].filter(Boolean);
-  return `- ${outcome}: ${fields.join(" · ")}${item.path ? `\n  \`${item.path}\`` : ""}`;
+  return `- ${outcome}: ${fields.join(" · ")}`;
 }
 
-/** One line per attachment, prepared ones first. */
+/** One line per attachment, sent ones first. */
 export function inputAttachmentsBody(attributes: Record<string, unknown>): string | undefined {
   const lines = [
-    ...rows(attributes["input.attachments.prepared"]).map(item => line(item, "Prepared")),
+    ...rows(attributes["input.attachments.sent"]).map(item => line(item, "Sent")),
     ...rows(attributes["input.attachments.skipped"]).map(item => line(item, `Skipped (${item.reason ?? "unknown"})`)),
   ];
   return lines.length ? lines.join("\n") : undefined;

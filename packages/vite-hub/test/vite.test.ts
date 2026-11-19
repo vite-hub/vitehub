@@ -843,7 +843,7 @@ describe("vitehub", () => {
       workspace: true,
     })
 
-    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
+    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith(undefined, {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
