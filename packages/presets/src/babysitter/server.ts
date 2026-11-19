@@ -49,7 +49,7 @@ import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeR
 import { checksDependencyEvidence, checksStillRunning, conflictOnlyBlockers, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, severeReviewSettled, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
-import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
+import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
@@ -619,56 +619,49 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return newest;
   }
 
-  /**
-   * Current-head Actions checks that only repeat the base's failure: the same job fails in the same step
-   * on the base tip, and the PR's output names no failure the base's lacks. A missing log proves nothing.
-   * `baseSha` pins the base commit; without it, a tip whose checks still run falls back to the base that
-   * these checks tested, unless the tip already finished that check.
-   */
-  async function readInheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal, baseSha?: string): Promise<number[]> {
+  async function liveBaseTip(repository: string, base: string, signal: AbortSignal): Promise<string | undefined> {
+    const tip = await readOnePage(`repos/${repository}/git/ref/heads/${encodeURIComponent(base)}`, signal);
+    const sha = isRuntimeRecord(tip) && isRuntimeRecord(tip.object) ? tip.object.sha : undefined;
+    return hasRuntimeType(sha, "string") && /^[a-f\d]{40}$/i.test(sha) ? sha : undefined;
+  }
+
+  /** Current-head Actions checks that repeat the same job failure on the live base tip. */
+  async function readInheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal, verificationBaseSha?: string): Promise<number[]> {
     const { repository } = snapshot;
     const head = snapshot.pr?.head?.sha;
     const baseRef = snapshot.pr?.base?.ref;
     if (!head || !baseRef || conflicted(snapshot) || checksStillRunning(snapshot)) return [];
     const failing = currentActionRuns(snapshot, waitPolicy.pendingReviewChecks).filter(check => failedConclusions.has(String(check.conclusion)));
     if (!failing.length) return [];
-    const tip = await baseActionRuns(repository, baseSha ?? encodeURIComponent(baseRef), signal);
-    const inherited = new Map([...tip].filter(([, check]) => failedConclusions.has(String(check.conclusion))));
-    if (!baseSha && failing.some(check => tip.get(String(check.name))?.status !== "completed")) {
-      const tested = await checksTestedBase(freshnessReader, snapshot, head, baseRef, failedConclusions, signal);
-      if (tested) {
-        for (const [name, check] of await baseActionRuns(repository, tested, signal)) {
-          if (tip.get(name)?.status !== "completed" && failedConclusions.has(String(check.conclusion))) inherited.set(name, check);
-        }
-      }
-    }
+    const tip = verificationBaseSha ?? await liveBaseTip(repository, baseRef, signal);
+    if (!tip) return [];
+    // The merge gate asks on every evaluation of a failing PR; a new base tip or failure changes the key.
+    const key = JSON.stringify([repository.toLowerCase(), tip, head, failureKeys(snapshot)]);
+    const cached = inheritedFailures.get(key);
+    if (!verificationBaseSha && cached && cached.expiresAt > Date.now()) return cached.ids;
+    const runs = await baseActionRuns(repository, tip, signal);
     const ids: number[] = [];
     for (const check of failing) {
-      const base = inherited.get(String(check.name));
-      if (!base) continue;
+      const base = runs.get(String(check.name));
+      if (!base || base.status !== "completed" || !failedConclusions.has(String(base.conclusion))) continue;
       const [own, tested] = await Promise.all([jobFailure(repository, check, signal), jobFailure(repository, base, signal)]);
       if (sameActionFailure(own?.output, tested?.output)) ids.push(Number(check.id));
     }
+    if (inheritedFailures.size >= 128) inheritedFailures.delete(inheritedFailures.keys().next().value!);
+    inheritedFailures.set(key, { ids, expiresAt: Date.now() + 5 * 60_000 });
     return ids;
   }
 
   const inheritedFailures = new Map<string, { ids: number[]; expiresAt: number }>();
-  /** `readInheritedBaseFailures()` for the base branch, cached for five minutes per head, base and failures. */
+
   async function inheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal): Promise<number[]> {
-    const key = JSON.stringify([snapshot.repository, snapshot.pr?.base?.ref, snapshot.pr?.base?.sha, snapshot.pr?.head?.sha, failureKeys(snapshot)]);
-    const cached = inheritedFailures.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.ids;
-    let ids: number[];
     try {
-      ids = await readInheritedBaseFailures(snapshot, signal);
+      return await readInheritedBaseFailures(snapshot, signal);
     } catch (error) {
       if (isAbortError(error)) throw error;
       await noteForgeQuota(error, "inherited-failures");
       return [];
     }
-    if (inheritedFailures.size >= 128) inheritedFailures.delete(inheritedFailures.keys().next().value!);
-    inheritedFailures.set(key, { ids, expiresAt: Date.now() + 5 * 60_000 });
-    return ids;
   }
 
   /** Why each failing current-head check outside the review checks fails. A cause the host cannot prove is `pr`. */
@@ -1059,9 +1052,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const prBase = isRuntimeRecord(live.base) ? live.base : {};
     const base = prBase.ref;
     if (!hasRuntimeType(head, "string") || head !== snapshot.pr?.head?.sha || !hasRuntimeType(base, "string") || !/^[a-f\d]{40}$/i.test(String(prBase.sha))) return { refused: "Inherited-check bypass target changed." };
-    const tip = await readOnePage(`repos/${repository}/git/ref/heads/${encodeURIComponent(base)}`, signal);
-    const baseSha = isRuntimeRecord(tip) && isRuntimeRecord(tip.object) ? tip.object.sha : undefined;
-    if (!hasRuntimeType(baseSha, "string") || !/^[a-f\d]{40}$/i.test(baseSha)) return { refused: "Inherited-check bypass base tip unavailable." };
+    const baseSha = await liveBaseTip(repository, base, signal);
+    if (!baseSha) return { refused: "Inherited-check bypass base tip unavailable." };
     const [owner, name] = repository.split("/");
     const [protection, rules, review, threads] = await Promise.all([
       // A branch without classic protection answers 404, and the bypass is then refused below.
@@ -1209,6 +1201,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   async function requiredCheckState(snapshot: Snapshot, signal?: AbortSignal, fold = false) {
     return (await requiredCheckEvaluation(snapshot, signal, fold))?.state ?? "unknown";
+  }
+
+  async function hasRepairableActionsFailure(snapshot: Snapshot, signal: AbortSignal) {
+    if (!failedOwnActions(snapshot, waitPolicy.pendingReviewChecks).length || await requiredCheckState(snapshot, signal) !== "failed") return false;
+    return !unrelatedFailureWait(await failureCauses(snapshot, signal), snapshot.pr?.base?.ref ?? "the base");
   }
 
   /** Times of the PR's repair pushes in the last 24 hours, kept while `dailyPushBudget` is set. */
@@ -1964,7 +1961,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // only while the budget refuses its repair push, and then gets the pass that pushes it.
             let reviewedRetryAt: number | undefined = Date.now() + 120_000;
             let pushWindowRetry = false;
-            if (dailyPushBudget !== false && await requiredCheckState(inboxClaim.snapshot) === "failed") {
+            if (isRuntimeRecord(assessment) && (dailyPushBudget !== false && await requiredCheckState(inboxClaim.snapshot) === "failed"
+              || await hasRepairableActionsFailure(inboxClaim.snapshot, passSignal))) {
               const window = await repairPushWindow(inboxClaim.snapshot, "failed", false);
               reviewedRetryAt = window && !window.allowed ? window.nextAt + 60_000 : undefined;
               pushWindowRetry = reviewedRetryAt !== undefined;
@@ -2765,7 +2763,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const severityContext = minorReviewRounds !== false && !settled ? `\n\n<automated-review-severity>\nSet automatedReview in the JSON result to the highest class of valid finding in the automated reviews of HEAD ${pullRequest.headRefOid}: "P0" (security hole, data loss or a broken main path), "P1" (a real bug on a supported path or a broken documented contract), "P2" (an edge case, a missing test or a docs gap), "P3" (style or a nit), or "none" when they have no valid finding. A fixed or false finding has no class. Omit it when no automated review of that head exists yet. After ${minorReviewRounds} heads in a row with nothing above P2, bot feedback and review checks no longer start passes.\n</automated-review-severity>` : "";
               const convergenceContext = reviewConvergencePushes !== false && !settled && reviewPushes >= reviewConvergencePushes ? `\n\n<review-convergence>\nThis PR already has ${reviewPushes} review-driven repair pushes. Before you fix a finding, check whether it is another case of a class that an earlier push or thread already addressed. If it is, do not patch the new case: change the approach so that the whole class cannot occur (for example, narrow the contract or report an unknown value as unknown), in this one push, and say so in the thread replies. If no such change fits this PR's scope, decline the remaining P2 cases of that class with outcome declined.\n</review-convergence>` : "";
               const conflictContext = preparedConflicts?.resolved.length ? `\n\n<host-resolved-conflicts>\nThe host resolved and staged these merge conflicts mechanically. Review them instead of redoing them:\n${preparedConflicts.resolved.slice(0, 50).map(({ path, rule }) => `- ${path} (${rule})`).join("\n")}\n${preparedConflicts.remaining.length ? `Still conflicted: ${preparedConflicts.remaining.slice(0, 50).join(", ")}.` : "No conflicted file remains; review the merge, validate it and pass these paths to commitRepair."}\n</host-resolved-conflicts>` : "";
-              const userMessage = `${prompt}${mainRepairContext}${resumeContext}\n\n${snapshotContext}${installContext}${conflictContext}${pushContext}${severityContext}${convergenceContext}`;
+              const inheritedIds = await inheritedBaseFailures(inboxClaim.snapshot, passSignal);
+              const attributionContext = inheritedIds.length ? `\n\n<live-base-attribution>\nThe host verified matching CI failures on the live base tip for these current-head check IDs: ${inheritedIds.join(", ")}.\n</live-base-attribution>` : "";
+              const userMessage = `${prompt}${mainRepairContext}${resumeContext}\n\n${snapshotContext}${installContext}${conflictContext}${pushContext}${severityContext}${convergenceContext}${attributionContext}`;
               assertPromptFits(userMessage);
               schedulerEvent("babysitter.context.prepared", {
                 repository,
@@ -2863,8 +2863,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           // With direct merges, a reviewed head stays assessed when the pass parks on an external reason such as
           // a failing approval check. Otherwise a PR with no P0 or P1 findings can pass again and again and never merge.
           // Required checks, conflicts and the merge gate still decide the merge.
-          const assessed = (passResult?.wait?.kind !== "external" || merge.mode === "direct") && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
+          const reportedAssessment = (passResult?.wait?.kind !== "external" || merge.mode === "direct") && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
             && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.holdsClaimedHead(inboxClaim);
+          const rejectedAssessment = reportedAssessment && await hasRepairableActionsFailure(current, passSignal);
+          const assessed = reportedAssessment && !rejectedAssessment;
           if (assessed) await recordAssessment(inboxClaim.snapshot, { head: pullRequest.headRefOid, evidenceKey: mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy) });
           // A push alone proves nothing, but a pass that reports its own pushed head as reviewed inspected the
           // feedback it was given. Record that feedback only, never the head's check evidence, so the next
@@ -2884,8 +2886,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // the same head again, so the budget bounds these passes.
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
               wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason) });
-          } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid
-            || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
+          } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (hasPendingChecks(inboxClaim.snapshot, waitPolicy)
+            || !rejectedAssessment && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid))) {
             // A reproduced external gate waits on this head until its evidence changes.
             outcome = "waiting";
             // Preserve the declared head across check progress. Wait evaluation

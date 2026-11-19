@@ -146,7 +146,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
 
 export function createCloudflareKVStorage(options: Record<string, unknown>): unknown {
   const driver = createCloudflareDriver(options)
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The storage object is extended only with the driver-backed listKeys method.
   // SAFETY: createKVStorage returns an extensible storage object; listKeys is installed before it escapes.
   const storage = createKVStorage(driver) as unknown as Record<string, unknown>
   storage.listKeys = (listOptions: KVListOptions) => driver.listKeys({ ...listOptions, prefix: normalizeKVListPrefix(listOptions.prefix) })
