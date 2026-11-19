@@ -64,6 +64,9 @@ describe("docus content", () => {
     [{ "content.config.ts": "export default {}\n" }, /custom Docus collections/],
     [{ "content/Getting Started.md": "# Intro\n" }, /existing Docus URL slug/],
     [{ "content/index.md": "# Home\n[Setup](./1.setup.md)\n", "content/1.setup.md": "# Setup\n" }, /local Markdown file links/],
+    [{ "content/index.md": "# Home\n[Guide](<./Getting Started.md>)\n" }, /local Markdown file links/],
+    [{ "content/index.md": "# Home\n[Guide][guide]\n\n[guide]: <./Getting Started.md#setup>\n" }, /local Markdown file links/],
+    [{ "content/index.md": "# Home\n\n>```md\n>Example\n\n[Setup](./1.setup.md)\n" }, /local Markdown file links/],
     [{ "content/index.md": "---\nseo: [\n---\n" }, /Expected a YAML mapping/],
     [{ "app.config.ts": "const description = 'Example'; export default defineAppConfig({ seo: { description } })\n" }, /computed seo.description/],
   ])("stops before unsafe edits (%j)", async (files, message) => {
@@ -136,6 +139,13 @@ describe("docus content", () => {
     expect(code).toContain("title: Actual title")
     expect(code).toContain("::note\nNote.")
     expect(followUps).toEqual([])
+  })
+
+  it("leaves a fenced example in a compact blockquote untouched", () => {
+    const example = ">```md\n>[Setup](./1.setup.md)\n>::callout\n>```\n"
+    const { code } = movePage("content/index.md", `${example}\n# Actual title\n`, undefined)
+    expect(code).toContain(example)
+    expect(code).toContain("title: Actual title")
   })
 
   it.each([

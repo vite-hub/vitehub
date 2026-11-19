@@ -9,6 +9,7 @@ const navigationFields = new Set(["title", "order", "group", "kind", "panel"])
 const seoFields = new Set(["title", "description", "image", "index"])
 const sectionFields = new Set(["title", "icon", "order", "category", "group", "fold", "related"])
 const layouts = new Set(["article", "tutorial", "landing", "home"])
+const localMarkdownLink = /(?:\]\(|\]:\s*|href\s*=\s*["'])\s*(?:<(?![a-z][\w+.-]*:|\/\/)[^<>\n]+\.md(?:[?#][^<>\n]*)?>|(?![a-z][\w+.-]*:|\/\/)[^\s<)>"']+\.md(?:[\s)>"'#?]|$))/i
 
 export function stripOrder(segment: string): { name: string, order?: number } {
   const match = /^\d+(?:\.\d+)+$/.test(segment) ? null : /^(\d+)\.(.+)$/.exec(segment)
@@ -105,21 +106,24 @@ export function movePage(file: string, code: string, order: number | undefined):
 
   const lines = body.split("\n")
   const firstBodyLine = closing ? code.slice(0, code.length - body.length).split("\n").length : 1
-  let fence: { marker: string, topLevel: boolean } | undefined
+  let fence: { marker: string, topLevel: boolean, quoteDepth: number } | undefined
   let title = typeof frontmatter.title === "string" ? frontmatter.title : undefined
   const output = lines.flatMap((text, index) => {
     const topLevel = /^ {0,3}(?:`{3,}|~{3,})/.test(text)
-    const marker = /^[ \t]*(?:(?:>|[-+*]|\d+[.)])[ \t]+)*(`{3,}|~{3,})(.*)$/.exec(text)
+    const container = /^[ \t]*(?:>[ \t]*|(?:[-+*]|\d+[.)])[ \t]+)*/.exec(text)?.[0] ?? ""
+    const quoteDepth = container.split(">").length - 1
+    const marker = /^(`{3,}|~{3,})(.*)$/.exec(text.slice(container.length))
+    if (fence && quoteDepth < fence.quoteDepth) fence = undefined
     if (fence) {
-      if (marker && (!fence.topLevel || topLevel) && marker[1]![0] === fence.marker[0] && marker[1]!.length >= fence.marker.length && !marker[2]!.trim()) fence = undefined
+      if (marker && quoteDepth === fence.quoteDepth && (!fence.topLevel || topLevel) && marker[1]![0] === fence.marker[0] && marker[1]!.length >= fence.marker.length && !marker[2]!.trim()) fence = undefined
       return [text]
     }
-    if (marker) {
-      fence = { marker: marker[1]!, topLevel }
+    if (marker && !(marker[1]!.startsWith("`") && marker[2]!.includes("`"))) {
+      fence = { marker: marker[1]!, topLevel, quoteDepth }
       return [text]
     }
     if (/^(?: {4}|\t)/.test(text)) return [text]
-    if (/(?:\]\(|\]:\s*|href\s*=\s*["'])(?:\s*<?)(?![a-z][\w+.-]*:|\/\/)[^\s)>"']+\.md(?:[\s)>"'#?]|$)/i.test(text)) {
+    if (localMarkdownLink.test(text)) {
       throw codemodError(`${file}:${firstBodyLine + index}: Convert local Markdown file links to their Nuxt Content page URLs before migrating.`)
     }
     const heading = /^ {0,3}# +(.+?)(?: +#+)?\s*$/.exec(text)
