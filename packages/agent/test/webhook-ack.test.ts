@@ -212,7 +212,7 @@ describe("webhook acknowledgement after store", () => {
     await vi.waitFor(async () => expect((await inbox())[0]).toMatchObject({ attempts: 1 }))
     const [left] = await inbox()
 
-    // The next process starts ten minutes later, past the 300 second stripe-sha256 tolerance.
+    // The next process starts ten minutes later, past the 5 minute stripe tolerance.
     const now = Date.now
     vi.spyOn(Date, "now").mockImplementation(() => now() + 600_000)
     setStatus(503)
