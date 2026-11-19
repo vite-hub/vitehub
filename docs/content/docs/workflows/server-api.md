@@ -37,6 +37,8 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+ViteHub writes the names and payload types of your Workflows to `.vitehub/workflow.d.ts`, so a misspelled name or a wrong payload is a type error in `startWorkflow()` and `deferWorkflow()`.
+
 `startWorkflow()` returns `[error, run]`. Check `error` before you use `run`. A provider failure, an unsupported option, an invalid run `id`, or an invalid `delay` is `error`, and its `code` is a `WorkflowResultErrorCode`. A setup error, such as a Workflow name that does not exist or a disabled Workflow, throws. `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` follow the same rule.
 
 Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. The id that you pass is the run id: `startWorkflow()` returns it, and `getWorkflowRun()` and `cancelWorkflow()` take it, on Cloudflare, OpenWorkflow, and inline runs. A second start with the same id returns the first run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
@@ -134,11 +136,11 @@ export default defineEventHandler(async (event) => {
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
 const [error, run] = await welcome.start({ email: "ada@example.com" })
 // welcome.start() is a type error.
 ```
 
-Functions that take a workflow name do not infer a handler from the string, and stored run results stay `unknown`.
+`startWorkflow()` and `deferWorkflow()` read the payload type of a discovered Workflow from `.vitehub/workflow.d.ts`. A Workflow that code creates with `createWorkflow()` is not in that file, so use its handle. Stored run results stay `unknown`.

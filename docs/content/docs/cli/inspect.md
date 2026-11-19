@@ -87,7 +87,7 @@ Packages contribute inspection through `vitehub.inspect` on their Vite plugin. T
 
 ## Run any operation
 
-Every package [operation](/docs/development/operations) is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section (or its `cli.namespace`), and the command is its verb (or its `cli.command`), so `agents.list` is `vitehub agents list`. `vitehub inspect definitions --kind operation` lists each operation and its command. `vitehub <namespace> <command> --help` shows the input.
+Every package [operation](/docs/console/operations) is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section (or its `cli.namespace`), and the command is its verb (or its `cli.command`), so `agents.list` is `vitehub agents list`. `vitehub inspect definitions --kind operation` lists each operation and its command. `vitehub <namespace> <command> --help` shows the input.
 
 ```bash [Terminal]
 pnpm vitehub agents list
@@ -122,7 +122,7 @@ Flags come from the input's JSON Schema:
 
 Without `--url`, a command calls its own project's dev server, found in `.vitehub/dev-server.json` (`{ url, root }`). The dev server writes this file when it listens and removes it when it closes. Without it, the command uses `VITEHUB_DEV_SERVER_URL`. With neither, it fails with `CLI_R0005`. It never guesses `localhost:5173`, because another project may use that port. The dev RPC names its project in a response header, and the command stops with `INTERNAL_R0025` when it is another project. A Nuxt dev server does not write the file, so pass `--url` or set `VITEHUB_DEV_SERVER_URL`.
 
-A command does not sign its calls to the dev server that it finds. When that dev server takes only [signed calls](/docs/development/console#sign-console-requests), as with `console: true`, the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command signs its calls to the dev server too.
+A command does not sign its calls to the dev server that it finds. When that dev server takes only [signed calls](/docs/console/signed-requests), as with `console: true`, the command fails with `401`, and its fix names the `--url` to pass. With `--url`, the command signs its calls to the dev server too.
 
 A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. A bad flag value fails with `CLI_R0003` and the usage line. Two operations with the same namespace and command fail the build and the CLI load with `INTERNAL_B0049`. A hand-written command with the same name as a generated one runs instead, as `vitehub content edit` does.
 

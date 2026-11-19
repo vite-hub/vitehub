@@ -11,7 +11,7 @@ import type { DocsDevFiles, DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 import { docsAgentCopy } from "../src/agent-copy.ts"
 import { createDocsManifest } from "../src/manifest.ts"
-import { findDocsPage } from "../src/navigation.ts"
+import { docsMcpInstallLinks, findDocsPage } from "../src/navigation.ts"
 
 type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
@@ -379,6 +379,16 @@ describe("docs Nuxt setup", () => {
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
+  })
+
+  it("skips HTTP checks for MCP app install links but not web links", async () => {
+    const options = await setupDocs({})
+    const exclusions: Array<string | RegExp> = Reflect.get(options, "linkChecker").excludeLinks
+    const excluded = (link: string) => exclusions.some(filter => typeof filter === "string" ? filter === link : filter.test(link))
+    const { cursor, vscode } = docsMcpInstallLinks({ name: "fixture", url: "https://docs.example.com/mcp" })
+    expect(excluded(cursor)).toBe(true)
+    expect(excluded(vscode)).toBe(true)
+    expect(excluded("https://docs.example.com/mcp/install")).toBe(false)
   })
 
   it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
