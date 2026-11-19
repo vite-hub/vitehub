@@ -252,6 +252,11 @@ export interface CommentReplyInput {
   body: string
   mentions?: string[]
   attachments?: string[]
+  /**
+   * A retry key, such as `crypto.randomUUID()`, kept for one draft. A second reply with the same key in the same
+   * thread returns the thread with the first message and adds nothing.
+   */
+  requestId?: string
 }
 
 export interface CommentEditInput {

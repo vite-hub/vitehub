@@ -295,6 +295,29 @@ it("returns the first thread when create retries with the same requestId", async
   expect(await store.list({})).toHaveLength(4)
 })
 
+it("returns the first message when a reply retries with the same requestId, and announces it once", async () => {
+  const ben = { id: "ben", name: "Ben" }
+  const onMention = vi.fn()
+  const users = createAuthUsers(() => ({ $context: Promise.resolve({ internalAdapter: { listUsers: async () => [ben] } }) }))
+  const store = setup(defineComments({ authorize: () => true, onMention }), users)
+  const thread = await create()
+  const reply = { threadId: thread.id, body: "Fixed, @Ben.", mentions: [ben.id], requestId: "reply-1" }
+  const first = await call("comments.reply", reply)
+  expect(first.ok).toBe(true)
+  expect(await call("comments.reply", { ...reply, body: "Fixed, again." })).toEqual(first)
+  expect(await call("comments.reply", reply, admin)).toMatchObject({ ok: false, status: 409, code: "COMMENTS_R0022" })
+  expect((await store.getById(thread.id))?.messages.map(message => message.body)).toEqual(["Review this page.", "Fixed, @Ben."])
+  await Promise.all(pending)
+  expect(onMention).toHaveBeenCalledOnce()
+
+  // Two sends of one reply at once, such as two tabs: the primary key keeps one, and the other gets it back.
+  const [a, b] = await Promise.all([call("comments.reply", { ...reply, requestId: "reply-2" }), call("comments.reply", { ...reply, requestId: "reply-2" })])
+  expect(a).toEqual(b)
+  expect((await store.getById(thread.id))?.messages).toHaveLength(3)
+  await Promise.all(pending)
+  expect(onMention).toHaveBeenCalledTimes(2)
+})
+
 it("refuses a requestId that another author or a hidden thread already uses", async () => {
   const hidden = new Set<string>()
   const store = setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden.has(thread.id) }))

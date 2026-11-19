@@ -171,7 +171,7 @@ export interface CommentsStore {
   createThread: (input: NewThread) => Promise<CommentThread>
   /**
    * Adds a message. A resolved thread takes it only with `allowResolved`; otherwise it fails with `COMMENTS_R0016`,
-   * checked in the same statement as the insert.
+   * checked in the same statement as the insert. A message id that is already stored fails with `COMMENTS_R0022`.
    */
   addMessage: (threadId: string, input: NewMessage, options?: { allowResolved?: boolean }) => Promise<CommentThread>
   editMessage: (threadId: string, messageId: string, input: { body: string, mentions: string[], now: number }) => Promise<CommentThread>
@@ -411,6 +411,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     async addMessage(threadId, input, { allowResolved = false } = {}) {
       const before = await one(threadId)
       if (before.status === "resolved" && !allowResolved) throw commentsErrorDiagnostics.COMMENTS_R0016()
+      if (before.messages.some(message => message.id === input.id)) throw commentsErrorDiagnostics.COMMENTS_R0022()
       await together(target => [
         // Lock the thread before reading its messages. Deletion takes the same lock, and an insert after deletion
         // selects no thread. This also serializes replies so their timestamps preserve insertion order. A resolved
@@ -421,7 +422,10 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
           ${input.actor ? JSON.stringify(input.actor) : null}, ${JSON.stringify(input.mentions)}, ${JSON.stringify(input.attachments)},
           ${threads.updatedAt}, null
           from ${threads} where ${threads.id} = ${threadId}${allowResolved ? sql`` : sql` and ${threads.status} = 'open'`}`),
-      ])
+      ]).catch((error: unknown) => {
+        // A retry of the same reply won the race: its id is the primary key.
+        throw isUniqueViolation(error) ? commentsErrorDiagnostics.COMMENTS_R0022() : error
+      })
       const after = await one(threadId)
       // Someone resolved the thread between the read and the insert: the insert selected no row.
       if (!after.messages.some(message => message.id === input.id)) throw commentsErrorDiagnostics.COMMENTS_R0016()

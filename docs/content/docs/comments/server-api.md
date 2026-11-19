@@ -73,7 +73,9 @@ export default defineEventHandler(async (event) => {
 | `getByNumber(scope, n)` | Thread `#n` of a scope, such as `site`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByMessage(messageId)` | The thread holding a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `create({ subject?, page?, anchor?, context?, metadata?, revision?, requestId?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number in its scope. Give `subject`, or `page` for a page subject. `anchor` defaults to `{ kind: 'page' }`. Runs `onComment` and `onMention`. With `requestId`, a retry by the same author for the same subject returns the first thread and runs no hooks. Another author or subject with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, actor?, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with open threads until someone resolves it again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `reply(threadId, { body, author, actor?, mentions?, attachments?, requestId? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with open threads until someone resolves it again. With `requestId`, a retry by the same author in the same thread returns the first message and runs no hooks. Another author with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `findThread({ subject?, page?, requestId })` | The thread that a `create` with this `requestId` stored in the scope of the subject, or `null`. It does not compare authors: `create` does. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `findReply(threadId, requestId)` | The message that a `reply` with this `requestId` stored in the thread, or `null`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and its messages. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -84,6 +86,24 @@ export default defineEventHandler(async (event) => {
 | `can({ user, action, thread?, subject? }, gate?)` | `true` when `authorize` allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, syncs the thread's pull request comments now, and retries failed posts. | None |
 | `flush()` | Nothing. Waits for pending pull request syncs and `onMention` calls. | None |
+
+A route of your own can do work for a comment before it calls `create` or `reply`, such as storing pasted images. Look up the retry key first, so a retry does that work once:
+
+```ts [server/api/feedback/[id]/replies.post.ts] fragment
+import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { comments } from '../../../comments'
+
+export default defineEventHandler(async (event) => {
+  const threadId = getRouterParam(event, 'id')!
+  const { body, requestId } = await readBody<{ body: string, requestId: string }>(event)
+  const [findError, earlier] = await comments.findReply(threadId, requestId)
+  if (findError) throw findError
+  if (earlier) return earlier
+  const [error, message] = await comments.reply(threadId, { body, requestId, author: { id: 'support-bot', name: 'Support bot' } })
+  if (error) throw error
+  return message
+})
+```
 
 Comments normalizes `page` before storing or comparing: it drops the query and hash, joins repeated slashes, and removes a trailing slash. `/pricing/?plan=pro#faq` becomes `/pricing`.
 
@@ -265,7 +285,7 @@ The routes run the same actions and checks as the [comment operations](/docs/com
 | `GET /threads/:id` | `read` | One thread, or `null` when it is missing or the reader may not read it. |
 | `GET /scopes/:scope/threads/:n` | `read` | Thread `#n` of a scope, such as `site`, or `null`. |
 | `POST /threads` | `read` and `write` | Starts a thread from `comments.create` input: `{ subject, anchor?, body, mentions?, attachments?, metadata?, revision?, requestId? }`. `page` may replace `subject`, and a page thread may carry the overlay's `context`. `mentions` are ids. |
-| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments? }`. Returns the message as `data` and the thread as `thread`. A resolved thread returns `COMMENTS_RESOLVED`. |
+| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments?, requestId? }`. Returns the message as `data` and the thread as `thread`. A resolved thread returns `COMMENTS_RESOLVED`. A retry with the same `requestId` returns the first message. |
 | `PATCH /threads/:id/comments/:messageId` | Your own message | Changes its text with `{ body, mentions? }`. Returns the thread. |
 | `POST /threads/:id/resolve`, `POST /threads/:id/reopen` | `resolve` | Resolves or reopens the thread. |
 | `DELETE /threads/:id` | `write` when every message is yours, else `delete` | Deletes the thread. Returns `null`. |

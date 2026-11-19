@@ -8,7 +8,7 @@ import { commentThreadSummary, commentThreadsText, describeCommentThread, hidden
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath, pagePathOf } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { attachmentThread, base64, can, createThread, deniedError, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, storeAttachment, suggest } from "./service.ts"
+import { attachmentThread, base64, can, createThread, deniedError, earlierReply, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, retriedReply, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
@@ -230,7 +230,7 @@ const listInput = v.strictObject({
 })
 const getInput = v.union([v.strictObject({ id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })])
 const createInput = v.strictObject({ anchor, attachments, body: text, mentions, metadata, requestId: v.optional(requestIdSchema), revision: v.optional(revision), subject })
-const replyInput = v.strictObject({ attachments, body: text, mentions, threadId: id })
+const replyInput = v.strictObject({ attachments, body: text, mentions, requestId: v.optional(requestIdSchema), threadId: id })
 const editInput = v.strictObject({ body: text, mentions, messageId: id, threadId: id })
 const deleteInput = v.strictObject({ messageId: v.optional(id), threadId: id })
 const usersInput = v.strictObject({
@@ -316,6 +316,9 @@ export const commentActions = {
   /** `allowResolved`: the operations keep a reply box on resolved threads, and a reply keeps the thread resolved. */
   async reply(input: CommentReplyInput, who: CommentsCaller, options: { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
     const found = await load(who, input.threadId)
+    // A retry gets the first message even when the caller lost write access or the thread was resolved since then.
+    const earlier = await earlierReply(found, input.requestId)
+    if (earlier) return retriedReply(found, earlier, author(who))
     await allow(who, "write", { thread: found })
     await limitGuest(who)
     return replyToThread(who.runtime, found, {
@@ -323,6 +326,7 @@ export const commentActions = {
       author: author(who),
       ...(input.mentions ? { mentions: input.mentions } : {}),
       ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
       ...(who.actor ? { actor: who.actor } : {}),
     }, { allowResolved: options.allowResolved === true, ...writeOptions(who) })
   },
@@ -470,7 +474,7 @@ const create = defineOperation({
 })
 
 const reply = defineOperation({
-  description: "Add a message to a comment thread, for example to say what you changed. A resolved thread stays resolved.",
+  description: "Add a message to a comment thread, for example to say what you changed. A resolved thread stays resolved. Send the same `requestId` again to retry: you get the first message, not a second one.",
   input: replyInput,
   kind: "write",
   name: "comments.reply",
