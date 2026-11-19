@@ -81,7 +81,7 @@ export type KVVitePlugin = Plugin & {
   api: KVVitePluginAPI
   nitro: {
     name: string
-    setup: (nitro: { options: NitroCloudflareKVTarget }) => void
+    setup: (nitro: KVNitroBuild) => void
   }
   vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
@@ -287,6 +287,17 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
+/** The part of Nitro's prerender config that KV changes. */
+interface KVPrerenderConfig {
+  virtual?: Record<string, string | (() => string)>
+}
+
+/** The parts of a Nitro build that KV changes. */
+interface KVNitroBuild {
+  hooks?: { hook: (name: "prerender:config", callback: (config: KVPrerenderConfig) => void) => unknown }
+  options: NitroCloudflareKVTarget
+}
+
 interface NitroCloudflareKVTarget {
   handlers?: unknown[]
   kv?: Record<string, unknown>
@@ -427,6 +438,15 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       setup(nitro) {
         nitroOptions = nitro.options
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
+        // config import there. Nitro copies its virtual modules into that build.
+        nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
+          // The prerenderer is a Node worker. Cloudflare stores use their local folders, and apps with Deno KV keep
+          // the runtime fallback. The prerenderer prints no store notice at boot.
+          const prerender = resolveKVViteConfig(options, { hosting: input.hosting, prerender: true })
+          if (prerender.kv && Object.values({ ...prerender.kv.stores, default: prerender.kv.store }).some(store => store.driver === "deno-kv")) return
+          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(prerender, databaseImport, true) }
+        })
       },
     },
     vitehub: {

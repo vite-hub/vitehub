@@ -81,6 +81,12 @@ export function directMergeBranchSafety(repository: unknown, pr: unknown, openCh
     && field(child, "base", "ref") === branch) ? stackChildBaseDeletion : true;
 }
 
+/** Whether a PR's head branch lives in another repository than `repository`, such as a fork. */
+export function isForkHead(pr: unknown, repository: string): boolean {
+  const headRepository = field(pr, "head", "repo", "full_name");
+  return hasRuntimeType(headRepository, "string") && headRepository.toLowerCase() !== repository.toLowerCase();
+}
+
 /** The head and base branch of a PR whose head branch lives in `repository`, which the host can push to. */
 export function sameRepositoryBranches(pr: unknown, repository: string): { head: string; base: string } | undefined {
   const head = field(pr, "head", "ref");

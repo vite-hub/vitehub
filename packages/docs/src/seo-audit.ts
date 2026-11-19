@@ -113,6 +113,7 @@ export interface DocsSeoOptions {
   endpoints?: readonly string[]
   /** Whether the site has `site.url`. Without it, pages have no canonical URL and no `og:url` to check. */
   siteUrl?: boolean
+  withSourceLocation?: (page: DocsSeoPage, field: "title" | "description", message: string) => string
 }
 
 /**
@@ -153,12 +154,13 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
 
   const indexed = pages.filter(page => !page.redirect && !page.noindex && (page.canonical === null || page.canonical === page.path))
   const { title, description, words } = docsSeoLimits
+  const withSourceLocation = options.withSourceLocation ?? ((_page, _field, message) => message)
   for (const page of indexed) {
     const at = page.path
     if (!page.title) problems.push(`${at} has no title. Set \`title\` in its frontmatter.`)
-    else if (page.title.length < title.min || page.title.length > title.max) problems.push(`${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`)
+    else if (page.title.length < title.min || page.title.length > title.max) problems.push(withSourceLocation(page, "title", `${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`))
     if (!page.description) problems.push(`${at} has no description. Set \`description\` in its frontmatter.`)
-    else if (page.description.length < description.min || page.description.length > description.max) problems.push(`${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`)
+    else if (page.description.length < description.min || page.description.length > description.max) problems.push(withSourceLocation(page, "description", `${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`))
     if (page.h1 !== 1) problems.push(`${at} has ${page.h1} h1 headings. Give it one.`)
     if (page.headingSkip) problems.push(`${at} skips a heading level, ${page.headingSkip}. Go down one level at a time.`)
     if (page.words < words) problems.push(`${at} has ${page.words} words. Write at least ${words}, or merge it into another page.`)

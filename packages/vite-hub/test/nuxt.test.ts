@@ -4821,6 +4821,29 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
   })
 
+  it("restarts the dev server when a Sync definition comes or goes, also before server/sync/ exists", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-restart-"))
+    try {
+      const development = createNuxt(true)
+      development.nuxt.options.rootDir = root
+      development.nuxt.options.serverDir = resolve(root, "server")
+      await viteHubNuxtModule({ host: "node" }, development.nuxt)
+
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "change")
+      await development.runBuilderWatchHook(resolve(root, "server/api/todos.ts"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/README.md"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.d.ts"), "add")
+      expect(development.nuxt.callHook).not.toHaveBeenCalledWith("restart")
+      await development.runBuilderWatchHook(resolve(root, "server/sync"), "addDir")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "add")
+      await development.runBuilderWatchHook("server/sync/todos.ts", "unlink")
+      expect(development.nuxt.callHook.mock.calls.filter(([name]) => name === "restart")).toHaveLength(3)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("clears Sync after a sign-out of ViteHub Auth, only when the app has Auth and server/sync/", async () => {
     const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-auth-"))
     try {
