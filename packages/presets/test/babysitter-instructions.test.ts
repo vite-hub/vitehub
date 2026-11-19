@@ -19,6 +19,13 @@ describe("Babysitter instructions", () => {
     expect(rendered).not.toContain("use wake:")
   })
 
+  // 2026-11-19: vitehub#4857, #4913, #4922 and #4614 reproduced flaky tests on main's code while main's CI
+  // passed them, reported them as inherited, and sat unmerged because the host only bypasses failures main's CI shows.
+  it("makes a flake that the base tip's CI passed the pass's work", () => {
+    expect(babysitterInstructions).toContain("Do not push for a check whose job fails the same way in the base tip's CI run")
+    expect(babysitterInstructions).toContain("fix the flake at its root in this PR and never report it as inherited")
+  })
+
   it("names no review service or repository", () => {
     expect(babysitterInstructions).not.toMatch(/pullfrog|codex-connector|vite-hub\/vitehub|repair-main/i)
   })
