@@ -239,6 +239,10 @@ A reply takes a `requestId` too. A second reply with the same `requestId` in the
 
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.
 
+### Outbox
+
+`createCommentsClient({ ..., outbox: { account } })` saves each new comment and reply in IndexedDB before it sends. Drafts show with `delivery: { status: "pending" }` and survive a reload. The outbox checks the author on each write and stores progress so another tab can resume. See [Write comments offline](https://vitehub.dev/docs/comments/offline).
+
 Without an explicit query `limit`, refresh loads every page. Multi-page refreshes require two matching scans before replacing the cache. If three scans cannot agree because the list keeps changing, refresh raises `COMMENTS_R0015` and preserves the previous cache; refresh again to retry. An explicit `limit` makes one request.
 
 ### Transport
@@ -246,14 +250,14 @@ Without an explicit query `limit`, refresh loads every page. Multi-page refreshe
 A transport is the seam to the server. Each method has the name and the input of one `comments.*` operation.
 
 ```ts
-import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentEvent, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentThread, CommentUser, CommentUsersInput } from "@vite-hub/comments"
+import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentEvent, CommentFiles, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentThread, CommentUser, CommentUsersInput } from "@vite-hub/comments"
 
 interface CommentsTransport {
   supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;
   get(input: CommentGetInput): Promise<CommentThread | null>; // { id } or { scope, n }
-  create(input: CommentCreateInput): Promise<CommentThread>;
-  reply(input: CommentReplyInput): Promise<CommentThread>;
+  create(input: CommentCreateInput & CommentFiles): Promise<CommentThread>; // `files` to store before the comment
+  reply(input: CommentReplyInput & CommentFiles): Promise<CommentThread>; // and `subject` of the thread, for the upload
   edit(input: CommentEditInput): Promise<CommentThread>;
   delete(input: CommentDeleteInput): Promise<CommentThread | null>;
   resolve(input: CommentStatusInput): Promise<CommentThread>;
@@ -264,6 +268,8 @@ interface CommentsTransport {
 ```
 
 A mutation returns the thread as it is afterwards. `delete` returns `null` when the thread is gone.
+
+Queued `create` and `reply` get `requestId`, the remaining `files`, and `outbox`. Check `outbox.account` against the current author on every server write, including file uploads. Await `outbox.uploaded(key)` for each stored file, add the keys to `attachments`, and return the first thread for a repeated `requestId` on the same target. `createRestTransport()` and `createRpcTransport()` do this. A thrown error with `status` tells the outbox whether to wait, and `retryAfter` in milliseconds tells it how long.
 
 Transports accept attachment keys by default, including the shipped `createRpcTransport()`. Custom transports that reject attachment keys should set `supportsAttachments: false` to disable file controls in comment surfaces.
 

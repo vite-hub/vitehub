@@ -739,10 +739,12 @@ export class PullRequestInbox {
     return true
   }
   /** Upgrade historical waiting results without synthetic webhooks or model passes. */
-  async backfillStatusDeliveries(): Promise<void> {
+  async backfillStatusDeliveries(signal?: AbortSignal): Promise<void> {
     for (const observed of await this.waitsToEvaluate(true, true)) {
+      signal?.throwIfAborted()
       await this.transaction(async tx => {
         const current = await this.getIn(tx, observed.repository, observed.number)
+        signal?.throwIfAborted()
         if (!current || current.lease || current.status !== 'waiting' || current.generation !== current.handled || current.generation !== observed.generation
           || (current.revision ?? 0) !== (observed.revision ?? 0)) return
         await this.enqueueStatusResult(tx, current, undefined, current.wait?.headSha)
@@ -1188,9 +1190,10 @@ export class PullRequestInbox {
     })
   }
   /** Leases up to `limit` eligible PRs. `skip` leaves a candidate unclaimed for this call. */
-  async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean } = {}): Promise<Claim[]> {
+  async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean; signal?: AbortSignal } = {}): Promise<Claim[]> {
     if (!this.repositories.length || limit < 1) return []
     return await this.transaction(async tx => {
+      options.signal?.throwIfAborted()
       const now = this.clock(), claims: Claim[] = [], t = this.tables
       const repositories = this.repositoryFilter('p.repository')
       // Columns select candidates; only these snapshots are parsed. A main repair comes first: a red base
@@ -1212,6 +1215,7 @@ export class PullRequestInbox {
           p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0,
         ...mainRepair === undefined ? [] : [mainRepair.length, mainRepair], ...this.priorityLabels])
       for (const candidate of candidates) {
+        options.signal?.throwIfAborted()
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
         // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
@@ -1219,6 +1223,7 @@ export class PullRequestInbox {
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
+        options.signal?.throwIfAborted()
         if (!s) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
         if (options.only && !options.only(s)) continue
@@ -1227,6 +1232,7 @@ export class PullRequestInbox {
         delete s.sourcePushOverflow
         await this.put(tx, s); claims.push({ token: s.lease, generation: s.generation, snapshot: structuredClone(s) })
       }
+      options.signal?.throwIfAborted()
       return claims
     })
   }
@@ -1558,18 +1564,21 @@ export class PullRequestInbox {
       return released
     })
   }
-  async recoverLeases(): Promise<void> {
+  async recoverLeases(signal?: AbortSignal): Promise<void> {
     // Only expired leases are recoverable, including when other processes share the database.
     await this.transaction(async tx => {
+      signal?.throwIfAborted()
       const now = this.clock()
       const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND lease IS NOT NULL AND lease_until<=?`, [this.scope, now])
       for (const row of rows) {
         const s = await this.getRowIn(tx, row)
+        signal?.throwIfAborted()
         if (!s?.lease || s.leaseUntil > now) continue
         s.lease = null; s.leaseUntil = 0
         if (s.status !== 'terminal') s.status = 'ready'
         await this.put(tx, s)
       }
+      signal?.throwIfAborted()
     })
   }
   async summary(): Promise<GitHubInboxSummary[]> {
@@ -1647,16 +1656,20 @@ export class PullRequestInbox {
     }
   }
   /** Drops delivery payloads after `payloadMs` and delivery IDs after `idMs`. Recent IDs still deduplicate redeliveries. */
-  async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5 }: { payloadMs?: number; idMs?: number } = {}): Promise<void> {
+  async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5, signal }: { payloadMs?: number; idMs?: number; signal?: AbortSignal } = {}): Promise<void> {
     const now = this.clock()
     // CI metadata and full logs share the delivery payload retention window.
     // Entries written before timestamps were introduced are expired too.
     await this.transaction(async tx => {
+      signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
         AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
           WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
+      signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
+      signal?.throwIfAborted()
       await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
+      signal?.throwIfAborted()
     })
   }
 }

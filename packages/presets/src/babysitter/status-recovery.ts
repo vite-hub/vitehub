@@ -107,11 +107,13 @@ export function createBabysitterStatusRecovery(options: {
         await inbox.recordWorkerBlocker(snapshot, revision);
       }
     },
-    async recover(): Promise<void> {
+    async recover(signal?: AbortSignal): Promise<void> {
       // A legacy host can finish its claim after this host's first scan.
       // The durable acknowledgement prevents repeat publication.
-      await inbox.backfillStatusDeliveries();
+      await inbox.backfillStatusDeliveries(signal);
+      signal?.throwIfAborted();
       for (const snapshot of await inbox.waitsToEvaluate(true, true)) {
+        signal?.throwIfAborted();
         if (!isWorkerBlocker(snapshot)) continue;
         const head = snapshot.pr?.head?.sha;
         const evidence = createHash("sha256").update(JSON.stringify(["worker-release", revision, head])).digest("hex");

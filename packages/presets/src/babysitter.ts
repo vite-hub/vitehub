@@ -57,8 +57,9 @@ export interface BabysitterPlacement {
   /**
    * Slots that hosts admit now, counting passes already running. A reconcile claims at most this
    * many PRs minus the active owners, so it never claims work that `place` must turn away.
+   * Stop the capacity check and discard a pending shared probe when the signal aborts.
    */
-  admitted?(): number | Promise<number>;
+  admitted?(signal?: AbortSignal): number | Promise<number>;
 }
 
 /** Where the Babysitter reports its state on each PR. Both need a verified GitHub App identity. */
