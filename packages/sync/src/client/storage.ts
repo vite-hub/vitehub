@@ -76,7 +76,11 @@ interface SyncStorage {
   takeResults: (ids: readonly string[]) => Promise<Map<string, unknown>>
   /** The ids that have writes in the outbox. */
   queuedIds: () => Promise<string[]>
-  clear: () => Promise<void>
+  /**
+   * Forgets every row, meta and action result, and the outbox. With `keepWrites`, the writes of an account stay in the
+   * outbox for it. A write made before the first pull has no account, and goes.
+   */
+  clear: (options?: { keepWrites?: boolean }) => Promise<void>
 }
 
 /** How long the storage keeps the result of an action that no tab read, in milliseconds. */
@@ -150,9 +154,14 @@ function createMemoryStorage(): SyncStorage {
     async queuedIds() {
       return [...names].filter(([, stored]) => stored.writes.length).map(([id]) => id)
     },
-    async clear() {
-      names.clear()
+    async clear(options) {
       results.clear()
+      if (!options?.keepWrites) return names.clear()
+      for (const [id, stored] of names) {
+        const writes = stored.writes.filter(write => write.account !== null)
+        if (writes.length) names.set(id, { meta: undefined, rows: new Map(), writes })
+        else names.delete(id)
+      }
     },
   }
 }

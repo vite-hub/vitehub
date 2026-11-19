@@ -224,6 +224,17 @@ export async function signOutEverywhere() {
 
 If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
 
+To clear the rows and keep the writes that wait, such as changes that a person made offline, pass `keepWrites: true`. Each write stays in IndexedDB with its account, hidden from the next person, and goes out when its person signs in again. Its promise stays pending until then. A write made before the first pull has no account, so it goes with the rows:
+
+```ts [app/composables/sign-out.ts] fragment
+import { clearSync } from 'vite-hub/sync/client'
+
+export async function signOut() {
+  await $fetch('/api/logout', { method: 'POST' })
+  await clearSync({ keepWrites: true })
+}
+```
+
 ## Refused writes
 
 A refused write leaves `rows`, so the row shows what the server has. The write goes to `failures`. Show them, and let the person try again or drop them:

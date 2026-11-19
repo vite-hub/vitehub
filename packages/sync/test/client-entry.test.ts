@@ -164,6 +164,31 @@ describe("createSync in the browser", () => {
     expect(server.applied).toEqual([])
   })
 
+  it("keeps the queued writes of each account on clearSync({ keepWrites: true }), and sends them when that account signs in again", async () => {
+    const server = createFakeSyncServer()
+    server.write({ id: "a", ownerId: "ada", title: "Milk" })
+    const store = open(server.fetch)
+    await store.refresh()
+    server.offline = true
+    const write = store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => store.getState().queued === 1)
+    await clearSync({ keepWrites: true })
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
+    expect(write.state).toBe("queued")
+    server.offline = false
+    server.user = "bob"
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready", rows: [], queued: 0 })
+    expect(server.applied).toEqual([])
+    await clearSync({ keepWrites: true })
+    server.user = "ada"
+    await store.refresh()
+    await expect(write).resolves.toMatchObject({ id: write.key, title: "Eggs", ownerId: "ada" })
+    expect(server.applied).toHaveLength(1)
+    expect(store.getState().rows.map(row => row.title).sort()).toEqual(["Eggs", "Milk"])
+  })
+
   it("sends writes from pre-upgrade keys, including a subset the page never reopens", async () => {
     const server = createFakeSyncServer()
     server.live = false

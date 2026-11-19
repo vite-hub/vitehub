@@ -1,8 +1,11 @@
 /** A page event that the store reacts to. */
 type SyncEvent = "online" | "offline" | "visible" | "hidden"
 
-/** A message between tabs. `change` tells that the stored copy of a Sync route changed. */
-type SyncMessage = { type: "change", id: string } | { type: "clear" }
+/**
+ * A message between tabs. `change` tells that the stored copy of a Sync route changed. `clear` tells that `clearSync()`
+ * ran, with `keepWrites` when it kept the queued writes of each account.
+ */
+type SyncMessage = { type: "change", id: string } | { type: "clear", keepWrites?: boolean }
 
 /** What the store needs from the browser. Tests pass a fake one. */
 interface SyncEnvironment {
@@ -97,8 +100,8 @@ function postOnce(message: SyncMessage): void {
 }
 
 /** Tells the other tabs that every store was cleared. */
-function postClear(): void {
-  postOnce({ type: "clear" })
+function postClear(keepWrites: boolean): void {
+  postOnce(keepWrites ? { type: "clear", keepWrites } : { type: "clear" })
 }
 
 export { createBrowserEnvironment, postClear }

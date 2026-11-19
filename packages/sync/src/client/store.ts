@@ -62,8 +62,11 @@ interface SyncStoreOptions {
 
 /** A store that `clearSync()` can empty. */
 interface SyncStoreWithReset<TRow, TArgs = Record<string, unknown>> extends SyncStore<TRow, TArgs> {
-  /** Forgets the rows and the queue in memory, and rejects the writes that wait. */
-  forget: () => void
+  /**
+   * Forgets the rows and the queue in memory, and rejects the writes that wait. With `keepWrites`, the writes of an
+   * account stay in storage and their promises stay pending, until a reload reads them again.
+   */
+  forget: (keepWrites?: boolean) => void
   /** Adds the optimistic functions of a later `createSync()` call that the store does not have yet. */
   addActions: (actions: Record<string, SyncOptimisticAction | undefined>) => void
 }
@@ -195,6 +198,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const results = new Map<string, unknown>()
   // Ids of writes on their way to storage. A new update does not merge into them.
   const storing = new Set<string>()
+  // The promises of the writes that `clearSync({ keepWrites: true })` kept, until a reload reads the writes again.
+  const parked = new Map<string, PendingWrite[]>()
 
   let meta: SyncMeta | undefined
   let confirmed = new Map<SyncKey, SyncRow>()
@@ -631,6 +636,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const removed = new Set(removals)
       writes = stored.writes.filter(write => !removed.has(write.seq))
       local = local.filter(write => !stored.writes.some(item => item.id === write.id))
+      // The writes that `clearSync({ keepWrites: true })` kept settle as any other write of the queue.
+      for (const write of writes) {
+        const handles = parked.get(write.id)
+        if (!handles) continue
+        parked.delete(write.id)
+        pending.set(write.id, [...pending.get(write.id) ?? [], ...handles])
+      }
       loaded = true
       if (status === "idle") status = "loading"
       version++
@@ -990,19 +1002,37 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     void schedule(true)
   })
   const stopMessages = environment.receive((message) => {
-    if (message.type === "clear") forget()
+    if (message.type === "clear") forget(message.keepWrites === true)
     else if (message.id === id) void reload()
   })
   tick()
   void schedule(true)
 
-  function forget(): void {
+  function forget(keepWrites = false): void {
+    const reason = new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write.")
+    if (keepWrites) {
+      // The writes of this tick go to storage first. A write gets the account of the stored copy there.
+      if (flushQueued && started) flush()
+      const kept = [...writes.filter(write => write.account !== null), ...local.filter(write => storing.has(write.id) && (write.account !== null || meta))]
+      for (const { id: mutationId } of kept) {
+        const handles = pending.get(mutationId)
+        if (!handles) continue
+        pending.delete(mutationId)
+        parked.set(mutationId, [...parked.get(mutationId) ?? [], ...handles])
+      }
+    }
+    else {
+      for (const handles of parked.values()) {
+        for (const handle of handles) handle.settle("rejected", reason)
+      }
+      parked.clear()
+    }
     generation++
     paused = true
     cancelRetry?.()
     cancelRetry = undefined
     version++
-    rejectPending(new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write."))
+    rejectPending(reason)
     meta = undefined
     confirmed = new Map()
     writes = []
