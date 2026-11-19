@@ -512,8 +512,8 @@ function readRemote(value: unknown, path: string): boolean | undefined {
 /**
  * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob or S3 store that env or the
  * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store keeps a dev runner's R2
- * binding, which is a local emulation, and uses `fs` without one, also with an explicit `driver`, because only the
- * `miniflare` runner has bindings. Netlify Blobs keeps the local sandbox of `netlify dev`. Another explicit `driver` is
+ * binding, which is a local emulation, and uses `fs` on the Node runner without one, also with an explicit `driver`.
+ * Netlify Blobs keeps the local sandbox of `netlify dev`. Another explicit `driver` is
  * used as configured. Builds ignore `remote`.
  */
 function applyDevelopmentMode(

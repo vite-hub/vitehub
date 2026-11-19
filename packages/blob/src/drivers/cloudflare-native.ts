@@ -69,6 +69,14 @@ export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig):
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
 }
 
+export function getCloudflareDevFallback(options: ResolvedCloudflareR2BlobStoreConfig) {
+  if (!options.localFallback || getOptionalBucket(options)) return undefined
+  if (globalThis.navigator?.userAgent === "Cloudflare-Workers") {
+    throw blobErrorDiagnostics.BLOB_R0001({ message: `R2 binding "${options.binding}" not found in the dev runner. Add a local R2 binding or use the Node dev runner for the filesystem fallback.` })
+  }
+  return options.localFallback
+}
+
 function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
   const binding = getOptionalBucket(options)
   if (!binding) {

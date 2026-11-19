@@ -85,7 +85,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   const nativeCloudflareR2 = stores
     .filter(store => store.driver === "cloudflare")
     .every(store => isCloudflareR2StoreWithBucket(store) && !store.remote)
-  // Only `vite dev` sets `localFallback`: the R2 store then uses this `fs` store when the dev runner has no R2 binding.
+  // The Node dev runner uses the `fs` fallback when it has no R2 binding.
   const localFallback = stores.some(store => store.driver === "cloudflare" && store.localFallback)
   const selectedDriverModules = [...new Set([
     ...stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)),
@@ -105,7 +105,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
   if (localFallback) {
-    imports.push(`import { getOptionalBucket } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("drivers/cloudflare-native")))}`)
+    imports.push(`import { getCloudflareDevFallback } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("drivers/cloudflare-native")))}`)
   }
   const runtimeStoreResolvers = [...new Set([
     ...stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean),
@@ -123,7 +123,12 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     const store = secrets ? "resolveRuntimeBlobSecrets(store, blobRuntimeEnv())" : "store"
     const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(${store}, process.env)` : store
     if (driver === "cloudflare" && localFallback) {
-      return `    case ${JSON.stringify(driver)}: return store.localFallback && !getOptionalBucket(store) ? ${driverImports[driverModules.fs]}(store.localFallback) : ${driverImport}(${storeExpression})`
+      return [
+        `    case ${JSON.stringify(driver)}: {`,
+        "      const local = getCloudflareDevFallback(store)",
+        `      return local ? { ...${driverImports[driverModules.fs]}(local), name: store.driver } : ${driverImport}(${storeExpression})`,
+        "    }",
+      ].join("\n")
     }
     return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
   }).filter(Boolean)

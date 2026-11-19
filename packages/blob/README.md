@@ -85,7 +85,7 @@ On Vercel, the `vercel` driver uses OIDC when the project has `BLOB_STORE_ID`, w
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the dev runner's emulated R2 binding. Without a binding, only the Node runner falls back to `fs`. With Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the store.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"

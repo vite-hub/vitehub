@@ -1493,6 +1493,17 @@ describe("blob runtime in vite dev", () => {
     expect(existsSync(join(base, "tasks/hello.txt"))).toBe(false)
   })
 
+  it("enforces the R2 key limit on the local filesystem fallback", async () => {
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+    const pathname = Array(6).fill("x".repeat(180)).join("/")
+
+    const [error] = await blob.put(pathname, "hello")
+
+    expect(error?.code).toBe("BLOB_PATHNAME_TOO_LONG")
+    expect(existsSync(join(base, pathname))).toBe(false)
+  })
+
   it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {
     const base = await localBase()
     const bucket = createMemoryBucket()

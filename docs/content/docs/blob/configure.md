@@ -85,7 +85,7 @@ export default defineConfig({
 
 ### Use the real store in development
 
-`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on the Node dev runner of `vite dev` and `nuxt dev`, it uses the local `fs` driver: `.vitehub/data/blob` for the default store and `.vitehub/data/blob-<name>` for a named store.
+`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, the Node runner in `vite dev` and `nuxt dev` uses the local `fs` driver: `.vitehub/data/blob` for the default store and `.vitehub/data/blob-<name>` for a named store. If you use Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the Blob store. Without it, Miniflare reports a missing binding instead of falling back to `fs`.
 
 Set `remote: true` to use the real store in `vite dev`:
 
