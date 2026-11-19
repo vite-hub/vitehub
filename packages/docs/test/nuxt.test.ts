@@ -1088,6 +1088,17 @@ describe("docs search checks", () => {
   })
 })
 
+it("uses the module-owned Takumi renderer in dev and prerender without shipping a runtime renderer", async () => {
+  const dependencies = await moduleDependencies({ options: { modules: [], alias: {}, docs: { comments: false } } })
+  const renderer = Object.entries(dependencies).find(([name]) => name.includes("nuxt-og-image"))?.[1]
+  expect(renderer).toMatchObject({
+    defaults: {
+      zeroRuntime: true,
+      compatibility: { dev: { takumi: "node" }, prerender: { takumi: "node" } },
+    },
+  })
+})
+
 describe("docs Comments", () => {
   /** A Nuxt app with these modules, `docs` options, and `@vite-hub/comments` installed unless `comments` is false. */
   function app(modules: unknown[], docs?: DocsModuleOptions, comments = true) {
