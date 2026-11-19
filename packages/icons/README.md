@@ -38,9 +38,12 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `kv` | KV |
 | `logs` | Logs |
 | `mcp` | MCP server |
+| `markdown-template` | Markdown templates |
+| `presets` | Agent presets |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
+| `runtime` | Runtime |
 | `sandbox` | Sandbox and Sandbox Tasks |
 | `schedule` | Schedule |
 | `shell` | Shell |

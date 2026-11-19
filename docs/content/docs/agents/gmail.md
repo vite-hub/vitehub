@@ -316,7 +316,7 @@ pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/cli/channels#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks).
 
 Gmail allows one active watch per mailbox. `channels sync` reads the mailbox profile first and stops before any change if you select more than one Gmail Channel for the same mailbox, even with different credentials.
 
@@ -461,4 +461,4 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/presets/labeller#clean-up-old-mail) and its `cleanup` option.

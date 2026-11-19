@@ -60,7 +60,7 @@ The success value is an `AgentRunResult`:
 
 ### Pass the host Runtime Context
 
-In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
+In a route, pass the host [Runtime Context](/docs/runtime/context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
 The route reads the signed-in user with a helper of the app:
 
@@ -157,7 +157,7 @@ for await (const event of events) {
 
 The tuple covers the start of the Invocation. An error during stream consumption reaches the reader of the stream.
 
-Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup).
 
 The stream ends when the caller reads all of it, cancels it, or gets an error. A caller that stops reading also stops observing completion.
 

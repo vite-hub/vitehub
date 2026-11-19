@@ -24,7 +24,7 @@ sets `readReplication`.
 
 `vitehub deploy` runs the same plan before each build on Cloudflare and Vercel,
 so you rarely need `provision run` yourself. See
-[Create the host resources](/docs/cli/deploy#deploy-from-your-machine).
+[Create the host resources](/docs/cli/project#create-the-host-resources).
 Both commands read credentials the same way: environment variables first, then
 a `wrangler login`. A Cloudflare login with several accounts needs
 `CLOUDFLARE_ACCOUNT_ID`.

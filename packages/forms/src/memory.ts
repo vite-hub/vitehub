@@ -30,5 +30,8 @@ export function createMemoryFormsStore(): FormsStore {
       row.updatedAt = now
       return copy(row)
     },
+    async deleteUser(userId) {
+      for (const [id, row] of rows) if (row.user?.id === userId) rows.delete(id)
+    },
   }
 }

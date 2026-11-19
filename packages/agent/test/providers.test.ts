@@ -454,8 +454,9 @@ describe("agent Vite plugin", () => {
     const evalFile = join(root, "support.eval.ts")
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support-helper.ts"), "export const name = 'support'\n", "utf8")
-      await writeFile(join(root, "server", "agents", "support.ts"), "import { name } from './support-helper.ts'\nexport default { name }", "utf8")
+      await mkdir(join(root, "server", "lib"), { recursive: true })
+      await writeFile(join(root, "server", "lib", "support-helper.ts"), "export const name = 'support'\n", "utf8")
+      await writeFile(join(root, "server", "agents", "support.ts"), "import { name } from '../lib/support-helper.ts'\nexport default { name }", "utf8")
       await writeFile(evalFile, "export default defineEval({})", "utf8")
       const plugin = hubAgent({
         providers: { state: { driver: "sqlite", url: "file:.data/state.sqlite" } },

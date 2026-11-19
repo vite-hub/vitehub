@@ -1,8 +1,7 @@
 ---
 title: Gmail Labeller preset
 description: Label Gmail messages with ordered rules and a constrained Jev fallback.
-navigation.order: 81
-navigation.group: Recipes
+navigation.order: 4
 icon: i-lucide-tags
 navigation.kind: Guides
 ---

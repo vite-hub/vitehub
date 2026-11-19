@@ -6,7 +6,7 @@ import { githubWorkspaceInstallError, isGitHubWorkspaceInstallError } from "../s
 it("gives the install codes a fix and their own docs page", () => {
   for (const error of [presetsErrorDiagnostics.PRESETS_GITHUB_DEPENDENCY_CONFLICT({ file: "package.json" }), presetsErrorDiagnostics.PRESETS_GITHUB_INSTALL_FAILED({ detail: "d" })]) {
     expect(error.fix).toMatch(/\S/)
-    expect(error.docs).toBe(`https://vitehub.dev/docs/agents/diagnostics/${error.code.toLowerCase()}`)
+    expect(error.docs).toBe(`https://vitehub.dev/docs/presets/diagnostics/${error.code.toLowerCase()}`)
   }
 })
 

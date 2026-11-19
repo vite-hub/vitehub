@@ -65,7 +65,7 @@ Inspect generated output to verify routes, bindings, or host wiring. Import it f
 | Host deployment files | Provider Output from the integration. |
 | Server code access | A documented package or generated import. |
 
-Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/reference/runtime-helpers), and [Provider Output](/docs/reference/provider-output) for details.
+Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/runtime/helpers), and [Provider Output](/docs/reference/provider-output) for details.
 
 ## Persistent Node storage
 
@@ -262,7 +262,7 @@ With the function form, pass the Agent name: `resolvePublicUrl({ agentName: "bot
 
 ### Register webhooks at the public URL
 
-When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/cli/channels#synchronize-channel-webhooks).
+When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/cli/agents#synchronize-channel-webhooks).
 
 ### Serve a Cloudflare Worker on its custom domain
 

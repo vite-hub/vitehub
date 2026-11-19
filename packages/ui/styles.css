@@ -537,6 +537,14 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+.vh-primitive-icon[data-icon="markdown-template"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
+.vh-primitive-icon[data-icon="presets"] {
+  --vh-primitive-icon-motion: translate(-1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="queue"] {
   --vh-primitive-icon-motion: translateX(2px);
 }
@@ -553,6 +561,10 @@
 
 .vh-primitive-icon[data-icon="reference"] {
   --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="runtime"] {
+  --vh-primitive-icon-motion: scale(0.6);
 }
 
 .vh-primitive-icon[data-icon="sandbox"] {

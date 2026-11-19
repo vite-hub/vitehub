@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or } from "drizzle-orm"
+import { and, desc, eq, lt, or, sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { formsDiagnostics, isFormsDiagnostic } from "./errors.ts"
@@ -118,6 +118,10 @@ export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDa
     setStatus: (id, status: FormStatus, now) => guarded("change a submission", async () => {
       const [row] = await db().update(formSubmissions).set({ status, updatedAt: now }).where(eq(formSubmissions.id, id)).returning()
       return row ? toSubmission(row) : undefined
+    }),
+    deleteUser: userId => guarded("delete the submissions of a user", async () => {
+      // `user` holds the JSON of `FormUser`. SQLite, libSQL, and D1 all have `json_extract()`.
+      await db().delete(formSubmissions).where(sql`json_extract(${formSubmissions.user}, '$.id') = ${userId}`)
     }),
   }
 }
