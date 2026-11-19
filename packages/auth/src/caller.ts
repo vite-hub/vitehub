@@ -16,7 +16,7 @@ export type AuthCaller =
   | {
     kind: "browser"
     user: AuthCallerUser
-    session: AuthAuthorization["session"]
+    session: AuthAuthorization<false>["session"]
   }
   | {
     kind: "agent"

@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
@@ -95,27 +95,30 @@ export interface AuthAccessRouteConfiguration {
 
 export type AuthAccessRoute = string | AuthAccessRouteConfiguration
 
-export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuthorizationContext<TEvent>
+export interface AuthAccessAuthorizationContext<TEvent = ViteHubContext> extends Pick<AnonymousAccessAuthorizationContext<TEvent>, "event" | "request"> {
+  session: Record<string, unknown>
+  user: Record<string, unknown> & { id: string }
+}
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
-export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent>
+export type AuthAccessAuthorize<TEvent = ViteHubContext> = (context: AuthAccessAuthorizationContext<TEvent>) => AuthAccessAuthorizeResult | Promise<AuthAccessAuthorizeResult>
 
 /** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<Omit<AuthAccessAuthorizationContext, "event"> & {
+export type AuthAuthorization<TRegistered extends boolean = true> = Readonly<Omit<AccessAuthorizationContext<ViteHubContext, TRegistered>, "event"> & {
   /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
-  session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
+  session: AccessAuthorizationContext<ViteHubContext, TRegistered>["session"] & { impersonatedBy?: string | null }
 }>
 
 /** A server handler that runs only after an Auth guard accepts the request. */
-export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
+export type AuthGuardedHandler<TInput, TResult, TRegistered extends boolean = true> = (input: TInput, authorization: AuthAuthorization<TRegistered>) => TResult | Promise<TResult>
 
 /** The checked request of a signed-out caller that `withAnonymousAuthorization()` accepted. */
 export type AuthAnonymousAuthorization = Readonly<Omit<AnonymousAccessAuthorizationContext, "event">>
-export type AuthAnonymousAuthorize<TEvent = ViteHubContext> = AnonymousAccessAuthorize<TEvent>
+export type AuthAnonymousAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = AnonymousAccessAuthorize<TEvent, TRegistered>
 
 /** A server handler that runs after `authorize` accepts a signed-in or signed-out caller. */
-export type AuthAnonymousGuardedHandler<TInput, TResult> = (
+export type AuthAnonymousGuardedHandler<TInput, TResult, TRegistered extends boolean = true> = (
   input: TInput,
-  authorization: AuthAuthorization | AuthAnonymousAuthorization,
+  authorization: AuthAuthorization<TRegistered> | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
 /** What `access.policy.allow` gets: the user, and the provider access tokens of the user's accounts. */
@@ -137,7 +140,7 @@ export interface AuthAccessPolicy {
 }
 
 export interface AuthAccessConfiguration {
-  routes?: AuthAccessRoute[]
+  routes?: readonly AuthAccessRoute[]
   /** Paths that no access route guards, in the same form as `routes`. With `routes: ['/**']`, these are the only paths a signed-out visitor reaches. */
   public?: string[]
   policy?: AuthAccessPolicy

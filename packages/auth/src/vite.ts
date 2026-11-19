@@ -250,9 +250,8 @@ function renderAuthAmbientTypes(options: { abilities?: string, client?: string, 
   ]
   const registry = entries.length ? [`interface AuthRegistry { ${entries.join("; ")} }`] : []
   if (options.definition) {
-    // `requireAuth()`, `withAuth()`, and every `authorize` callback read `user` and `session` from `@vite-hub/runtime`.
     const session = `import(${JSON.stringify(options.importBase ?? authPackageName)}).AuthFor<typeof import(${JSON.stringify(options.definition)}).default>["$Infer"]["Session"]`
-    registry.push(`interface AuthRegistry { user: ${session}["user"]; session: ${session}["session"] }`)
+    registry.push(`interface AuthRegistry { sessionResult: ${session} }`)
   }
   // The ServerEnv import makes this file a module, so its global names need `declare global`.
   if (options.serverEnv) {

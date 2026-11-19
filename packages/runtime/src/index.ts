@@ -97,32 +97,32 @@ const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
 declare global {
   namespace ViteHub {
-    /** Generated declarations set `user` and `session` to the types of the app's Auth Definition. */
+    /** Generated declarations set `sessionResult` to the result of the app's Auth Definition. */
     interface AuthRegistry {}
   }
 }
 
 /** The user of the app's Auth Definition, with the fields of its plugins. Without generated types, a record with an `id`. */
-type AccessUser = ViteHub.AuthRegistry extends { user: infer TUser extends { id: string } } ? TUser : Record<string, unknown> & { id: string }
+type AccessUser = ViteHub.AuthRegistry extends { sessionResult: { user: infer TUser extends { id: string } } } ? TUser : Record<string, unknown> & { id: string }
 /** The session of the app's Auth Definition. Without generated types, a record. */
-type AccessSession = ViteHub.AuthRegistry extends { session: infer TSession extends object } ? TSession : Record<string, unknown>
+type AccessSession = ViteHub.AuthRegistry extends { sessionResult: { session: infer TSession extends object } } ? TSession : Record<string, unknown>
 
 /** `TEvent` is the input of the guard, such as the H3 event of a Nitro route. */
-export interface AccessAuthorizationContext<TEvent = ViteHubContext> {
+export interface AccessAuthorizationContext<TEvent = ViteHubContext, TRegistered extends boolean = true> {
   /** The input of the guard: the H3 event in a Nitro route, so `event.context` and helpers that take the event work. */
   event: TEvent
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
-  session: AccessSession
-  user: AccessUser
+  session: TRegistered extends true ? AccessSession : Record<string, unknown>
+  user: TRegistered extends true ? AccessUser : Record<string, unknown> & { id: string }
 }
 
 export type AccessAuthorizeResult = boolean | Response
 
 /** Decides whether a signed-in user can access one request. Return `false` for `403` or a custom `Response`. */
-export type AccessAuthorize<TEvent = ViteHubContext> = (context: AccessAuthorizationContext<TEvent>) => MaybePromise<AccessAuthorizeResult>
+export type AccessAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = (context: AccessAuthorizationContext<TEvent, TRegistered>) => MaybePromise<AccessAuthorizeResult>
 
 /** `true` requires a signed-in session. A callback also decides each request after sign-in. */
-export type AccessAuthorizeOption<TEvent = ViteHubContext> = true | AccessAuthorize<TEvent>
+export type AccessAuthorizeOption<TEvent = ViteHubContext, TRegistered extends boolean = true> = true | AccessAuthorize<TEvent, TRegistered>
 
 /** A signed-out caller. `session` and `user` are `null`. */
 export interface AnonymousAccessAuthorizationContext<TEvent = ViteHubContext> {
@@ -136,8 +136,8 @@ export interface AnonymousAccessAuthorizationContext<TEvent = ViteHubContext> {
  * Decides whether a signed-in or signed-out caller can access one request.
  * Check `user` before you read it. Return `false` for `403` (`401` when signed out) or a custom `Response`.
  */
-export type AnonymousAccessAuthorize<TEvent = ViteHubContext> = (
-  context: AccessAuthorizationContext<TEvent> | AnonymousAccessAuthorizationContext<TEvent>,
+export type AnonymousAccessAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = (
+  context: AccessAuthorizationContext<TEvent, TRegistered> | AnonymousAccessAuthorizationContext<TEvent>,
 ) => MaybePromise<AccessAuthorizeResult>
 
 export interface ExecutionAuthority {

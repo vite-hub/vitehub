@@ -587,7 +587,7 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
 }
 
 type AuthCheck =
-  | { authorization: AuthAuthorization, response?: undefined }
+  | { authorization: AuthAuthorization<false>, response?: undefined }
   | { authorization?: undefined, response: Response }
 
 function reject(response: Response): AuthCheck {
@@ -823,7 +823,7 @@ async function checkAuthRequest(
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
   if (isRuntimeResponse(identity)) return reject(identity)
   if (identity || session) {
-    const authorization: AuthAuthorization = Object.freeze({
+    const authorization: AuthAuthorization<false> = Object.freeze({
       request,
       session: identity ? {} : session!.session,
       user: identity ?? session!.user,
@@ -864,13 +864,13 @@ async function checkAuthRequest(
 
 async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   input: TInput,
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
   if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
-  const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
+  const authorization: AuthAuthorization<false> = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
   return rejection.response ? reject(rejection.response) : { authorization }
@@ -884,6 +884,16 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
   authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext, false>,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult, false>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext, false>,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult, false>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
   if (typeof authorize !== "function") {
@@ -895,7 +905,7 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
   return async (input) => {
     const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
-    const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
+    const authorization: AuthAuthorization<false> | AuthAnonymousAuthorization = session
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
@@ -912,6 +922,14 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
  */
 export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuth<TInput extends AuthRequestInput, TResult>(
+  handler: AuthGuardedHandler<TInput, TResult, false>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuth<TInput extends AuthRequestInput, TResult>(
+  handler: AuthGuardedHandler<TInput, TResult, false>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
   if (typeof handler !== "function") {
@@ -932,6 +950,16 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
+  handler: AuthGuardedHandler<TInput, TResult, false>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
+  handler: AuthGuardedHandler<TInput, TResult, false>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
   if (authorize !== true && typeof authorize !== "function") {
@@ -981,7 +1009,7 @@ async function rejectionError(response: Response, code = refusalCodes.get(respon
   })
 }
 
-async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>): Promise<AuthAuthorization> {
+async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>): Promise<AuthAuthorization<false>> {
   const { authorization, response } = await check
   // A plain Fetch host gets the cookies on a copy of the refusal, so keep the code of the original.
   if (response) throw await rejectionError(sendSessionCookies(input, response), refusalCodes.get(response))
@@ -999,7 +1027,9 @@ async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>):
  * })
  * ```
  */
-export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<AuthAuthorization> {
+export function requireAuth(event: AuthRequestInput, definition?: undefined): Promise<AuthAuthorization>
+export function requireAuth(event: AuthRequestInput, definition: AuthDefinition | undefined): Promise<AuthAuthorization<false>>
+export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<AuthAuthorization<false>> {
   return requireCheck(event, checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
 }
 
@@ -1011,8 +1041,18 @@ export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition
 export function requireAuthorization<TInput extends AuthRequestInput>(
   event: TInput,
   authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  definition?: undefined,
+): Promise<AuthAuthorization>
+export function requireAuthorization<TInput extends AuthRequestInput>(
+  event: TInput,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
+  definition: AuthDefinition | undefined,
+): Promise<AuthAuthorization<false>>
+export function requireAuthorization<TInput extends AuthRequestInput>(
+  event: TInput,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
   definition?: AuthDefinition,
-): Promise<AuthAuthorization> {
+): Promise<AuthAuthorization<false>> {
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }

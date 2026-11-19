@@ -407,7 +407,7 @@ export default defineAuth({
 
 ## Typed user fields
 
-The default client and the server guards get their types from the Auth Definition. When the Definition adds user or session fields, with `additionalFields` or with a plugin such as `admin()`, `useUserSession()`, `requireAuth()`, `withAuth()`, and every `authorize` callback have these fields too. The client also has the session that `customSession()` returns.
+The default client and server guards get their types from the discovered Auth Definition. When the Definition adds user or session fields with `additionalFields` or a plugin such as `admin()`, `useUserSession()`, `requireAuth()`, and `withAuth()` have these fields too.
 
 ```ts [server/auth.ts]
 import { admin } from 'better-auth/plugins'
@@ -442,7 +442,9 @@ export default defineHandler(async (event) => {
 })
 ```
 
-- ViteHub writes the type of the Definition, its `user`, and its `session` to `.vitehub/types/auth.d.ts`. The client imports only this type, so no server code goes to the browser.
+- ViteHub writes the types of the Definition and its session result to `.vitehub/types/auth.d.ts`. The client imports only types, so no server code goes to the browser.
 - The Blob and Source `authorize` callbacks get the same `user` and `session` types.
+- A guard with an explicit Definition uses broad records instead of the app's types. The `access.routes` and `events` callbacks in the Definition also use broad records, so the Definition does not depend on its own generated types. Check a field's type before using it there.
+- With `customSession()`, the server guards and default client see the fields the callback returns. For a callback that passes `user` and `session` through, give `customSession()` the schema and plugin options as its second argument. Without those options, Better Auth types the callback inputs with only the base fields.
 - In Nuxt, the auto-imported `useUserSession()` has the same types.
 - A client from `createAuthClient()` does not get these fields. Add the Better Auth client plugins, such as `adminClient()` and `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` from `better-auth/client/plugins`. `RegisteredAuth` is a type from `vite-hub/auth`.
