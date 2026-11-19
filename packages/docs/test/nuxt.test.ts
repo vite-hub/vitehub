@@ -738,6 +738,68 @@ describe("docs Nuxt setup", () => {
     expect(await generated).toContain("New page")
   })
 
+  it("updates both manifests when a second save arrives before Nuxt evaluates the templates", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-overlapping-saves-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs/guide"), { recursive: true })
+    writeFileSync(join(content, "docs/guide/index.md"), "# Guide")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    const save = (title: string) => {
+      writeFileSync(join(content, "docs/guide/.navigation.yml"), `title: ${title}\n`)
+      watchContent.mock.calls[0]![2]!("change", "docs/guide/.navigation.yml")
+    }
+    const resume = Promise.withResolvers<void>()
+    const stop = Promise.withResolvers<undefined>()
+    let generated: string[] | undefined
+    const manifests = ["docs/manifest.mjs", "docs/app-manifest.mjs"]
+    updateTemplates.mockImplementationOnce(async () => {
+      await resume.promise
+      generated = await Promise.race([
+        Promise.all(manifests.map(filename => templates.get(filename)!())),
+        stop.promise,
+      ])
+    })
+    try {
+      save("First save")
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => expect(updateTemplates).toHaveBeenCalledTimes(1))
+      save("Second save")
+      resume.resolve()
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(() => {
+        expect(generated).toEqual(manifests.map(() => expect.stringContaining("Second save")))
+        expect(updateTemplates).toHaveBeenCalledTimes(2)
+      })
+    }
+    finally {
+      resume.resolve()
+      stop.resolve(undefined)
+    }
+  })
+
+  it.each(["add", "remove"])("restarts when a directory %s changes the inferred docs base", async (event) => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-inferred-base-"))
+    roots.push(content)
+    writeFileSync(join(content, "about.md"), "# About")
+    const docs = join(content, "docs")
+    if (event === "remove") mkdirSync(docs)
+    const options = await setupDocs({ dir: content }, "/", true)
+    expect(options.runtimeConfig.public.docs.base).toBe(event === "add" ? "/" : "/docs")
+    await callHook("vite:serverCreated", devServer().server)
+    if (event === "add") {
+      mkdirSync(join(docs, "guide"), { recursive: true })
+      writeFileSync(join(docs, "guide/index.md"), "# Guide")
+    }
+    else rmSync(docs, { recursive: true })
+    watchContent.mock.calls[0]![2]!("rename", "docs")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["Nitro does not run in Vite", false, "docs/new.md"],
     // The page route is mounted at `/docs` when Nuxt starts, and a page outside it moves the mount to `/`.

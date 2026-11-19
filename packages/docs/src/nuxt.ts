@@ -368,7 +368,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const sourceDirs = sources?.map((source, index) => source.dir ?? join(sourcesDir, `docs-${index}`))
     const contentDirsToWatch = sources ? sources.flatMap(source => source.dir ?? []) : [contentDir]
     const agentDir = join(nuxt.options.buildDir, "docs/agent")
-    const base = normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
+    const resolveBase = () => normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
+    const base = resolveBase()
     const manifestOptions = { dir: contentDir, base, sources: options.sources, rootDir: nuxt.options.rootDir, sections: options.sections }
     const config = publicConfig(options, base, nuxt.options.app.baseURL)
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
@@ -662,6 +663,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (nuxt.options.dev) {
       nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), examplesDir])]
       let timer: ReturnType<typeof setTimeout> | undefined
+      let reading = Promise.resolve()
       let regeneration = Promise.resolve()
       let closed = false
       let viteServer: DocsViteServer | undefined
@@ -704,21 +706,26 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         return true
       }
       const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
+      // Do not await restart here: Nuxt closes the watcher and drains these runs before restarting.
+      const restart = () => { void Promise.resolve(nuxt.callHook("restart")).catch(logError) }
       /** The changed files since the last run, or null when a watcher did not name one. */
       let changed: Set<string> | null = new Set()
+      let contentVersion = 0
       /** Reads the content again after a change of `file`, or of any file when the watcher did not name one. */
       function schedule(file: string | null) {
         if (file) changed?.add(file)
         else changed = null
+        const version = ++contentVersion
         startContentRead()
         clearTimeout(timer)
         timer = setTimeout(() => {
-          // A transform may be asynchronous. Each run must finish before another can replace its raw output.
-          regeneration = regeneration.then(async () => {
-            if (closed) return endContentRead()
-            const files = changed
-            changed = new Set()
+          const files = changed
+          changed = new Set()
+          // Serialize transforms, but let reads finish even while Nuxt is generating templates that wait for them.
+          const result = reading.then(async () => {
+            if (closed) return
             try {
+              if (resolveBase() !== base) return "restart" as const
               const next = await readDocsContent(manifestOptions)
               const previous = JSON.stringify(manifest)
               const copies = await writeAgentSources(next)
@@ -727,27 +734,40 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
               agentCopies = copies
               read = next
               manifest = next.manifest
-              endContentRead()
-              if (closed) return
               const manifestChanged = JSON.stringify(manifest) !== previous
-              const reloaded = (!manifestChanged || startupShape(manifest) === shape) && await reloadPages({
+              return {
                 // Without a file name, every page may have changed.
                 files: [...files ?? docsManifestPages(manifest).map(pageFile), ...copies],
-                manifest: manifestChanged,
-                list: manifestChanged || copiesChanged || files === null,
-              })
-              if (reloaded) return
-              // Nuxt's watcher skips the build folder, so Vite learns about changed copies only from here.
-              for (const file of copies) viteServer?.watcher.emit("change", file)
-              // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
-              if (manifestChanged || copiesChanged) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+                copies,
+                copiesChanged,
+                manifestChanged,
+                shapeChanged: manifestChanged && startupShape(manifest) !== shape,
+                listChanged: manifestChanged || copiesChanged || files === null,
+              }
             }
             catch (error) {
-              endContentRead()
               // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
               logError(error)
             }
+            finally {
+              if (version === contentVersion) endContentRead()
+            }
           })
+          reading = result.then(() => {})
+          regeneration = regeneration.then(async () => {
+            const change = await result
+            if (closed || !change) return
+            if (change === "restart") return restart()
+            const reloaded = !change.shapeChanged && await reloadPages({
+              files: change.files,
+              manifest: change.manifestChanged,
+              list: change.listChanged,
+            })
+            if (reloaded) return
+            // Nuxt's watcher skips the build folder, so Vite learns about changed copies only from here.
+            for (const file of change.copies) viteServer?.watcher.emit("change", file)
+            if (change.manifestChanged || change.copiesChanged) restart()
+          }).catch(logError)
         }, 100)
       }
       // Nuxt runs this hook before it generates the app for an added or removed file, so that run waits for the read.
