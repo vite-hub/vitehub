@@ -435,8 +435,9 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
         // config import there. Nitro copies its virtual modules into that build, and this one has the build's config.
+        // The prerenderer is not a deployed instance, so it prints no store notice at boot.
         nitro.hooks?.hook("prerender:config", (config) => {
-          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(getConfig(), databaseImport) }
+          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(getConfig(), databaseImport, true) }
         })
       },
     },
