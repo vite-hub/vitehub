@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `choices-package`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, and `choices-package`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -59,6 +59,8 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `auth-sign-in` | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts`. `vitehub migrate` runs it. |
+| `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe. `vitehub migrate` runs it. |
 | `choices-package` | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
@@ -371,6 +373,32 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 ```
 
+## `auth-sign-in`
+
+The sign-in pages of Auth are in one place, `access` of `server/auth.ts`:
+
+| Old | New |
+| --- | --- |
+| `vitehub({ auth: { redirects: { login: '/login' } } })` | `defineAuth({ access: { signIn: '/login' } })` |
+| `vitehub({ auth: { redirects: { guest: '/app' } } })` | `defineAuth({ access: { afterSignIn: '/app' } })` |
+| `access: { signIn: { provider: 'github', callbackURL: '/app' } }` | `access: { signIn: { provider: 'github' }, afterSignIn: '/app' }` |
+
+If a redirect cannot be migrated safely, the codemod leaves the files unchanged and reports what to move by hand. This covers conflicting overrides, destinations that are not literal app paths, dynamic Definition options, and a `redirects.login` page next to a provider in `access.signIn`.
+
+```sh
+npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
+```
+
+## `channels`
+
+`http()` is removed. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+
+The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+```sh
+npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
 ## Check real apps
 
 `test/real-world/projects.json` pins open source Nuxt apps that use the supported modules. The runner clones each app outside the repository, installs it when its codemod loads app code, runs the migration, and checks which codemods ran and what the report says:
@@ -389,23 +417,6 @@ ViteHub types the `#vitehub/*` aliases itself, in `.vitehub/types/`. Older apps 
 ```sh
 npx @vite-hub/codemods tsconfig-paths [dir] [--dry-run]
 ```
-
-## `choices-package`
-
-`choices-package` moves an app from the Decisions package to Choices. The package, the import path, the CLI command, and the docs now use one word:
-
-```sh
-npx @vite-hub/codemods choices-package [dir] [--dry-run]
-```
-
-| Old | New |
-| --- | --- |
-| `@vite-hub/decisions` in `package.json` | Keep an existing `@vite-hub/choices` constraint or choose a compatible version by hand |
-| `vite-hub/decisions` and `@vite-hub/decisions` in imports | `vite-hub/choices` and `@vite-hub/choices` |
-| `vite-hub/decisions/vue`, `@vite-hub/decisions/vue` | `vite-hub/choices/vue`, `@vite-hub/choices/vue` |
-| `vitehub decisions list` in a package script | `vitehub choices list` |
-
-Check the manual follow-ups before you install again. A Choices release may not match a Decisions version. Named CLI imports keep their local names; for other CLI references, use `listChoices` and `createChoicesCliNamespace` from `@vite-hub/choices/cli`. The diagnostic codes keep their `DECISIONS_` names.
 
 ## Add a codemod
 
