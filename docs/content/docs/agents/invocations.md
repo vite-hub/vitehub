@@ -370,7 +370,7 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-Open the app in the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
+Open the app in the [ViteHub Console](/docs/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
