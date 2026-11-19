@@ -5,7 +5,7 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
-import { commentTitle } from "../internal/comment-status.ts";
+import { commentTitle, deliveryAttributes } from "../internal/comment-status.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -493,6 +493,7 @@ export const CommentLayer = defineComponent({
             "data-margin-key": entry.key,
             "data-slot": "comment-margin-card",
             "data-status": thread.status,
+            ...deliveryAttributes(thread.delivery),
             key: entry.key,
             onClick: () => state.open(thread),
             onPointerenter: () => {

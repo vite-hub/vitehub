@@ -159,6 +159,18 @@ describe("comments that wait in the outbox", () => {
     expect(memory.threads).toHaveLength(1);
   });
 
+  it("lists a waiting thread with no number, marked as the thread is", async () => {
+    const { client } = setup();
+    await client.create({ subject: pricing, anchor: { kind: "page" }, body: "Waiting row" });
+    const { wrapper } = mountWithState(client, state => h(CommentPanel, { comments: state }));
+    await flushPromises();
+    const row = wrapper.get("[data-slot='comment-panel-item']");
+    expect(row.attributes("data-pending")).toBe("true");
+    expect(row.attributes("data-failed")).toBeUndefined();
+    expect(row.get("[data-slot='comment-list-number']").text()).toBe("");
+    expect(row.text()).toContain("Waiting row");
+  });
+
   it("empties the composer once the comment is saved, while the server has not answered", async () => {
     const memory = createMemoryTransport({ user: ana, users: [ana] });
     const create = vi.fn((_input: CommentCreateInput & CommentFiles) => new Promise<never>(() => undefined));

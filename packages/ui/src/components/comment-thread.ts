@@ -9,7 +9,7 @@ import {
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
-import { commentTitle, messagesSinceResolved } from "../internal/comment-status.ts";
+import { commentTitle, deliveryAttributes, messagesSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -68,10 +68,6 @@ export type CommentReplySlots = {
   status?: (scope: CommentStatusSlotScope) => VNode[];
 };
 
-/** `data-pending` or `data-failed` for a thread or message that the outbox holds. */
-function deliveryAttributes(delivery: CommentDelivery | undefined) {
-  return { "data-failed": delivery?.status === "failed" ? "true" : undefined, "data-pending": delivery?.status === "pending" ? "true" : undefined };
-}
 
 
 /** The scope of the `actions`, `anchor`, and `after` slots of `CommentThread`. */

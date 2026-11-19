@@ -3,7 +3,7 @@ import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsT
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
-import { commentTitle, repliedSinceResolved } from "../internal/comment-status.ts";
+import { commentTitle, deliveryAttributes, repliedSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -219,6 +219,7 @@ export const CommentPanel = defineComponent({
             "data-focus-inset": "",
             "data-slot": "comment-panel-item",
             "data-status": thread.status,
+            ...deliveryAttributes(thread.delivery),
             "data-thread-id": thread.id,
             onClick: () => select(thread),
             type: "button",
