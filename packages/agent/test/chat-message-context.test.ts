@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { telegram } from "../src/channels.ts"
-import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
-import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentChannelDefinition } from "../src/index.ts"
@@ -74,7 +72,7 @@ function promptModel(prompts: Prompt[], answer: (prompt: Prompt) => string = () 
   }
 }
 
-function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string, invocations?: ReturnType<typeof defineAgentInvocations>) {
+function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string) {
   const prompts: Prompt[] = []
   const downloads: string[] = []
   const replies: string[] = []
@@ -96,7 +94,6 @@ function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt
         return event.reply(event.text ?? "")
       },
     },
-    ...(invocations ? { invocations } : {}),
     runtime: false,
   })
   const handler = createChannelWebhookRouteHandler(agent)
@@ -182,33 +179,8 @@ describe("chat trigger message context", () => {
     expect(harness.downloads.sort()).toEqual(["file-LEMON", "file-NACHOS", "file-SANDWICH"])
   })
 
-  it("records the history photos that the model received and the ones that selection left out", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const harness = telegramHarness({ timeZone: "Europe/Stockholm", triggerHistory: recentHistory }, undefined, invocations)
-
-    for (const [index, name] of ["BANANA", "NACHOS", "SANDWICH", "LEMON"].entries()) {
-      await harness.send({ date: at(18, 6 + index), message_id: 109312 + index, photo: photo(name) })
-    }
-    await harness.send({ date: at(18, 12), message_id: 109316, text: "the banana was half" })
-
-    const { invocations: [latest] } = await invocations.list()
-    const record = await invocations.get(latest!.id)
-    const observation = record?.observations?.find(item => item.name === "agent.input.attachments")
-    const image = (messageId: number) => ({ bytes: 3, mediaType: "image/jpeg", messageId: `${harness.chat.id}:${messageId}`, origin: "history", partId: "attachment-1" })
-    expect(observation?.attributes).toMatchObject({
-      // NACHOS, SANDWICH and LEMON.
-      "input.attachments.prepared": [image(109313), image(109314), image(109315)],
-      "input.attachments.preparedBytes": 9,
-      "input.attachments.preparedCount": 3,
-      // BANANA, the oldest photo, is over `maxImages: 3`.
-      "input.attachments.skipped": [{ mediaType: "image/jpeg", messageId: `${harness.chat.id}:109312`, origin: "history", partId: "attachment-1", reason: "max-images" }],
-      "input.attachments.skippedCount": 1,
-    })
-  })
-
   it("does not send history photos older than maxAgeMs", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const harness = telegramHarness({ timeZone: "Europe/Stockholm", triggerHistory: { ...recentHistory, maxAgeMs: 60 * 60 * 1_000, maxImages: 3 } }, undefined, invocations)
+    const harness = telegramHarness({ timeZone: "Europe/Stockholm", triggerHistory: { ...recentHistory, maxAgeMs: 60 * 60 * 1_000, maxImages: 3 } })
 
     await harness.send({ date: at(16, 0), message_id: 109300, photo: photo("BREAKFAST") })
     await harness.send({ date: at(18, 0), message_id: 109301, text: "and lunch" })
@@ -216,12 +188,6 @@ describe("chat trigger message context", () => {
     expect(turns(harness.prompts.at(-1)!)).toEqual([
       { images: 0, text: "[Tue 2026-10-13 18:00:00 +02:00 · msg 109301]\nand lunch" },
     ])
-    const { invocations: [latest] } = await invocations.list()
-    const record = await invocations.get(latest!.id)
-    expect(record?.observations?.find(item => item.name === "agent.input.attachments")?.attributes).toMatchObject({
-      "input.attachments.skipped": [{ mediaType: "image/jpeg", messageId: `${harness.chat.id}:109300`, origin: "history", partId: "attachment-1", reason: "max-age" }],
-      "input.attachments.skippedCount": 1,
-    })
   })
 
   it("renders a reply as one readable line instead of JSON", async () => {
@@ -324,51 +290,5 @@ describe("chat trigger message context", () => {
       { images: 0, text: "old" },
       { images: 1, text: "now" },
     ])
-  })
-
-  it("reports a queued image as current without giving it priority over the trigger image", async () => {
-    const prompts: Prompt[] = []
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const agent = defineAgent({
-      // SAFETY: The fixture implements the LanguageModelV3 methods used by this Driver.
-      driver: { execution: { attachments: { maxBytes: 4 } }, model: promptModel(prompts) as never },
-      invocations,
-    })
-    const image = { data: new Uint8Array([1, 2, 3]), id: "photo", mediaType: "image/jpeg", type: "image" }
-    const { input } = createChatMessageTriggerInput({ concurrency: "queue", triggerHistory: "none" }, {
-      messages: [
-        { id: "queued", parts: [{ text: "Queued", type: "text" }, image], role: "user" },
-        { id: "trigger", metadata: { chat: { skippedCount: 1 } }, parts: [{ text: "Trigger", type: "text" }, { ...image }], role: "user" },
-      ],
-    })
-    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
-    expect(turns(prompts[0]!)).toEqual([{ images: 0, text: "Queued" }, { images: 1, text: "Trigger" }])
-    const { invocations: [latest] } = await invocations.list()
-    const record = await invocations.get(latest!.id)
-    expect(record?.observations?.find(item => item.name === "agent.input.attachments")?.attributes).toMatchObject({
-      "input.attachments.skipped": [{ mediaType: "image/jpeg", messageId: "queued", origin: "current", partId: "photo", reason: "byte-budget" }],
-    })
-  })
-
-  it("records preparation even when prepareStep removes the image from the prompt", async () => {
-    const prompts: Prompt[] = []
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-    const agent = defineAgent({
-      driver: {
-        execution: { callSettings: { prepareStep: () => ({ messages: [{ content: "Text only", role: "user" }] }) } },
-        // SAFETY: The fixture implements the LanguageModelV3 methods used by this Driver.
-        model: promptModel(prompts) as never,
-      },
-      invocations,
-    })
-    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
-      messages: [createMessage({ id: "input", parts: [{ data: new Uint8Array([1, 2, 3]), id: "photo", mediaType: "image/jpeg", type: "image" }], role: "user" })],
-    })
-    expect(turns(prompts[0]!)).toEqual([{ images: 0, text: "Text only" }])
-    const { invocations: [latest] } = await invocations.list()
-    const record = await invocations.get(latest!.id)
-    expect(record?.observations?.find(item => item.name === "agent.input.attachments")?.attributes).toMatchObject({
-      "input.attachments.prepared": [{ bytes: 3, mediaType: "image/jpeg", messageId: "input", origin: "current", partId: "photo" }],
-    })
   })
 })

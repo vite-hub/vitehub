@@ -6,6 +6,7 @@ import { features } from "@vite-hub/internal/features"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { forgetPackageChecks, installArguments, isPackageInstalled, optionalFeaturePackages } from "./optional-owners.ts"
+import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin } from "vite"
 
@@ -18,10 +19,13 @@ const definitionFeatureIds = ["agent", "auth", "browser", "channels", "connectio
 
 type DefinitionFeature = (typeof definitionFeatureIds)[number]
 
-type DefinitionFeatureOptions = { [K in DefinitionFeature]?: unknown }
+type DefinitionFeatureOptions = { [K in Exclude<DefinitionFeature, "channels">]?: unknown } & {
+  channels?: boolean | { projectRoot?: string }
+}
 
 interface DefinitionProject {
   projectRoot: string
+  viteRoot?: string
   serverDirs?: readonly string[]
 }
 
@@ -34,6 +38,16 @@ function discoverDefinitionFeatures(options: DefinitionFeatureOptions, project: 
     const file = serverDirs.flatMap(directory => (features[id].enabledByDiscovery ?? []).map(name => resolve(project.projectRoot, directory, name)))
       .find(candidate => hasDefinitionFiles(candidate))
     if (file) found.set(id, relative(project.projectRoot, file))
+  }
+  // The Agent package serves the route of a Channel that receives webhooks, so that Channel file turns Agents on too.
+  const channels = found.has("channels") || (options.channels !== undefined && options.channels !== false)
+  if (channels && options.agent === undefined && !found.has("agent")) {
+    const channelRoot = typeof options.channels === "object" ? options.channels.projectRoot : undefined
+    const inbound = ownerModules.channelsVite?.findWebhookChannel({
+      projectRoot: channelRoot ? resolve(project.viteRoot ?? project.projectRoot, channelRoot) : project.projectRoot,
+      serverDirs: channelRoot ? undefined : project.serverDirs?.map(directory => resolve(project.projectRoot, directory)),
+    })
+    if (inbound) found.set("agent", relative(project.projectRoot, inbound.handler))
   }
   return found
 }
@@ -81,8 +95,8 @@ export function definitionFeaturesRootPlugin(options: DefinitionFeatureOptions, 
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      if (projectRoot !== project.projectRoot || serverDirs) {
-        const found = discoverDefinitionFeatures(options, { projectRoot, serverDirs })
+      if (projectRoot !== project.projectRoot || serverDirs || resolve(config.root) !== (project.viteRoot ?? project.projectRoot)) {
+        const found = discoverDefinitionFeatures(options, { projectRoot, serverDirs, viteRoot: config.root })
         const changed = definitionFeatureIds.filter(id => found.has(id) !== guessed.includes(id))
         if (changed.length) throw viteHubErrorDiagnostics.VITE_HUB_DEFINITION_ROOT_MISMATCH({
           keys: changed.map(id => `\`${id}\``).join(", "),

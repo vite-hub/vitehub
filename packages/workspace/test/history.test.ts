@@ -90,6 +90,25 @@ function rawFiles(files: Record<string, string | Uint8Array>) {
   return Object.fromEntries(Object.entries(files).map(([path, content]) => [path, { path, content }]))
 }
 
+it.each(["published", "draft"])("observes its own head rejection but not a post-write conflict on %s", async (ref) => {
+  const { store } = await setup("libsql")
+  const base = createWorkspace({ name: "history", store })
+  await base.history.commit({ ref: "published", ifHead: null, files: { "a.txt": "published" } })
+  const workspace = createWorkspace({ name: "history", store, hooks: {
+    "write:after": async () => { await base.history.commit({ ref, ifHead: null, files: { "a.txt": "hook" } }) },
+  } })
+  const onHeadConflict = vi.fn()
+  const commit = { ref: "draft", ifHead: null, files: { "a.txt": "draft" }, onHeadConflict }
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref } })
+  expect(onHeadConflict).not.toHaveBeenCalled()
+  const head = await workspace.history.head({ ref: "draft" })
+  expect(await (await workspace.history.open(head!.id)).readFile("a.txt")).toBe("draft")
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "draft" } })
+  expect(onHeadConflict).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "WORKSPACE_CONFLICT" }))
+})
+
 describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { timeout: 30_000 }, (driver) => {
   it("commits, lists, opens, and reads immutable text and binary files after a reopen", async () => {
     const { store, facade, fresh } = await setup(driver)

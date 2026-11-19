@@ -132,7 +132,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
         webhooks: [],
       }),
     },
-    webhooks: { durableState: true, secretToken: false },
+    webhooks: { durableState: true, secret: false },
   })
   return defineAgent({ channels: { t: channel }, driver: { run } })
 }

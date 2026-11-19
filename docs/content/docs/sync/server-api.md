@@ -256,6 +256,8 @@ The types of the requests and answers are in `@vite-hub/sync`'s `protocol.ts`: `
 
 Each write applies in one transaction with its id. A write that the server applied before is answered `duplicate`, and is not applied again. One refused write does not stop the others of a push.
 
+A push has a budget of 40 Database calls, where a batch is one call. It reads the ledger once for the whole push. A plain write usually makes two more calls: one row read and one batch. The budget leaves room for the response but does not count request setup or stop the first mutation. The server returns results for the mutations it finished, and the browser sends the rest in a new push. A long queue drains as long as each mutation fits in its own Worker invocation. On the Workers Free plan, D1 allows 50 calls in an invocation. Without a ViteHub app, set the budget with `push: { calls }` of the services.
+
 ## Writes from server code
 
 Any write to the table reaches the browsers: a write from the browser, an action, and also server code that writes the table itself, such as a webhook, a job, an Agent, or a Workflow. Write the table with Drizzle or SQL, as you do for any table:
