@@ -73,7 +73,7 @@ describe('standalone Channel folders', () => {
     const source = `import { defineChannel, webhook } from '@vite-hub/channels'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' }),
   on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
 })`
     const root = await app({ 'custom/server/channels/builds.ts': source, 'server/channels/ignored.ts': source })
