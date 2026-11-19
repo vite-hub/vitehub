@@ -1,15 +1,15 @@
 import { signWebhook } from "@vite-hub/env"
-import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
-import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
+import { readString, serverEnv, unsealEndpoint } from "./sealing.ts"
+import { checkWebhookUrl } from "./url-guard.ts"
 
 import type { Duration, Result, ResultError } from "@vite-hub/runtime"
 import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
-import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhooksDatabase } from "./database.ts"
+import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhookEndpointStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
 
 export { webhooksQueueName } from "./queue-name.ts"
@@ -38,14 +38,21 @@ export interface InstallWebhooksOptions {
   webhooks: Record<string, unknown>
   /** Where deliveries live: `createDrizzleWebhookStore()` from `@vite-hub/webhooks/database`. */
   store: WebhookDeliveryStore
-  wake: WebhookWakeSender
+  /**
+   * Sends a wake to the Queue. Without it, which is fine for an app with only member endpoints, a member delivery that
+   * fails is not tried again.
+   */
+  wake?: WebhookWakeSender
+  /** Where member endpoints live: `createDrizzleWebhookEndpointStore()`. Without it, member endpoints are off. */
+  endpoints?: WebhookEndpointStore
 }
 
 /** The webhooks of the running app. */
 export interface InstalledWebhooks {
   webhooks: ReadonlyMap<string, WebhookDefinition>
   store: WebhookDeliveryStore
-  wake: WebhookWakeSender
+  wake: WebhookWakeSender | undefined
+  endpoints: WebhookEndpointStore | undefined
 }
 
 /** One webhook, as the CLI and the Console list it. It names the variables, never their values. */
@@ -93,7 +100,7 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
     }
     webhooks.set(name, definition)
   }
-  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake }
+  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints }
   Reflect.set(globalThis, installedKey, installed)
   if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
@@ -144,6 +151,13 @@ function requireInstalled(): InstalledWebhooks {
   return installed
 }
 
+/** The installed webhooks with member endpoints on. */
+export function requireMemberEndpoints(): InstalledWebhooks & { endpoints: WebhookEndpointStore } {
+  const installed = installedWebhooks()
+  if (!installed?.endpoints) throw webhooksErrors.WEBHOOKS_ENDPOINTS_OFF()
+  return { ...installed, endpoints: installed.endpoints }
+}
+
 /**
  * The Database that keeps the deliveries: the one that `useDatabase()` of `@vite-hub/database/runtime/registry` returns
  * without a name. That is the Database that `vitehub database generate` adds the table to: `default`, else the only one.
@@ -158,17 +172,8 @@ export function selectDefaultDatabase(useDatabase: () => { db: WebhooksDatabase 
   }
 }
 
-/** The server variables: Node's `process.env`, the Cloudflare bindings, and the values of `setEnv()` in app tests. */
-function serverEnv(): Record<string, unknown> {
-  return { ...(typeof process === "object" && process?.env ? process.env : {}), ...getActiveCloudflareEnv(), ...getViteHubTestMode()?.env }
-}
-
-function readString(env: Record<string, unknown>, name: string): string | undefined {
-  const value = env[name]
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-type Target = { url: string, secret: string }
+/** Where an attempt posts. `guard` checks the URL with `checkWebhookUrl()` first, as member endpoints need. */
+type Target = { url: string, secret: string, signature: WebhookSignature, guard?: boolean }
 type TargetError = ReturnType<typeof webhooksErrors.WEBHOOKS_URL_UNSET | typeof webhooksErrors.WEBHOOKS_URL_INVALID | typeof webhooksErrors.WEBHOOKS_SECRET_UNSET>
 type WakeError = ReturnType<typeof webhooksErrors.WEBHOOKS_WAKE_FAILED>
 
@@ -180,14 +185,29 @@ function resolveTarget(name: string, definition: WebhookDefinition): [TargetErro
   if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return [webhooksErrors.WEBHOOKS_URL_INVALID({ name: definition.url, webhook: name }), undefined]
   const secret = readString(env, definition.secret)
   if (!secret) return [webhooksErrors.WEBHOOKS_SECRET_UNSET({ name: definition.secret, webhook: name }), undefined]
-  return [undefined, { url, secret }]
+  return [undefined, { url, secret, signature: definition.signature }]
 }
 
-function createDeliveryId(): string {
+/** A member delivery names its endpoint as `@<endpoint id>` in the `webhook` column. */
+export const memberWebhookPrefix = "@"
+
+/** The URL and secret of a member endpoint, or why the delivery cannot go out. The reason never holds the URL. */
+async function resolveMemberTarget(installed: InstalledWebhooks, id: string): Promise<[string, undefined] | [undefined, Target]> {
+  const endpoint = await installed.endpoints?.find(id)
+  if (!endpoint) return [`No member endpoint has the id ${JSON.stringify(id)}.`, undefined]
+  if (endpoint.disabledAt !== null) return [`The member endpoint ${id} is disabled.`, undefined]
+  if (endpoint.sealed === null) return [`The member endpoint ${id} is an inbox, so it takes no posts.`, undefined]
+  const [error, target] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+  if (error) return [error.message, undefined]
+  return [undefined, { ...target, signature: "github", guard: true }]
+}
+
+export function createDeliveryId(): string {
   return `whd_${crypto.randomUUID()}`
 }
 
-async function wake(installed: InstalledWebhooks, delivery: { id: string, revision: number, webhook: string }, delayMs: number): Promise<WakeError | undefined> {
+export async function wake(installed: InstalledWebhooks, delivery: { id: string, revision: number, webhook: string }, delayMs: number): Promise<WakeError | undefined> {
+  if (!installed.wake) return webhooksErrors.WEBHOOKS_WAKE_FAILED({ webhook: delivery.webhook, cause: new Error("The app has no Queue.") })
   try {
     // Hosted Queues take whole seconds, so a debounce waits at least until the next whole second.
     const [error] = await installed.wake({ id: delivery.id, revision: delivery.revision }, { delay: `${Math.ceil(Math.max(0, delayMs) / 1000)}s` })
@@ -290,23 +310,46 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
     }
     return
   }
-  const definition = installed.webhooks.get(claim.webhook)
-  if (!definition) {
-    await store.failed(claim, { status: null, error: `No webhook is named ${JSON.stringify(claim.webhook)} in this build.` }, Date.now(), true)
+  const [targetError, target] = claim.webhook.startsWith(memberWebhookPrefix)
+    ? await resolveMemberTarget(installed, claim.webhook.slice(memberWebhookPrefix.length))
+    : resolveFileTarget(installed, claim.webhook)
+  if (targetError) {
+    // A missing variable or endpoint needs a fix, so retries cannot help. Redeliver after the fix.
+    await store.failed(claim, { status: null, error: targetError }, Date.now(), true)
     return
   }
-  const [targetError, target] = resolveTarget(claim.webhook, definition)
-  if (targetError) {
-    // A missing variable needs a deploy, so retries cannot help. Redeliver after the fix.
-    await store.failed(claim, { status: null, error: targetError.message }, Date.now(), true)
+  const result = await postDelivery(claim, target)
+  if (result.ok) {
+    await store.sent(claim, { status: result.status, error: null }, Date.now())
     return
+  }
+  const dead = result.final || claim.attempts >= webhookMaxAttempts
+  const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), dead)
+  if (state === "pending") throw webhooksErrors.WEBHOOKS_DELIVERY_FAILED({ reason: result.failure, webhook: claim.webhook })
+}
+
+function resolveFileTarget(installed: InstalledWebhooks, name: string): [string, undefined] | [undefined, Target] {
+  const definition = installed.webhooks.get(name)
+  if (!definition) return [`No webhook is named ${JSON.stringify(name)} in this build.`, undefined]
+  const [error, target] = resolveTarget(name, definition)
+  return error ? [error.message, undefined] : [undefined, target]
+}
+
+/** One attempt. `final` means a retry cannot help, such as a URL that the guard refuses. */
+export type PostResult =
+  | { ok: true, status: number }
+  | { ok: false, status: number | null, failure: string, final: boolean }
+
+/** Posts a claimed delivery once, signed, with a 10 second timeout and no redirects. */
+export async function postDelivery(claim: WebhookDelivery, target: Target): Promise<PostResult> {
+  if (target.guard) {
+    const [refused] = await checkWebhookUrl(target.url)
+    if (refused) return { ok: false, status: null, failure: refused.message, final: true }
   }
   // The stored body is JSON text, so this gives the same bytes that the last send stored.
   const body = JSON.stringify(claim.body)
-  let status: number | null = null
-  let failure: string
   try {
-    const signed = await signWebhook(body, { provider: definition.signature, secret: target.secret })
+    const signed = await signWebhook(body, { provider: target.signature, secret: target.secret })
     const response = await fetch(target.url, {
       method: "POST",
       body,
@@ -322,21 +365,13 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
       redirect: "manual",
       signal: AbortSignal.timeout(webhookTimeoutMs),
     })
-    status = response.status
     // Free the connection. The answer body is not stored.
     await response.body?.cancel().catch(() => {})
-    if (response.ok) {
-      await store.sent(claim, { status, error: null }, Date.now())
-      return
-    }
-    failure = `HTTP ${status}`
+    return response.ok ? { ok: true, status: response.status } : { ok: false, status: response.status, failure: `HTTP ${response.status}`, final: false }
   }
   catch (error) {
-    failure = describeFailure(error)
+    return { ok: false, status: null, failure: describeFailure(error), final: false }
   }
-  const dead = claim.attempts >= webhookMaxAttempts
-  const state = await store.failed(claim, { status, error: failure }, Date.now(), dead)
-  if (state === "pending") throw webhooksErrors.WEBHOOKS_DELIVERY_FAILED({ reason: failure, webhook: claim.webhook })
 }
 
 const deliveryErrorCodes: readonly string[] = [

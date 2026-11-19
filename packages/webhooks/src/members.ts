@@ -1,0 +1,237 @@
+import { webhooksErrors } from "./errors.ts"
+import { sealEndpoint, unsealEndpoint } from "./sealing.ts"
+import { checkWebhookUrl } from "./url-guard.ts"
+import { createDeliveryId, memberWebhookPrefix, postDelivery, requireMemberEndpoints, wake, webhookTimeoutMs } from "./runtime.ts"
+
+import type { Result, ResultError } from "@vite-hub/runtime"
+import type { MemberEndpoint, StoredMemberEndpoint } from "./database.ts"
+import type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode } from "./errors.ts"
+
+/** The hosts that a member endpoint URL may use when `createMemberEndpoint()` gets no `hosts`: the T3 Code relay. */
+export const memberEndpointHosts: readonly string[] = ["relay.t3.codes"]
+
+/** What `createMemberEndpoint()` accepts. */
+export type CreateMemberEndpointOptions = {
+  /** The member, such as the Auth user id. A member has one endpoint: a new one replaces the old one. */
+  owner: string
+  /** A name that people read, such as `"Launch plan thread"`. */
+  name: string
+  /** The agent that receives, such as `"t3"`, `"claude-code"`, or `"codex"`. */
+  agent?: string
+} & ({
+  /** Webhooks posts each send to `url`, signed with `secret` as `x-hub-signature-256`. */
+  kind: "url"
+  url: string
+  secret: string
+  /** The hosts that `url` may use. Default: `memberEndpointHosts`, the T3 Code relay. */
+  hosts?: readonly string[]
+} | {
+  /** Webhooks posts nothing. The member's agent reads the deliveries, such as through an MCP tool. */
+  kind: "inbox"
+})
+
+/** Options of `sendToMemberEndpoint()`. */
+export interface SendToMemberEndpointOptions {
+  /** A label for the receiver, sent as `x-vitehub-event`, such as `"comments.send"`. */
+  event: string
+  /**
+   * The idempotency key, such as the ids of the comments that the send holds. A send with the key of a pending,
+   * sending, or sent delivery of the same endpoint returns that delivery and posts nothing.
+   */
+  key: string
+}
+
+/**
+ * What `sendToMemberEndpoint()` returns. `status` is `"sent"` when the receiver answered 2xx, `"inbox"` when the
+ * delivery waits in an inbox, `"pending"` when the Queue tries again, and `"failed"` when it was not delivered.
+ */
+export interface SendToMemberEndpointResult {
+  id: string
+  status: "sent" | "inbox" | "pending" | "failed"
+}
+
+/** How long the Queue waits before it tries a failed member delivery again. */
+const memberRetryDelayMs = webhookTimeoutMs
+
+const limits = { owner: 256, name: 120, agent: 64, secret: 1024, url: 2048 }
+
+function toMemberEndpoint({ sealed: _sealed, ...endpoint }: StoredMemberEndpoint): MemberEndpoint {
+  return endpoint
+}
+
+function storeError(error: unknown): ResultError<"WEBHOOKS_DATABASE_MISSING" | "WEBHOOKS_STORE_FAILED"> {
+  if (webhooksErrors.WEBHOOKS_STORE_FAILED.is(error) || webhooksErrors.WEBHOOKS_DATABASE_MISSING.is(error)) return error
+  throw error
+}
+
+function text(value: unknown, field: string, max: number): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return `\`${field}\` must be non-empty text`
+  if (value.length > max) return `\`${field}\` must be at most ${max} characters`
+  return undefined
+}
+
+function invalid(problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, undefined] {
+  return [webhooksErrors.WEBHOOKS_ENDPOINT_INVALID({ problem }), undefined]
+}
+
+/**
+ * Creates the endpoint of a member, so `sendToMemberEndpoint(owner, ...)` reaches their own agent, and returns
+ * `[error, endpoint]`. A `"url"` endpoint must pass `checkWebhookUrl()` with `hosts`, which defaults to the T3 Code
+ * relay. Webhooks seals the URL and secret with `VITEHUB_WEBHOOKS_KEY` before it stores them, and returns only the host.
+ * A member has one endpoint: a new one replaces the old one, and its id changes.
+ *
+ * ```ts
+ * import { createMemberEndpoint } from "@vite-hub/webhooks"
+ *
+ * const [error, endpoint] = await createMemberEndpoint({
+ *   owner: "user_ana",
+ *   name: "Launch plan thread",
+ *   agent: "t3",
+ *   kind: "url",
+ *   url: "https://relay.t3.codes/hooks/abc123",
+ *   secret: "whsec_9f2c",
+ * })
+ * ```
+ */
+export async function createMemberEndpoint(options: CreateMemberEndpointOptions): Promise<Result<MemberEndpoint, CreateMemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
+    ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
+  if (problem) return invalid(problem)
+  if (options.kind !== "url" && options.kind !== "inbox") return invalid(`\`kind\` must be "url" or "inbox", not ${JSON.stringify(options.kind)}`)
+  const now = Date.now()
+  const endpoint: StoredMemberEndpoint = {
+    id: `whe_${crypto.randomUUID()}`,
+    owner: options.owner,
+    name: options.name.trim(),
+    kind: options.kind,
+    agent: options.agent?.trim() ?? null,
+    host: null,
+    sealed: null,
+    disabledAt: null,
+    createdAt: now,
+    updatedAt: now,
+  }
+  if (options.kind === "url") {
+    const urlProblem = text(options.url, "url", limits.url) ?? text(options.secret, "secret", limits.secret)
+    if (urlProblem) return invalid(urlProblem)
+    const [refused, url] = await checkWebhookUrl(options.url, { hosts: options.hosts ?? memberEndpointHosts })
+    if (refused) return [refused, undefined]
+    const [keyError, sealed] = await sealEndpoint(endpoint, { url: url.href, secret: options.secret })
+    if (keyError) return [keyError, undefined]
+    endpoint.host = url.host
+    endpoint.sealed = sealed
+  }
+  try {
+    await endpoints.put(endpoint)
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+  return [undefined, toMemberEndpoint(endpoint)]
+}
+
+/** The endpoint of a member, or `null` when they have none, as `[error, endpoint]`. It never holds the URL or the secret. */
+export async function getMemberEndpoint(owner: string): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    const endpoint = await endpoints.get(owner)
+    return [undefined, endpoint ? toMemberEndpoint(endpoint) : null]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/** Removes the endpoint `id` of a member. Another member's endpoint gives `WEBHOOKS_ENDPOINT_NOT_FOUND`. */
+export async function removeMemberEndpoint(owner: string, id: string): Promise<Result<MemberEndpoint, MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    const endpoint = await endpoints.remove(owner, id)
+    return endpoint ? [undefined, toMemberEndpoint(endpoint)] : [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)} and the owner ${JSON.stringify(owner)}` }), undefined]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/**
+ * Disables a member endpoint, so it gets no more sends, without the owner. Check that the caller may do this, such
+ * as an admin, before you call it. The member enables it again by connecting their agent again.
+ */
+export async function disableMemberEndpoint(id: string): Promise<Result<MemberEndpoint, MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    const endpoint = await endpoints.disable(id, Date.now())
+    return endpoint ? [undefined, toMemberEndpoint(endpoint)] : [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` }), undefined]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/**
+ * Sends `body` as JSON to the endpoint of a member and returns `[error, { id, status }]`. It posts in the request,
+ * with a 10 second timeout and the same headers and signature as `sendWebhook()`, so it needs no Queue. When the app
+ * has Queue, a failed post is tried again through it, and `status` is `"pending"`. Without Queue, it is `"failed"`.
+ *
+ * A send with the `key` of a pending, sending, or sent delivery returns that delivery and posts nothing.
+ *
+ * ```ts
+ * import { sendToMemberEndpoint } from "@vite-hub/webhooks"
+ *
+ * const [error, sent] = await sendToMemberEndpoint("user_ana", { threads: ["thr_1", "thr_2"] }, {
+ *   event: "comments.send",
+ *   key: "thr_1:msg_8,thr_2:msg_3",
+ * })
+ * ```
+ */
+export async function sendToMemberEndpoint(owner: string, body: unknown, options: SendToMemberEndpointOptions): Promise<Result<SendToMemberEndpointResult, SendToMemberEndpointErrorCode>> {
+  const installed = requireMemberEndpoints()
+  const { store } = installed
+  let json: string | undefined
+  try {
+    json = JSON.stringify(body)
+  }
+  catch {
+    json = undefined
+  }
+  if (json === undefined) return [webhooksErrors.WEBHOOKS_BODY_INVALID({ webhook: `of the member ${JSON.stringify(owner)}` }), undefined]
+  try {
+    const endpoint = await installed.endpoints.get(owner)
+    if (!endpoint) return [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the owner ${JSON.stringify(owner)}` }), undefined]
+    if (endpoint.disabledAt !== null) return [webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id }), undefined]
+    let target: { url: string, secret: string } | undefined
+    if (endpoint.sealed !== null) {
+      const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+      if (keyError) return [keyError, undefined]
+      target = opened
+    }
+    const now = Date.now()
+    const recorded = await store.recordOnce({ id: createDeliveryId(), webhook: `${memberWebhookPrefix}${endpoint.id}`, key: options.key, event: options.event, body: json, dueAt: now, now })
+    const done = target ? "sent" : "inbox"
+    if (!recorded.created) return [undefined, { id: recorded.id, status: recorded.state === "sent" ? done : "pending" }]
+    // `0` claims only a pending delivery, never one that another server is sending.
+    const claim = await store.claim(recorded.id, recorded.revision, now, 0)
+    // Another server, such as a Queue flush, claimed it first.
+    if (!claim) return [undefined, { id: recorded.id, status: "pending" }]
+    if (!target) {
+      await store.sent(claim, { status: null, error: null }, Date.now())
+      return [undefined, { id: claim.id, status: "inbox" }]
+    }
+    const result = await postDelivery(claim, { ...target, signature: "github", guard: true })
+    if (result.ok) {
+      await store.sent(claim, { status: result.status, error: null }, Date.now())
+      return [undefined, { id: claim.id, status: "sent" }]
+    }
+    const retry = installed.wake !== undefined && !result.final
+    const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), !retry)
+    if (state !== "pending") return [undefined, { id: claim.id, status: "failed" }]
+    const wakeError = await wake(installed, claim, memberRetryDelayMs)
+    if (wakeError) return [wakeError, undefined]
+    return [undefined, { id: claim.id, status: "pending" }]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
