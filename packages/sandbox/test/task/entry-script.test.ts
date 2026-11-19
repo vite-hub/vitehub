@@ -489,6 +489,15 @@ describe("package entry result transport", () => {
     expect(execution.output).toEqual({ ok: true, result: { length: 3 } })
   })
 
+  it("serializes valid and invalid dates in task results", async () => {
+    const execution = await executePackageEntry(
+      `export default () => ({ valid: new Date(0), invalid: new Date(NaN) })`,
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { valid: "1970-01-01T00:00:00.000Z", invalid: null } })
+  })
+
   it("applies result toJSON only once with the JSON property key", async () => {
     const execution = await executePackageEntry([
       `let calls = 0`,
