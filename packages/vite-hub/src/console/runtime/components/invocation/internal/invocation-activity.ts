@@ -72,7 +72,7 @@ const truncatedContentLabels: Readonly<Record<string, string>> = {
   content: "Details",
   "error.message": "Error",
   input: "Input",
-  "input.attachments.prepared": "Prepared attachments",
+  "input.attachments.sent": "Sent attachments",
   "input.attachments.skipped": "Skipped attachments",
   "input.messages": "Conversation history",
   "input.prompt": "Conversation history",
