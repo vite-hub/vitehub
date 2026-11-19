@@ -369,7 +369,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     state = Object.freeze({
       rows: Object.freeze([...view.rows.values()].map(freezeRow)),
-      status,
+      status: shownStatus(),
+      complete: isComplete(),
       error,
       queued,
       failures: Object.freeze(failures),
@@ -377,6 +378,16 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       live,
     })
     return state
+  }
+
+  /** `true` once every page of a snapshot is stored. A stored `after` means that a page is still to come. */
+  function isComplete(): boolean {
+    return meta !== undefined && meta.after === undefined
+  }
+
+  /** A store with part of a snapshot is still loading, also when its last request succeeded. */
+  function shownStatus(): SyncStatus {
+    return status === "ready" && !isComplete() ? "loading" : status
   }
 
   function publish(): void {
@@ -611,7 +622,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
         return
       }
       const shown = current()
-      if (shown.status !== status || shown.error !== error) publish()
+      if (shown.status !== shownStatus() || shown.error !== error) publish()
       return
     }
     const result = await storage.write(id, change)

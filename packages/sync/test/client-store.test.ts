@@ -113,6 +113,59 @@ describe("start and pull", () => {
     expect(store.getState().rows).toHaveLength(12)
   })
 
+  it("is ready and complete only once the last page of a snapshot is in, also after a reload between two pages", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 8 }, (_, index) => ({ id: `r${index}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const first = h.open({
+      fetch: async (input, init) => {
+        if (++answered > 1) throw new TypeError("Failed to fetch")
+        return await h.server.fetch(input, init)
+      },
+    })
+    const seen: [string, number, boolean][] = []
+    first.store.subscribe(() => {
+      const { status, rows, complete } = first.store.getState()
+      seen.push([status, rows.length, complete])
+    })
+    await first.store.refresh()
+    expect(seen.some(([status, , complete]) => status === "ready" || complete)).toBe(false)
+    expect(first.store.getState()).toMatchObject({ status: "offline", complete: false })
+    expect(first.store.getState().rows).toHaveLength(5)
+    first.store.destroy()
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        await gate
+        return await h.server.fetch(input, init)
+      },
+    })
+    await until(() => store.getState().rows.length === 5)
+    expect(store.getState()).toMatchObject({ status: "loading", complete: false })
+    release()
+    await store.refresh()
+    expect(pulls(h).map(request => request.url.searchParams.get("after"))).toContain("r4")
+    expect(store.getState()).toMatchObject({ status: "ready", complete: true })
+    expect(store.getState().rows).toHaveLength(8)
+  })
+
+  it("is complete after a snapshot in one answer, and stays complete offline", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
+    const { store } = h.open()
+    expect(store.getState().complete).toBe(false)
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready", complete: true })
+    h.server.failWith = 503
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "error", complete: true })
+  })
+
   it("starts the snapshot again when the server answers its next page with changes, as a server without paging", async () => {
     const h = setup()
     h.server.snapshotPageSize = 5
