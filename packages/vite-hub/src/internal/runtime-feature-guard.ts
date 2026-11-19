@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
@@ -21,7 +21,7 @@ export async function loadConfigScanner(load: () => Promise<ScanModule> = () => 
 
 interface ViteHubOptionObjects {
   /**
-   * The options that take effect, when the file shows them for sure: the only `vitehub({...})` call of a Vite config, or
+   * The options that take effect: the only `vitehub({...})` call in the exported Vite plugins, or
    * the `vitehub` key of a Nuxt config without spreads or `vite-hub/nuxt` module options. Undefined otherwise.
    */
   active: ObjectExpression | undefined
@@ -42,29 +42,22 @@ async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<
   const source = await readFile(file, "utf8")
   const scan = await loadScanner()
   if (!scan) return
-  const { argumentExpression, scanModule, unwrapExpression, walk } = scan
+  const { argumentExpression, defaultExportExpression, findProperty, objectProperties, scanModule, staticString, unwrapExpression, walk } = scan
   const module = scanModule(source, file)
   const pluginNames = new Set<string>()
+  const defineConfigNames = new Set(owner === "nuxt" ? ["defineNuxtConfig"] : [])
   for (const statement of module.program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || statement.source.value !== "vite-hub") continue
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
     for (const specifier of statement.specifiers) {
       if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
       const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
-      if (imported === "vitehub") pluginNames.add(specifier.local.name)
+      if (statement.source.value === "vite-hub" && imported === "vitehub") pluginNames.add(specifier.local.name)
+      if (owner === "vite" && statement.source.value === "vite" && imported === "defineConfig") defineConfigNames.add(specifier.local.name)
     }
   }
   const options: ObjectExpression[] = []
-  const calls: Array<Expression | undefined> = []
-  const nuxtConfigs: Expression[] = []
-  let moduleOptions = false
-  for (const statement of module.program.body) {
-    if (statement.type === "ExportDefaultDeclaration" && statement.declaration.type !== "FunctionDeclaration" && statement.declaration.type !== "ClassDeclaration" && statement.declaration.type !== "TSInterfaceDeclaration") {
-      nuxtConfigs.push(unwrapExpression(statement.declaration))
-    }
-  }
+  const calls: CallExpression[] = []
   walk(module.program, (node) => {
-    // `["vite-hub/nuxt", {...}]` in `modules` wins over the top-level `vitehub` key.
-    if (node.type === "ArrayExpression" && node.elements.length > 1 && node.elements[0]?.type === "Literal" && node.elements[0].value === "vite-hub/nuxt") moduleOptions = true
     // Only object literal members: destructuring patterns also have Property nodes, with pattern values.
     if (node.type === "ObjectExpression") {
       for (const property of node.properties) {
@@ -75,20 +68,36 @@ async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<
     }
     if (node.type === "CallExpression" && node.callee.type === "Identifier" && pluginNames.has(node.callee.name)) {
       const value = argumentExpression(node.arguments[0])
-      calls.push(value)
+      calls.push(node)
       if (value?.type === "ObjectExpression") options.push(value)
     }
   })
-  const unwrapConfig = (config: Expression): Expression => {
-    const call = config.type === "CallExpression" && config.callee.type === "Identifier" && config.callee.name === "defineNuxtConfig" ? argumentExpression(config.arguments[0]) : undefined
-    return call ?? config
-  }
+  if (module.errors.length > 0) return { active: undefined, options, scan }
   const literal = (node: Expression | undefined): ObjectExpression | undefined =>
     node?.type === "ObjectExpression" && node.properties.every(property => property.type === "Property" && !property.computed) ? node : undefined
-  const nuxtConfig = owner === "nuxt" && nuxtConfigs.length === 1 ? literal(unwrapConfig(nuxtConfigs[0]!)) : undefined
-  const active = owner === "vite"
-    ? calls.length === 1 ? literal(calls[0]) : undefined
-    : nuxtConfig && !moduleOptions && calls.length === 0 ? literal(scan.findProperty(nuxtConfig, "vitehub")?.value) : undefined
+  const exported = defaultExportExpression(module)
+  const config = literal(exported?.type === "CallExpression" && exported.callee.type === "Identifier" && defineConfigNames.has(exported.callee.name)
+    ? argumentExpression(exported.arguments[0])
+    : exported)
+  let active: ObjectExpression | undefined
+  if (config && owner === "vite") {
+    const plugins = findProperty(config, "plugins")?.value
+    const call = calls.length === 1 ? calls[0] : undefined
+    if (call && plugins?.type === "ArrayExpression" && plugins.elements.some(plugin => plugin !== null && argumentExpression(plugin) === call)) {
+      active = literal(argumentExpression(call.arguments[0]))
+    }
+  }
+  if (config && owner === "nuxt" && calls.length === 0 && !objectProperties(config).some(property => property.key === "extends" || property.key?.startsWith("$"))) {
+    const modules = findProperty(config, "modules")?.value
+    const knownModules = !modules || (modules.type === "ArrayExpression" && modules.elements.every((entry) => {
+      const value = entry === null ? undefined : argumentExpression(entry)
+      if (value?.type !== "ArrayExpression") return staticString(value) !== undefined
+      const name = value.elements[0]
+      const moduleName = name ? staticString(argumentExpression(name)) : undefined
+      return moduleName !== undefined && moduleName !== "vite-hub/nuxt"
+    }))
+    if (knownModules) active = literal(findProperty(config, "vitehub")?.value)
+  }
   return { active, options, scan }
 }
 

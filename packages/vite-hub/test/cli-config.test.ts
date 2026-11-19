@@ -88,6 +88,7 @@ describe("ViteHub CLI config loading", () => {
   const vite = (options: string, before = "") => `import { vitehub } from 'vite-hub'\n${before}export default { plugins: [vitehub({ ${options} })] }\n`
   it.each([
     ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), {}, "file:.vitehub/agent-state.db"],
+    ["vite.config.ts", `import { defineConfig } from 'vite'\nimport { vitehub as hub } from 'vite-hub'\nexport default defineConfig({ plugins: [hub({ host: 'node', agent: { ${state} } })] })`, {}, "file:.vitehub/agent-state.db"],
     ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, {}, "file:/srv/app/state.db"],
     // Without `host`, the build environment picks the host, and only Node puts the journal next to State.
     ["vite.config.ts", vite(`agent: { ${state} }`), {}, undefined],
@@ -101,7 +102,10 @@ describe("ViteHub CLI config loading", () => {
     ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: 'libsql://db.example.com' } } }`), {}, undefined],
     // Only the options that take effect count: a second `vitehub()` call, Nuxt module options, or a spread config.
     ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`, "const other = vitehub(options)\n"), {}, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst unused = vitehub({ host: 'node', agent: { ${state} } })\nexport default { plugins: [] }`, {}, undefined],
     ["nuxt.config.ts", `export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node', agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { providers: { state: { url: 'file:dev/state.db' } } } } })\n`, {}, undefined],
+    ["nuxt.config.ts", `const moduleName = 'vite-hub/nuxt'\nexport default defineNuxtConfig({ modules: [[moduleName, { agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ nitro: { preset: 'deno-server' }, vitehub: { agent: { ${state} } } })`, {}, undefined],
     ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { ${state} } }, ...shared })\n`, {}, undefined],
   ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, env, expected) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
