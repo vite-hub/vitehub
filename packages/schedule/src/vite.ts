@@ -9,6 +9,7 @@ import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-opt
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
@@ -26,6 +27,7 @@ import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleCronOverrides, ScheduleTimeZoneCrons, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import type { ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
@@ -114,6 +116,8 @@ interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions 
   memoryProcessStores?: boolean
   /** Set in Vite's `config` hook, where plugins added later can still contribute the Schedule that `cron` names. */
   preliminary?: boolean
+  /** The resolved Vite config, which receives the build hints. */
+  hints?: ViteHubHintsConfig
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleOptions {
@@ -714,6 +718,9 @@ function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefin
 export async function createScheduleNitroConfig(options: ScheduleNitroConfigOptions = {}): Promise<NitroConfig | null> {
   const processRuntime = resolveProcessRuntimeOptions(options.runtime)
   const roots = resolveSchedulePluginRoots(options.root || process.cwd(), options)
+  const internal = options as InternalScheduleNitroConfigOptions
+  const hints = internal.hints ?? { root: options.root ?? roots.projectRoot, command: "build" as const }
+  if (options.command === "build" && !internal.preliminary && !internal.hints) startViteHubHints(hints)
   // SAFETY: Only `hubSchedule()` passes the internal `contributions` field; public callers leave it undefined.
   const contributions = (options as InternalScheduleNitroConfigOptions).contributions
     ?? await collectScheduleContributions(options.plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs: options.serverDirs })
@@ -749,9 +756,8 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   }
   if (!installNitroPlugin) return nitro as NitroConfig
 
-  const internal = options as InternalScheduleNitroConfigOptions
   if (processRuntime && options.command === "build" && !internal.preliminary && !internal.leaseDatabaseImport) {
-    console.warn("[vitehub:schedule] The Process Runtime claims each Schedule occurrence in memory, because the app has no Database. Run one server only, or add a Postgres Database so that more than one server runs each occurrence once.")
+    reportViteHubHint(hints, scheduleErrorDiagnostics.SCHEDULE_PROCESS_CLAIMS_IN_MEMORY())
   }
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
@@ -811,6 +817,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
+  let command: "build" | "serve" | undefined
   const processStorageOptions = (plugins: readonly unknown[] | undefined) => ({
     ...(hasVitePlugin(plugins, databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
     memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasVitePlugin(plugins, "@vite-hub/kv/vite"),
@@ -841,6 +848,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
     name: SCHEDULE_VITE_PLUGIN_NAME,
     enforce: "pre",
     async config(config, env) {
+      command = env.command
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const roots = resolveSchedulePluginRoots(config.root || process.cwd(), options)
       contributions = await collectPluginScheduleContributions(config.plugins, roots)
@@ -868,6 +876,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       ;(config as ViteConfigWithNitro).nitro = nitro
     },
     async configResolved(config) {
+      startViteHubHints(config)
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       const roots = resolveSchedulePluginRoots(config.root, options)
@@ -878,6 +887,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       const definitions = discoverRegistrySchedules()
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
+      const storage = processStorageOptions(config.plugins)
       if (config.command) {
         const nitro = await createScheduleNitroConfig({
           ...options,
@@ -885,7 +895,8 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           contributions,
           nitro: (config as ResolvedConfig & { nitro?: unknown }).nitro,
           nitroOwnsPaths: hasNitroConfigContext(config),
-          ...processStorageOptions(config.plugins),
+          ...storage,
+          hints: config,
           root: config.root,
           serverDirs,
         } as InternalScheduleNitroConfigOptions)
@@ -894,6 +905,8 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           const configWithNitro = config as Omit<ResolvedConfig, "nitro"> & { nitro?: NitroConfig }
           configWithNitro.nitro = nitro
         }
+      } else if (command === "build" && typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function" && options.runtime && !storage.leaseDatabaseImport) {
+        reportViteHubHint({ ...config, command }, scheduleErrorDiagnostics.SCHEDULE_PROCESS_CLAIMS_IN_MEMORY())
       }
     },
     configEnvironment(name, config) {

@@ -61,10 +61,10 @@ describe("types", () => {
           route: "/_vitehub/**",
         }],
         signIn: {
-          callbackURL: "/app",
           provider: "github",
           scopes: ["read:org"],
         },
+        afterSignIn: "/app",
       },
       appName: "ViteHub",
       database: authDatabase("auth"),

@@ -116,19 +116,38 @@ export interface DocsSeoOptions {
   withSourceLocation?: (page: DocsSeoPage, field: "title" | "description", message: string) => string
 }
 
+/** The codes of the search checks. Each code is one kind of problem, with its own fix. */
+export type DocsSeoCode =
+  | "DOCS_SEO_DESCRIPTION_INVALID"
+  | "DOCS_SEO_HEADINGS_INVALID"
+  | "DOCS_SEO_HTML_TOO_LARGE"
+  | "DOCS_SEO_LINK_NOT_PAGE"
+  | "DOCS_SEO_OPEN_GRAPH_INCOMPLETE"
+  | "DOCS_SEO_PAGE_THIN"
+  | "DOCS_SEO_PAGE_UNLINKED"
+  | "DOCS_SEO_SITEMAP_NOT_PAGE"
+  | "DOCS_SEO_TITLE_INVALID"
+
+/** One problem of {@link docsSeoProblems}: its code, and one sentence that names the page and the fix. */
+export interface DocsSeoProblem {
+  code: DocsSeoCode
+  message: string
+}
+
 /**
  * The problems of a site: each page in the sitemap must be a prerendered page and not a redirect, and each page that
  * search engines index needs its own title and description within the limits, one `h1`, headings in order, enough
  * text, complete Open Graph tags, and a link from another page. A page that is a copy, through `noindex` or a canonical
  * link to another page, is left out of those checks. Every page must stay below the size limit and must not link to a
- * redirect or to an endpoint. Each problem is one sentence that names the fix.
+ * redirect or to an endpoint.
  */
-export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly string[], options: DocsSeoOptions = {}): string[] {
-  const problems: string[] = []
+export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly string[], options: DocsSeoOptions = {}): DocsSeoProblem[] {
+  const problems: DocsSeoProblem[] = []
+  const add = (code: DocsSeoCode, message: string) => problems.push({ code, message })
   const byPath = new Map(pages.map(page => [page.path, page]))
   const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`
   for (const page of pages) {
-    if (page.bytes > docsSeoLimits.bytes) problems.push(`${page.path} has ${megabytes(page.bytes)} of HTML, and Googlebot reads only the first ${megabytes(docsSeoLimits.bytes)}. Split the page, or show long lists with a component that renders less markup than a Markdown table.`)
+    if (page.bytes > docsSeoLimits.bytes) add("DOCS_SEO_HTML_TOO_LARGE", `${page.path} has ${megabytes(page.bytes)} of HTML, and Googlebot reads only the first ${megabytes(docsSeoLimits.bytes)}. Split the page, or show long lists with a component that renders less markup than a Markdown table.`)
   }
   // One problem for each target, so a link in a footer is one line and not one per page.
   const redirects = new Set(pages.filter(page => page.redirect).map(page => page.path))
@@ -142,14 +161,14 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
   }
   for (const [link, from] of linkedFrom) {
     const where = from.length > 3 ? `${from.slice(0, 3).join(", ")} and ${from.length - 3} more pages` : from.join(", ")
-    problems.push(redirects.has(link)
+    add("DOCS_SEO_LINK_NOT_PAGE", redirects.has(link)
       ? `${where} link to ${link}, which redirects. Link to the page that it redirects to.`
       : `${where} link to ${link}, an endpoint that answers a browser with an error. Write the URL as code, or link to the page that explains it.`)
   }
   for (const path of sitemap) {
     const page = byPath.get(path)
-    if (!page) problems.push(`${path} is in the sitemap, but the build did not prerender it as a page. Remove it from the sitemap, or make it a page.`)
-    else if (page.redirect) problems.push(`${path} is in the sitemap, but it redirects. List the page that it redirects to instead.`)
+    if (!page) add("DOCS_SEO_SITEMAP_NOT_PAGE", `${path} is in the sitemap, but the build did not prerender it as a page. Remove it from the sitemap, or make it a page.`)
+    else if (page.redirect) add("DOCS_SEO_SITEMAP_NOT_PAGE", `${path} is in the sitemap, but it redirects. List the page that it redirects to instead.`)
   }
 
   const indexed = pages.filter(page => !page.redirect && !page.noindex && (page.canonical === null || page.canonical === page.path))
@@ -157,36 +176,43 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
   const withSourceLocation = options.withSourceLocation ?? ((_page, _field, message) => message)
   for (const page of indexed) {
     const at = page.path
-    if (!page.title) problems.push(`${at} has no title. Set \`title\` in its frontmatter.`)
-    else if (page.title.length < title.min || page.title.length > title.max) problems.push(withSourceLocation(page, "title", `${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`))
-    if (!page.description) problems.push(`${at} has no description. Set \`description\` in its frontmatter.`)
-    else if (page.description.length < description.min || page.description.length > description.max) problems.push(withSourceLocation(page, "description", `${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`))
-    if (page.h1 !== 1) problems.push(`${at} has ${page.h1} h1 headings. Give it one.`)
-    if (page.headingSkip) problems.push(`${at} skips a heading level, ${page.headingSkip}. Go down one level at a time.`)
-    if (page.words < words) problems.push(`${at} has ${page.words} words. Write at least ${words}, or merge it into another page.`)
+    if (!page.title) add("DOCS_SEO_TITLE_INVALID", `${at} has no title. Set \`title\` in its frontmatter.`)
+    else if (page.title.length < title.min || page.title.length > title.max) add("DOCS_SEO_TITLE_INVALID", withSourceLocation(page, "title", `${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`))
+    if (!page.description) add("DOCS_SEO_DESCRIPTION_INVALID", `${at} has no description. Set \`description\` in its frontmatter.`)
+    else if (page.description.length < description.min || page.description.length > description.max) add("DOCS_SEO_DESCRIPTION_INVALID", withSourceLocation(page, "description", `${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`))
+    if (page.h1 !== 1) add("DOCS_SEO_HEADINGS_INVALID", `${at} has ${page.h1} h1 headings. Give it one.`)
+    if (page.headingSkip) add("DOCS_SEO_HEADINGS_INVALID", `${at} skips a heading level, ${page.headingSkip}. Go down one level at a time.`)
+    if (page.words < words) add("DOCS_SEO_PAGE_THIN", `${at} has ${page.words} words. Write at least ${words}, or merge it into another page.`)
     const missing = page.openGraphMissing.filter(tag => !(tag === "og:image" && page.twitterCard === "summary") && !(tag === "og:url" && options.siteUrl === false))
-    if (missing.length) problems.push(`${at} has no ${missing.join(", ")} tag, so share previews and site audits call its Open Graph tags incomplete. Pages from \`useDocsSeo()\` set them; an app page that writes its own head needs them too.`)
+    if (missing.length) add("DOCS_SEO_OPEN_GRAPH_INCOMPLETE", `${at} has no ${missing.join(", ")} tag, so share previews and site audits call its Open Graph tags incomplete. Pages from \`useDocsSeo()\` set them; an app page that writes its own head needs them too.`)
   }
-  for (const [field, label] of [["title", "title"], ["description", "description"]] as const) {
+  for (const [field, code] of [["title", "DOCS_SEO_TITLE_INVALID"], ["description", "DOCS_SEO_DESCRIPTION_INVALID"]] as const) {
     const groups = new Map<string, string[]>()
     for (const page of indexed) if (page[field]) groups.set(page[field], [...groups.get(page[field]) ?? [], page.path])
     for (const [value, paths] of groups) {
-      if (paths.length > 1) problems.push(`${paths.join(", ")} share the ${label} "${value}". Give each page its own.`)
+      if (paths.length > 1) add(code, `${paths.join(", ")} share the ${field} "${value}". Give each page its own.`)
     }
   }
 
   const linked = new Set<string>()
   for (const page of pages) for (const link of page.links) if (link !== page.path) linked.add(link)
   for (const page of indexed) {
-    if (page.path !== "/" && !linked.has(page.path)) problems.push(`No page links to ${page.path}. Link it from the navigation, the footer, or a related page.`)
+    if (page.path !== "/" && !linked.has(page.path)) add("DOCS_SEO_PAGE_UNLINKED", `No page links to ${page.path}. Link it from the navigation, the footer, or a related page.`)
   }
   return problems
 }
 
-/** Pages that search engines would flag. The build stops on them while the check is on. */
-/** `DOCS_SEO_FAILED`, with the list of problems in `problems`. */
-export function docsSeoError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
-  return Object.assign(docsErrorDiagnostics.DOCS_SEO_FAILED({ problems }), { problems })
+/** `DOCS_SEO_FAILED`, which stops the build, with the list of problems in `problems`. */
+export function docsSeoError(problems: readonly DocsSeoProblem[]): Diagnostic & { problems: readonly string[] } {
+  const messages = problems.map(problem => problem.message)
+  return Object.assign(docsErrorDiagnostics.DOCS_SEO_FAILED({ problems: messages }), { problems: messages })
+}
+
+/** One hint for each code of the problems, with the problems of that code, for `seoAudit: "warn"`. */
+export function docsSeoHints(problems: readonly DocsSeoProblem[]): Diagnostic[] {
+  const byCode = new Map<DocsSeoCode, string[]>()
+  for (const problem of problems) byCode.set(problem.code, [...byCode.get(problem.code) ?? [], problem.message])
+  return [...byCode].map(([code, messages]) => docsErrorDiagnostics[code]({ problems: messages }))
 }
 
 function attribute(tag: string | undefined, name: string): string | undefined {
