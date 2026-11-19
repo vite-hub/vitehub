@@ -57,11 +57,11 @@ describe("Auth Nuxt integration", () => {
     nuxt.hooks[1]({} as never)
     expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
   })
-  it("passes the page guard redirects to the app and types definePageMeta({ auth })", () => {
+  it("passes the page guard defaults to the app and types definePageMeta({ auth })", () => {
     const hooks = new Map<string, (input: { declarations: string[] }) => void>()
     const nuxt = { ...createNuxt(), hook: (name: string, handler: (input: { declarations: string[] }) => void) => hooks.set(name, handler) }
-    hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } }, nuxt as never)
-    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", redirects: { login: "/sign-in", guest: "/" } } } })
+    hubAuthNuxt({ env: false }, nuxt as never)
+    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/" } } })
     const declarations: string[] = []
     hooks.get("prepare:types")?.({ declarations })
     expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')
@@ -104,12 +104,18 @@ describe("Auth Nuxt integration", () => {
     })
   })
 
-  it.each([false, { redirects: { login: "/module-login", guest: "/module-home" } }] as const)("uses module Auth options and ignores top-level Vite Auth %j", (auth) => {
-    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt", auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
+  it("turns the page guard off with auth: false", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt" }, runtimeConfig: {} } }
 
-    hubAuthNuxt({ env: false, auth }, nuxt)
+    hubAuthNuxt({ env: false, auth: false }, nuxt)
 
-    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: auth === false ? false : { basePath: "/api/auth", redirects: auth.redirects } } })
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: false } })
+  })
+
+  it("fails for the removed redirects option with its move fix", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt" }, runtimeConfig: {} } }
+
+    expect(() => hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } } as never, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_REDIRECTS_MOVED" }))
   })
 
   it("disables the session bridge and guard through module Auth options", () => {

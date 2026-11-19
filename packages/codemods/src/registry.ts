@@ -1,6 +1,7 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
 import { authAccessors } from "./auth-accessors/index.ts"
+import { authSignIn } from "./auth-sign-in/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
@@ -45,6 +46,7 @@ export const codemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
   authAccessors,
 ]
 
@@ -72,5 +74,6 @@ export const upgradeCodemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
   authAccessors,
 ]

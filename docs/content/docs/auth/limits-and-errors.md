@@ -141,7 +141,7 @@ Better Auth or a computed column reader failed. Read the error cause in server c
 
 ## AUTH_MCP_OAUTH_MISSING
 
-`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `oauthProvider()` with `resources`. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
+`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `jwt()` and `oauthProvider()` with `resources`. An `oauthProvider()` with `disableJwtPlugin` issues opaque access tokens, which these helpers do not check. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
 
 ## AUTH_MCP_TOKEN_MISSING
 

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -190,6 +191,30 @@ describe("vitehub agent invocations delete and prune", () => {
     const missing = output()
     await expect(runAgentInvocationsCli(["delete", "old-completed"], { env: {}, rootDir, ...missing })).resolves.toBe(1)
     expect(missing.chunks.stderr).toBe("Agent Invocation old-completed was not found.\n")
+  })
+
+  it.each([
+    ["relative", (_rootDir: string) => "file:.vitehub/agent-state.db"],
+    ["absolute", (rootDir: string) => `file:${join(rootDir, ".vitehub/agent-state.db")}`],
+    // `%23` is a `#` in the folder name, not a fragment.
+    ["encoded", (_rootDir: string) => "file:state%23prod/agent-state.db"],
+  ])("opens the journal next to a file: Agent State with a %s path", async (label, stateUrl) => {
+    const rootDir = await temporaryDirectory()
+    const folder = label === "encoded" ? "state#prod" : ".vitehub"
+    await mkdir(join(rootDir, folder), { recursive: true })
+    const url = pathToFileURL(join(rootDir, folder, "agent-invocations.sqlite")).href
+    await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
+    const read = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }) })
+    const io = output()
+
+    await expect(runAgentInvocationsCli(["delete", "old-completed"], { env: {}, rootDir, stateUrl: stateUrl(rootDir), ...io })).resolves.toBe(0)
+    expect(io.chunks.stdout).toBe("Deleted old-completed.\n")
+    await expect(read.get("old-completed")).resolves.toBeUndefined()
+
+    // VITEHUB_AGENT_INVOCATIONS_DATABASE_URL still wins, as it does on the server.
+    const configured = output()
+    await expect(runAgentInvocationsCli(["delete", "old-failed"], { env: { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "file:elsewhere.sqlite" }, rootDir, stateUrl: stateUrl(rootDir), ...configured })).resolves.toBe(1)
+    expect(configured.chunks.stderr).toContain(join(rootDir, "elsewhere.sqlite"))
   })
 
   it("previews and prunes terminal records older than the requested age", async () => {

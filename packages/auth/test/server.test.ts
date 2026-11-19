@@ -306,10 +306,10 @@ describe("server auth helpers", () => {
     const runtime = vi.fn(() => ({
       access: {
         signIn: {
-          callbackURL: "/app",
           errorCallbackURL: "/app?auth_error=github",
           provider: "github",
         },
+        afterSignIn: "/app",
       },
       appName: "ViteHub",
       secret: "abcdefghijklmnopqrstuvwxyz0123456789",

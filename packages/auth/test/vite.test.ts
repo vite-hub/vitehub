@@ -357,7 +357,7 @@ describe("hubAuth", () => {
     expect(config(hubAuth()).optimizeDeps).toEqual({ exclude: ["@vite-hub/auth", "vite-hub/auth"], include: ["@vite-hub/auth > better-auth/vue"] })
   })
 
-  it.each([[{}], [false] as const])("serves no client options without auth.client.ts or with Auth %j", async (options) => {
+  it.each([[undefined], [false] as const])("serves no client options without auth.client.ts or with Auth %j", async (options) => {
     const root = await createTempProject()
     await writeAuth(root)
     if (options === false) await writeFile(join(root, "auth.client.ts"), "export default {}\n")
@@ -368,6 +368,10 @@ describe("hubAuth", () => {
     expect(resolveAuthModule(plugin, AUTH_CLIENT_ID)).toBe(RESOLVED_AUTH_CLIENT_ID)
     expect((plugin.load as { handler: (id: string) => string | undefined }).handler(RESOLVED_AUTH_CLIENT_ID)).toBe("export default undefined\n")
     await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.not.toContain("client:")
+  })
+
+  it("fails for the removed object options with the move fix", () => {
+    expect(() => hubAuth({ redirects: { login: "/sign-in" } } as never)).toThrow(expect.objectContaining({ code: "AUTH_REDIRECTS_MOVED" }))
   })
 
   it("connects the virtual Auth Definition to ViteHub Env when available", async () => {
@@ -522,17 +526,17 @@ describe("hubAuth", () => {
 
     await resolvePluginConfig(plugin, root)
     const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
-    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"))')
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"), ["/api/auth/**"])')
   })
 
-  it("passes public routes to the generated access middleware", async () => {
+  it("passes public routes and the Auth route to the generated access middleware", async () => {
     const root = await createTempProject()
-    await writeAuth(root, "server/auth.ts", ["  access: { routes: ['/**'], public: ['/', '/api/auth/**'] },"])
+    await writeAuth(root, "server/auth.ts", ["  basePath: '/auth',", "  access: { routes: ['/**'], public: ['/'] },"])
     const plugin = hubAuth()
 
     await resolvePluginConfig(plugin, root)
     const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
-    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/**"}], () => import("#vitehub/auth/server"), ["/","/api/auth/**"])')
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/**"}], () => import("#vitehub/auth/server"), ["/auth/**","/"])')
   })
 
   it("uses custom Auth base paths for generated Nitro routes", async () => {
