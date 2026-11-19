@@ -1470,6 +1470,29 @@ describe("blob runtime in vite dev", () => {
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
   })
 
+  it("uses the local fs store for an explicit cloudflare store when the dev runner has no R2 binding", async () => {
+    // quiver-airtable: `nuxt dev` on the Cloudflare host has no `TASK_ASSETS` binding, which only the build writes.
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(await readFile(join(base, "tasks/hello.txt"), "utf8")).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the R2 binding of the dev runner for an explicit cloudflare store", async () => {
+    const base = await localBase()
+    setActiveCloudflareEnv({ TASK_ASSETS: createMemoryBucket() })
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(existsSync(join(base, "tasks/hello.txt"))).toBe(false)
+  })
+
   it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {
     const base = await localBase()
     const bucket = createMemoryBucket()
