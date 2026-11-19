@@ -60,6 +60,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `guides` | Guides |
 | `development` | Development |
 | `cli` | CLI |
+| `console` | The ViteHub Console |
 | `hosts` | Frameworks and hosts |
 | `web-container` | WebContainer |
 | `bundle` | Bundle reports |
