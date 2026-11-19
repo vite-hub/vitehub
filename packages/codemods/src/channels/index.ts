@@ -24,7 +24,10 @@ const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActu
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /vite-hub\/agent\/channels|\bhttp\b|\b(?:webhook|stripe)\b/
+const needle = /vite-hub\/agent\/channels|\bhttp\b|\b(?:webhook|stripe)\b|\bsecretToken\b/
+
+/** Modules whose import marks a file with Agent webhook registrations, in `webhooks` of a Channel or a trigger. */
+const agentModules = /^(?:@?vite-hub\/(?:agent|channels)(?:\/|$)|vite-hub\/agent\/)/
 
 /** Modules that export `webhook()` and `stripe()`, whose `secret` and `signature` follow Webhooks now. */
 const webhookModules = new Set([channelsPath, "@vite-hub/channels"])
@@ -283,6 +286,69 @@ function rewriteSecret(context: FileContext, entry: ObjectProperty) {
   }
 }
 
+/** The `process.env` variable that `node` reads, such as `X` in `process.env.X`. */
+function processEnvName(node: Node): string | undefined {
+  if (node.type !== "MemberExpression" || node.object.type !== "MemberExpression") return undefined
+  const { object } = node
+  if (object.object.type !== "Identifier" || object.object.name !== "process" || object.computed) return undefined
+  if (object.property.type !== "Identifier" || object.property.name !== "env") return undefined
+  const name = node.computed ? (node.property.type === "StringLiteral" ? node.property.value : undefined) : node.property.type === "Identifier" ? node.property.name : undefined
+  return name && variableName.test(name) ? name : undefined
+}
+
+/**
+ * An Agent webhook registration: `secretToken` becomes `secret`, and the signature takes the Webhooks name.
+ * `secretToken: process.env.X` becomes `secret: "X"`. A literal stays, with a report line: it is a value, and a
+ * `secret` string names a variable.
+ */
+function rewriteRegistration(context: FileContext, registration: ObjectExpression) {
+  const signature = property(registration, "signature")
+  if (signature) rewriteSignature(context, signature)
+  const token = property(registration, "secretToken")
+  if (!token) return
+  const value = unwrap(token.value)
+  const { block, output, style } = context
+  const name = processEnvName(value)
+  if (name) {
+    overwrite(context, token, `secret: ${quoteString(name, style)}`)
+    return
+  }
+  if (value.type === "StringLiteral" || value.type === "TemplateLiteral") {
+    followUp(context, token, "`secretToken` is now `secret`, and a `secret` string names the server variable that holds the secret. Move this secret to a server variable, such as `GITHUB_WEBHOOK_SECRET`, and set `secret: \"GITHUB_WEBHOOK_SECRET\"`.")
+    return
+  }
+  if (token.shorthand || value.type === "Identifier") {
+    followUp(context, token, "`secretToken` is now `secret`. Set `secret` to the name of the server variable that holds the secret, or to a function that returns it.")
+    return
+  }
+  overwrite(context, token.key, "secret")
+  // A value that the code computes, such as `useServerEnv().github.webhookSecret`, moves into a function.
+  const computed = value.type !== "BooleanLiteral" && value.type !== "ArrowFunctionExpression" && value.type !== "FunctionExpression" && value.type !== "ObjectExpression"
+  if (computed) output.prependLeft(block.offset + start(value), "() => ")
+}
+
+/** Registrations under a `webhooks` key: one object, an array of them, or a map of them by provider, as in `chat()`. */
+function webhookRegistrations(value: Node): ObjectExpression[] {
+  const node = unwrap(value)
+  if (node.type === "ArrayExpression") return node.elements.flatMap(element => element && element.type === "ObjectExpression" ? [element] : [])
+  if (node.type !== "ObjectExpression") return []
+  const keys = node.properties.flatMap(entry => entry.type === "ObjectProperty" && !entry.computed ? [keyName(entry.key)] : [])
+  const registrationKeys = ["secretToken", "secret", "signature", "secretHeader", "path", "aliases", "provider", "id"]
+  if (keys.some(key => key && registrationKeys.includes(key)) || !keys.length) return [node]
+  return node.properties.flatMap(entry => entry.type === "ObjectProperty" && unwrap(entry.value).type === "ObjectExpression" ? [unwrap(entry.value) as ObjectExpression] : [])
+}
+
+/** Rewrites Agent webhook registrations in a file that imports ViteHub Agents or Channels. */
+function rewriteAgentRegistrations(context: FileContext) {
+  const { program } = context
+  const imports = program.program.body.some(statement => statement.type === "ImportDeclaration" && agentModules.test(statement.source.value))
+  if (!imports) return
+  walk(program, (node) => {
+    if (node.type !== "ObjectProperty" || node.computed || keyName(node.key) !== "webhooks") return
+    for (const registration of webhookRegistrations(node.value)) rewriteRegistration(context, registration)
+  })
+}
+
 /** Rewrites the options of `webhook()` and `stripe()` from `vite-hub/channels`. */
 function rewriteWebhookOptions(context: FileContext) {
   const { program } = context
@@ -316,6 +382,7 @@ function rewriteBlock(context: FileContext): boolean {
   replaceHttp(context)
   moveImports(context)
   rewriteWebhookOptions(context)
+  rewriteAgentRegistrations(context)
   return context.output.toString() !== before
 }
 
@@ -354,7 +421,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const channels: Codemod = {
   name: "channels",
-  description: "Import Channel adapters from `vite-hub/channels`, replace `http()` with `channelAdapter(\"http\")`, and move `webhook()` and `stripe()` to secret names and Webhooks signature names",
+  description: "Import Channel adapters from `vite-hub/channels`, replace `http()` with `channelAdapter(\"http\")`, and move `webhook()`, `stripe()`, and Agent webhook registrations to `secret` names and Webhooks signature names",
   usage: "[dir]",
   async detect({ cwd }) {
     const result = await migrate({ cwd })

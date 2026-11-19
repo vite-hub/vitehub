@@ -288,8 +288,8 @@ describe("simulated chat Channels", () => {
     const polling = telegram({ mode: "polling" })
     expect(inspectMessageChannelInstructions({ telegram: polling }).join("\n")).toContain("Telegram")
     expect(polling.listener).toBeUndefined()
-    expect(polling.webhooks).toEqual({ secretToken: false })
-    expect(telegram().webhooks).toMatchObject({ secretToken: false })
+    expect(polling.webhooks).toEqual({ secret: false })
+    expect(telegram().webhooks).toMatchObject({ secret: false })
   })
 
   it.each([undefined, true])("keeps buffered replies in the request with an active Workflow (durable: %s)", async (durable) => {
@@ -321,7 +321,7 @@ describe("simulated chat Channels", () => {
 
   it.each([false, true])("skips custom webhook verification (registration array: %s)", async (array) => {
     const verify = vi.fn(() => false)
-    const registration = { signature: { verify }, secretToken: "provider-secret", secretHeader: "x-provider-signature" }
+    const registration = { signature: { verify }, secret: () => "provider-secret", secretHeader: "x-provider-signature" }
     const channel = channelAdapter("discord", { webhooks: array ? [registration] : registration })
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })

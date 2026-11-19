@@ -25,7 +25,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-async function setup(options: { ackTimeoutMs?: number | false, signature?: "github-sha256" | "stripe-sha256", url?: string } = {}) {
+async function setup(options: { ackTimeoutMs?: number | false, signature?: "github" | "stripe", url?: string } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ack-"))
   const state = createLibsqlAgentState({ url: options.url ?? `file:${join(stateDir, "state.sqlite")}` })
   const invokes: number[] = []
@@ -52,8 +52,8 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
           path: "/hook",
           provider: "hook",
           secretHeader: "x-hub-signature-256",
-          secretToken: secret,
-          signature: options.signature ?? "github-sha256",
+          secret: () => secret,
+          signature: options.signature ?? "github",
         },
       }),
     },
@@ -67,7 +67,7 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
     await rm(stateDir, { force: true, recursive: true })
   })
   const sign = (body: string) => {
-    if (options.signature !== "stripe-sha256") return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+    if (options.signature !== "stripe") return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
     const t = Math.floor(Date.now() / 1000)
     return `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`
   }
@@ -203,7 +203,7 @@ describe("webhook acknowledgement after store", () => {
   it("replays a timestamp-signed request after its signature tolerance has passed", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
-    const { create, hold, inbox, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 20, signature: "stripe-sha256" })
+    const { create, hold, inbox, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 20, signature: "stripe" })
     const stuck = hold()
     expect((await send(5)).status).toBe(202)
     await vi.waitFor(() => expect(invokes).toEqual([5]))

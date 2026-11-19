@@ -33,7 +33,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
     await writeFile(join(root, "server/channels/custom.ts"), [
       "import { defineChannel } from '@vite-hub/channels'",
       "import { channelAdapter as customAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "const registration = { path: '/custom', aliases: ['/old-custom'], secretToken: 'secret', secretHeader: 'authorization', signature: 'bearer' }",
+      "const registration = { path: '/custom', aliases: ['/old-custom'], secret: () => 'secret', secretHeader: 'authorization', signature: 'bearer' }",
       "export default defineChannel({ adapter: customAdapter('custom', {",
       "  messages: false, webhooks: [registration, { ...registration, path: '/custom-two', aliases: [] }],",
       "  triggers: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },",

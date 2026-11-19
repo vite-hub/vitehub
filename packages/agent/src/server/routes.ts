@@ -65,6 +65,7 @@ import {
   withRehydratedBodyDeliveryId,
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
+import { serverVariable } from "../internal/server-variable.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
 import {
   acquireChannelStateLock,
@@ -592,6 +593,8 @@ async function resolveWebhookSecret(
   context: AgentRuntimeContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
+  // A string names the server variable that holds the secret.
+  if (typeof value === "string") return serverVariable(value)
   if (typeof value === "function") {
     return await value(context)
   }
@@ -689,13 +692,13 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
+  const secret = registration.secret === undefined ? undefined : await resolveWebhookSecret(registration.secret, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return secret !== false
+  if (registration.secret !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
   // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
-  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  // `secret: false`, so a registration that declares nothing answers 401 instead of running its trigger.
   return requireConfiguredSecret
 }
 
@@ -9817,7 +9820,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         })
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
-        const secret = await resolveWebhookSecret(registration.secretToken, context)
+        const secret = await resolveWebhookSecret(registration.secret, context)
         const secretHeader = webhookSecretHeader(registration)
         if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")

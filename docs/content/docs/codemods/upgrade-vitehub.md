@@ -342,3 +342,25 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
 The codemod joins the moved import with an earlier `vite-hub/channels` import. It also moves re-exports, `import()` calls, and `vi.mock()` paths. The owner path `@vite-hub/agent/channels` stays. The report lists an `http` reference that is not a call.
+
+It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
+
+```diff [server/channels/portal.ts]
+ webhooks: {
+   secretHeader: 'x-hub-signature-256',
+-  secretToken: process.env.GITHUB_WEBHOOK_SECRET,
+-  signature: 'github-sha256',
++  secret: 'GITHUB_WEBHOOK_SECRET',
++  signature: 'github',
+ },
+```
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` | `secret: 'X'` |
+| `secretToken: () => …` | `secret: () => …` |
+| `'github-sha256'`, `'stripe-sha256'` | `'github'`, `'stripe'` |
+| `{ preset: 'hmac-sha256', … }` | `{ type: 'hmac-sha256', … }` |
+| `toleranceSeconds: 600` | `tolerance: '600s'` |
+
+A computed value, such as `useServerEnv().github.webhookSecret`, moves into a function. The codemod leaves a `secretToken` string, such as `secretToken: 'my-secret'`, and the report lists it: move the secret to a server variable and set `secret` to its name. Until then, the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED`.

@@ -58,7 +58,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
-| `channels` | Imports of `vite-hub/agent/channels` to `vite-hub/channels`, and `http(options)` to `channelAdapter("http", options)`. `vitehub migrate` runs it. |
+| `channels` | Imports of `vite-hub/agent/channels` to `vite-hub/channels`, `http(options)` to `channelAdapter("http", options)`, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -361,6 +361,14 @@ Every Channel adapter comes from one path, `vite-hub/channels`, and `webhook()` 
 | --- | --- |
 | `import { slack } from "vite-hub/agent/channels"` | `import { slack } from "vite-hub/channels"` |
 | `http(options)` | `channelAdapter("http", options)` |
+| `secretToken: process.env.X` in a `webhooks` registration | `secret: "X"` |
+| `secretToken: () => …` in a `webhooks` registration | `secret: () => …` |
+| `secret: process.env.X` in `webhook()` or `stripe()` | `secret: "X"` |
+| `signature: "github-sha256"` or `"stripe-sha256"` | `signature: "github"` or `"stripe"` |
+| `signature: { preset: "hmac-sha256", … }` | `signature: { type: "hmac-sha256", … }` |
+| `{ preset: "stripe-sha256", toleranceSeconds: 600 }`, `stripe({ toleranceSeconds: 600 })` | `{ type: "stripe", tolerance: "600s" }`, `stripe({ tolerance: "600s" })` |
+
+A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A computed value, such as `useServerEnv().github.webhookSecret`, moves into a function. The codemod leaves a `secretToken` string, such as `secretToken: "my-secret"`, and the report lists it: move the secret to a server variable and set `secret` to its name.
 
 The codemod joins the moved import with an earlier `vite-hub/channels` import, and it also moves re-exports, `import()` calls, and `vi.mock()` paths. The owner path `@vite-hub/agent/channels` stays. The report lists an `http` reference that is not a call.
 

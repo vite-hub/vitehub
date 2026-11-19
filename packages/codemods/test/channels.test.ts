@@ -146,4 +146,52 @@ describe("channels", () => {
     expect(after).toEqual({})
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/shared.ts", line: 3, message: expect.stringContaining("name of the server variable") })])
   })
+
+  it("moves Agent webhook registrations to secret and the Webhooks signature names", async () => {
+    const { after, run } = await migrate({
+      "server/channels/portal.ts": [
+        "import { defineChannel } from 'vite-hub/channels'",
+        "import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
+        "import { createTelegramAdapter } from '@chat-adapter/telegram'",
+        "export default defineChannel({",
+        "  adapter: channelAdapter('portal', {",
+        "    messages: false,",
+        "    adapter: () => createTelegramAdapter({ secretToken: 'adapter-option' }),",
+        "    webhooks: [",
+        "      { path: '/hooks/github', secretHeader: 'x-hub-signature-256', secretToken: process.env.GITHUB_WEBHOOK_SECRET, signature: 'github-sha256' },",
+        "      { path: '/hooks/stripe', secretHeader: 'stripe-signature', secretToken: async () => readSecret(), signature: { preset: 'stripe-sha256', toleranceSeconds: 600 } },",
+        "      { path: '/hooks/open', secretToken: false },",
+        "    ],",
+        "    triggers: {",
+        "      digest: defineChannelTrigger({ webhooks: { path: '/hooks/digest', secretToken: 'literal-secret', signature: 'bearer' }, invoke: () => new Response(null) }),",
+        "    },",
+        "  }),",
+        "})",
+        "",
+      ].join("\n"),
+      "server/agents/support.ts": "import { chat } from 'vite-hub/agent/capabilities'\nexport const capability = chat({ webhooks: { telegram: { secretToken: useServerEnv().telegram.webhookSecret } } })\n",
+    })
+    expect(after["server/channels/portal.ts"]).toBe([
+      "import { defineChannel } from 'vite-hub/channels'",
+      "import { channelAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
+      "import { createTelegramAdapter } from '@chat-adapter/telegram'",
+      "export default defineChannel({",
+      "  adapter: channelAdapter('portal', {",
+      "    messages: false,",
+      "    adapter: () => createTelegramAdapter({ secretToken: 'adapter-option' }),",
+      "    webhooks: [",
+      "      { path: '/hooks/github', secretHeader: 'x-hub-signature-256', secret: 'GITHUB_WEBHOOK_SECRET', signature: 'github' },",
+      "      { path: '/hooks/stripe', secretHeader: 'stripe-signature', secret: async () => readSecret(), signature: { type: 'stripe', tolerance: '600s' } },",
+      "      { path: '/hooks/open', secret: false },",
+      "    ],",
+      "    triggers: {",
+      "      digest: defineChannelTrigger({ webhooks: { path: '/hooks/digest', secretToken: 'literal-secret', signature: 'bearer' }, invoke: () => new Response(null) }),",
+      "    },",
+      "  }),",
+      "})",
+      "",
+    ].join("\n"))
+    expect(after["server/agents/support.ts"]).toBe("import { chat } from 'vite-hub/agent/capabilities'\nexport const capability = chat({ webhooks: { telegram: { secret: () => useServerEnv().telegram.webhookSecret } } })\n")
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/portal.ts", line: 14, message: expect.stringContaining("Move this secret to a server variable") })])
+  })
 })
