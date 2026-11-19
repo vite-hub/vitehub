@@ -381,15 +381,16 @@ npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 | `vitehub agent invocations show` | `vitehub agent invocations get` |
 | `vitehub content show`, `vitehub workspace show` | `get` |
 | `vitehub email outbox show`, `vitehub queue jobs show` | `outbox get`, `jobs get` |
-| `vitehub workflow get`, `vitehub workflow runs show` | `vitehub workflow runs get` |
+| `vitehub workflow get` | `vitehub workflow runs get --json` |
+| `vitehub workflow runs show` | `vitehub workflow runs get` (use `--run-id` for `--id`) |
 | `vitehub schedule runs <schedule>` | `vitehub schedule runs list <schedule>` |
 | `vitehub schedule attempts <run>` | `vitehub schedule runs get <run>` |
 | `vitehub env inspect` | `vitehub env list` |
-| `vitehub env status --url <app>` | `vitehub env list --url <app>` |
+| `vitehub env status --url <app>` | `vitehub env list --url <app> --json` |
 | `vitehub project info` | `vitehub project get` |
-| `vitehub definitions list` | `vitehub inspect definitions` |
+| `vitehub definitions list` | `vitehub inspect definitions --kind <kind>` for local definitions; use the Console for runtime records |
 
-`vitehub env status` without `--url` asked the dev server. `vitehub env list` without `--url` reads the local stage, so add `--url` where a script asks an app. An old command fails with the new one, so a call that the codemod missed tells you what to run.
+The codemod updates simple shell invocations and reports calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
 
 ```sh
 npx @vite-hub/codemods cli-get-list [dir] [--dry-run]

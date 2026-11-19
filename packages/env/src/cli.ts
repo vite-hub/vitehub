@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { viteHubEnvServerModulePath } from "@vite-hub/internal/build/vite"
-import { createCliDiscoveryNitroCloser, writeCliFailure } from "@vite-hub/internal/cli"
+import { appUrlError, createCliDiscoveryNitroCloser, writeCliFailure } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageServer } from "@vite-hub/internal/vite-stage"
 
@@ -249,6 +249,8 @@ const appEnvResult = v.looseObject({
 
 /** `env list --url`: the `env.inspect` operation of the running app, such as a deployment. Values are never returned. */
 async function listAppEnv(url: string, json: boolean, context: ViteHubCliContext): Promise<number> {
+  const message = appUrlError(url)
+  if (message) return writeCliFailure(json, context, { message })
   const result = await callOperationFromCli({ env: context.env, ...(context.fetch ? { fetch: context.fetch } : {}), rootDir: context.rootDir, url }, "env.inspect", {})
   if (!result.ok) return writeCliFailure(json, context, { code: result.code, ...(result.fix ? { fix: result.fix } : {}), message: result.message })
   const parsed = v.safeParse(appEnvResult, result.value)

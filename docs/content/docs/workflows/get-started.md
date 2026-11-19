@@ -132,7 +132,7 @@ pnpm vitehub workflow start onboard-user '{"email":"ada@example.com"}'
 Then read the run back with its id:
 
 ```bash [commands/cli-get]
-pnpm vitehub workflow runs get <run-id>
+pnpm vitehub workflow runs get <run-id> --json
 ```
 
 ```json [output/cli-get.json]
