@@ -14,10 +14,15 @@ icon: i-lucide-circle-alert
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 
+realtime.onReset(({ reason }) => {
+  if (reason === 'source-changed')
+    toast.add({ title: 'The editor reset because the stored page changed' })
+})
+
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
   if (error?.code === 'REALTIME_REQUEST_FAILED' && error.data.status === 409) {
-    toast.add({ title: 'The page changed', description: 'Someone else saved it. Your editor now shows their version.' })
+    toast.add({ title: 'Checkpoint failed (HTTP 409)', description: error.why })
     return
   }
   if (error) {
@@ -69,7 +74,9 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`. The server answers `409` when the stored document changed, and then the room re-seeds and every client resets to the stored version. A read-only room also answers `409`, with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`.
+
+HTTP `409` does not prove that the editor reset. A read-only or still-syncing room can also return `409`. To detect a reset caused by a change to the stored document, listen to `realtime.onReset()` and check for `reason === 'source-changed'`.
 
 ## Room request errors
 
