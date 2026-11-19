@@ -3,13 +3,14 @@ import { rateLimit } from "@vite-hub/agent/capabilities"
 import { webChat } from "@vite-hub/agent/channels"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { glob } from "@vite-hub/workspace"
+import { custom } from "@vite-hub/workspace"
 
 import { docsAppPath } from "./navigation.ts"
 
 import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentCapabilityDefinition, AgentSettings, WorkspaceAgentDefinition } from "@vite-hub/agent"
 import type { RateLimitIdentity } from "@vite-hub/agent/capabilities"
 import type { RateLimitPolicy } from "@vite-hub/rate-limit"
+import type { WorkspaceSource } from "@vite-hub/workspace"
 
 /** Invocation context key that holds the path of the page the reader has open. */
 export const docsPageContextKey = "docsPage"
@@ -76,11 +77,28 @@ export function docsRateLimit(options: DocsRateLimitOptions = {}): AgentCapabili
 /** The model of the Worker build. A model ID from the ChatGPT plan catalog: `vitehub connections models chatgpt`. */
 export const docsAssistantModel = "gpt-6.1-sol"
 
+/**
+ * The pages Source: every page of the docs site, read from the same manifest and files as the site's Content. It covers
+ * `docs.dir` and `docs.sources`, and lays each page out at its URL path, as the docs rules expect. The Workspace reads it
+ * for each Invocation (`lazy`, no cache), so a page that development adds shows at once, and a Worker reads the pages
+ * that the docs build packed, with no second copy. It loads the docs server modules on the first read, so the Agent
+ * needs the `@vite-hub/docs` Nuxt module.
+ */
+export function docsPagesSource(): WorkspaceSource {
+  return custom({
+    name: "docs-pages",
+    materialize: "lazy",
+    cache: false,
+    getKeys: async () => [...(await import("./runtime/assistant-pages.ts")).docsAssistantPages().keys()],
+    getItem: async key => ({ key, content: await (await import("./runtime/assistant-pages.ts")).readDocsAssistantPage(key), mediaType: "text/markdown" }),
+  })
+}
+
 /** The docs rules, the developer's instructions in their place, and the reader's page. */
 export const docsInstructions: AgentAdapterInstructions = { template: [docsRules, currentPageInstructions] }
 
 /**
- * The parts of the docs assistant that do not depend on the host: a read-only Workspace with the pages in `content/`,
+ * The parts of the docs assistant that do not depend on the host: a read-only Workspace with the pages of the docs site,
  * the `web` Chat Channel with the reader's current page, a site-wide rate limit, and Driver capacity.
  */
 export function defineDocsAssistant(driver: NonNullable<AgentSettings["driver"]>, capabilities: AgentCapabilityDefinition[] = []): WorkspaceAgentDefinition {
@@ -89,10 +107,9 @@ export function defineDocsAssistant(driver: NonNullable<AgentSettings["driver"]>
     driver,
     workspace: {
       mode: "read",
+      // The root of a `glob()` Source that replaces the pages.
       sourceRootDir: process.cwd(),
-      // keyCache: false lists the folder for each Invocation, so a page added in development is visible at once. A
-      // Worker has no file system: its build bundles the pages.
-      sources: { pages: glob({ cwd: "content", include: ["**/*.md"], keyCache: false }) },
+      sources: { pages: docsPagesSource() },
     },
     channels: {
       web: webChat({

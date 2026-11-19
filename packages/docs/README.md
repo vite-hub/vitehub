@@ -79,7 +79,7 @@ Read pages from more than one place with `sources`. It replaces `dir`. Each entr
 
 The module reads the `.md` and `.navigation.yml` files of every source through ViteHub Content when it builds. In development the server reads folders through Nitro server assets, and the module watches them. The build copies the pages of any other Source into `.nuxt/docs/sources/docs-<index>/` and serves that copy, so a `github()` Source shows its branch as it was at build time. A production build packs the Markdown and rewritten agent copies into one gzip module to stay below Cloudflare’s module limit. A `glob()` Source lists dot files only when its `include` names them, such as `**/.navigation.yml`, and reads only below the app root.
 
-`sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
+`sources` configures the site pages, search, Markdown resources, and the pages that the docs assistant reads.
 
 ```ts
 import { github, glob } from "vite-hub/source"
@@ -378,7 +378,7 @@ export default defineNuxtConfig({
 
 ```ts
 // server/agents/docs.ts
-// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset, so a build bundles the pages for hosts without a file system.
+// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset.
 import { docsAssistant } from "@vite-hub/docs/assistant"
 import { defineAgent } from "vite-hub/agent"
 
@@ -407,9 +407,9 @@ The Agent and the Connection are app files on purpose. ViteHub discovers Agents 
 
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+The preset reads the site's pages from a read-only Workspace, answers in the `web` Chat Channel at `/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
 
-The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With `sources`, replace the default `pages` Source and add a glob for each folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
+The Workspace has every page of the site in its `pages` folder, at its URL path: `/docs/guide/setup` is `pages/docs/guide/setup.md`. It reads the same pages as the site, from `docs.dir` or `docs.sources`, for each question. In development a new page shows at once, and a Worker reads the pages that the docs build packed. The assistant reads the source Markdown, so frontmatter adapters change only the site metadata. To read other files, override the Source: `workspace: { sources: { pages: glob({ cwd, include: ["**/*.md"], keyCache: false }) } }` with `glob` from `@vite-hub/workspace`.
 
 Limits:
 
