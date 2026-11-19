@@ -192,6 +192,27 @@ describe("vitehub agent invocations delete and prune", () => {
     expect(missing.chunks.stderr).toBe("Agent Invocation old-completed was not found.\n")
   })
 
+  it.each([
+    ["relative", (_rootDir: string) => "file:.vitehub/agent-state.db"],
+    ["absolute", (rootDir: string) => `file:${join(rootDir, ".vitehub/agent-state.db")}`],
+  ])("opens the journal next to a file: Agent State with a %s path", async (_label, stateUrl) => {
+    const rootDir = await temporaryDirectory()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    const url = `file:${join(rootDir, ".vitehub/agent-invocations.sqlite")}`
+    await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
+    const read = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }) })
+    const io = output()
+
+    await expect(runAgentInvocationsCli(["delete", "old-completed"], { env: {}, rootDir, stateUrl: stateUrl(rootDir), ...io })).resolves.toBe(0)
+    expect(io.chunks.stdout).toBe("Deleted old-completed.\n")
+    await expect(read.get("old-completed")).resolves.toBeUndefined()
+
+    // VITEHUB_AGENT_INVOCATIONS_DATABASE_URL still wins, as it does on the server.
+    const configured = output()
+    await expect(runAgentInvocationsCli(["delete", "old-failed"], { env: { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "file:elsewhere.sqlite" }, rootDir, stateUrl: stateUrl(rootDir), ...configured })).resolves.toBe(1)
+    expect(configured.chunks.stderr).toContain(join(rootDir, "elsewhere.sqlite"))
+  })
+
   it("previews and prunes terminal records older than the requested age", async () => {
     const { read, rootDir } = await defaultJournal()
     const preview = output()

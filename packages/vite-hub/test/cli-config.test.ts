@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -70,6 +70,25 @@ describe("ViteHub CLI config loading", () => {
       export default { plugins: [plugin({ agent: false })] }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  // The babysitter app's config: the Agent CLI must open the journal that the server writes next to this State.
+  const babysitterState = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  it.each([
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'node', agent: { ${babysitterState} } })] }\n`, "file:.vitehub/agent-state.db"],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, "file:/srv/app/state.db"],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'vercel', agent: { ${babysitterState} } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ dataDir: '/data', agent: { ${babysitterState} } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${babysitterState} } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: 'database', ${babysitterState} } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { providers: { state: { url: process.env.STATE_URL } } } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst agent = {}\nexport default { plugins: [vitehub({ agent: { ...agent, ${babysitterState} } })] }\n`, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { providers: { state: { url: 'libsql://db.example.com' } } } })] }\n`, undefined],
+  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, file), source, "utf8")
+    await expect(readAgentJournalStateUrl(root)).resolves.toBe(expected)
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {

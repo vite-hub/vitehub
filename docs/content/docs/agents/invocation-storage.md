@@ -587,8 +587,8 @@ vitehub agent invocations prune --database /data/agent-invocations.sqlite --max-
 vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root.
-- The CLI does not read your config. When the journal is next to a `file:` Agent State, pass that file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
+- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the same default journal as the server: `agent-invocations.sqlite` next to a `file:` Agent State URL, else `.vitehub/data/agent-invocations.sqlite` in the project root.
+- The CLI reads the State URL from the literal values of your config and does not run it. When the config computes the URL, or sets `dataDir`, pass the journal file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
 - Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint.
 - Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`.
 - With `--max-size` or `--max-records`, prune removes the oldest terminal records first, and `--older-than` applies only if passed.

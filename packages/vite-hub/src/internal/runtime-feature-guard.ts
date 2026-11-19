@@ -2,14 +2,22 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import type { ObjectExpression } from "@vite-hub/internal/build/scan-module"
+import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
-/** True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`. */
-async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
+type ScanModule = typeof import("@vite-hub/internal/build/scan-module")
+
+/** The literal `vitehub()` options and `vitehub: {}` keys of a config file, read without evaluating it. */
+async function viteHubOptionObjects(rootDir: string): Promise<{ options: ObjectExpression[], scan: ScanModule } | undefined> {
+  // Nuxt owns discovery whenever both config families exist, matching loadViteHubCliConfig.
+  const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
+  const file = configExtensions.map(extension => join(rootDir, `${owner}.config.${extension}`)).find(path => existsSync(path))
+  if (!file) return
+  const source = await readFile(file, "utf8")
   // Runtime-only commands need no Vite installation until there is a project config to inspect.
-  const { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } = await import("@vite-hub/internal/build/scan-module")
+  const scan = await import("@vite-hub/internal/build/scan-module")
+  const { argumentExpression, scanModule, unwrapExpression, walk } = scan
   const module = scanModule(source, file)
   const pluginNames = new Set<string>()
   for (const statement of module.program.body) {
@@ -35,7 +43,16 @@ async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
       if (value?.type === "ObjectExpression") options.push(value)
     }
   })
-  return options.some((object) => {
+  return { options, scan }
+}
+
+/** Detects explicit Agent CLI opt-outs without evaluating the project config. */
+export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
+  const config = await viteHubOptionObjects(rootDir)
+  if (!config) return true
+  const { findProperty, staticValue } = config.scan
+  // True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`.
+  return !config.options.some((object) => {
     const agent = findProperty(object, "agent")?.value
     if (agent === undefined) return false
     if (staticValue(agent) === false) return true
@@ -44,13 +61,36 @@ async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
   })
 }
 
-/** Detects explicit Agent CLI opt-outs without evaluating the project config. */
-export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
-  // Nuxt owns discovery whenever both config families exist, matching loadViteHubCliConfig.
-  const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
-  for (const extension of configExtensions) {
-    const path = join(rootDir, `${owner}.config.${extension}`)
-    if (existsSync(path)) return !await hasAgentOptOut(await readFile(path, "utf8"), path)
+/**
+ * The `file:` Agent State URL that the default Invocation journal goes next to, as `agentJournalStateUrl()` selects it
+ * from the evaluated options. Reads only literal values: a computed value, a spread, or a `dataDir` gives undefined, and
+ * the CLI keeps its default journal.
+ */
+export async function readAgentJournalStateUrl(rootDir: string): Promise<string | undefined> {
+  const config = await viteHubOptionObjects(rootDir)
+  if (config?.options.length !== 1) return
+  const { findProperty, objectProperties, staticString, staticValue } = config.scan
+  // An object with a spread or a computed key can hold other values at runtime.
+  const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
+    node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
+  const options = literalObject(config.options[0])
+  if (!options || findProperty(options, "dataDir")) return
+  // Without `host`, ViteHub finds the host from the environment, which is Node on the machine that runs the CLI.
+  const host = findProperty(options, "host")?.value
+  if (host !== undefined && staticString(host) !== "node") return
+  const agent = literalObject(findProperty(options, "agent")?.value)
+  if (!agent) return
+  // The default journal only: no `store`, and no `databaseUrl` of its own.
+  const invocations = findProperty(agent, "invocations")?.value
+  if (invocations !== undefined && staticValue(invocations) !== undefined) {
+    const setting = literalObject(invocations)
+    if (!setting || findProperty(setting, "store") || findProperty(setting, "databaseUrl")) return
   }
-  return true
+  const providers = literalObject(findProperty(agent, "providers")?.value)
+  const state = providers && literalObject(findProperty(providers, "state")?.value)
+  if (!state) return
+  const driver = findProperty(state, "driver")?.value
+  if (driver !== undefined && !["auto", "libsql", "sqlite"].includes(staticString(driver) ?? "")) return
+  const url = staticString(findProperty(state, "url")?.value)?.trim()
+  return url && /^file:/i.test(url) ? url : undefined
 }
