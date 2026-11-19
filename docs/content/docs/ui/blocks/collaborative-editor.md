@@ -86,7 +86,7 @@ const editor = useEditor({ extensions: realtime.extensions.value });
 
 ## What to keep
 
-- `people` comes from the room's awareness (shared presence state). With `auth: true`, the server sets each name and image from the session. Do not let the client choose them.
+- `people` comes from the room's awareness (shared presence state). With `authorize: true`, the server sets each name and image from the session. Do not let the client choose them.
 - `AvatarStack` shows a person with two tabs as one face.
 - Presence colors are `#RRGGBB`. Avatar rings, carets, and selections all use them, so each person has one color.
 
