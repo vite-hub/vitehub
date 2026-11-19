@@ -1,9 +1,6 @@
 import { disposeKVStores } from "@vite-hub/kv"
-import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 
 import { kvInferredStoreNotice } from "../config.ts"
-
-import type { ResolvedKVModuleOptions } from "../types.ts"
 
 interface NitroAppLike {
   hooks: { hook(name: "close", callback: () => Promise<void>): unknown }
@@ -14,9 +11,8 @@ interface NitroAppLike {
  * Durability table at boot, so KV prints nothing there.
  */
 async function logInferredStores(): Promise<void> {
-  // SAFETY: ViteHub generates this private module from validated KV configuration.
-  const { hosting, kv } = await import("#vitehub/kv/config") as { hosting: string | undefined, kv: false | ResolvedKVModuleOptions }
-  if (!kv || hostFromNitroPreset(hosting) === "node") return
+  const { durabilityReportsStores, kv } = await import("#vitehub/kv/config")
+  if (!kv || durabilityReportsStores) return
   for (const [name, store] of Object.entries(kv.stores ?? { default: kv.store })) {
     const notice = kvInferredStoreNotice(name, store)
     if (notice) console.info(notice)

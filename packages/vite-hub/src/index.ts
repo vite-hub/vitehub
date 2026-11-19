@@ -54,7 +54,7 @@ export type {
 export function vitehub(options: ViteHubOptions = {}): PluginOption[] {
   try {
     startPackageChecks()
-    return [...viteHubPlugins(options), includedNitro()]
+    return [...viteHubPlugins(options, false), includedNitro()]
   }
   catch (error) {
     // Vite prints an error of the config file with `util.inspect`.
