@@ -97,6 +97,6 @@ The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/
  })
 ```
 
-The codemod stops without editing Auth when it cannot preserve the access policy or move the source configs. This includes user-field checks in route rules and page meta, overlapping page rules, and guest-only API rules. The error names the rule or config to migrate by hand.
+The codemod stops without editing Auth when it cannot preserve the access policy or move the source configs. This includes user-field checks in route rules and page meta, overlapping page rules, and guest-only API rules. It checks nested local layers too, and stops for uninspectable `extends` entries, disabled ViteHub Auth, multiple source definitions, or a nonempty client config outside the app’s `app/` directory. The error names the rule or config to migrate by hand.
 
 The report lists what you change by hand after a successful migration: the module's client composables, such as `useSignIn()` and `fetchSession()`, `requireUserSession()` with options, and `NUXT_BETTER_AUTH_SECRET`. ViteHub Auth uses the same session cookie, so users stay signed in when the secret stays the same.

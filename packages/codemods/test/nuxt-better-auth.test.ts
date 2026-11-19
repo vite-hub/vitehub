@@ -28,6 +28,24 @@ const serverConfig = "import { defineServerAuth } from '@nuxtjs/better-auth/conf
 
 describe("nuxt-better-auth", () => {
   it.each([
+    ["nuxt.config.ts", "export default defineNuxtConfig({ vitehub: { auth: false } })", "Auth is disabled"],
+    ["server/auth.config.ts", serverConfig, "Multiple source server configs"],
+    ["app/auth.config.ts", "export default defineClientAuth({ plugins: [twoFactorClient()] })", "only the app's app/auth.client.ts"],
+  ])("leaves the app unchanged when a nested layer has %s", async (file, source, message) => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth', 'vite-hub/nuxt'], extends: ['./layers/feature'], routeRules: { '/api/reports': { auth: 'user' } } })"
+    const cwd = await createApp({
+      "nuxt.config.ts": config,
+      "server/auth.config.ts": serverConfig,
+      "layers/feature/nuxt.config.ts": "export default defineNuxtConfig({ extends: ['../../base'] })",
+      "base/nuxt.config.ts": "export default defineNuxtConfig({})",
+      [`base/${file}`]: source,
+    })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow(message)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, `base/${file}`), "utf8")).toBe(source)
+  })
+
+  it.each([
     ["routeRules: { '/api/reports': { auth: { user: { role: 'admin' } } } }", "unsupported auth rule"],
     ["routeRules: { '/api/billing/*': { auth: 'user' } }", "unsupported auth path"],
     ["routeRules: { '/api/reports': { auth: 'guest' } }", "guest-only"],
@@ -36,6 +54,7 @@ describe("nuxt-better-auth", () => {
     ["routeRules: { '/team/**': { auth: 'user' }, '/team/staff': { auth: { redirectTo: '/login' } } }", "overlap"],
     ["routeRules: { '/team/staff': { auth: { only: 'user', redirectTo: loginPath } } }", "literal redirectTo"],
     ["vitehub: { auth: false }", "Auth is disabled"],
+    ["extends: ['some-remote-layer']", "cannot verify the Auth configuration"],
     ["routeRules: { [loginPath]: { auth: 'user' } }", "routeRules are not a static object"],
   ])("leaves the app unchanged for %s", async (config, message) => {
     const source = `const loginPath = '/sign-in'\nexport default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], ${config} })\n`
@@ -152,10 +171,12 @@ describe("nuxt-better-auth", () => {
 
   it("detects the module in a local layer only", async () => {
     const cwd = await createApp({
-      "nuxt.config.ts": "export default defineNuxtConfig({\n  extends: ['./base'],\n})\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  extends: ['./feature'],\n})\n",
+      "feature/nuxt.config.ts": "export default defineNuxtConfig({ extends: ['../base'] })\n",
       "base/nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'] })\n",
       "base/server/auth.config.ts": serverConfig,
     })
+    expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("nuxt-better-auth")
     const run = await runCodemod("nuxt-better-auth", { cwd, dryRun: true })
     const paths = run.result.edits.map(edit => `${edit.path}${edit.after === null ? " (deleted)" : ""}`)
     expect(paths).toEqual(expect.arrayContaining(["nuxt.config.ts", "base/nuxt.config.ts", "base/server/auth.config.ts (deleted)", "base/server/auth.ts"]))

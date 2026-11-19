@@ -8,8 +8,7 @@ import { glob } from "tinyglobby"
 import packageJson from "../../package.json" with { type: "json" }
 import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, removeModuleEntry, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
-import { localLayerDirectories } from "../shared/layers.ts"
-import { findModuleEntry, findNuxtConfigName, literalValue, objectProperty, readNuxtConfig, staticOptionsObject } from "../shared/nuxt-config.ts"
+import { findModuleEntry, findNuxtConfigName, literalValue, objectProperty, readNuxtConfig, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 import { clientFollowUpsFor, rewriteServerFile } from "./call-sites.ts"
@@ -55,18 +54,39 @@ interface ConfigPlan {
   removals: Node[]
 }
 
-/** Every local layer with a nuxt.config. The app root comes first. */
-async function readLayers(cwd: string, root: NuxtConfigFile): Promise<LayerConfig[]> {
+/** Walk local layers without guessing at configs that cannot be inspected. */
+async function readLayers(cwd: string, root: NuxtConfigFile, strict = true): Promise<LayerConfig[]> {
   const layers: LayerConfig[] = [{ dir: ".", config: root, listsModule: Boolean(findModuleEntry(root, moduleName)) }]
-  for (const dir of await localLayerDirectories(cwd, root)) {
-    if (dir === "." || !findNuxtConfigName(join(cwd, dir))) continue
+  const seen = new Set(["."])
+  const automatic = (await glob(["layers/*"], { cwd, onlyDirectories: true })).sort().map(dir => dir.replace(/\/$/, ""))
+  async function add(dir: string) {
+    if (seen.has(dir)) return
+    seen.add(dir)
     try {
       const config = await readNuxtConfig(join(cwd, dir))
       layers.push({ dir, config, listsModule: Boolean(findModuleEntry(config, moduleName)) })
     }
     catch (error) {
       if (!isCodemodError(error)) throw error
-      throw codemodError(`${dir}: The codemod could not read this layer config: ${error.message}`)
+      if (strict) throw codemodError(`${dir}: The codemod could not read this layer config: ${error.message}`)
+    }
+  }
+  for (const dir of automatic) {
+    if (findNuxtConfigName(join(cwd, dir))) await add(dir)
+  }
+  for (const layer of layers) {
+    const property = findProperty(layer.config.root, "extends")
+    if (!property) continue
+    const value = unwrapExpression(property.value)
+    for (const entry of value.type === "ArrayExpression" ? value.elements : [value]) {
+      const source = entry?.type === "ArrayExpression" ? entry.elements[0] : entry
+      const path = source && literalValue(source)
+      const dir = typeof path === "string" && path.startsWith(".") ? posix.join(layer.dir, path) : undefined
+      if (!dir || dir === ".." || dir.startsWith("../") || !findNuxtConfigName(join(cwd, dir))) {
+        if (strict) throw codemodError(`${posix.join(layer.dir, layer.config.fileName)}:${line(property)}: The codemod cannot verify the Auth configuration of this extends entry. Migrate Auth by hand.`)
+        continue
+      }
+      await add(dir)
     }
   }
   return layers
@@ -374,10 +394,8 @@ async function detect({ cwd }: CodemodContext) {
   if (found) return found
   try {
     const config = await readNuxtConfig(cwd)
-    for (const dir of await localLayerDirectories(cwd, config)) {
-      if (dir === "." || !findNuxtConfigName(join(cwd, dir))) continue
-      const layer = await readNuxtConfig(join(cwd, dir)).catch(() => undefined)
-      if (layer && findModuleEntry(layer, moduleName)) return { reason: `${posix.join(dir, layer.fileName)} lists ${moduleName} in modules` }
+    for (const layer of await readLayers(cwd, config, false)) {
+      if (layer.listsModule) return { reason: `${posix.join(layer.dir, layer.config.fileName)} lists ${moduleName} in modules` }
     }
   }
   catch (error) {
