@@ -44,7 +44,7 @@ import {
   hasAgentTraceLog,
   traceAgentInputAttachments,
 } from "./trace.ts"
-import { attachmentFetchFailure, inputAttachmentEntry, selectedOutAttachments } from "./internal/input-attachments.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, retainedUserMessages, selectedOutAttachments } from "./internal/input-attachments.ts"
 import type { InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
@@ -447,20 +447,21 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
     : undefined
   const isHistorical = (message: Message, messageIndex: number) => currentMessageId !== undefined
     && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
+  const retained = new Set(currentMessageId === undefined ? [] : retainedUserMessages(messages, currentMessageId ?? undefined))
   const resolvedParts = new Map<AttachmentPart, AttachmentPart | undefined>()
-  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(messages.filter(message => message.role === "user")) }
+  const report: InputAttachmentsReport = { prepared: [], skipped: selectedOutAttachments(messages.filter(message => message.role === "user")) }
   // Current attachments use the byte budget first. History attachments use what remains.
   for (const historical of [false, true]) {
-    const origin = historical ? "history" : "current"
     for (const [messageIndex, message] of messages.entries()) {
       if (message.role !== "user" || isHistorical(message, messageIndex) !== historical) continue
+      const origin = historical && !retained.has(message) ? "history" : "current"
       for (const part of message.parts) {
         if (!isAttachmentPart(part)) continue
         if (!historical) {
           const resolved = await resolveModelAttachmentPart(part, remainingBytes)
           remainingBytes -= resolved.byteLength
           resolvedParts.set(part, resolved.part)
-          if (resolved.part) report.sent.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
+          if (resolved.part) report.prepared.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
           else report.skipped.push({ ...inputAttachmentEntry(part, message, origin), reason: "no-data" })
           continue
         }
@@ -474,7 +475,7 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
           const resolved = await resolveModelAttachmentPart(part, remainingBytes)
           remainingBytes -= resolved.byteLength
           resolvedParts.set(part, resolved.part)
-          if (resolved.part) report.sent.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
+          if (resolved.part) report.prepared.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
           else report.skipped.push({ ...inputAttachmentEntry(part, message, origin), reason: "no-data" })
         } catch (error) {
           report.skipped.push({

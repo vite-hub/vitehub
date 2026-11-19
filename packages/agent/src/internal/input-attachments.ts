@@ -5,7 +5,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 /** `current`: the message that started the run, or one coalesced into it. `history`: an earlier message sent again. */
 export type InputAttachmentOrigin = "current" | "history"
 
-/** Why an attachment did not reach the model. */
+/** Why chat selection or the Driver left out an attachment. */
 export type InputAttachmentSkipReason =
   | "byte-budget"
   | "max-age"
@@ -25,7 +25,7 @@ export interface InputAttachmentEntry {
   partId?: string
 }
 
-export interface SentInputAttachment extends InputAttachmentEntry {
+export interface PreparedInputAttachment extends InputAttachmentEntry {
   bytes: number
   /** The file that the provider runtime reads. Drivers that pass bytes in the model call have none. */
   path?: string
@@ -35,9 +35,9 @@ export interface SkippedInputAttachment extends InputAttachmentEntry {
   reason: InputAttachmentSkipReason
 }
 
-/** What a Driver did with every attachment of the messages it sent to the model. */
+/** The attachments a Driver prepared and those it left out before handoff. */
 export interface InputAttachmentsReport {
-  sent: SentInputAttachment[]
+  prepared: PreparedInputAttachment[]
   skipped: SkippedInputAttachment[]
 }
 
@@ -45,6 +45,7 @@ export interface InputAttachmentsReport {
 export interface ChatOmittedAttachment {
   id?: string
   mediaType: string
+  messageId?: string
   name?: string
   reason: Extract<InputAttachmentSkipReason, "max-age" | "max-images" | "not-image">
 }
@@ -57,7 +58,24 @@ function isChatOmittedAttachment(value: unknown): value is ChatOmittedAttachment
     && typeof value.reason === "string"
     && selectionReasons.has(value.reason)
     && (value.id === undefined || typeof value.id === "string")
+    && (value.messageId === undefined || typeof value.messageId === "string")
     && (value.name === undefined || typeof value.name === "string")
+}
+
+export function chatOmittedAttachments(data: unknown): ChatOmittedAttachment[] {
+  return isRuntimeRecord(data) && Array.isArray(data.omittedAttachments)
+    ? data.omittedAttachments.filter(isChatOmittedAttachment)
+    : []
+}
+
+export function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
+  const index = messageId
+    ? messages.findIndex(message => message.id === messageId)
+    : messages.findLastIndex(message => message.role === "user")
+  const chat = messages[index]?.metadata?.chat
+  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
+  if (typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
+  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
 }
 
 export function inputAttachmentEntry(part: AttachmentPart, message: Message | undefined, origin: InputAttachmentOrigin): InputAttachmentEntry {
@@ -74,15 +92,18 @@ export function inputAttachmentEntry(part: AttachmentPart, message: Message | un
 /** History attachments that chat message selection (`triggerHistory.maxImages` and `maxAgeMs`) left out of these messages. */
 export function selectedOutAttachments(messages: readonly Message[]): SkippedInputAttachment[] {
   return messages.flatMap(message => message.parts.flatMap((part) => {
-    if (part.type !== chatMessageHeaderPartType || !isRuntimeRecord(part.data) || !Array.isArray(part.data.omittedAttachments)) return []
-    return part.data.omittedAttachments.filter(isChatOmittedAttachment).map(item => ({
-      mediaType: item.mediaType,
-      ...(message.id ? { messageId: message.id } : {}),
-      ...(item.name ? { name: item.name } : {}),
-      origin: "history" as const,
-      ...(item.id ? { partId: item.id } : {}),
-      reason: item.reason,
-    }))
+    if (part.type !== chatMessageHeaderPartType) return []
+    return chatOmittedAttachments(part.data).map((item): SkippedInputAttachment => {
+      const messageId = item.messageId ?? message.id
+      return {
+        mediaType: item.mediaType,
+        ...(messageId ? { messageId } : {}),
+        ...(item.name ? { name: item.name } : {}),
+        origin: "history",
+        ...(item.id ? { partId: item.id } : {}),
+        reason: item.reason,
+      }
+    })
   }))
 }
 

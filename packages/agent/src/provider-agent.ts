@@ -58,7 +58,7 @@ export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.t
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent, traceAgentInputAttachments } from "./trace.ts"
-import { attachmentFetchFailure, inputAttachmentEntry, selectedOutAttachments } from "./internal/input-attachments.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, retainedUserMessages, selectedOutAttachments } from "./internal/input-attachments.ts"
 import type { InputAttachmentOrigin, InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
@@ -2146,17 +2146,6 @@ async function resolveInstructions<
   }) : undefined
 }
 
-function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
-  const index = messageId
-    ? messages.findIndex(message => message.id === messageId)
-    : messages.findLastIndex(message => message.role === "user")
-  const chat = messages[index]?.metadata?.chat
-  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
-  if (typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
-  // Queue and steer coalescing retain these messages for the current Invocation.
-  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
-}
-
 function latestUserMessages(messages: Message[]): Message[] {
   const index = messages.findLastIndex(message => message.role === "user")
   return index === -1 ? messages.slice(-1) : [...retainedUserMessages(messages), ...messages.slice(index)]
@@ -2230,7 +2219,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
- * The report names every attachment that was sent or left out, with the reason.
+ * The report names every attachment that was staged or left out, with the reason.
  */
 async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
   const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
@@ -2238,7 +2227,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
   const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
-  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(historyMessages) }
+  const report: InputAttachmentsReport = { prepared: [], skipped: selectedOutAttachments(historyMessages) }
   const history: AttachmentPart[] = []
   for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
     if (currentParts.has(part)) continue
@@ -2282,7 +2271,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     const path = join(runtime.attachmentsDirectory, `${id}${extension}`)
     await writeFile(path, bytes)
-    report.sent.push({ ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength, path })
+    report.prepared.push({ ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength, path })
     attachments.push({
       id,
       mimeType: part.mediaType,

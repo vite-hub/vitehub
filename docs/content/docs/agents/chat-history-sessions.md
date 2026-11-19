@@ -134,18 +134,21 @@ turn that starts a new provider thread. A resumed provider thread already has
 the earlier turns, so it gets only attachments from the current message and
 any queued or coalesced messages. A Sandbox provider gets no history photos.
 
-### Check which photos the model received
+### Check which photos the Driver prepared
 
-Before it calls the model, the Driver records one `agent.input.attachments`
+Before it hands off the input, the Driver records one `agent.input.attachments`
 observation on the Invocation. The Console shows it as one row, such as
-`Sent 3 images (2.1 MB), skipped 1: byte-budget`. Open the row to see each
-attachment.
+`Prepared 3 images (2.1 MB), skipped 1: byte-budget`. Open the row for attachment
+details.
+
+This shows what the Driver prepared, not what the model received. AI SDK hooks
+can replace the prompt, and a provider can leave staged files out of its model input.
 
 | Attribute | Value |
 | --- | --- |
-| `input.attachments.sent` | Each attachment the model received: `messageId`, `partId`, `name`, `mediaType`, `bytes`, `origin` (`current` or `history`), and for a Provider Driver the `path` of the file that the provider reads. |
+| `input.attachments.prepared` | Each attachment the Driver prepared: `messageId`, `partId`, `name`, `mediaType`, `bytes`, `origin` (`current` or `history`), and for a Provider Driver the staged `path`. |
 | `input.attachments.skipped` | Each attachment left out, with the same fields and a `reason`. |
-| `input.attachments.sentCount`, `sentBytes`, `skippedCount` | Totals. |
+| `input.attachments.preparedCount`, `preparedBytes`, `skippedCount` | Totals. |
 
 | Reason | Why the attachment was left out |
 | --- | --- |
