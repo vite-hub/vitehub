@@ -9,10 +9,18 @@ import { secretCliFeatures } from "@vite-hub/env/cli"
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
 // `agent invocations` talks to a server or a journal database, so a broken or slow project config cannot block it.
+// Its entry does not import `vite`, so it also runs on a server that installed only production dependencies. It reads
+// only literal config values.
 const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   features: [{
     name: "invocations",
-    run: async (args, context) => requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/cli")), "agent").runAgentInvocationsCli(args, context),
+    run: async (args, context) => {
+      const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-invocations-cli")), "agent")
+      // The default journal goes next to a `file:` Agent State, which only the config names. Read it without evaluating the config.
+      const { readAgentJournalStateUrl } = await import("./internal/runtime-feature-guard.ts")
+      const stateUrl = await readAgentJournalStateUrl(context.rootDir, context.env)
+      return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
+    },
   }],
   name: "agent",
 }

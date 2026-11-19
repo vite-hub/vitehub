@@ -134,21 +134,21 @@ turn that starts a new provider thread. A resumed provider thread already has
 the earlier turns, so it gets only attachments from the current message and
 any queued or coalesced messages. A Sandbox provider gets no history photos.
 
-### Check which photos the Driver prepared
+### Check which photos went to the provider
 
-Before it hands off the input, the Driver records one `agent.input.attachments`
-observation on the Invocation. The Console shows it as one row, such as
-`Prepared 3 images (2.1 MB), skipped 1: byte-budget`. Open the row for attachment
-details.
-
-This shows what the Driver prepared, not what the model received. AI SDK hooks
-can replace the prompt, and a provider can leave staged files out of its model input.
+A Provider Driver, such as Codex or Claude Code, records one
+`agent.input.attachments` observation on the Invocation once the provider
+accepts the turn. It lists what ViteHub handed to the provider with that turn.
+A provider can still drop an image it accepted, for example when Claude Code's
+own input budget is full. The Console shows the record as one row, such as
+`Sent 3 images (2.1 MB), skipped 1: byte-budget`. Open the row to see each
+attachment. The AI SDK Driver does not record it.
 
 | Attribute | Value |
 | --- | --- |
-| `input.attachments.prepared` | Each attachment the Driver prepared: `messageId`, `partId`, `name`, `mediaType`, `bytes`, `origin` (`current` or `history`), and for a Provider Driver the staged `path`. |
+| `input.attachments.sent` | Each attachment handed to the provider: `messageId`, `partId`, `name`, `mediaType`, `bytes`, and `origin` (`current` or `history`). |
 | `input.attachments.skipped` | Each attachment left out, with the same fields and a `reason`. |
-| `input.attachments.preparedCount`, `preparedBytes`, `skippedCount` | Totals. |
+| `input.attachments.sentCount`, `sentBytes`, `skippedCount` | Totals. |
 
 | Reason | Why the attachment was left out |
 | --- | --- |
@@ -159,6 +159,7 @@ can replace the prompt, and a provider can leave staged files out of its model i
 | `fetch-failed:<code>` | The download failed. `<code>` is the error code, HTTP status, or error name. |
 | `no-data` | The part has no data and no `fetchData()`. |
 | `sandbox` | A Sandbox provider cannot read history images. |
+| `not-inline` | The provider takes only GIF, JPEG, PNG, and WebP images as image input. Codex gets the path of the saved file for other image types. |
 
 ## Add a session
 
