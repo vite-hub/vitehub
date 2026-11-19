@@ -40,7 +40,9 @@ export type {
 export type {
   AiGateway,
   AiGatewayAsk,
+  AiGatewayAskError,
   AiGatewayAskOptions,
+  AiGatewayAskResult,
   AiGatewayCapabilities,
   AiGatewayContext,
   AiGatewayDefinition,

@@ -395,7 +395,7 @@ Give `database` a string that names a variable or binding, so the URL and token 
 | `'d1:COMMENTS'` | The Cloudflare D1 binding `COMMENTS`. Comments adds the binding to the build. |
 | `'env:COMMENTS_DATABASE_URL'` | The libSQL URL in that variable, such as Turso. The token is in the URL or `COMMENTS_AUTH_TOKEN`. |
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the server's start directory. |
-| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` instead. |
+| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, and the build reports the hint [`COMMENTS_DATABASE_TOKEN_IN_BUILD`](/docs/comments/diagnostics/comments_database_token_in_build). Use `env:` instead. |
 
 On Node, the runtime variables can also hold a `file:` location. Comments picks the connector at runtime, so the path stays out of the build. Workers support D1 and remote libSQL. A static `file:` or `:memory:` location fails the Worker build with `DATABASE_UNSUPPORTED_URL`.
 

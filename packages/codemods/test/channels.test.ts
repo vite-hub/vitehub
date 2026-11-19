@@ -226,4 +226,13 @@ describe("channels", () => {
     expect(after["server/agents/support.ts"]).toBe("import { chat } from 'vite-hub/agent/capabilities'\nexport const capability = chat({ webhooks: { telegram: { secret: () => useServerEnv().telegram.webhookSecret } } })\n")
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/portal.ts", line: 14, message: expect.stringContaining("Move this secret to a server variable") })])
   })
+
+  it.each([
+    "<script>\nimport { http } from 'vite-hub/agent/channels'\n</script>\n<script setup>\nconst channel = http()\n</script>",
+    "<script setup>\nimport { http as makeChannel } from 'vite-hub/agent/channels'\n</script>\n<template>\n<div>{{ makeChannel() }}</div>\n</template>",
+  ])("reports Vue references outside the parsed script", async (source) => {
+    const { after, run } = await migrate({ "Channels.vue": source })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "Channels.vue", line: 2, message: expect.stringContaining("Vue") })])
+  })
 })
