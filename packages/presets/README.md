@@ -182,9 +182,11 @@ six hours.
 `{ "acme/app": "preview/pr-{number}" }`, is for required checks that run only on
 pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
 PR's head. When it is missing, the host pushes the head to that branch, once per
-head, and deletes the branch after the merge. It pushes only a head that passes
-the merge gate, because push workflows run the fork's code. List a repository
-only when its push workflows on that branch get no secrets.
+head. A push runs the workflow files of the pushed commit with the repository's
+permissions, so the host first rereads GitHub and pushes only when a reviewer with
+write access approved that exact head, no change request stands, and the head's
+`.github` folder is the same as the base branch's. It moves and deletes only a
+branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no

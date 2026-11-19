@@ -63,8 +63,8 @@ export type BabysitterMerge =
      * A branch, by repository (`owner/name`), that receives a fork PR's head when a required check never
      * reported on it, such as `{ "acme/app": "preview/pr-{number}" }`. Checks that run only on pushes to
      * the repository itself, like pkg.pr.new, then report on the head. `{number}` is the PR number. The
-     * host pushes only a head that passes the merge gate, because push workflows run the fork's code with
-     * the repository's permissions. List a repository only when its push workflows on that branch get no secrets.
+     * host pushes only a head that a reviewer with write access approved and whose `.github` folder is the
+     * base branch's, because a push runs the pushed commit's workflows with the repository's permissions.
      */
     forkHeadBranches?: Record<string, string>;
     /**
