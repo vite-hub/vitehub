@@ -50,6 +50,12 @@ function copy<T>(value: T): T {
   return clone
 }
 
+/** The attachment keys of a message: the keys that it names, then one made-up key for each file that it brings. */
+function attachmentsOf(input: { attachments?: string[], files?: Blob[] }): string[] {
+  const files = (input.files ?? []).map(file => `memory/${crypto.randomUUID()}/${file instanceof File ? file.name : "file"}`)
+  return [...(input.attachments ?? []), ...files]
+}
+
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
   return a.kind === b.kind && a.id === b.id
 }
@@ -153,7 +159,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       }
       const n = (store.counters.get(scope) ?? 0) + 1
       const id = `thread-${crypto.randomUUID()}`
-      const first = message(store, user, { ...input, threadId: id })
+      const first = message(store, user, { ...input, attachments: attachmentsOf(input), threadId: id })
       store.counters.set(scope, n)
       if (request !== undefined) store.requests.set(request, id)
       return save({
@@ -163,6 +169,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         subject: copy(input.subject),
         ...(input.metadata === undefined ? {} : { metadata: copy(input.metadata) }),
         ...(input.revision === undefined ? {} : { revision: input.revision }),
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
         anchor: copy(input.anchor),
         status: "open",
         author: copy(user),
@@ -179,7 +186,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         if (earlier.author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
         return found
       }
-      const added = message(store, user, input)
+      const added = message(store, user, { ...input, attachments: attachmentsOf(input) })
       if (request !== undefined) store.requests.set(request, added.id)
       found.messages.push(added)
       return save(found)

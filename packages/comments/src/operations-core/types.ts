@@ -174,6 +174,10 @@ export interface CommentMessage {
   /** Milliseconds since the epoch. */
   createdAt: number
   editedAt?: number
+  /** The retry key of the reply that made it, when it had one. The client matches its own waiting reply by it. */
+  requestId?: string
+  /** Set only by the client's outbox: the message is not on the server yet. */
+  delivery?: CommentDelivery
 }
 
 export interface CommentThread {
@@ -203,6 +207,31 @@ export interface CommentThread {
   forge?: CommentForgeLink | null
   createdAt: number
   updatedAt: number
+  /** The retry key of the `create` that started it, when it had one. The client matches its own waiting comment by it. */
+  requestId?: string
+  /** Set only by the client's outbox: the thread is not on the server yet. Its `id` is the `requestId` and its `n` is 0. */
+  delivery?: CommentDelivery
+}
+
+/** A comment or reply that the outbox of the client holds. */
+export interface CommentDelivery {
+  /** `pending` while it waits or goes out, `failed` when the server refused it. */
+  status: "pending" | "failed"
+  requestId: string
+  /** The files that go with it, to show before the server stores them. */
+  files: Blob[]
+  /** Why the last try did not go out. A `pending` message with an error waits to try again. */
+  error?: CommentDeliveryError
+}
+
+/** A failure that the outbox keeps with the entry. Plain data, so it is stored with the entry. */
+export interface CommentDeliveryError {
+  /** Such as `COMMENTS_R0013`. Absent when the error had no code. */
+  code?: string
+  why: string
+  fix?: string
+  /** The HTTP status. 0 when the request got no answer. */
+  status: number
 }
 
 export interface CommentListQuery {
@@ -259,6 +288,13 @@ export interface CommentReplyInput {
    * thread returns the thread with the first message and adds nothing.
    */
   requestId?: string
+}
+
+/** Files that a transport stores before the message, and adds to its `attachments`. */
+export interface CommentFiles {
+  files?: Blob[]
+  /** The subject of the thread, for the upload of the files of a reply. `create` has it in its input. */
+  subject?: CommentSubject
 }
 
 export interface CommentEditInput {
@@ -322,8 +358,9 @@ export interface CommentsTransport {
   supportsAttachments?: boolean
   list: (query: CommentListQuery) => Promise<CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
-  create: (input: CommentCreateInput) => Promise<CommentThread>
-  reply: (input: CommentReplyInput) => Promise<CommentThread>
+  /** Gets the client's `requestId` and the files of the comment, which it stores first. */
+  create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
+  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
   resolve: (input: CommentStatusInput) => Promise<CommentThread>

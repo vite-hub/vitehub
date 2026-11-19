@@ -2,17 +2,22 @@ import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 
 import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
+import { uploadFiles } from "../client-files.ts"
 
 import type {
   CommentCreateInput,
   CommentDeleteInput,
+  CommentAttachment,
   CommentEditInput,
+  CommentFiles,
   CommentGetInput,
   CommentListQuery,
   CommentReplyInput,
   CommentsTransport,
   CommentStatusInput,
+  CommentSubject,
   CommentThread,
+  CommentUploadInput,
   CommentUser,
   CommentUsersInput,
 } from "./types.ts"
@@ -67,14 +72,19 @@ export function createRpcTransport(options: RpcTransportOptions = {}): CommentsT
       ...(isRecord(body.details) ? { details: body.details } : {}),
     })
   }
+  const upload = (input: CommentUploadInput) => call<CommentAttachment>("comments.upload", input)
+  const withFiles = async <T extends { attachments?: string[] }>({ files, ...input }: T & CommentFiles, subject?: CommentSubject): Promise<Omit<T, "files">> => {
+    if (!files?.length) return input
+    return { ...input, attachments: [...(input.attachments ?? []), ...await uploadFiles(files, subject, upload)] }
+  }
   return {
-    create: (input: CommentCreateInput) => call<CommentThread>("comments.create", input),
+    create: async (input: CommentCreateInput & CommentFiles) => call<CommentThread>("comments.create", await withFiles(input, input.subject)),
     delete: (input: CommentDeleteInput) => call<CommentThread | null>("comments.delete", input),
     edit: (input: CommentEditInput) => call<CommentThread>("comments.edit", input),
     get: (input: CommentGetInput) => call<CommentThread | null>("comments.get", input),
     list: (query: CommentListQuery) => call<CommentThread[]>("comments.list", query),
     reopen: (input: CommentStatusInput) => call<CommentThread>("comments.reopen", input),
-    reply: (input: CommentReplyInput) => call<CommentThread>("comments.reply", input),
+    reply: async ({ subject, ...input }: CommentReplyInput & CommentFiles) => call<CommentThread>("comments.reply", await withFiles(input, subject)),
     resolve: (input: CommentStatusInput) => call<CommentThread>("comments.resolve", input),
     users: (input: CommentUsersInput) => call<CommentUser[]>("comments.users", input),
   }

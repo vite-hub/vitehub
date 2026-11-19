@@ -3,6 +3,10 @@ import { defineDiagnostics, Diagnostic } from "nostics"
 // The codes that the browser client raises, so a page with `createCommentsClient()` or `createAnchor()` does not load
 // the whole Comments catalog. `commentsErrorDiagnostics` has them too.
 export const commentsClientCodes = {
+  COMMENTS_OUTBOX_SENDING: {
+    why: "This comment is going to the server right now, so it cannot change on the way.",
+    fix: "Wait until it shows as sent, then edit or delete it.",
+  },
   COMMENTS_R0001: {
     why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
     fix: "Pass an element, a non-empty selection, or a point that is over an element of the page.",
@@ -22,14 +26,17 @@ export const commentsClientDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: commentsClientCodes,
 })
 
-/** A failure that the server answered: a diagnostic with its code, why, and fix, and the HTTP status of the answer. */
-export function commentsAnswerError(failure: { code: string, details?: Record<string, unknown>, fix?: string, status: number, why: string }): Diagnostic & { details?: Record<string, unknown>, status: number } {
-  const { code, details, fix, status, why } = failure
+/**
+ * A failure that the server answered: a diagnostic with its code, why, and fix, the HTTP status of the answer, and the
+ * wait that its `Retry-After` asks for, in milliseconds.
+ */
+export function commentsAnswerError(failure: { code: string, details?: Record<string, unknown>, fix?: string, retryAfter?: number, status: number, why: string }): Diagnostic & { details?: Record<string, unknown>, retryAfter?: number, status: number } {
+  const { code, details, fix, retryAfter, status, why } = failure
   const docs = code.startsWith("COMMENTS_") ? `https://vitehub.dev/docs/comments/diagnostics/${code.toLowerCase()}` : undefined
-  return Object.assign(new Diagnostic({ code, why, ...(fix ? { fix } : {}), ...(docs ? { docs } : {}) }), { status, ...(details ? { details } : {}) })
+  return Object.assign(new Diagnostic({ code, why, ...(fix ? { fix } : {}), ...(docs ? { docs } : {}) }), { status, ...(details ? { details } : {}), ...(retryAfter === undefined ? {} : { retryAfter }) })
 }
 
 /** `COMMENTS_R0013`: the request got no usable answer. `status` is 0 when it got no answer at all. */
-export function commentsUnansweredError(status: number, cause?: unknown): Diagnostic & { status: number } {
-  return Object.assign(commentsClientDiagnostics.COMMENTS_R0013(cause === undefined ? {} : { cause }), { status })
+export function commentsUnansweredError(status: number, cause?: unknown, retryAfter?: number): Diagnostic & { retryAfter?: number, status: number } {
+  return Object.assign(commentsClientDiagnostics.COMMENTS_R0013(cause === undefined ? {} : { cause }), { status, ...(retryAfter === undefined ? {} : { retryAfter }) })
 }
