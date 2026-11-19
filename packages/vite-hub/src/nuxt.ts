@@ -893,8 +893,8 @@ async function applyNitroConfig(
   if (!nuxt.options.dev && !nuxt.options._prepare) {
     const rateLimit = plugins.find(plugin => plugin.name === "@vite-hub/rate-limit/vite")
     // SAFETY: The canonical Rate Limit owner exposes validation for Nitro-only builds.
-    const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => void } | undefined
-    api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
+    const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => Promise<void> } | undefined
+    await api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
   }
 
   if (config.nitro) {
@@ -1117,7 +1117,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     blob: consoleBlobEnabled,
     kv: effectiveKV,
-    host: plan.host,
     queue: effectiveQueue,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
   })
@@ -1149,8 +1148,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
-    // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
-    workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
+    workflow: Boolean(options.workflow),
   })
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
@@ -1499,7 +1497,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         database: getResolvedFeatureOptions(replayConfig, "database") ?? options.database,
         email: options.email,
         kv: resolvedKV,
-        host: plan.host,
         queue: effectiveQueue === false
           ? false
           : effectiveQueue === undefined

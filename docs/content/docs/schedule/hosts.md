@@ -31,14 +31,9 @@ Provider output is the cron config that the build writes for your host.
 
 When a Definition has no `cron`, the build adds the `vitehub/started-schedules` Schedule with the cron `* * * * *`. Each host wakes it like the other Static Schedules, and it runs the Schedules that code started with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). On Cloudflare it is one more Cron Trigger.
 
-Node has no host cron, so `vitehub({ host: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`. Either:
+Node has no host cron, so `vitehub({ host: 'node', schedule: true })` runs the schedules in the server process with the Process Runtime. Set `schedule: { providerOutput: false }` when your code or an external cron starts them, such as with `vitehub schedule run <name> --url <origin>`.
 
-- Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process.
-- Set `schedule: { providerOutput: false }` when your code or an external cron starts them, such as with `vitehub schedule run <name> --url <origin>`.
-
-Only builds check this, so `vite dev` works with `schedule: true`.
-
-With the Process Runtime on Node, leave `providerOutput` unset, `'auto'`, or `false`. `'nitro'` and `'standalone'` hand the wake to the provider, so they fail a Node build even with `runtime` set.
+On Node, `providerOutput: 'nitro'` and `'standalone'` hand the wake to a host cron that does not exist, so they fail the build with `VITE_HUB_R0137`.
 
 Each build writes one host's output and removes output that an earlier build wrote for another host. With Nitro, the host is Nitro's preset. Without Nitro, it comes from `nitro.preset` in the Vite config, then `NITRO_PRESET`, `SERVER_PRESET`, and `VITEHUB_HOST`. With no known host, it writes output for every host above.
 

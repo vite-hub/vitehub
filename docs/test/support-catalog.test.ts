@@ -44,7 +44,7 @@ describe("support matrix and feature catalog", () => {
       for (const [column, host] of Object.entries(supportMatrixCatalogHosts)) {
         const support = featureSupport(id, host, "node");
         const cell = row.values[column as keyof typeof supportMatrixCatalogHosts];
-        const requirements = impliedFeatures([id], host === "dev" ? "node" : host)
+        const requirements = impliedFeatures([id])
           .map((dependency) => featureSupport(dependency, host, "node"))
           .filter((dependency) => dependency.level !== "native");
         if (requirements.length && support.level !== "unsupported") {

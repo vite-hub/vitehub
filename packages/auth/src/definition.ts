@@ -18,6 +18,7 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { authDatabaseName } from "./database-options.ts"
+import { validateDeleteAccount } from "./delete-account.ts"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
@@ -189,6 +190,7 @@ function defineAuthOptions(
   }
 
   validateAuthEvents(options.events)
+  validateDeleteAccount(options)
   validateAuthDatabase(viteHubOptions.database)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)

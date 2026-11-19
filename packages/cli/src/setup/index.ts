@@ -22,5 +22,7 @@ export { applySetupRemove, planSetupRemove, readRemoveArgs, removeCommand } from
 export type { PlannedRemove, SetupReference, SetupRemoveArgs, SetupRemovePlan } from "./remove.ts"
 export { setupStatus } from "./status.ts"
 export type { SetupFeatureStatus, SetupStatus } from "./status.ts"
+export { planSetupUpdate, readUpdateArgs, updateCommand, updateInstallArgs } from "./update.ts"
+export type { SetupUpdateArgs, SetupUpdatePlan } from "./update.ts"
 export { createSetupSession, setupRequestArgs } from "./session.ts"
 export type { SetupCommandRunner, SetupPlanRequest, SetupSession, SetupSessionOptions, SetupSessionPlanFields, SetupSessionResult } from "./session.ts"

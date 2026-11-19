@@ -21,13 +21,13 @@ export interface AgentWorkflowCapabilityLoaders {
   db?: () => Promise<unknown> | unknown
 }
 
-let workflowRuntimeLoaders: AgentWorkflowRuntimeLoaders = {
+let workflowRuntimeLoaders: AgentWorkflowRuntimeLoaders | false = {
   state: () => import(/* @vite-ignore */ workflowRuntimeStateSpecifier),
   workflow: () => import(/* @vite-ignore */ workflowSpecifier),
 }
 let workflowCapabilityLoaders: AgentWorkflowCapabilityLoaders = {}
 
-export function setAgentWorkflowRuntimeLoaders(loaders: AgentWorkflowRuntimeLoaders): void {
+export function setAgentWorkflowRuntimeLoaders(loaders: AgentWorkflowRuntimeLoaders | false): void {
   workflowRuntimeLoaders = loaders
 }
 
@@ -56,18 +56,25 @@ export async function loadConfiguredAgentWorkflowCapabilities(
 }
 
 export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
-  return workflowRuntimeLoaders.workflow()
+  return requireAgentWorkflowLoaders().workflow()
 }
 
 export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule> {
-  return workflowRuntimeLoaders.state()
+  return requireAgentWorkflowLoaders().state()
+}
+
+function requireAgentWorkflowLoaders(): AgentWorkflowRuntimeLoaders {
+  if (workflowRuntimeLoaders === false) {
+    throw new Error("[vitehub] This Agent requires Workflow. Set `workflow: true` in your ViteHub config or remove the `agentWorkflow()` runtime binding.")
+  }
+  return workflowRuntimeLoaders
 }
 
 /**
- * Loads the Workflow runtime state, or returns `undefined` when the app does not install `@vite-hub/workflow`.
- * `@vite-hub/workflow` is an optional peer, so a discovered Agent without it runs inline.
+ * Loads Workflow state only when the host has not disabled Workflow and the optional peer is installed.
  */
 export async function loadInstalledAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule | undefined> {
+  if (workflowRuntimeLoaders === false) return undefined
   try {
     return await workflowRuntimeLoaders.state()
   }

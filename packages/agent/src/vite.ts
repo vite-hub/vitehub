@@ -47,7 +47,7 @@ import {
 } from "./cloudflare.ts"
 import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { agentDeploymentEnv } from "./deployment-env.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
+import { assertAgentDefaultExport, discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -249,8 +249,8 @@ interface InternalAgentModuleOptions extends AgentOptions {
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
-  /** The Workflow modules that generated code loads, when Workflow is on. */
-  workflowModules?: AgentWorkflowModules
+  /** Workflow module specifiers, or false when the facade disables Workflow. */
+  workflowModules?: AgentWorkflowModules | false
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
 }
 
@@ -266,7 +266,7 @@ interface AgentGeneratedImportOptions {
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   sourceRootDir?: string
   standaloneChannels?: readonly StandaloneChannel[]
-  workflowModules?: AgentWorkflowModules
+  workflowModules?: AgentWorkflowModules | false
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
 }
 
@@ -523,7 +523,7 @@ function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
 }
 
 
-function getWorkflowModules(options: AgentOptions | false | undefined, fallback?: InternalAgentModuleOptions): AgentWorkflowModules | undefined {
+function getWorkflowModules(options: AgentOptions | false | undefined, fallback?: InternalAgentModuleOptions): AgentWorkflowModules | false | undefined {
   return getInternalAgentOptions(options)?.workflowModules ?? fallback?.workflowModules
 }
 
@@ -599,10 +599,10 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
 }
 
 function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions) {
-  if (!options.workflowModules) return { imports: [] as string[], setup: [] as string[] }
+  if (options.workflowModules === undefined) return { imports: [] as string[], setup: [] as string[] }
   return {
     imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
-    setup: [
+    setup: options.workflowModules === false ? ["vitehubSetAgentWorkflowRuntimeLoaders(false)", ""] : [
       "vitehubSetAgentWorkflowRuntimeLoaders({",
       `  state: () => import(${JSON.stringify(options.workflowModules.state)}),`,
       `  workflow: () => import(${JSON.stringify(options.workflowModules.index)}),`,
@@ -2811,6 +2811,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }),
         ]
       : []
+    // Before the registry and routes import a file that exports no Agent. Discovery itself still lists the file, so
+    // inventory callers such as Vite Doctor can report it.
+    for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
     })

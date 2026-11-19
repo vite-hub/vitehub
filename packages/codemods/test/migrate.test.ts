@@ -40,6 +40,15 @@ async function cli(args: string[]) {
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
 describe("migrate", () => {
+  it("reports manual Queue migration even when there are no edits", async () => {
+    const cwd = await app("queue-spread-arguments", {
+      "server/queues/report.ts": "const legacyArgs = [() => {}, { concurrency: 2 }] as const\nexport default defineQueue(...legacyArgs)\n",
+    })
+    const migration = await runMigration({ cwd, dryRun: true })
+    expect(migration.edits).toEqual([])
+    expect(formatMigrationReport(migration)).toContain("Check this Queue call's arguments.")
+  })
+
   it("reports installed NuxtHub dependents through the scratch migration", async () => {
     const cwd = await app("installed-nuxthub-dependent", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'] })\n",

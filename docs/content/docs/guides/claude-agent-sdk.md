@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -65,14 +63,13 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. A provider Driver starts a local process, so it needs a Node.js host. See [Where the Claude Agent SDK can run](#where-the-claude-agent-sdk-can-run).
+The Agent runs inline and finishes inside the HTTP request. A provider Driver starts a local process, so it needs a Node.js host. See [Where the Claude Agent SDK can run](#where-the-claude-agent-sdk-can-run).
 
 ### Define the Agent
 

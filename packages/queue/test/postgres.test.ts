@@ -187,7 +187,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const consumer = engine({
       connection: { client: connection },
       handler,
-      load: async () => ({ options: { concurrency: 2 }, handler }),
+      load: async () => ({ concurrency: 2, handler }),
       table: name,
     })
     try {
@@ -212,7 +212,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       started.push(job)
       await gate.promise
     }
-    const consumer = engine({ handler, load: async () => ({ options: { concurrency: 2 }, handler }), lockSeconds: 1, table: name })
+    const consumer = engine({ handler, load: async () => ({ concurrency: 2, handler }), lockSeconds: 1, table: name })
     await consumer.status()
     // Fail only renewals; claims and completion writes still work.
     await sql!.unsafe(`create function ${name}_reject_renew() returns trigger language plpgsql as $$

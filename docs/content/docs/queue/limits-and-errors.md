@@ -19,8 +19,10 @@ icon: i-lucide-circle-alert
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -167,7 +169,7 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_DEFINITION
 
-`defineQueue()` received no handler function.
+`defineQueue()` did not receive one object with a `handler` function, or the object has an option that Queue does not know. The former `defineQueue(handler, options)` form fails with this code too. Run `npx vitehub migrate` to move it to `defineQueue({ handler, ...options })`.
 
 ### QUEUE_INVALID_NAME
 
