@@ -25,6 +25,15 @@ declare module "#vitehub-sandbox-task-registry" {
       payload: { value: string } | undefined
       result: string
     }
+    "serialized-entry": {
+      payload: unknown
+      result: {
+        date: Date
+        custom: { toJSON(): { date: Date } }
+        response: Response
+        binary: [Blob, Uint8Array, Buffer]
+      }
+    }
   }
 }
 
@@ -46,10 +55,10 @@ describe("types", () => {
     // @ts-expect-error The fallback for unregistered names must not hide an invalid payload.
     void runSandboxTask("package-entry", { width: 1 })
 
-    expectTypeOf(runSandboxTask("optional-package-entry")).resolves.toEqualTypeOf<Response>()
-    expectTypeOf(runSandboxTask("optional-package-entry", undefined)).resolves.toEqualTypeOf<Response>()
-    expectTypeOf(runSandboxTask("unknown-package-entry")).resolves.toEqualTypeOf<Response>()
-    expectTypeOf(runSandboxTask("unregistered-entry")).resolves.toEqualTypeOf<Response>()
+    expectTypeOf(runSandboxTask("optional-package-entry")).resolves.toEqualTypeOf<SandboxTaskRunResult<string>>()
+    expectTypeOf(runSandboxTask("optional-package-entry", undefined)).resolves.toEqualTypeOf<SandboxTaskRunResult<string>>()
+    expectTypeOf(runSandboxTask("unknown-package-entry")).resolves.toEqualTypeOf<SandboxTaskRunResult<string>>()
+    expectTypeOf(runSandboxTask("unregistered-entry")).resolves.toEqualTypeOf<SandboxTaskRunResult>()
   })
 
   it("requires typed runner payloads while allowing optional payloads", async () => {
@@ -96,11 +105,24 @@ describe("types", () => {
 
     expectTypeOf(definition).toMatchTypeOf<SandboxTaskDefinition<{ value: string } | undefined, { value: string }>>()
     expectTypeOf(runSandboxTask("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxTaskRunResult>()
-    expectTypeOf(runSandboxTask("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxTaskRunResult>()
-    expectTypeOf(runSandboxTask("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxTaskRunResult>()
+    expectTypeOf(runSandboxTask("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxTaskRunResult<{ length: number }>>()
+    expectTypeOf(runSandboxTask("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxTaskRunResult<string>>()
 
-    const result = await runSandboxTask("package-entry", { value: "ok" })
-    expectTypeOf(result).toEqualTypeOf<Response>()
+    const [error, result] = await runSandboxTask("package-entry", { value: "ok" })
+    if (error) expectTypeOf(error.data).toEqualTypeOf<{ name: string; code: string }>()
+    else expectTypeOf(result).toEqualTypeOf<{ length: number }>()
+  })
+
+  it("infers the decoded Sandbox result", async () => {
+    const [error, result] = await runSandboxTask("serialized-entry")
+    if (!error) {
+      expectTypeOf(result).toEqualTypeOf<{
+        date: string | null
+        custom: { date: string | null }
+        response: Response
+        binary: [Blob, Uint8Array, Buffer]
+      }>()
+    }
   })
 
   it("returns a Vite plugin", () => {

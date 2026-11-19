@@ -1,7 +1,9 @@
 // The live stream of a tab: one connection for every store of the tab. It reads the Server-Sent Events body by hand, so
 // the client needs no `EventSource`: that one cannot POST, cannot use the `fetch` option of the store, and reconnects
 // on its own schedule. Only the `event` and `data` fields matter to Sync.
-import { backoffDelay, isPull, readError, whereKey } from "./view.ts"
+import { backoffDelay } from "@vite-hub/internal/browser-environment"
+
+import { isPull, readError, whereKey } from "./view.ts"
 
 import type { SyncLivePull, SyncPullResponse, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
@@ -62,6 +64,7 @@ interface SyncLiveHeld {
   cursor: number
   scope: string
   version: string
+  paged?: boolean
 }
 
 /** A store in the live stream of its tab. */

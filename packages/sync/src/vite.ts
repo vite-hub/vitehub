@@ -158,7 +158,8 @@ export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { dat
         if (options.database === false || !usesSync({ projectRoot: root, ...(serverDirs ? { serverDirs } : {}) })) return []
         const targets = new Set<string | undefined>()
         for (const definition of discoverSync(root, serverDirs)) {
-          const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, definition.file, root)
+          // A definition is not a Vite config, so Vite's advice about config files does not apply to it.
+          const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, definition.file, root, "error")
           const options: unknown = Reflect.get(Object(loaded?.config), "options")
           const database: unknown = Reflect.get(Object(options), "database")
           if (database !== undefined && typeof database !== "string") throw syncErrors.SYNC_INVALID_DEFINITION({ message: "Sync database must be a Database name." })

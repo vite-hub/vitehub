@@ -5,7 +5,7 @@ import { anthropic, ask, chatgpt, cliproxy, cloudflare, defineAiGateway, litellm
 import { languageModel } from "../src/ai-sdk.ts"
 
 import type { LanguageModelV4 } from "@ai-sdk/provider"
-import type { AiGateway, AiGatewayAsk, AskChoiceAnswer } from "../src/index.ts"
+import type { AiGateway, AiGatewayAsk, AiGatewayAskError, AskChoiceAnswer } from "../src/index.ts"
 
 describe("AI gateway capabilities", () => {
   it("keeps ChatGPT credentials and model calls behind the Agent runtime", () => {
@@ -26,13 +26,26 @@ describe("AI gateway capabilities", () => {
     }
   })
 
-  it("types the answers from the questions", () => {
-    const answers = typesafe().ask("Invoice 42", { label: ask.choice("Which label?", ["invoice", "none"]), spam: ask.if("Is it spam?") })
+  it("types the answers from the questions", async () => {
+    const [error, answers] = await typesafe().ask("Invoice 42", { label: ask.choice("Which label?", ["invoice", "none"]), spam: ask.if("Is it spam?") })
 
-    expectTypeOf(answers).resolves.toEqualTypeOf<{
-      readonly label: AskChoiceAnswer<{ invoice: null, none: null }>
-      readonly spam: boolean
-    }>()
+    expectTypeOf(error).toEqualTypeOf<AiGatewayAskError | undefined>()
+    if (error?.code === "GATEWAYS_R0008") {
+      expectTypeOf(error.status).toEqualTypeOf<503>()
+      expectTypeOf(error.providerStatus).toEqualTypeOf<401 | 403>()
+      expectTypeOf(error.requestId).toEqualTypeOf<string | undefined>()
+    }
+    if (error?.code === "GATEWAYS_R0009") {
+      expectTypeOf(error.status).toEqualTypeOf<502>()
+      expectTypeOf(error.providerStatus).toEqualTypeOf<number | undefined>()
+      expectTypeOf(error.requestId).toEqualTypeOf<string | undefined>()
+    }
+    if (!error) {
+      expectTypeOf(answers).toEqualTypeOf<{
+        readonly label: AskChoiceAnswer<{ invoice: null, none: null }>
+        readonly spam: boolean
+      }>()
+    }
   })
 
   it("accepts every gateway as AiGateway", () => {

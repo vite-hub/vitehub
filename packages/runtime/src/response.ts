@@ -1,4 +1,5 @@
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { isPreparedResultError, type ResultError } from "./result.ts"
 
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
@@ -102,9 +103,15 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
-/** Normalize a primitive value into the native Web Response contract. */
+const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
+
+/**
+ * Normalize a primitive value into the native Web Response contract.
+ * A `ResultError` answers its `status`, or 500, with `{ code, why, fix }`, so a route can `return toResponse(error)`.
+ */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
+  if (isPreparedResultError(value)) return errorResponse(value)
   if (value === undefined) return new Response(null, { status: 204 })
   if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -114,8 +121,14 @@ export function toResponse(value: unknown): Response {
   if (blobMethods) {
     return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
-  return new Response(JSON.stringify(value), {
-    headers: { "content-type": "application/json; charset=utf-8" },
+  return new Response(JSON.stringify(value), { headers: jsonHeaders })
+}
+
+function errorResponse(error: ResultError): Response {
+  const { status } = error
+  return new Response(JSON.stringify({ code: error.code, why: error.why, fix: error.fix }), {
+    headers: jsonHeaders,
+    status: typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500,
   })
 }
 

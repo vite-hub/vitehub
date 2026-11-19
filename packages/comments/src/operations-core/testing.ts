@@ -1,3 +1,4 @@
+import { replyMessageId } from "../reply-id.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import type {
   CommentEvent,
@@ -19,6 +20,10 @@ export interface MemoryTransportOptions {
   /** The numbering scope of a subject. Defaults to one scope for the whole site. */
   scope?: (subject: CommentSubject) => string
   now?: () => number
+}
+
+function checkOutboxAccount(input: { outbox?: { account: string } }, user: CommentUser): void {
+  if (input.outbox && input.outbox.account !== user.id) throw Object.assign(commentsErrorDiagnostics.COMMENTS_OUTBOX_ACCOUNT_CHANGED(), { status: 401 })
 }
 
 export interface MemoryTransport extends CommentsTransport {
@@ -48,6 +53,12 @@ function copy<T>(value: T): T {
   // SAFETY: `JSON.parse` returns what `JSON.stringify` wrote, which has the shape of `value`.
   const clone: T = JSON.parse(JSON.stringify(value))
   return clone
+}
+
+/** The attachment keys of a message: the keys that it names, then one made-up key for each file that it brings. */
+function attachmentsOf(input: { attachments?: string[], files?: Blob[] }): string[] {
+  const files = (input.files ?? []).map(file => `memory/${crypto.randomUUID()}/${file instanceof File ? file.name : "file"}`)
+  return [...(input.attachments ?? []), ...files]
 }
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
@@ -86,12 +97,12 @@ function thread(store: Store, id: string): CommentThread {
   return found
 }
 
-function message(store: Store, user: CommentUser, input: { threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
+function message(store: Store, user: CommentUser, input: { id?: string, threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
   const body = input.body.trim()
   // A message of files alone, such as a pasted screenshot, has no text.
   if (!body && !input.attachments?.length) throw commentsErrorDiagnostics.COMMENTS_R0005()
   return {
-    id: `message-${crypto.randomUUID()}`,
+    id: input.id ?? `message-${crypto.randomUUID()}`,
     threadId: input.threadId,
     body,
     author: copy(user),
@@ -144,6 +155,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       return found ? copy(found) : null
     },
     async create(input) {
+      checkOutboxAccount(input, user)
       const scope = store.scope(input.subject)
       const request = input.requestId === undefined ? undefined : JSON.stringify([scope, input.requestId])
       const earlier = request === undefined ? undefined : store.threads.get(store.requests.get(request) ?? "")
@@ -153,7 +165,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       }
       const n = (store.counters.get(scope) ?? 0) + 1
       const id = `thread-${crypto.randomUUID()}`
-      const first = message(store, user, { ...input, threadId: id })
+      const first = message(store, user, { ...input, attachments: attachmentsOf(input), threadId: id })
       store.counters.set(scope, n)
       if (request !== undefined) store.requests.set(request, id)
       return save({
@@ -163,6 +175,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         subject: copy(input.subject),
         ...(input.metadata === undefined ? {} : { metadata: copy(input.metadata) }),
         ...(input.revision === undefined ? {} : { revision: input.revision }),
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
         anchor: copy(input.anchor),
         status: "open",
         author: copy(user),
@@ -171,7 +184,10 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         updatedAt: first.createdAt,
       })
     },
-    async reply(input) {
+    async reply(draft) {
+      checkOutboxAccount(draft, user)
+      const id = draft.requestId === undefined ? undefined : await replyMessageId(draft.threadId, draft.requestId)
+      const input = { ...draft, id, attachments: attachmentsOf(draft) }
       const found = copy(thread(store, input.threadId))
       const request = input.requestId === undefined ? undefined : JSON.stringify(["reply", input.threadId, input.requestId])
       const earlier = request === undefined ? undefined : found.messages.find(entry => entry.id === store.requests.get(request))
