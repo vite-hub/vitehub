@@ -451,7 +451,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/channel-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
-      snippet("server/channels/inbox.ts", "import { webChat, defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
+      snippet("server/channels/inbox.ts", "import { webChat } from 'vite-hub/agent/channels'\nimport { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
       snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
       snippet("agent.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
@@ -690,7 +690,7 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     expect(declarations.map(declaration => declaration.file.split(".vitehub/")[1])).toEqual(expect.arrayContaining(["types/email-templates.d.ts", "types/email.d.ts"]))
     expect(checkSnippets(snippets, declarations).failures).toEqual([])
 
-    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Maxi" } },\n  from', 'data: { user: { name: { first: "Maxi" } } },\n  from') }))
+    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Ada" } },\n  from', 'data: { user: { name: { first: "Ada" } } },\n  from') }))
     const failures = checkSnippets(wrong, declarations).failures
     expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322]])
   }, 60_000)

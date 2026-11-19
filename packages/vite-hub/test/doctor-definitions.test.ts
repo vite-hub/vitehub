@@ -121,7 +121,7 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue, dynamicQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { payload: { email }, delay: "1m" })',
         '  dynamicQueue.defer("welcome-email", { payload: { email }, idempotencyKey: email })',
         "}",
       ].join("\n"),
@@ -133,9 +133,9 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { email }, { delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { email }, { delay: "1m" })',
         '  await sendQueue("audit", { payload: { email }, region: "eu" })',
-        '  await sendQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
+        '  await sendQueue("audit", { payload: { email } }, { delay: "1s" })',
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -299,14 +299,14 @@ describe("vitehub/valid-channel", () => {
     expect(await codes(validChannel, {
       "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
       "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
-      "server/channels/c.ts": 'import { defineChannel, slack } from "vite-hub/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
     })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
   it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
     expect(await codes(validChannel, {
       "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
-      "server/channels/b.ts": 'import { defineChannel, defineChannelTrigger, teams } from "vite-hub/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
       "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })

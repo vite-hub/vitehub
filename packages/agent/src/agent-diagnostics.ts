@@ -448,6 +448,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
   "AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE",
+  "AGENT_MCP_BEARER_TOKEN_RENAMED",
   "AGENT_MCP_RETRIES_INVALID",
   "AGENT_MCP_TOOLS_LIST_INVALID",
   "AGENT_OBSERVABILITY_INSTALLED",
@@ -4524,6 +4525,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MAX_RETRIES_INVALID: {
       why: "maxRetries must be a non-negative integer",
       fix: "Set `maxRetries` of the model call settings to an integer of 0 or more.",
+    },
+    AGENT_MCP_BEARER_TOKEN_RENAMED: {
+      why: "[vitehub] driver.env sets T3_MCP_BEARER_TOKEN. Codex now reads the token of the ViteHub tools MCP server from VITEHUB_MCP_BEARER_TOKEN, so the old variable has no effect.",
+      fix: "Remove `T3_MCP_BEARER_TOKEN` from `driver.env`. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN`. Update any `launch` wrapper that hard-codes the old name to forward the new one. A wrapper that forwards `requiredEnvironment` needs no change.",
     },
     AGENT_MCP_RETRIES_INVALID: {
       why: "[vitehub] callMcpTool({ retries }) must be a non-negative integer.",

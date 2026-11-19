@@ -57,6 +57,11 @@
       "import": "./dist/agent/capabilities.js",
       "default": "./dist/agent/capabilities.js"
     },
+    "./agent/channels": {
+      "types": "./dist/agent/channels.d.ts",
+      "import": "./dist/agent/channels.js",
+      "default": "./dist/agent/channels.js"
+    },
     "./agent/cloudflare": {
       "types": "./dist/agent/cloudflare.d.ts",
       "import": "./dist/agent/cloudflare.js",

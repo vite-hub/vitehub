@@ -1,5 +1,6 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
+import { inputAttachmentsBody, inputAttachmentsObservation, inputAttachmentsTitle } from "./input-attachments.ts";
 import { payloadText } from "./payload-text.ts";
 
 type InvocationActivityKind =
@@ -71,6 +72,8 @@ const truncatedContentLabels: Readonly<Record<string, string>> = {
   content: "Details",
   "error.message": "Error",
   input: "Input",
+  "input.attachments.prepared": "Prepared attachments",
+  "input.attachments.skipped": "Skipped attachments",
   "input.messages": "Conversation history",
   "input.prompt": "Conversation history",
   "message.content": "Message",
@@ -369,6 +372,17 @@ function activityKey(observation: TraceEventLogEntry, anonymousMessageKey?: stri
   );
 }
 
+/**
+ * Provider Drivers record model reasoning with `message.phase: "reasoning"`. Invocations recorded
+ * before that phase existed stored it as commentary with a `reasoning_text:` or
+ * `reasoning_summary_text:` message id, so those ids still read as reasoning.
+ */
+function isReasoningMessage(attributes: Record<string, unknown>): boolean {
+  if (attributes["message.phase"] === "reasoning") return true;
+  const id = attributes["message.id"];
+  return attributes["message.phase"] === "commentary" && typeof id === "string" && /^reasoning(?:_summary)?_text:/.test(id);
+}
+
 function activityKind(
   observation: TraceEventLogEntry,
   attributes: Record<string, unknown>,
@@ -388,9 +402,8 @@ function activityKind(
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
+  if (isReasoningMessage(attributes) || observation.name.includes(".reasoning.")) return "reasoning";
   if (attributes["message.phase"] === "commentary") return "message";
-  if (attributes["message.phase"] === "reasoning") return "reasoning";
-  if (observation.name.includes(".reasoning.")) return "reasoning";
   if (observation.name.includes(".model.")) return "model";
   if (attributes["message.role"] || attributes["message.content"] || attributes["input.prompt"] || attributes["input.messages"] || attributes["result.text"]) return "message";
   if (observation.name.includes(".invocation.")) return "run";
@@ -529,7 +542,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (observations.some(cutsContent)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
-      && item.attributes?.["message.phase"] !== "commentary")) continue;
+      && item.attributes?.["message.phase"] !== "commentary"
+      && item.attributes?.["message.phase"] !== "reasoning")) continue;
     const text = observations.map(item => {
       const content = item.attributes?.["message.content"];
       return typeof content === "string" ? content : "";
@@ -597,7 +611,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
       const draft = {
         attributes,
-        body: patches.join("") || messageBody || activityBody(attributes),
+        body: patches.join("") || messageBody || (first.name === inputAttachmentsObservation ? inputAttachmentsBody(attributes) : activityBody(attributes)),
         command,
         ...(durationMs !== undefined ? { durationMs } : {}),
         ...(endedAt ? { endedAt } : {}),
@@ -690,6 +704,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "agent.input.steer") return steerTitle(activity);
   if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
+  if (activity.name === inputAttachmentsObservation) return inputAttachmentsTitle(activity.attributes);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";

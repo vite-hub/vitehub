@@ -1,9 +1,9 @@
 # @vite-hub/runtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Runtime" src="https://comark-ui.onmax.me/badge.svg?label=Runtime&amp;value=context+%7C+policy+%7C+trace">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Runtime" src="https://img.shields.io/static/v1?label=Runtime&amp;message=context+%7C+policy+%7C+trace&amp;color=blue">
 </p>
 
 `@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,

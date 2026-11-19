@@ -100,6 +100,17 @@ describe("resolveDefinitionFeatures", () => {
     })
   })
 
+  it("only enables the webhook host for Channels under the configured root", () => {
+    const webhook = "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n"
+    const alert = "export default { adapter: { kind: 'log', send: () => ({}) } }\n"
+    const config = { channels: { projectRoot: "custom" } }
+    const roots = (projectRoot: string) => ({ projectRoot, viteRoot: join(projectRoot, "app"), serverDirs: [join(projectRoot, "server")] })
+    const inbound = project({ "app/custom/server/channels/builds.ts": webhook, "server/channels/ignored.ts": alert })
+    const outbound = project({ "app/custom/server/channels/alerts.ts": alert, "server/channels/ignored.ts": webhook })
+    expect(resolveDefinitionFeatures(config, roots(inbound))).toEqual({ ...config, agent: true })
+    expect(resolveDefinitionFeatures(config, roots(outbound))).toBe(config)
+  })
+
   it("fails with the install command when the package of a Definition file is missing", () => {
     const projectRoot = project({ "server/auth.ts": "export default {}\n" })
     const restore = hidePackage("@vite-hub/auth")

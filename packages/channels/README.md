@@ -1,9 +1,9 @@
 # @vite-hub/channels
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fchannels&icon=npm)](https://npmx.dev/package/@vite-hub/channels)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fchannels&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/channels)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/channels)](https://npmx.dev/package/@vite-hub/channels)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/channels)](https://npmx.dev/package/@vite-hub/channels)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/channels` defines Channels: one connection to a platform, such as Slack, Teams, Stripe, or your own API, for messages in both directions. A Channel sends through its adapter, and a Channel with an HTTP sender adapter receives webhooks and sends each event to a target.
 
@@ -55,7 +55,7 @@ The adapter receives `Build finished.` and the original options object. Channels
 
 `deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not deduplicate sends.
 
-The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/channels`. `ChannelMessage<typeof adapter>` names it.
+The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/agent/channels`. `ChannelMessage<typeof adapter>` names it.
 
 ## Discover named Channels
 

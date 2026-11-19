@@ -41,7 +41,7 @@ export const agentStory = {
   code: [
     'import { codexDriver, defineAgent } from "vite-hub/agent"',
     'import { browser, kv } from "vite-hub/agent/capabilities"',
-    'import { github } from "vite-hub/channels"',
+    'import { github } from "vite-hub/agent/channels"',
     "",
     "export default defineAgent({",
     '  description: "Reviews pull requests.",',

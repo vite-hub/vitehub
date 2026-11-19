@@ -106,7 +106,7 @@ vi.mock("@vite-hub/blob/vite", async () => ({
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
-vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
+vi.mock("@vite-hub/channels/vite", () => ({ findWebhookChannel: () => undefined, hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
   hubDatabase: integrationMocks.hubDatabase,
@@ -1039,7 +1039,7 @@ describe("vitehub", () => {
 
   it("checks the Database packages of Connections as the connections feature", () => {
     vitehub({ host: "node", connections: true })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"], {})
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"], {}, false)
   })
 
   it("checks the MCP SDK only when the Console MCP client is on", () => {
@@ -1072,7 +1072,7 @@ describe("vitehub", () => {
     [{ host: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
   ] as const)("checks the owner packages of %j", (options, features, hostPackages?: FeatureHostPackages) => {
     vitehub({ host: "node", ...options } as ViteHubOptions)
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features, hostPackages ?? {})
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features, hostPackages ?? {}, false)
   })
 
   it.each(["node", "cloudflare", "netlify"] as const)("keeps Agents inline without the Workflow peer on %s", (host) => {
@@ -1083,18 +1083,18 @@ describe("vitehub", () => {
       expect(pluginNames(vitehub({ host, agent: { invocations: false } })))
         .not.toContain("@vite-hub/workflow/vite")
       expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
-      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {})
+      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {}, false)
     })
   })
 
   it("checks no owner package without features", () => {
     vitehub({ host: "node" })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith([], {})
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith([], {}, false)
   })
 
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ host: "node", observability: { service: "support" } })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {})
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {}, false)
   })
 
   it.each([undefined, false] as const)("keeps Workspace-only Workflow imports independent of Agent (%s)", (agent) => {

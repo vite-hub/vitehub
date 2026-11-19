@@ -25,7 +25,7 @@ it("adds canonical sources for discovered gateway and Channel fields", async () 
     await writeFile(join(root, "server", "agents", "support.ts"), [
       'import { codexDriver, defineAgent } from "vite-hub/agent"',
       'import { cliproxy, cloudflareAccess } from "vite-hub/gateways"',
-      'import { telegram } from "vite-hub/channels"',
+      'import { telegram } from "vite-hub/agent/channels"',
       'export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: cloudflareAccess() }) }), channels: { telegram: telegram() } })',
     ].join("\n"))
     const envPlugin = hubEnv()
@@ -51,7 +51,7 @@ it("adds canonical sources for discovered gateway and Channel fields", async () 
 })
 
 it.each([
-  ["a github() Channel", 'import { github } from "vite-hub/channels"', "channels: { github: github() }"],
+  ["a github() Channel", 'import { github } from "vite-hub/agent/channels"', "channels: { github: github() }"],
   ["the forge() Capability", 'import { forge } from "vite-hub/agent/capabilities"', 'capabilities: [forge({ repositories: ["acme/web"] })]'],
 ])("asks for @vite-hub/forge when an Agent uses %s", async (_name, importLine, option) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-forge-feature-"))

@@ -43,7 +43,7 @@ function lastUserText({ messages }: AgentRunContext): string {
   return parts.map(part => part.type === "text" ? part.text : "").join("")
 }
 
-const [channelsList, channelsThreads, channelsConversation, conversationsExport] = agentChannelOperations
+const [channelsList, channelsThreads, channelsConversation, conversationsExport, , channelsDeliveries] = agentChannelOperations
 const consoleContext = { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc"), surface: "console", user: null } as const
 
 /** Runs `channels.list` for one Agent named `support`, the way the Console and `vitehub channels list` call it. */
@@ -210,6 +210,30 @@ describe("simulated chat Channels", () => {
     const reply = await handler(new Request(url, chatRequest("slack", "hi registration")), undefined, options)
     expect(reply.status).toBe(200)
     expect(streamedText(await reply.text())).toBe("echo: hi registration")
+  })
+
+  it.each([
+    { webhooks: [{}, {}], selectors: ["slack-1", "slack-2"] },
+    { webhooks: { id: "primary", provider: "custom" }, selectors: ["primary"] },
+  ])("lists the deliveries of every webhook registration of a Channel ($selectors)", { timeout: 20_000 }, async ({ webhooks, selectors }) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-deliveries-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const agent = defineAgent({ channels: { slack: slack({ messages: { state }, webhooks }) }, driver: { run: context => `echo: ${lastUserText(context)}` } })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const options = { agentIdentity: { name: "support" }, agentName: "support", state }
+    try {
+      for (const selector of selectors) {
+        const reply = await handler(new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${selector}`, chatRequest("slack", `hi ${selector}`)), undefined, options)
+        await reply.text()
+      }
+      installChannelsConsoleHost({ agents: { support: agent }, handlers: { support: handler }, options: () => options })
+      const { deliveries } = await channelsDeliveries!.run({ agent: "support", channel: "slack" }, consoleContext)
+      expect(deliveries).toHaveLength(selectors.length)
+      expect(deliveries.every(delivery => delivery.status === "completed" && delivery.invocationId)).toBe(true)
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("reads the threads and conversations of a simulated Channel without the provider window warning", async () => {

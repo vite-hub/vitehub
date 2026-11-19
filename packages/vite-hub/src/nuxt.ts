@@ -363,7 +363,7 @@ function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
   if (config.resolve?.alias && !Array.isArray(config.resolve.alias)) {
     config.resolve.alias = Object.entries(config.resolve.alias).map(([find, replacement]) => ({ find, replacement }))
   }
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
+  // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
   return config as unknown as ResolvedConfig
 }
 
@@ -600,7 +600,7 @@ async function installConsole({
     Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer & { address?: () => { address: string, port?: number } | string | null }) => {
       addViteHubDevPeerUpgradeSigner(server)
       const notice = consoleDevAccessNotice(access?.mode, server.address?.())
-      if (notice) console[notice.level](notice.message)
+      if (notice) console.warn(notice)
     }])
   }
   const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
@@ -625,7 +625,6 @@ async function installConsole({
   })
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow test hosts assignable.
     // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
     const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
     hookBuilderWatch?.("builder:watch", async (_event, _path) => {
@@ -1011,7 +1010,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
+  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options), viteRoot }
   // Definition files, such as `server/auth.ts`, turn their features on, and the `cms` preset turns on Workspace,
   // Database, and Blob. Nuxt knows the root here, so resolve them once.
   const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments(resolveDefinitionFeatures({
@@ -1099,7 +1099,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
-  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const configuredDatabaseDiscoveryRoot = configuredProjectRoot(rootDir, options.database)
   const effectiveBlob = consoleOptions ? options.blob : false
   const explicitBlob = explicitBlobOption(effectiveBlob)

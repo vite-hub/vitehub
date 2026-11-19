@@ -373,9 +373,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     let threadId = `pass-${passes.length}`;
     let finishTurn!: () => void;
     const turnSent = new Promise<void>(resolve => { finishTurn = resolve });
-    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.t3-code\.url=("[^"]+")/)?.[1];
+    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.vitehub-invocation\.url=("[^"]+")/)?.[1];
     let mcp: { endpoint: string; authorizationHeader: string } | undefined = configuredEndpoint
-      ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.T3_MCP_BEARER_TOKEN}` }
+      ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.VITEHUB_MCP_BEARER_TOKEN}` }
       : undefined;
     // Codex receives driver instructions as `developer_instructions` (#2636) and gets an empty AGENTS.md.
     // The runtime unescapes these characters inside a double-quoted argument; Codex parses the value as TOML.
@@ -1366,6 +1366,55 @@ describe("Babysitter preset runtime", () => {
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
       expect(await f.runtime.inbox.meta("inherited-merge-proof:acme/app#12")).toMatchObject({ head: "a".repeat(40), base: "c".repeat(40), checks: ["test"], checkIds: [1] });
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not bypass a required check after the same base tip passes on rerun", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", bypassInheritedChecks: { "acme/app": ["test"] } }, options: { ciRecovery: false },
+      admission: async () => ({ accepting: false, hostOnly: true, reason: "token-budget-hourly" }) });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    const command = f.command.getMockImplementation()!;
+    let baseRerunPassed = false;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/commits/${f.pr().head.sha}/check-runs?per_page=100`)) baseRerunPassed = true;
+      if (baseRerunPassed && args.includes(`repos/acme/app/commits/${f.pr().base.sha}/check-runs?per_page=100`)) {
+        return { stdout: JSON.stringify({ id: 3, name: "test", head_sha: f.pr().base.sha, status: "completed", conclusion: "success", app: { slug: "github-actions", id: 15368 } }), stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(baseRerunPassed).toBe(true);
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not settle a failing head when its assigned base failed but the live tip passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const liveBase = "e".repeat(40);
+    const f = await fixture(false, false, { baseBranchHead: liveBase,
+      merge: { strategy: "direct", bypassInheritedChecks: { "acme/app": ["test"] } }, options: { ciRecovery: false },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/commits/${liveBase}/check-runs?per_page=100`)) {
+        return { stdout: JSON.stringify({ id: 3, name: "test", head_sha: liveBase, status: "completed", conclusion: "success", app: { slug: "github-actions", id: 15368 } }), stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]?.prompt).not.toContain("<live-base-attribution>");
+      expect((await f.runtime.inbox.meta("review-assessment:acme/app#12") as { head?: string } | undefined)?.head).toBeUndefined();
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(current), feedback: [] });
+      vi.setSystemTime(current.nextAt + 1);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
   });
 
   it("recovers claimed execution and wait evaluation from stalled readiness", async () => {

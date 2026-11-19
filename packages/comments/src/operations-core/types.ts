@@ -186,6 +186,8 @@ export interface CommentThread {
   anchor: CommentAnchor
   status: CommentStatus
   resolvedBy?: CommentUser
+  /** The agent that resolved it for `resolvedBy`, such as through an MCP client. Like `actor` for the author. */
+  resolvedActor?: CommentActor
   resolvedAt?: number
   author: CommentUser
   actor?: CommentActor
@@ -252,6 +254,11 @@ export interface CommentReplyInput {
   body: string
   mentions?: string[]
   attachments?: string[]
+  /**
+   * A retry key, such as `crypto.randomUUID()`, kept for one draft. A second reply with the same key in the same
+   * thread returns the thread with the first message and adds nothing.
+   */
+  requestId?: string
 }
 
 export interface CommentEditInput {

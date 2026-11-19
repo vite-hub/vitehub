@@ -1,8 +1,8 @@
 # @vite-hub/codemods
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcodemods&icon=npm)](https://npmx.dev/package/@vite-hub/codemods)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/codemods)](https://npmx.dev/package/@vite-hub/codemods)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/codemods` moves an application to ViteHub. Each codemod edits the source files that it can change safely and ends with a report: the files it changed and a numbered list of manual follow-ups, with `file:line` where it applies.
 
@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `channels`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `channels`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -46,6 +46,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
+| `queue-durations` | Queue `delaySeconds` to `delay` with a duration such as `"60s"`, and `retentionSeconds` to `retention`. `vitehub migrate` runs it. |
 | `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
@@ -58,7 +59,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
-| `channels` | Imports of `vite-hub/agent/channels` to `vite-hub/channels`, `http(options)` to `channelAdapter("http", options)`, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
+| `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -191,6 +192,23 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 
 ```sh
 npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
+```
+
+## `queue-durations`
+
+Queue `delaySeconds` is now `delay`, and `retentionSeconds` is now `retention`. `delay` takes a duration string, such as `"60s"`. `retention` takes a duration or a number of seconds. `queue-durations` rewrites the app:
+
+| Old | New |
+| --- | --- |
+| `{ delaySeconds: 60 }` | `{ delay: "60s" }` |
+| `{ delaySeconds: 24 * 60 * 60 }` | `{ delay: "86400s" }` |
+| `{ retentionSeconds: 3600 }` | `{ retention: 3600 }` |
+| `onError` returns `{ retry: { delaySeconds: 30 } }` | `{ retry: { delay: "30s" } }` |
+
+It reads the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and `send()` and `sendBatch()` of a `useQueue()` client, also without an import in Nuxt server code, and of the old verbs `runQueue()` and `getQueue()`. Cloudflare's native `message.retry()` and `batch.retryAll()` keep `delaySeconds`. The report lists a `delay` value that is not a number in the code and old names that are left, such as options in a variable.
+
+```sh
+npx @vite-hub/codemods queue-durations [dir] [--dry-run]
 ```
 
 ## `nuxthub`
@@ -355,12 +373,14 @@ npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 
 ## `channels`
 
-Every Channel adapter comes from one path, `vite-hub/channels`, and `webhook()` is the one generic webhook adapter:
+`http()` is removed. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+
+The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of Webhooks:
 
 | Old | New |
 | --- | --- |
-| `import { slack } from "vite-hub/agent/channels"` | `import { slack } from "vite-hub/channels"` |
-| `http(options)` | `channelAdapter("http", options)` |
 | `secretToken: process.env.X` in a `webhooks` registration | `secret: "X"` |
 | `secretToken: () => …` in a `webhooks` registration | `secret: () => …` |
 | `secret: process.env.X` in `webhook()` or `stripe()` | `secret: "X"` |
@@ -369,8 +389,6 @@ Every Channel adapter comes from one path, `vite-hub/channels`, and `webhook()` 
 | `{ preset: "stripe-sha256", toleranceSeconds: 600 }`, `stripe({ toleranceSeconds: 600 })` | `{ type: "stripe", tolerance: "600s" }`, `stripe({ tolerance: "600s" })` |
 
 A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A computed value, such as `useServerEnv().github.webhookSecret`, moves into a function. The codemod leaves a `secretToken` string, such as `secretToken: "my-secret"`, and the report lists it: move the secret to a server variable and set `secret` to its name.
-
-The codemod joins the moved import with an earlier `vite-hub/channels` import, and it also moves re-exports, `import()` calls, and `vi.mock()` paths. The owner path `@vite-hub/agent/channels` stays. The report lists an `http` reference that is not a call.
 
 ```sh
 npx @vite-hub/codemods channels [dir] [--dry-run]

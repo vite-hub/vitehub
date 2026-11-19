@@ -1,9 +1,9 @@
 # @vite-hub/source
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Sources" src="https://comark-ui.onmax.me/badge.svg?label=Source&amp;value=typed+retrieval">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Sources" src="https://img.shields.io/static/v1?label=Source&amp;message=typed+retrieval&amp;color=blue">
 </p>
 
 `@vite-hub/source` loads files, globs, markdown, GitHub content, or custom data before something else places it in a workspace.
