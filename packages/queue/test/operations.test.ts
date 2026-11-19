@@ -77,13 +77,25 @@ describe("queue operations", () => {
     )
     setQueueRuntimeRegistry(registry)
 
-    await expect(run("queue.send", { delaySeconds: 5, payload: { userId: 7 }, queue: "welcome" })).resolves.toEqual({
+    await expect(run("queue.send", { delay: "5s", payload: { userId: 7 }, queue: "welcome" })).resolves.toEqual({
       messageId: "message-1",
       provider: "vercel",
       queue: "welcome",
       status: "queued",
     })
     expect(send).toHaveBeenCalledWith("welcome", { userId: 7 }, expect.objectContaining({ delaySeconds: 5 }))
+  })
+
+  it("fails with status 400 for a delay that is not a duration", async () => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    setQueueRuntimeConfig(
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
+    )
+    setQueueRuntimeRegistry(registry)
+
+    await expect(run("queue.send", { delay: "soon", payload: {}, queue: "welcome" })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID", status: 400 })
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("fails for a Queue Definition that does not exist", async () => {
@@ -163,7 +175,7 @@ describe("queue job operations", () => {
     expect(handler).toHaveBeenCalledTimes(5)
     expect(handler).toHaveBeenLastCalledWith({ attempts: 1, id, payload: { email: "ada@example.com" } })
 
-    const { messageId: later } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    const { messageId: later } = await run("queue.send", { delay: "1h", payload: {}, queue: "welcome" }) as { messageId: string }
     await expect(run("queue.jobs-list", {})).resolves.toMatchObject({ jobs: [{ id: later, state: "pending" }] })
     await expect(run("queue.jobs-clear", { state: "dead" })).resolves.toEqual({ cleared: 0 })
     await expect(run("queue.jobs-clear", {})).resolves.toEqual({ cleared: 1 })
@@ -199,7 +211,7 @@ describe("queue job operations", () => {
     const handler = vi.fn(async () => {})
     await installDev(handler)
 
-    const { messageId: id } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    const { messageId: id } = await run("queue.send", { delay: "1h", payload: {}, queue: "welcome" }) as { messageId: string }
     await run("queue.jobs-retry", { id })
     await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
   })

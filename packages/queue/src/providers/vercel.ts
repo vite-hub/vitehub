@@ -1,5 +1,6 @@
+import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
@@ -161,12 +162,15 @@ export async function createVercelQueueClient(provider: VercelQueueDriverOptions
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = queueUnsupportedOptionsError(normalized.options, "vercel")
       if (optionsError) return [optionsError, undefined]
+      // Vercel takes whole seconds.
+      const [timeError, times] = readQueueTimes(normalized.options, "ceil")
+      if (timeError) return [timeError, undefined]
 
       const [error, response] = await queueProviderResult("vercel", "send", () => client.send(topic, normalized.payload, {
-        delaySeconds: normalized.options.delaySeconds,
+        delaySeconds: times.delaySeconds,
         idempotencyKey: normalized.options.idempotencyKey || normalized.id,
         region: normalized.options.region ?? provider.region,
-        retentionSeconds: normalized.options.retentionSeconds,
+        retentionSeconds: times.retentionSeconds,
       }))
       if (error) return [error, undefined]
       const [responseError, messageId] = parseVercelMessageId(response)
@@ -174,12 +178,19 @@ export async function createVercelQueueClient(provider: VercelQueueDriverOptions
       return [undefined, { status: "queued", messageId }]
     },
     async sendBatch(items, options) {
-      const messages = items.map(item => ({
-        delaySeconds: item.delaySeconds ?? options?.delaySeconds,
-        idempotencyKey: item.idempotencyKey || createQueueMessageId(),
-        payload: item.body,
-        retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
-      }))
+      const removed = queueRemovedOptionsError("vercel", options, items)
+      if (removed) return [removed, undefined]
+      const messages: { delaySeconds?: number, idempotencyKey: string, payload: unknown, retentionSeconds?: number }[] = []
+      for (const item of items) {
+        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: item.retention ?? options?.retention }, "ceil")
+        if (timeError) return [timeError, undefined]
+        messages.push({
+          delaySeconds: times.delaySeconds,
+          idempotencyKey: item.idempotencyKey || createQueueMessageId(),
+          payload: item.body,
+          retentionSeconds: times.retentionSeconds,
+        })
+      }
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
         if (typeof client.sendBatch !== "function") throw queueErrorDiagnostics.QUEUE_VERCEL_SEND_BATCH_UNAVAILABLE()
         const results = await client.sendBatch!(topic, messages)
