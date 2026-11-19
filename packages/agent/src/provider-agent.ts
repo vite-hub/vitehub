@@ -57,7 +57,9 @@ import { chatContextModelText, isChatReplyPartType } from "./internal/chat-messa
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent, traceAgentInputAttachments } from "./trace.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, selectedOutAttachments } from "./internal/input-attachments.ts"
+import type { InputAttachmentOrigin, InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -2204,6 +2206,8 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+// `attachmentBytes` raises these when an attachment does not fit in the remaining bytes.
+const overBudgetAttachmentCodes = new Set(["AGENT_R0702", "AGENT_R0705", "AGENT_R0706", "AGENT_R0707"])
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (typeof part.size === "number" && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
@@ -2226,17 +2230,25 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
+ * The report names every attachment that was sent or left out, with the reason.
  */
 async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+  const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
+  const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
-  const history = includeHistory
-    ? (resumed ? latestUserMessages(context.messages) : context.messages)
-        .filter(message => message.role === "user")
-        .flatMap(message => message.parts.filter(isAttachmentPart))
-        .filter(part => !currentParts.has(part) && part.type === "image" && (part.data !== undefined || typeof part.fetchData === "function"))
-    : []
-  if (!current.length && !history.length) return
+  const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
+  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(historyMessages) }
+  const history: AttachmentPart[] = []
+  for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
+    if (currentParts.has(part)) continue
+    const reason = !includeHistory
+      ? "sandbox"
+      : part.type !== "image" ? "not-image" : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+    if (reason) report.skipped.push({ ...entry(part, "history"), reason })
+    else history.push(part)
+  }
+  if (!current.length && !history.length) return { report }
   let remaining = maxBytes
   const resolved = new Map<AttachmentPart, Uint8Array>()
   for (const part of current) {
@@ -2246,14 +2258,20 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     resolved.set(part, bytes)
   }
   for (const part of history) {
-    if (remaining <= 0) break
+    if (remaining <= 0) {
+      report.skipped.push({ ...entry(part, "history"), reason: "byte-budget" })
+      continue
+    }
     try {
       const bytes = await attachmentBytes(part, remaining)
       remaining -= bytes.byteLength
       resolved.set(part, bytes)
-    } catch {}
+    } catch (error) {
+      const code = isRuntimeRecord(error) ? error.code : undefined
+      report.skipped.push({ ...entry(part, "history"), reason: typeof code === "string" && overBudgetAttachmentCodes.has(code) ? "byte-budget" : attachmentFetchFailure(error) })
+    }
   }
-  if (!resolved.size) return
+  if (!resolved.size) return { report }
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   // Keep message order so the images line up with the history they came from.
@@ -2262,7 +2280,9 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (!bytes) continue
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
-    await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
+    const path = join(runtime.attachmentsDirectory, `${id}${extension}`)
+    await writeFile(path, bytes)
+    report.sent.push({ ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength, path })
     attachments.push({
       id,
       mimeType: part.mediaType,
@@ -2272,7 +2292,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       type: "image" as const,
     })
   }
-  return attachments
+  return { attachments, report }
 }
 
 function approvalDecision(approved: boolean): ProviderApprovalDecision {
@@ -3671,7 +3691,7 @@ async function* runProvider<
         type: "run",
       })
     }
-    const attachments = await waitForProviderOperation(
+    const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
       effectiveSignal,
@@ -3679,6 +3699,14 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
+    await traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, attachmentReport)
     // The lost native thread had the earlier attachments, so replay them like an unpreserved session.
     const replayAttachments = (!preservesProviderSession || resumeFailed) && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)

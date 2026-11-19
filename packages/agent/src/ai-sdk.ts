@@ -1,6 +1,6 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
-import { asUnknownBoundary } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError, isExecutionBudgetExceededError, type ExecutionBudget, type ExecutionBudgetExceededError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
@@ -42,7 +42,10 @@ import {
 import {
   aiSdkTelemetryIntegration,
   hasAgentTraceLog,
+  traceAgentInputAttachments,
 } from "./trace.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, selectedOutAttachments } from "./internal/input-attachments.ts"
+import type { InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
   AssistantContent,
@@ -436,7 +439,7 @@ function channelCurrentMessageId(context: AgentAdapterRunContext): string | null
   return typeof message?.id === "string" && message.id ? message.id : null
 }
 
-async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
+async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<{ messages: Message[], report: InputAttachmentsReport }> {
   const maxBytes = aiSdkAttachmentMaxBytes(options)
   let remainingBytes = maxBytes
   const currentMessageIndex = currentMessageId === null
@@ -445,8 +448,10 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
   const isHistorical = (message: Message, messageIndex: number) => currentMessageId !== undefined
     && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
   const resolvedParts = new Map<AttachmentPart, AttachmentPart | undefined>()
+  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(messages.filter(message => message.role === "user")) }
   // Current attachments use the byte budget first. History attachments use what remains.
   for (const historical of [false, true]) {
+    const origin = historical ? "history" : "current"
     for (const [messageIndex, message] of messages.entries()) {
       if (message.role !== "user" || isHistorical(message, messageIndex) !== historical) continue
       for (const part of message.parts) {
@@ -455,28 +460,44 @@ async function resolveModelAttachments(messages: Message[], options: AiSdkAttach
           const resolved = await resolveModelAttachmentPart(part, remainingBytes)
           remainingBytes -= resolved.byteLength
           resolvedParts.set(part, resolved.part)
+          if (resolved.part) report.sent.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
+          else report.skipped.push({ ...inputAttachmentEntry(part, message, origin), reason: "no-data" })
           continue
         }
         // A history attachment is optional context. A failed read or a full budget drops only that attachment.
-        if ((!part.data && !part.fetchData) || remainingBytes <= 0) continue
+        const reason = !part.data && !part.fetchData ? "no-data" : remainingBytes <= 0 ? "byte-budget" : undefined
+        if (reason) {
+          report.skipped.push({ ...inputAttachmentEntry(part, message, origin), reason })
+          continue
+        }
         try {
           const resolved = await resolveModelAttachmentPart(part, remainingBytes)
           remainingBytes -= resolved.byteLength
           resolvedParts.set(part, resolved.part)
-        } catch {}
+          if (resolved.part) report.sent.push({ ...inputAttachmentEntry(resolved.part, message, origin), bytes: resolved.byteLength })
+          else report.skipped.push({ ...inputAttachmentEntry(part, message, origin), reason: "no-data" })
+        } catch (error) {
+          report.skipped.push({
+            ...inputAttachmentEntry(part, message, origin),
+            reason: isRuntimeRecord(error) && error.code === "AGENT_R0007" ? "byte-budget" : attachmentFetchFailure(error),
+          })
+        }
       }
     }
   }
-  return messages.map(message => message.role === "user"
-    ? {
-        ...message,
-        parts: message.parts.flatMap((part): MessagePart[] => {
-          if (!isAttachmentPart(part)) return [part]
-          const resolved = resolvedParts.get(part)
-          return resolved ? [resolved] : []
-        }),
-      }
-    : message)
+  return {
+    messages: messages.map(message => message.role === "user"
+      ? {
+          ...message,
+          parts: message.parts.flatMap((part): MessagePart[] => {
+            if (!isAttachmentPart(part)) return [part]
+            const resolved = resolvedParts.get(part)
+            return resolved ? [resolved] : []
+          }),
+        }
+      : message),
+    report,
+  }
 }
 
 async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdkAttachmentOptions) {
@@ -487,9 +508,18 @@ async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdk
   }
 
   if (context.messages.length) {
+    const resolved = await resolveModelAttachments(context.messages, attachments, channelCurrentMessageId(context))
+    await traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, resolved.report)
     return {
       ...base,
-      messages: toAiSdkModelMessages(await resolveModelAttachments(context.messages, attachments, channelCurrentMessageId(context))),
+      messages: toAiSdkModelMessages(resolved.messages),
     }
   }
   if (context.prompt) {

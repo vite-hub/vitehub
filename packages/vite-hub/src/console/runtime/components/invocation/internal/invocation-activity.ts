@@ -1,5 +1,6 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
+import { inputAttachmentsBody, inputAttachmentsObservation, inputAttachmentsTitle } from "./input-attachments.ts";
 import { payloadText } from "./payload-text.ts";
 
 type InvocationActivityKind =
@@ -597,7 +598,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
       const draft = {
         attributes,
-        body: patches.join("") || messageBody || activityBody(attributes),
+        body: patches.join("") || messageBody || (first.name === inputAttachmentsObservation ? inputAttachmentsBody(attributes) : activityBody(attributes)),
         command,
         ...(durationMs !== undefined ? { durationMs } : {}),
         ...(endedAt ? { endedAt } : {}),
@@ -690,6 +691,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "agent.input.steer") return steerTitle(activity);
   if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
+  if (activity.name === inputAttachmentsObservation) return inputAttachmentsTitle(activity.attributes);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";

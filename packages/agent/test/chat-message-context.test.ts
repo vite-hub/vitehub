@@ -4,6 +4,7 @@ import { telegram } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentChannelDefinition } from "../src/index.ts"
@@ -72,7 +73,7 @@ function promptModel(prompts: Prompt[], answer: (prompt: Prompt) => string = () 
   }
 }
 
-function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string) {
+function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string, invocations?: ReturnType<typeof defineAgentInvocations>) {
   const prompts: Prompt[] = []
   const downloads: string[] = []
   const replies: string[] = []
@@ -94,6 +95,7 @@ function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt
         return event.reply(event.text ?? "")
       },
     },
+    ...(invocations ? { invocations } : {}),
     runtime: false,
   })
   const handler = createChannelWebhookRouteHandler(agent)
@@ -177,6 +179,28 @@ describe("chat trigger message context", () => {
       { images: 0, text: "[Tue 2026-10-13 18:12:00 +02:00 · msg 109316]\nthe banana was half" },
     ])
     expect(harness.downloads.sort()).toEqual(["file-LEMON", "file-NACHOS", "file-SANDWICH"])
+  })
+
+  it("records the history photos that the model received and the ones that selection left out", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const harness = telegramHarness({ timeZone: "Europe/Stockholm", triggerHistory: recentHistory }, undefined, invocations)
+
+    for (const [index, name] of ["BANANA", "NACHOS", "SANDWICH", "LEMON"].entries()) {
+      await harness.send({ date: at(18, 6 + index), message_id: 109312 + index, photo: photo(name) })
+    }
+    await harness.send({ date: at(18, 12), message_id: 109316, text: "the banana was half" })
+
+    const { invocations: [latest] } = await invocations.list()
+    const record = await invocations.get(latest!.id)
+    const observation = record?.observations?.find(item => item.name === "agent.input.attachments")
+    const image = (uniqueId: string, origin: string) => expect.objectContaining({ bytes: 3, mediaType: "image/jpeg", messageId: expect.stringContaining("109"), name: expect.stringContaining(uniqueId), origin })
+    expect(observation?.attributes).toMatchObject({
+      "input.attachments.sent": [image("NACHOS", "history"), image("SANDWICH", "history"), image("LEMON", "history")],
+      "input.attachments.sentBytes": 9,
+      "input.attachments.sentCount": 3,
+      "input.attachments.skipped": [expect.objectContaining({ mediaType: "image/jpeg", origin: "history", reason: "max-images" })],
+      "input.attachments.skippedCount": 1,
+    })
   })
 
   it("does not send history photos older than maxAgeMs", async () => {

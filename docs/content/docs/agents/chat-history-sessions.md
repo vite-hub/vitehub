@@ -134,6 +134,29 @@ turn that starts a new provider thread. A resumed provider thread already has
 the earlier turns, so it gets only attachments from the current message and
 any queued or coalesced messages. A Sandbox provider gets no history photos.
 
+### Check which photos the model received
+
+Before it calls the model, the Driver records one `agent.input.attachments`
+observation on the Invocation. The Console shows it as one row, such as
+`Sent 3 images (2.1 MB), skipped 1: byte-budget`. Open the row to see each
+attachment.
+
+| Attribute | Value |
+| --- | --- |
+| `input.attachments.sent` | Each attachment the model received: `messageId`, `partId`, `name`, `mediaType`, `bytes`, `origin` (`current` or `history`), and for a Provider Driver the `path` of the file that the provider reads. |
+| `input.attachments.skipped` | Each attachment left out, with the same fields and a `reason`. |
+| `input.attachments.sentCount`, `sentBytes`, `skippedCount` | Totals. |
+
+| Reason | Why the attachment was left out |
+| --- | --- |
+| `max-images` | More history images than `maxImages`. |
+| `max-age` | Sent longer than `maxAgeMs` before the current message. |
+| `not-image` | A history file that is not an image. |
+| `byte-budget` | It does not fit in the remaining `driver.execution.attachments.maxBytes`. |
+| `fetch-failed:<code>` | The download failed. `<code>` is the error code, HTTP status, or error name. |
+| `no-data` | The part has no data and no `fetchData()`. |
+| `sandbox` | A Sandbox provider cannot read history images. |
+
 ## Add a session
 
 Use a session when your product has a stable conversation id that does not

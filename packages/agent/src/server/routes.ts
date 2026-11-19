@@ -80,6 +80,7 @@ import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, isChatReplyPartType, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
+import type { ChatOmittedAttachment } from "../internal/input-attachments.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
 import { agentChatInvocationIdHeader, defaultAgentWebhookRoute, resolveAgentRoutePath } from "../internal/routes.ts"
@@ -4979,7 +4980,8 @@ function chatSteeringUiMessage(uiMessage: UIMessageLike, message: ChatSdkMessage
 /**
  * Give the model one readable header per user message and limit history attachments.
  * Current and queued messages keep every attachment. History keeps only the newest
- * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`.
+ * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`. The header's
+ * `data.omittedAttachments` names each attachment left out and why, so the Driver can record it.
  */
 function decorateChatTriggerMessages(
   thread: Thread,
@@ -5009,9 +5011,14 @@ function decorateChatTriggerMessages(
     const parts = uiMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType)
     if (!parts.length) return uiMessage
     const time = chatMessageTime(uiMessage.createdAt)
+    const omittedAttachments: ChatOmittedAttachment[] = []
     const kept = parts.filter((part) => {
       if (retained || !isAttachmentPart(part) || chatPartId(part)?.startsWith("reply-input-")) return true
-      if (part.type !== "image" || !isRecent(time) || remainingImages <= 0) return false
+      const reason = part.type !== "image" ? "not-image" : !isRecent(time) ? "max-age" : remainingImages <= 0 ? "max-images" : undefined
+      if (reason) {
+        omittedAttachments.push({ ...(part.id ? { id: part.id } : {}), mediaType: part.mediaType, ...(part.name ? { name: part.name } : {}), reason })
+        return false
+      }
       remainingImages--
       return true
     })
@@ -5035,7 +5042,7 @@ function decorateChatTriggerMessages(
     return {
       ...uiMessage,
       parts: [
-        { data: { modelText: header }, id: "message-header", type: chatMessageHeaderPartType },
+        { data: { modelText: header, ...(omittedAttachments.length ? { omittedAttachments } : {}) }, id: "message-header", type: chatMessageHeaderPartType },
         ...kept.map(part => isChatReplyModelPart(part)
           ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
           : part),
