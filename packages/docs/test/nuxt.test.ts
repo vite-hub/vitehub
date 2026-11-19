@@ -706,8 +706,26 @@ describe("docs Nuxt setup", () => {
     expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
     expect(findDocsPage(manifestTemplate() as never, "/docs/new")?.page.title).toBe("New page")
     // The app and the server read the new manifest, and `#docs/files` lists the new file when Nitro loads it again.
-    expect(nuxtCallHook).toHaveBeenCalledWith("builder:generateApp")
+    const filter = updateTemplates.mock.calls[0]![0].filter
+    expect(["docs/manifest.mjs", "docs/app-manifest.mjs", "docs/examples.mjs"].filter(filename => filter({ filename }))).toEqual(["docs/manifest.mjs", "docs/app-manifest.mjs"])
     expect(server.environments.nitro!.moduleGraph.invalidateModule).toHaveBeenCalledWith(files)
+  })
+
+  it("makes Nuxt's own run for an added page wait for the new manifest", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-wait-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    writeFileSync(join(content, "docs/new.md"), "---\ntitle: New page\n---\n# New page")
+    // Nuxt calls `builder:watch` before it generates the app for the new file.
+    await callHook("builder:watch", "add", relative("/app", join(content, "docs/new.md")))
+    const generated = templates.get("docs/manifest.mjs")!() as unknown
+    expect(generated).toBeInstanceOf(Promise)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(await generated).toContain("New page")
   })
 
   it.each([
@@ -726,7 +744,7 @@ describe("docs Nuxt setup", () => {
     watchContent.mock.calls[0]![2]!("rename", file)
     await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
-    expect(nuxtCallHook).not.toHaveBeenCalledWith("builder:generateApp")
+    expect(updateTemplates).not.toHaveBeenCalled()
   })
 
   it("reloads Nitro once when a page or its agent copy changes", async () => {
@@ -765,7 +783,7 @@ describe("docs Nuxt setup", () => {
     expect(server.watcher.emit.mock.calls).toEqual([["change", manifestFile]])
     expect(existsSync(copy)).toBe(false)
     expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
-    expect(nuxtCallHook).not.toHaveBeenCalledWith("builder:generateApp")
+    expect(updateTemplates).not.toHaveBeenCalled()
   })
 
   it("keeps Vite from reloading Nitro for a page, which the docs watcher reloads after the manifest", async () => {
