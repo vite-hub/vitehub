@@ -38,6 +38,21 @@ describe("parseDuration()", () => {
     expect(() => parseDuration(1_500 as never)).toThrow(expect.objectContaining({ fix: expect.stringContaining("\"1500ms\"") }))
   })
 
+  it("reads a number as milliseconds or as seconds for the fix, as `legacyUnit` tells", () => {
+    expect(() => parseDuration(60 as never, "delay")).toThrow(expect.objectContaining({ fix: expect.stringContaining("60 milliseconds is \"60ms\"") }))
+    expect(() => parseDuration(60 as never, "delay", undefined, "s")).toThrow(expect.objectContaining({
+      code: "RUNTIME_DURATION_INVALID",
+      fix: expect.stringContaining("60 seconds is \"1m\""),
+      why: expect.stringContaining("`delay`"),
+    }))
+    expect(() => parseDuration(1.5 as never, "delay", undefined, "s")).toThrow(expect.objectContaining({ fix: expect.stringContaining("\"1500ms\"") }))
+  })
+
+  it("accepts the same values with either `legacyUnit`", () => {
+    expect(parseDuration("90s", "delay", undefined, "s")).toBe(90_000)
+    expect(() => parseDuration("10" as never, "delay", undefined, "s")).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
+  })
+
   it("does not convert an object to name it", () => {
     const toPrimitive = vi.fn(() => "1s")
     expect(() => parseDuration({ [Symbol.toPrimitive]: toPrimitive } as never)).toThrow(expect.objectContaining({ why: expect.stringContaining("an object") }))
