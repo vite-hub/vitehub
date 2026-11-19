@@ -10,45 +10,11 @@ Choose where a Workspace keeps files, what each Workspace Definition (a `defineW
 
 ## Configure the Vite Integration
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workspace: true },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workspace: true }), nitro()],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workspace: true })],
-})
-```
-:::
-::
-
-`workspace` takes `true` or an object with these options:
+A file in `server/workspaces/` turns on Workspace, so you do not add a `workspace` option. An app that only creates Workspaces in code sets `workspace: true`. Set `workspace` to an object to change these options, or `workspace: false` to keep Workspace off:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workspace` | `boolean` or `WorkspaceOptions` | disabled | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
+| `workspace` | `boolean` or `WorkspaceOptions` | on with `server/workspaces/` | `true` or an object turns Workspace on in `vitehub()`. `false` keeps it off. |
 | `root` | `string` | `.vitehub/workspaces` | Runtime Workspace root directory. |
 | `projectRoot` | `string` | ViteHub project root | Project root that server-side discovery starts from. |
 | `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |

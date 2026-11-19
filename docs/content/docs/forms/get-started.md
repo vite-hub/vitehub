@@ -59,7 +59,7 @@ vitehub database migrate
 Start the dev server with `pnpm dev`, as in [Installation](/docs/getting-started/installation), then send a message from a second terminal:
 
 ```bash [commands/send]
-curl -X POST http://localhost:3000/api/_vitehub/forms/contact \
+curl -X POST http://localhost:3000/_vitehub/forms/contact \
   -H 'content-type: application/json' \
   -d '{"email":"ada@example.com","message":"I want to build a shop."}'
 ```

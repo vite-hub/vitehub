@@ -8,14 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `host` picks the Queue Provider (the service that stores and delivers jobs).
+A file in `server/queues/` turns on Queue, so you do not add a `queue` option. Set `queue` to an object only to change the options below, or `queue: false` to keep Queue off. The `host` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -27,7 +27,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -38,7 +38,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
@@ -159,8 +159,10 @@ Create a Queue Definition (the file that handles one queue's jobs) in `server/qu
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
@@ -168,14 +170,15 @@ The file path gives the queue name. Runtime helpers call this file `welcome-emai
 
 ## Queue Definition options
 
-Pass options as the second argument to `defineQueue()`.
+Put the options next to `handler` in the object that you pass to `defineQueue()`.
 
 ```ts [server/queues/report.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ reportId: string }>(async (job) => {
-  await buildReport(job.payload.reportId)
-}, {
+export default defineQueue<{ reportId: string }>({
+  handler: async ({ payload }) => {
+    await buildReport(payload.reportId)
+  },
   concurrency: 5,
 })
 ```

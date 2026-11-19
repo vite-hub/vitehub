@@ -12,7 +12,7 @@ A codemod is a program that edits your source files for you. `@vite-hub/codemods
 npx @vite-hub/codemods --dry-run
 ```
 
-The command finds every module in the app that a codemod supports and runs those codemods, one after another. `--dry-run` prints the edits as diffs and writes nothing. The package requires Node.js 22.18 or newer.
+The command finds every module in the app that a codemod supports and runs those codemods, one after another. `--dry-run` prints the edits as diffs and writes nothing. The package requires Node.js 24.15 or newer.
 
 ## Move from a Nuxt module
 
@@ -29,7 +29,7 @@ The command finds every module in the app that a codemod supports and runs those
 
 | Codemod | Moves |
 | --- | --- |
-| [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
+| [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Queue, Schedule, Sandbox Task, Content, and Database to the one form of each |
 | [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | [`result-tuples`](/docs/codemods/upgrade-vitehub#result-tuples) | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads |

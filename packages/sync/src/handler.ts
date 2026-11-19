@@ -920,7 +920,7 @@ interface LiveEntry {
 }
 
 /**
- * Answers the live stream of several stores: `POST <base>api/_vitehub/sync` with a `SyncLiveRequest`. Each store is
+ * Answers the live stream of several stores: `POST <base>_vitehub/sync` with a `SyncLiveRequest`. Each store is
  * checked as its pull is, with the `where` of its definition. A store that the caller may not see gets an `error`
  * event, and the others stream on. One read of the change log each interval serves every store of the stream, and one
  * batch pulls the stores whose table changed. The stream ends before it could pass `services.live.calls`.

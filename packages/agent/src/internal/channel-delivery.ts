@@ -243,6 +243,8 @@ function advanceDeliveryStatus(
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
   if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
+  // An acknowledgement never hides an outcome that a handler recorded before it.
+  if (event.type === "acknowledged") return { retrySignaled, status: current === "received" ? "acknowledged" : current }
   if (
     event.type === "accepted" ||
     event.type === "completed" ||

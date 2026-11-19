@@ -30,7 +30,7 @@ console.log(error.toJSON())
 | Code | When |
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
-| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
+| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is a refusal instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
 | `AUTH_C0039` | The Definition, or the object that its callback returns, sets the removed `runtime` option. Pass one callback that returns all the options, such as `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. |
 | `AUTH_C0041` | `session.onRefresh` is not a function. |
 | `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |
@@ -49,7 +49,7 @@ console.log(error.toJSON())
 | `AUTH_C0062` | A callback returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
 | `AUTH_C0063` | A production build or server has an Auth Definition without `database` or `preset`. Set `database: authDatabase()`, use `preset: stateless()`, or set `database: "memory"` to keep users in one process. |
 | `AUTH_C0064` | `access.public` is not an inline array of route strings that start with `/`. |
-| `AUTH_C0065` | `access.policy` has no `allow` function, or `recheck` is not a number of milliseconds, 0 or more. |
+| `AUTH_C0065` | `access.policy` has no `allow` function. A `recheck` that is not a duration such as `'5m'` fails with `RUNTIME_DURATION_INVALID`. |
 | `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
 | `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
 | `AUTH_C0068` | An `access.routes` entry uses route pattern syntax, such as `/api/users/:id`, `/api/admin/*`, or the encoded `/api/users/%3Aid`, or a `.` or `..` segment, such as `/api/x/../billing`. Access routes match literal paths. Use a final `/**`, such as `/api/users/**`, and check the parameter in the handler. |
@@ -91,6 +91,7 @@ export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'f
 
 - An HTML `GET` that `withAuth()` or an access route refuses still gets the `access.signIn` redirect. When `withAuthorization()` or an access route refuses it with `403`, it gets the text `Forbidden.`. `requireAuth()` and `requireAuthorization()` still put the code in `data` of their error.
 - A `Response` that `authorize` returns goes to the client as it is, without a code.
+- When a Better Auth plugin refuses the credentials of the request while Auth reads the session, the guards answer with the plugin's status, code, and headers instead of `SIGNED_OUT`: `withAuth()` and the other wrappers return that refusal, and `requireAuth()`, `requireAuthorization()`, and `requireAbility()` throw it as an H3 `HTTPError`. For example, the API Key plugin refuses an unknown key with `401` and a key that is too short with `403`, both with `data.code` `INVALID_API_KEY`. A Better Auth error with a `5xx` status stays `AUTH_PROVIDER_OPERATION_FAILED`.
 
 ## SIGNED_OUT
 

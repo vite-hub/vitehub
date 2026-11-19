@@ -1,10 +1,10 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-export const defaultAgentChatRoute = "/api/_vitehub/agents/[agent]/chat"
+export const defaultAgentChatRoute = "/_vitehub/agents/[agent]/chat"
 export const agentChatInvocationIdHeader = "x-vitehub-invocation-id"
-export const defaultAgentDiscordGatewayRoute = "/api/_vitehub/agents/[agent]/discord/gateway"
-export const defaultAgentInspectionRoute = "/api/_vitehub/agents/[agent]/inspection"
-export const defaultAgentWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
+export const defaultAgentDiscordGatewayRoute = "/_vitehub/agents/[agent]/discord/gateway"
+export const defaultAgentInspectionRoute = "/_vitehub/agents/[agent]/inspection"
+export const defaultAgentWebhookRoute = "/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 export function normalizeAgentRoute(route: string): string {
   const normalized = route.startsWith("/") ? route : `/${route}`
@@ -34,7 +34,8 @@ export function validateAgentStaticRoute(route: string, handlers: readonly { rou
     throw agentDiagnostics.AGENT_ROUTE_NOT_STATIC({ label })
   }
   const target = normalized.split("/")
-  const namespaceDepth = namespace && normalized.startsWith(`${normalizeAgentRoute(namespace).replace(/\/$/, "")}/`) ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0
+  const reserved = namespace && normalizeAgentRoute(namespace).replace(/\/$/, "")
+  const namespaceDepth = reserved && (normalized === reserved || normalized.startsWith(`${reserved}/`)) ? reserved.split("/").length : 0
   const conflict = handlers.find(({ route: handler, middleware }) => {
     if (middleware) return false
     const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")
