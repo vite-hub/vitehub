@@ -193,6 +193,68 @@ describe("steer concurrency with debounceMs", () => {
     }
   })
 
+  it("runs a queued Telegram message whose delivery record is written while the active run releases the lock", async () => {
+    mockTelegramApi()
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const releaseFirst = deferred<void>()
+    const firstHeld = deferred<void>()
+    const writeHeld = deferred<void>()
+    const releaseWrite = deferred<void>()
+    // Hold the delivery record of the second update, as a slow State does.
+    const setIfNotExists = state.setIfNotExists.bind(state)
+    vi.spyOn(state, "setIfNotExists").mockImplementation(async (key, ...rest) => {
+      if (key.startsWith("deliveries:source:") && key.includes("8212")) {
+        writeHeld.resolve()
+        await releaseWrite.promise
+      }
+      return await setIfNotExists(key, ...rest)
+    })
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ text: "One reply", type: "text" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => createTelegramAdapter({ allowedUserIds: [123], allowUnverifiedWebhooks: true, botToken: "test-token", mode: "webhook" }),
+          messages: { concurrency: "queue", delivery: "manual", fallbackStreamingPlaceholderText: null, state },
+          mode: "webhook",
+          webhooks: { id: "telegram", secretToken: false },
+        }),
+      },
+      driver: { model },
+      hooks: {
+        async "agent:finish"(event) {
+          firstHeld.resolve()
+          await releaseFirst.promise
+          return event.reply(event.text ?? "")
+        },
+      },
+      runtime: false,
+    }))
+    try {
+      const first = webhook(handler, 8_211, "First")
+      await firstHeld.promise
+      const second = webhook(handler, 8_212, "Second")
+      await writeHeld.promise
+      // The active run finishes and releases the thread lock while the second delivery record is still being written.
+      releaseFirst.resolve()
+      await first
+      releaseWrite.resolve()
+      await second
+      expect(model.doGenerateCalls).toHaveLength(2)
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram"), "telegram", { agentName: "support" })
+      expect(Object.fromEntries(deliveries.map(delivery => [delivery.sourceId, delivery.status]))).toEqual({ 8211: "completed", 8212: "completed" })
+    } finally {
+      releaseFirst.resolve()
+      releaseWrite.resolve()
+      await state.disconnect()
+    }
+  })
+
   it("keeps concurrent handling without debounceMs, so a second message steers into the active run", async () => {
     mockTelegramApi()
     const started = deferred<void>()

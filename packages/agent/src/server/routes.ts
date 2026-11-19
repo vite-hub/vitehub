@@ -4424,14 +4424,14 @@ interface ChatLockTracker {
   state: StateAdapter
 }
 
-function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promise<string | undefined>): ChatLockTracker {
+function createChatLockTracker(state: StateAdapter, beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>): ChatLockTracker {
   const locks = new Map<string, { lock: Lock; ttlMs: number }>()
   const queuedDeliveries = new WeakMap<object, string>()
   const trackedState = new Proxy(state, {
     get(target, property) {
       if (property === "enqueue" && beforeEnqueue) {
         return async (threadId: string, entry: QueueEntry, maxSize: number) => {
-          const channelDeliveryId = await beforeEnqueue()
+          const channelDeliveryId = await beforeEnqueue(true)
           const queuedEntry = channelDeliveryId ? { ...entry, channelDeliveryId } : entry
           return await target.enqueue(threadId, queuedEntry, maxSize)
         }
@@ -4447,6 +4447,9 @@ function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promis
       }
       if (property === "acquireLock") {
         return async (lockKey: string, ttlMs: number) => {
+          // Chat enqueues a message right after it finds the thread lock busy. Resolve the delivery before that check,
+          // so the enqueue does not wait for a State write while the lock holder drains the queue and releases the lock.
+          await beforeEnqueue?.(false)
           const lock = await target.acquireLock(lockKey, ttlMs)
           if (lock) locks.set(lockKey, { lock, ttlMs })
           return lock
@@ -7874,7 +7877,7 @@ async function createChannelChat(
     workflowCustodySupported?: boolean
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<string | undefined>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<Chat> {
   // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
   if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
@@ -8846,7 +8849,7 @@ async function createChatWebhookHandler(
   maximumInvocationDeadline?: number,
   state?: { state: StateAdapter; titleKeyPrefix: string },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<string | undefined>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
   const chat = await createChannelChat(
     agent,
@@ -10374,7 +10377,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
           const burst = chatSteerBurst(chatOptions) !== undefined
           const queued = ["serial", "queue"].includes(chatOptions?.concurrency ?? "")
-          const storeQueuedDelivery = adapter.name === "telegram" && !isUntrackedChannelWebhook(registration)
+          const storeQueuedDelivery = adapter.name === "telegram"
           let queuedForBurst = false
           const handler = await createChatWebhookHandler(
             agent,
@@ -10387,9 +10390,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             maximumInvocationDeadline,
             chatDeliveryState,
             resolveChannelDelivery,
-            burst || (queued && storeQueuedDelivery) ? async () => {
+            burst || (queued && storeQueuedDelivery) ? async (enqueue) => {
               const delivery = await resolveChannelDelivery()
-              queuedForBurst = burst
+              if (enqueue) queuedForBurst = burst
               return storeQueuedDelivery ? delivery.delivery.id : undefined
             } : undefined,
           )
