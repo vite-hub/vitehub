@@ -40,6 +40,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`tsconfig-paths`](/docs/codemods/upgrade-vitehub#tsconfig-paths) | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 | [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
+| [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
 | [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 | [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |
 

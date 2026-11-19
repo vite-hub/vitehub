@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `cli-get-list`, and `cli-agent-tree`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `cli-get-list`, and `cli-agent-tree`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -59,6 +59,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `auth-sign-in` | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts`. `vitehub migrate` runs it. |
 | `cli-get-list` | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list`. `vitehub migrate` runs it. |
 | `cli-agent-tree` | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent`. `vitehub migrate` runs it. |
 
@@ -372,6 +373,22 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 ```
 
+## `auth-sign-in`
+
+The sign-in pages of Auth are in one place, `access` of `server/auth.ts`:
+
+| Old | New |
+| --- | --- |
+| `vitehub({ auth: { redirects: { login: '/login' } } })` | `defineAuth({ access: { signIn: '/login' } })` |
+| `vitehub({ auth: { redirects: { guest: '/app' } } })` | `defineAuth({ access: { afterSignIn: '/app' } })` |
+| `access: { signIn: { provider: 'github', callbackURL: '/app' } }` | `access: { signIn: { provider: 'github' }, afterSignIn: '/app' }` |
+
+If a redirect cannot be migrated safely, the codemod leaves the files unchanged and reports what to move by hand. This covers conflicting overrides, destinations that are not literal app paths, dynamic Definition options, and a `redirects.login` page next to a provider in `access.signIn`.
+
+```sh
+npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
+```
+
 ## `cli-get-list`
 
 `get` reads one record and `list` reads many. The codemod renames the `vitehub` calls in `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files:
@@ -382,15 +399,16 @@ npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 | `vitehub agent invocations show` | `vitehub agent invocations get` |
 | `vitehub content show`, `vitehub workspace show` | `get` |
 | `vitehub email outbox show`, `vitehub queue jobs show` | `outbox get`, `jobs get` |
-| `vitehub workflow get`, `vitehub workflow runs show` | `vitehub workflow runs get` |
+| `vitehub workflow get` | `vitehub workflow runs get --json` |
+| `vitehub workflow runs show` | `vitehub workflow runs get` (use `--run-id` for `--id`) |
 | `vitehub schedule runs <schedule>` | `vitehub schedule runs list <schedule>` |
 | `vitehub schedule attempts <run>` | `vitehub schedule runs get <run>` |
 | `vitehub env inspect` | `vitehub env list` |
-| `vitehub env status --url <app>` | `vitehub env list --url <app>` |
+| `vitehub env status --url <app>` | `vitehub env list --url <app> --json` |
 | `vitehub project info` | `vitehub project get` |
-| `vitehub definitions list` | `vitehub inspect definitions` |
+| `vitehub definitions list` | `vitehub inspect definitions --kind <kind>` for local definitions; use the Console for runtime records |
 
-`vitehub env status` without `--url` asked the dev server. `vitehub env list` without `--url` reads the local stage, so add `--url` where a script asks an app. An old command fails with the new one, so a call that the codemod missed tells you what to run.
+The codemod updates simple shell invocations. It skips scripts and steps with complex shell syntax, such as command substitutions or parameter defaults, to avoid editing text that is not a command. It reports recognized calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
 
 ```sh
 npx @vite-hub/codemods cli-get-list [dir] [--dry-run]

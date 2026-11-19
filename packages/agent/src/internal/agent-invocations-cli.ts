@@ -20,7 +20,7 @@ import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invoc
 import { invocationActivityTrace } from "../invocations/activity.ts"
 import { formatInvocationPageChanges, invocationPageChanges } from "../invocations/page-changes.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
-import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
+import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -29,6 +29,11 @@ interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
   /** Project root that the Compatible Vite Development Server must serve. Defaults to the current directory. */
   rootDir?: string
+  /**
+   * The `file:` Agent State URL of the app config. Without `--database` and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`,
+   * the journal is `agent-invocations.sqlite` next to it, as on the server.
+   */
+  stateUrl?: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -180,6 +185,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            and does not wait on them. Defaults to 2h.",
     "  --agent <name>            Filter Console list results or wait-idle by Agent.",
     "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
+    "                            agent-invocations.sqlite next to a file: Agent State URL in the config, else",
     "                            .vitehub/data/agent-invocations.sqlite in the project. list, get, tail, export, and",
     "                            wait-idle read a local SQLite file read-only, such as the journal inside a running",
     "                            container. They do not migrate or write it.",
@@ -955,7 +961,11 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
     }
     return { ...token, label: `${location.protocol}//${location.host}${location.pathname === "/" ? "" : location.pathname}`, secrets, url: configured }
   }
-  const target = configured || resolve(root, defaultAgentInvocationsPath)
+  // Without a URL of its own, the server puts the journal next to a `file:` State, which resolves from the working directory.
+  const beside = configured ? undefined : agentJournalBesideState(context.stateUrl, context.env)
+  // Keep the URL encoded, so `%23` and `%3F` in the path stay path characters when the query and fragment split below.
+  const besideUrl = beside && (beside.cwd ? new URL(beside.url.slice("file:".length), pathToFileURL(`${context.rootDir ?? process.cwd()}/`)).href : beside.url)
+  const target = configured || besideUrl || resolve(root, defaultAgentInvocationsPath)
   const withoutFragment = target.split("#", 1)[0]!
   const queryIndex = withoutFragment.indexOf("?")
   const location = queryIndex === -1 ? withoutFragment : withoutFragment.slice(0, queryIndex)

@@ -1,5 +1,6 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
+import { authSignIn } from "./auth-sign-in/index.ts"
 import { cliAgentTree } from "./cli-agent-tree/index.ts"
 import { cliGetList } from "./cli-get-list/index.ts"
 import { defineForms } from "./define-forms/index.ts"
@@ -46,6 +47,7 @@ export const codemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
   cliGetList,
   cliAgentTree,
 ]
@@ -74,6 +76,7 @@ export const upgradeCodemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
   cliGetList,
   cliAgentTree,
 ]

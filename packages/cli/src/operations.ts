@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 
-import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { appUrlError, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliOptions, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
@@ -337,26 +337,8 @@ function acceptedRoots(rootDir: string): string[] {
  */
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
   if (parsed.url) {
-    let base: URL
-    try {
-      base = new URL(parsed.url)
-    }
-    catch {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })) }
-    }
-    const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
-    if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })) }
-    }
-    if (base.username || base.password || base.search || base.hash) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
-    }
-    // The command adds the Console path itself, so a pasted Console URL would call `/_vitehub/_vitehub/rpc`.
-    const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
-    if (consolePath) {
-      const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: `--url is the app URL, not the Console URL. Pass --url ${app}.` })) }
-    }
+    const message = appUrlError(parsed.url)
+    if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
     return { target: parsed.url }
   }
   const roots = acceptedRoots(context.rootDir)

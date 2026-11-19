@@ -391,7 +391,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0005: {
       ...dynamicError,
-      fix: "Set `auth: true` in `vitehub()` and add server/auth.ts with the admin plugin of Better Auth, or remove `console.impersonation`.",
+      fix: "Add server/auth.ts with the admin plugin of Better Auth, and remove `auth: false` from `vitehub()` if it is there. Or remove `console.impersonation`.",
     },
     VITE_HUB_R0075: {
       ...dynamicError,

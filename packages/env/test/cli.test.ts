@@ -3,9 +3,10 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEnvCliContributor } from "../src/cli.ts"
 import { isBlockingServerEnvEntry } from "../src/server.ts"
@@ -490,5 +491,22 @@ describe("vitehub env list --url", () => {
     const { context, output } = captureContext(process.cwd())
     expect(await feature("list").run(["--url", "https://app.example.com", "--stage", "production"], context)).toBe(1)
     expect(output.stderr).toContain("not both")
+  })
+
+  it.each([
+    ["not-a-url", "must be a URL"],
+    ["http://app.example.com", "must use HTTPS"],
+    ["https://user:pass@app.example.com", "must not contain credentials"],
+    ["https://app.example.com/?a=b", "must not contain credentials"],
+    ["https://app.example.com/#fragment", "must not contain credentials"],
+    ["https://app.example.com/prefix/_vitehub", "Pass --url https://app.example.com/prefix"],
+  ])("rejects %s before dispatch", async (url, message) => {
+    const { privateKey } = await createConsoleKeyPair()
+    const { context, output } = captureContext(process.cwd(), { VITEHUB_CONSOLE_PRIVATE_KEY_TEST: privateKey })
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    context.fetch = fetch
+    expect(await feature("list").run(["--url", url], context)).toBe(1)
+    expect(output.stderr).toContain(message)
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

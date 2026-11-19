@@ -9,6 +9,25 @@ import type { ProvisionProvider, ProvisionStep } from "./provision.ts"
 
 import { isPlainObject } from "./object.ts"
 
+/** Validate an explicit `--url` before sending a Console request. The caller adds the RPC path. */
+export function appUrlError(url: string): string | undefined {
+  let base: URL
+  try {
+    base = new URL(url)
+  }
+  catch {
+    return "--url must be a URL."
+  }
+  const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+  if (base.protocol !== "https:" && !(local && base.protocol === "http:")) return "--url must use HTTPS, except for localhost."
+  if (base.username || base.password || base.search || base.hash) return "--url must not contain credentials, a query, or a fragment."
+  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
+  if (consolePath) {
+    const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
+    return `--url is the app URL, not the Console URL. Pass --url ${app}.`
+  }
+}
+
 export interface ViteHubCliStreams {
   stderr: { write: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }

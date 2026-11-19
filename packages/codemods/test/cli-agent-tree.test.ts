@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { parse } from "yaml"
 
 import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
 
@@ -30,9 +31,9 @@ describe("cli-agent-tree", () => {
         invoke: "vitehub agents invoke support --prompt hi",
         list: "vitehub agents list --url https://app.example.com",
         read: "vitehub invocations workspace inv_1 --path README.md",
-        status: "vitehub agents status --url https://app.example.com --agent support",
+        status: 'vitehub agents status --url "$APP_URL" --agent "support"',
       } }, null, 2)}\n`,
-      ".github/workflows/ci.yml": "steps:\n  - run: pnpm vitehub invocations cancel inv_1 --url https://app.example.com\n",
+      ".github/workflows/ci.yml": "jobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm vitehub invocations cancel inv_1 --url https://app.example.com\n",
     })
     expect(upgradeCodemods.map(codemod => codemod.name)).toContain("cli-agent-tree")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-agent-tree")
@@ -45,9 +46,10 @@ describe("cli-agent-tree", () => {
       invoke: "vitehub agent invoke support --prompt hi",
       list: "vitehub agent list --url https://app.example.com",
       read: "vitehub agent invocations workspace inv_1 --path README.md",
-      status: "vitehub agent get support --url https://app.example.com",
+      status: 'vitehub agent get "support" --url "$APP_URL"',
     })
-    expect(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8")).toContain("- run: pnpm vitehub agent invocations cancel inv_1 --url https://app.example.com\n")
+    const workflow = parse(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8"))
+    expect(workflow.jobs.check.steps[0].run).toBe("pnpm vitehub agent invocations cancel inv_1 --url https://app.example.com")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("cli-agent-tree")
   })
 
@@ -56,11 +58,13 @@ describe("cli-agent-tree", () => {
     const cwd = await project({ "scripts/inspect.sh": script })
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-agent-tree")
     const { result } = await runCodemod("cli-agent-tree", { cwd, dryRun: false })
-    expect(result.followUps).toEqual(expect.arrayContaining([
-      { file: "scripts/inspect.sh", message: expect.stringContaining("deletes from the journal file") },
-      { file: "scripts/inspect.sh", message: expect.stringContaining("flat record") },
-      { file: "scripts/inspect.sh", message: expect.stringContaining("Move --agent to the name") },
-    ]))
+    expect(result.followUps).toEqual([
+      { file: "scripts/inspect.sh", line: 1, message: expect.stringContaining("deletes from the journal file") },
+      { file: "scripts/inspect.sh", line: 2, message: expect.stringContaining("Console cursor") },
+      { file: "scripts/inspect.sh", line: 3, message: expect.stringContaining("flat record") },
+      { file: "scripts/inspect.sh", line: 4, message: expect.stringContaining("Move --agent to the name") },
+      { file: "scripts/inspect.sh", line: 5, message: expect.stringContaining("Move --agent to the name") },
+    ])
     expect(await readFile(join(cwd, "scripts/inspect.sh"), "utf8")).toBe(script)
   })
 })

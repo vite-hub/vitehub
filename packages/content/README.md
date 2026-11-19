@@ -144,6 +144,8 @@ defineContent({
 })
 ```
 
+When the host app knows its routes or assets, `check.isLinkTarget(url, href)` can accept a local link that Content cannot resolve. `url` is the resolved URL and `href` is the link as written. The callback runs only for unresolved local links.
+
 `CONTENT_R0069` means the check could not run, such as for an unknown Source, a `sha` that is not a full commit SHA, or a commit that GitHub does not give. `vitehub content check` prints the same result.
 
 ### GitHub push webhook
