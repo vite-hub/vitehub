@@ -8,6 +8,8 @@ icon: i-lucide-folder-tree
 
 ViteHub finds each Definition (a file that declares one feature, such as a queue) by its path. The path, not an option in the file, sets its name, the Discovery Identity.
 
+A file in the directory convention also turns its feature on, so the app needs no key for it in the ViteHub options. A suffix file does not. See [Definition discovery](/docs/development/definition-discovery#a-definition-file-turns-its-feature-on).
+
 ## Definition files
 
 | Definition | Directory convention | Suffix convention | Discovery Identity |
@@ -49,25 +51,27 @@ A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
 ## Define forms
 
-A define function takes one handler, or one object with `handler` and the options. The file default-exports the result:
+A define function takes one object with `handler` and the options. The file default-exports the result:
 
 | Definition | Form |
 | --- | --- |
-| Queue | `defineQueue(handler, options)` |
+| Queue | `defineQueue({ handler, concurrency })` |
 | Schedule | `defineSchedule({ cron, handler, manual, timeZone })` |
 | Sandbox Task | `defineSandboxTask({ handler, timeout, env, project })` |
 | Workflow | `defineWorkflow({ handler, native, rootStep })` |
 | Content | `export default defineContent({ ... })` |
 | Database | `export default defineDatabase({ schema })` in `server/databases/<name>.ts` |
 
-The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, `defineWorkflow(name, handler)` with `WORKFLOW_C0015`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all five.
+The removed forms fail with a diagnostic that names the new form: `defineQueue(handler)` fails with `QUEUE_INVALID_DEFINITION`, `defineSchedule(cron, handler)` with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, `defineWorkflow(name, handler)` with `WORKFLOW_C0015`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. Use the [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) to migrate them.
 
 Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 

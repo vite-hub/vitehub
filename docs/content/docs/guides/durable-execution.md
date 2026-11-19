@@ -66,16 +66,14 @@ On Node or Docker, ViteHub selects OpenWorkflow, and each server runs its worker
 
 ## Build the checkout Workflow in ViteHub
 
-Enable Workflow on Node. ViteHub selects OpenWorkflow:
+The Workflow Definition below turns on Workflow. On Node, ViteHub selects OpenWorkflow:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    workflow: true,
-  },
+  vitehub: {},
 })
 ```
 :::
@@ -88,9 +86,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({
-      workflow: true,
-    }),
+    vitehub(),
     nitro(),
   ],
 })
@@ -103,13 +99,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ workflow: true })],
+  plugins: [vitehub()],
 })
 ```
 :::
 ::
 
-On Cloudflare, set `host: 'cloudflare'` and `workflow: true`, with the same Workflow files.
+On Cloudflare, set `host: 'cloudflare'`, with the same Workflow files.
 
 In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts` becomes `steps.chargeCard`, with the provider step name `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 

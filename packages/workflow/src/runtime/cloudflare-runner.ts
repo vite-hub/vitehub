@@ -1,9 +1,11 @@
 import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { hasRunFailedListeners } from "@vite-hub/runtime/internal/run-failed"
 
 import { createWorkflowError } from "../errors.ts"
 
 import { fromCloudflareStartParams } from "./delay.ts"
 import { resolveWorkflowStepOptions, runSerializedWorkflowHandler } from "./execute.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
@@ -86,9 +88,10 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       await step.sleepUntil("vitehub-delay", new Date(startAt))
     }
 
+    const id = event?.instanceId || event?.id
     try {
       return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runSerializedWorkflowHandler({
-        id: event?.instanceId || event?.id,
+        id,
         name,
         payload,
         provider: "cloudflare",
@@ -96,6 +99,21 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       }, definition))
     }
     catch (error) {
+      // Cloudflare retries each step on its own. An error that leaves `run()` ends the instance as errored.
+      if (id && hasRunFailedListeners() && !definition.internalAgentWorkflow && !definition.internalAgentInvocationRecovery) {
+        try {
+          if (providerStep?.do) {
+            await providerStep.do("vitehub-notify-terminal-failure", { retries: { limit: 0 } }, async () => {
+              await emitWorkflowFailed(name, id, error, definition)
+              return null
+            })
+          }
+          else await emitWorkflowFailed(name, id, error, definition)
+        }
+        catch (notificationError) {
+          console.error("[vitehub] Could not checkpoint the Workflow failure notification.", notificationError)
+        }
+      }
       throw translateNonRetryableError(error, createNonRetryableError)
     }
   })

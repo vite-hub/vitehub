@@ -26,7 +26,7 @@ export const viteHubServerImports = {
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
-  rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"] },
+  rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"] },
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },

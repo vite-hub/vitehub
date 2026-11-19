@@ -43,7 +43,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -59,7 +58,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -76,7 +74,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -84,7 +81,7 @@ export default defineConfig({
 :::
 ::
 
-`workflow: false` runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
+The Agent runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
 
 ### Define the Agent
 
@@ -154,7 +151,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
   vite: {
     server: { allowedHosts: ['.trycloudflare.com'] },
@@ -174,7 +170,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -192,7 +187,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })

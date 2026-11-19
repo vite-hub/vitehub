@@ -17,7 +17,7 @@ import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
-const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue(async () => {})\n'
+const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue({ handler: async () => {} })\n'
 const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow({ handler: async () => {} })\n'
 
 describe("vitehub/known-definition-names", () => {
@@ -448,4 +448,3 @@ describe("named Workflow handlers", () => {
     }
   })
 })
-

@@ -138,14 +138,52 @@ interface VercelWorkflowBuilders {
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
+function packageNameOf(specifier: string): string {
+  const [scope, name] = specifier.split("/")
+  return scope!.startsWith("@") && name ? `${scope}/${name}` : scope!
+}
+
+/** Reads the optional peers that the package of `file` declares, from the nearest `package.json` that has a name. */
+function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
+  const peersByDirectory = new Map<string, ReadonlySet<string>>()
+  const read = (directory: string): ReadonlySet<string> => {
+    const cached = peersByDirectory.get(directory)
+    if (cached) return cached
+    let peers: ReadonlySet<string> = new Set()
+    const manifest = join(directory, "package.json")
+    // Node and esbuild accept a manifest that starts with a byte order mark, so drop it before parsing.
+    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8").replace(/^\uFEFF/, "")) : undefined
+    if (isRuntimeRecord(metadata) && typeof metadata.name === "string") {
+      const meta = isRuntimeRecord(metadata.peerDependenciesMeta) ? metadata.peerDependenciesMeta : {}
+      peers = new Set(Object.entries(meta).filter(([, value]) => isRuntimeRecord(value) && value.optional === true).map(([name]) => name))
+    }
+    else if (dirname(directory) !== directory) {
+      peers = read(dirname(directory))
+    }
+    peersByDirectory.set(directory, peers)
+    return peers
+  }
+  return file => read(dirname(file))
+}
+
+/** Tells whether a `node_modules` folder on the way up from `directory` holds the package, as Node looks it up. */
+function packageInstalledFrom(directory: string, name: string): boolean {
+  for (let current = directory; ; current = dirname(current)) {
+    if (existsSync(join(current, "node_modules", name))) return true
+    if (dirname(current) === current) return false
+  }
+}
+
 /**
  * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
- * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
- * fails on import, as the missing package would.
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, and any optional peer
+ * that a package loads with `import()`, such as `@modelcontextprotocol/sdk` in `@vite-hub/source/mcp`, become a
+ * module that fails on import, as the missing package would.
  */
 export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
   const namespace = "vitehub-optional-package"
+  const optionalPeersOf = createOptionalPeerReader()
   return {
     name: namespace,
     setup(build) {
@@ -164,6 +202,14 @@ export function createOptionalPackagesPlugin(rootDir: string): Plugin {
         if (args.pluginData === namespace) return
         const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
         return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onResolve({ filter: /^[^./#]/ }, async (args) => {
+        if (args.kind !== "dynamic-import" || args.pluginData === namespace || !isAbsolute(args.importer)) return
+        const name = packageNameOf(args.path)
+        if (!optionalPeersOf(args.importer).has(name)) return
+        // An installed peer keeps esbuild's own error, such as a subpath that the peer does not export.
+        if (packageInstalledFrom(args.resolveDir, name)) return
+        return { namespace, path: args.path }
       })
       build.onLoad({ filter: /.*/, namespace }, args => ({
         contents: optionalViteDevtoolsPattern.test(args.path)

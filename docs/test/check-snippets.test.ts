@@ -374,7 +374,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
-      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
+      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>({ handler: async () => {} })"),
       snippet("server/api/signup.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { email: 'ada@example.com' })"),
       snippet("server/api/typo.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcom-email', { email: 'ada@example.com' })"),
       snippet("server/api/payload.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { address: 'ada@example.com' })"),

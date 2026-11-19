@@ -87,7 +87,8 @@ export function getRuntimeRateLimiter(driver: "kv" | "memory", name: string, pol
   const existing = policies?.get(key)
   if (existing) return existing
 
-  const limiter = createRateLimiter({ ...policy, driver: driver === "kv" ? kvRateLimitDriver({ storage: requireKVRuntime().storage }) : memoryRateLimitDriver(), name })
+  const config = getRateLimitRuntimeConfig()
+  const limiter = createRateLimiter({ ...policy, driver: driver === "kv" ? kvRateLimitDriver({ namespace: config.driver === "cloudflare" ? config.namespace : undefined, storage: requireKVRuntime().storage }) : memoryRateLimitDriver(), name })
   if (!policies) {
     policies = new Map()
     all.set(name, policies)

@@ -36,7 +36,7 @@ export default defineAuth({
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
 | `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
 | `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
-| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
+| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. Also serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
 `baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
@@ -63,7 +63,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    auth: true,
     env: {
       server: {
         auth: {
@@ -89,7 +88,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -114,7 +112,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -487,7 +484,7 @@ export default defineAuth({
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `server/auth.ts` and `vitehub({ mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 

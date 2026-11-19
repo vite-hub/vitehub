@@ -153,7 +153,7 @@ An ignored bot message is recorded as a `rejected` delivery with the reason `bot
 
 ### Why a message started no work
 
-Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` lists them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
+Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` and the Console's Channels page list them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
 
 | Reason | Message |
 | --- | --- |
@@ -186,7 +186,7 @@ teams({
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
 - The Driver (the part that runs the Agent) adds the message to the active run as text: the header and reply lines, then the message. A reply line quotes the message it answers. Drivers steer with text only, so a message with an image, or with a file that stays an attachment, cannot steer. A text file that ViteHub reads into the message steers as text.
 - If the message cannot steer, it runs as its own Invocation afterwards, as for one invoker. Its Channel delivery record shows one `steer.deferred` event with the active run's `runId` and a `reason`, such as `attachments` (the message has an image or a file attachment) or `not-invoker` (only the invoker can steer).
-- Each attempt to submit input to the running Invocation adds an `agent.input.steer` observation with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason` when available, `channel.delivery.id`, and `input.steer.messageId`.
+- Each attempt to submit input to the running Invocation adds an `agent.input.steer` observation with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason` when available, `channel.delivery.id`, and `input.steer.messageId`. The Console shows it as a step of the run.
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks
