@@ -34,7 +34,6 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
 
 function deserializeValue(value: unknown) {
   if (typeof value !== "string") return value
-  // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This is the decoder used by unstorage's ordinary read path.
   return destr(value)
 }
 
@@ -92,7 +91,6 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   const notice = kvRemoteNotice(name, store)
   if (notice) console.warn(notice)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }, loadDatabases)
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
   // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
   const storage = createKVStorage(driver) as unknown as RuntimeStorage
   storage.listKeys = options => driver.listKeys({ ...options, prefix: normalizeKVListPrefix(options.prefix) })
