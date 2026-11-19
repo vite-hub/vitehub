@@ -1,6 +1,7 @@
 import { createAuthConsole, type AuthConsole } from "../console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "../console-types.ts";
 import abilities from "#vitehub/auth/abilities"
+import { toResultError } from "@vite-hub/runtime"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { parseUserOutput } from "better-auth/db"
@@ -30,7 +31,7 @@ import {
 } from "../auth-instance.ts"
 
 import type { AbilityArgs, AbilityAuthorization, AbilityName } from "../abilities.ts"
-import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "../events.ts"
+import { parseAuthEventList, parseAuthEventWindow, type AuthEventAggregates, type AuthEventListInput, type AuthEventPage, type AuthEventStore, type AuthEventWindow } from "../events.ts"
 import type { AuthAccessIdentityResolver } from "../runtime-state.ts"
 import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import type {
@@ -1232,16 +1233,39 @@ export function getAuthEvents(definition: AuthDefinition = resolveDefaultDefinit
   return events ? events.store : undefined
 }
 
-export async function listAuthEvents(input: AuthEventListInput = {}, definition?: AuthDefinition): Promise<AuthEventPage> {
+/** Why `listAuthEvents()` or `aggregateAuthEvents()` returned an error. */
+export type AuthEventReadErrorCode = "AUTH_EVENT_QUERY_INVALID" | "AUTH_EVENT_READ_FAILED"
+
+async function readAuthEvents<T>(
+  definition: AuthDefinition | undefined,
+  parse: () => unknown,
+  read: (store: AuthEventStore) => Promise<T>,
+): Promise<Result<T, AuthEventReadErrorCode>> {
   const store = getAuthEvents(definition)
   if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
-  return store.list(input)
+  try {
+    parse()
+  }
+  catch (error) {
+    const invalid = authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID.is(error) ? error : authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "input", cause: error })
+    return [Object.assign(toResultError(invalid), { status: 400 }), undefined]
+  }
+  try {
+    return [undefined, await read(store)]
+  }
+  catch (error) {
+    return [toResultError(authErrorDiagnostics.AUTH_EVENT_READ_FAILED({ cause: error })), undefined]
+  }
 }
 
-export async function aggregateAuthEvents(window: AuthEventWindow, definition?: AuthDefinition): Promise<AuthEventAggregates> {
-  const store = getAuthEvents(definition)
-  if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
-  return store.aggregate(window)
+/** Read one page of the Auth event log. Invalid filters and store failures return `[error, undefined]`. */
+export function listAuthEvents(input: AuthEventListInput = {}, definition?: AuthDefinition): Promise<Result<AuthEventPage, AuthEventReadErrorCode>> {
+  return readAuthEvents(definition, () => parseAuthEventList(input), store => store.list(input))
+}
+
+/** Count the Auth events of a window. An invalid window and store failures return `[error, undefined]`. */
+export function aggregateAuthEvents(window: AuthEventWindow, definition?: AuthDefinition): Promise<Result<AuthEventAggregates, AuthEventReadErrorCode>> {
+  return readAuthEvents(definition, () => parseAuthEventWindow(window), store => store.aggregate(window))
 }
 
 /**

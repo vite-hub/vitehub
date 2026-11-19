@@ -246,7 +246,7 @@ describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0005 when the gateway throws and DECISIONS_R0006 for a missing answer", async () => {
     const throwing = defineChoices({ gateway: { ask: async () => { throw new Error("offline") } }, groups: { s: { label: "S", options: suppliers } } })
     expect((await throwing.resolve("nord"))[0]?.code).toBe("DECISIONS_R0005")
-    const partial = defineChoices({ gateway: { ask: async () => ({ supported: { chance: 0.9, type: "chance" } }) as never }, groups: { s: { label: "S", options: suppliers } } })
+    const partial = defineChoices({ gateway: { ask: async () => [undefined, { supported: { chance: 0.9, type: "chance" } } as never] }, groups: { s: { label: "S", options: suppliers } } })
     expect((await partial.resolve("nord"))[0]?.code).toBe("DECISIONS_R0006")
   })
 
@@ -310,7 +310,8 @@ describe("defineChoices() errors", () => {
       expect(error?.code).toBe("DECISIONS_R0005")
       expect(error?.message).toBe("[vitehub] The gateway request failed.")
       expect(error?.fix).toBe("Read error.cause for the gateway error.")
-      expect(error?.cause).toBe(cause)
+      // `askWithModel()` returns the model failure as GATEWAYS_ASK_MODEL_FAILED, with the AI SDK error as its cause.
+      expect(error?.cause).toMatchObject({ code: "GATEWAYS_ASK_MODEL_FAILED", cause })
     })
   })
 
