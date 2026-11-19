@@ -20,7 +20,7 @@ import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { title } from "../src/capabilities.ts"
-import { http, telegram, webChat } from "../src/channels.ts"
+import { channelAdapter, telegram, webChat } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { agentChatApprovedTools } from "../src/internal/chat-approvals.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -4587,7 +4587,6 @@ describe("server helpers", () => {
 
   it("serves explicit HTTP chat routes and preserves request extensions for admission", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const message = {
       custom: { source: "portal" },
@@ -4611,7 +4610,7 @@ describe("server helpers", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       defineAgent({
         channels: {
-          portal: http({
+          portal: channelAdapter("http", {
             route: {
               admission: {
                 authenticate,
@@ -8151,7 +8150,6 @@ describe("server helpers", () => {
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ messages }) => {
@@ -8161,7 +8159,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support" },
@@ -8673,13 +8671,12 @@ describe("server helpers", () => {
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
           webhooks: {
@@ -8714,7 +8711,6 @@ describe("server helpers", () => {
 
   it("does not let an inherited webhook resolver disable verification", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
@@ -8725,7 +8721,7 @@ describe("server helpers", () => {
     const secretToken = Object.create(prototype)
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture models an untrusted registration with an inherited resolver.
           adapter: () => adapter as never,
           webhooks: {
@@ -8756,7 +8752,6 @@ describe("server helpers", () => {
 
   it("rejects prototype-based webhook secret resolvers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     class SecretResolver {
       resolve() {
@@ -8766,7 +8761,7 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           adapter: () => adapter as never,
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: new SecretResolver() as never },
         }),
@@ -8785,13 +8780,12 @@ describe("server helpers", () => {
 
   it("fails closed when generated chat webhook secrets resolve empty", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
@@ -12770,11 +12764,10 @@ describe("server helpers", () => {
 
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: [{ path: "/api/support/primary" }, { path: "/api/support/fallback" }],
@@ -12858,17 +12851,16 @@ describe("server helpers", () => {
 
   it("does not route ambiguous provider webhook selectors", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        sales: http({
+        sales: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: { id: "sales-hook" },
         }),
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: { id: "support-hook" },
@@ -12937,15 +12929,14 @@ describe("server helpers", () => {
 
   it("uses channel ids for same-kind channel webhook state", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const prefixes: string[] = []
     const agent = defineAgent({
       channels: {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        sales: http({ adapter: () => createTestChatAdapter() as never }),
+        sales: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        support: http({ adapter: () => createTestChatAdapter() as never }),
+        support: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
       },
       messages: {
         state: ({ chat }) => {
@@ -12978,7 +12969,6 @@ describe("server helpers", () => {
 
   it("scopes framework chat state by agent and channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-state-scope-"))
@@ -12991,9 +12981,9 @@ describe("server helpers", () => {
         defineAgent({
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            discord: http({ adapter: () => createTestChatAdapter() as never }),
+            discord: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            slack: http({ adapter: () => createTestChatAdapter() as never }),
+            slack: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
           },
           driver: { run },
           messages: { ...(explicitState ? { state: explicitState } : {}), stream: false },
@@ -13058,7 +13048,6 @@ describe("server helpers", () => {
 
   it("shares explicit-identity transcripts across channels while isolating agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-transcript-scope-"))
@@ -13070,9 +13059,9 @@ describe("server helpers", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            discord: http({ adapter: () => discordAdapter as never }),
+            discord: channelAdapter("http", { adapter: () => discordAdapter as never }),
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            slack: http({ adapter: () => slackAdapter as never }),
+            slack: channelAdapter("http", { adapter: () => slackAdapter as never }),
           },
           driver: { run: () => "ok" },
           messages: {
@@ -13160,7 +13149,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+            channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
           invocations: journaled ? invocations : undefined,
@@ -13270,7 +13259,6 @@ describe("server helpers", () => {
   it("releases failed title delivery claims for finish and later webhook retries", { timeout: 15_000 }, async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-retry-"))
@@ -13286,7 +13274,7 @@ describe("server helpers", () => {
         capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+          channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
         },
         driver: { run: () => "ok" },
         messages: { state, stream: false, triggerHistory: "none" },
@@ -13310,7 +13298,6 @@ describe("server helpers", () => {
   it("claims concurrent Chat SDK title delivery atomically", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-concurrent-"))
@@ -13341,7 +13328,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            channel: http({ adapter: () => adapter as never }),
+            channel: channelAdapter("http", { adapter: () => adapter as never }),
           },
           driver: { run: () => "ok" },
           messages: { state: messageState(prefix), stream: false, triggerHistory: "none" },
@@ -13379,7 +13366,6 @@ describe("server helpers", () => {
   it("isolates title delivery by agent and channel on shared explicit state", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-scope-"))
@@ -13392,7 +13378,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute: () => `${channel} title` })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            [channel]: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+            [channel]: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run: () => "ok" },
           messages: { state, stream: false, triggerHistory: "none" },
@@ -13417,7 +13403,6 @@ describe("server helpers", () => {
   it("can deliver state-backed Chat SDK titles on every invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-always-"))
@@ -13429,7 +13414,7 @@ describe("server helpers", () => {
         capabilities: [title({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+          channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
         },
         driver: { run: () => "ok" },
         messages: { state, stream: false, triggerHistory: "none" },
@@ -13452,7 +13437,6 @@ describe("server helpers", () => {
   it("keeps Chat SDK output and best-effort title delivery when title state coordination fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-state-failure-"))
@@ -13477,7 +13461,7 @@ describe("server helpers", () => {
         capabilities: [title({ execute: () => "Best effort title" })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => adapter as never }),
+          channel: channelAdapter("http", { adapter: () => adapter as never }),
         },
         driver: { run: () => "ok" },
         messages: { state: failingState, stream: false, triggerHistory: "none" },

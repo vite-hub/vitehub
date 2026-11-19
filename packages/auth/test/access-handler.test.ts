@@ -377,7 +377,8 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
       access: {
         routes: [{ route: "/private", authorize }],
-        signIn: { provider: "github", callbackURL: "/private" },
+        signIn: { provider: "github" },
+        afterSignIn: "/private",
       },
     }))
     const response = await handler(new Request("https://app.example/private", { headers: { accept: "text/html" } }))
