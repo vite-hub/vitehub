@@ -903,7 +903,7 @@ describe("docs search checks", () => {
     await prerender({ seoAudit: false }, routes, "/", root)
     expect(JSON.parse(readFileSync(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
     await prerender({ seoAudit: "warn" }, routes, "/", root)
-    expect(logger.warn.mock.calls.filter(([message]) => String(message).includes("/guides is in the sitemap, but it redirects.")).toHaveLength(2)
+    expect(logger.warn.mock.calls.filter(([message]) => String(message).includes("/guides is in the sitemap, but it redirects."))).toHaveLength(2)
   })
 
   it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
