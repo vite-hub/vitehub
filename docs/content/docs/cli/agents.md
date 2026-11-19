@@ -34,17 +34,17 @@ Start the dev server, then print the resolved metadata of one Agent Definition.
 The command does not run the Agent.
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent support
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get --agent support
+pnpm vitehub agent get --agent support --json
 ```
 
 The output shows the Driver (the code that runs the Agent), its execution authority, tools, visible Workspace files and Sources, instructions, Invoker Profiles, warnings, and metadata status.
 Execution authority is a snapshot of what the Agent can reach: filesystem, network, environment, credentials, processes, and isolation. `unknown` means the runtime or provider cannot prove that part during inspection. It does not mean restricted or denied. The snapshot describes the inspected context. It is not an enforcement decision or proof of safety.
 `--json` gives the structured contract at `config.driver.executionAuthority`. Use `--url` when Vite is not on `http://localhost:5173`.
 With more than one Agent, `--agent` is required.
-`agent info` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`.
+`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`.
 
-`agent info`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
+`agent get`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
 
 ## Cancel an Agent Invocation
 
@@ -80,13 +80,13 @@ Pass the app URL with `--url` to list, show, follow, or cancel Invocations throu
 ```bash [Terminal]
 export VITEHUB_CONSOLE_PRIVATE_KEY_CI='<private key>'
 pnpm vitehub agent invocations list --url https://app.example.com --status running
-pnpm vitehub agent invocations show ainv_0123 --url https://app.example.com
+pnpm vitehub agent invocations get ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations undo ainv_0123 --change chg_… --url https://app.example.com
 ```
 
-`show` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
+`get` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
 
 Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [signs](/docs/console/signed-requests) it with the key in `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, a private key from `vitehub secret console-key`. The command signs as the key `<NAME>`. Set only one.
 

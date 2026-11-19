@@ -150,7 +150,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
     [404, "<html>Not found</html>", "https://agent.example.com/ did not answer as a ViteHub Console (HTTP 404)."],
   ])("reports a Console HTTP %s response", async (status, body, message) => {
     const host = deployedConsole(() => new Response(typeof body === "string" ? body : body ? JSON.stringify(body) : null, { status }))
-    const result = await run(["show", "ainv_1", "--url", "https://agent.example.com"], host.fetch)
+    const result = await run(["get", "ainv_1", "--url", "https://agent.example.com"], host.fetch)
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain(message)
   })

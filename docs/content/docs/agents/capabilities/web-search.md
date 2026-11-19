@@ -110,7 +110,7 @@ Use [`fetch()`](/docs/agents/capabilities/fetch) to limit the Agent to specific 
 
 ## Verify web search
 
-Run `vitehub agent info --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
+Run `vitehub agent get --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
 
 To test the error path, call `web_search` in tool mode without `@agntn/web`. It must fail with a message to install `@agntn/web` or use model mode.
 

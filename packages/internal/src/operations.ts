@@ -100,10 +100,16 @@ export interface OperationRegistry {
 /** The CLI namespace and command of an operation. Defaults: the section (or the name prefix) and the verb. */
 export function operationCliPath(operation: Pick<AnyOperation, "cli" | "name" | "section">): { command: string, namespace: string } {
   const dot = operation.name.indexOf(".")
+  const cli = operationCliOptions(operation)
   return {
-    command: operation.cli?.command ?? operation.name.slice(dot + 1),
-    namespace: operation.cli?.namespace ?? (typeof operation.section === "string" ? operation.section : operation.name.slice(0, dot)),
+    command: cli?.command ?? operation.name.slice(dot + 1),
+    namespace: cli?.namespace ?? (typeof operation.section === "string" ? operation.section : operation.name.slice(0, dot)),
   }
+}
+
+/** The CLI options of an operation, or undefined for an operation without options or with `cli: false`. */
+export function operationCliOptions(operation: Pick<AnyOperation, "cli">): Exclude<AnyOperation["cli"], false> {
+  return operation.cli || undefined
 }
 
 /**
@@ -130,6 +136,7 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
   const operations = [...byName.values()].map(entry => entry.operation).sort((left, right) => left.name.localeCompare(right.name))
   const commands = new Map<string, AnyOperation>()
   for (const operation of operations) {
+    if (operation.cli === false) continue
     const { command, namespace } = operationCliPath(operation)
     if (reservedOperationNamespaces.includes(namespace)) {
       throw invalidDefinition(operation.name, `the CLI namespace ${JSON.stringify(namespace)} is reserved for built-in commands. Set cli.namespace to another name.`)

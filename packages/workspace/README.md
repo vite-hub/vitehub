@@ -244,8 +244,8 @@ runtime of the dev server, or of a deployed app with `--url`, and never write:
 vitehub workspace history content            # revisions on every ref, newest first
 vitehub workspace history content --ref draft
 vitehub workspace refs content                # each ref and its head revision
-vitehub workspace show content draft          # one revision and its files
-vitehub workspace show content draft posts/hello.md
+vitehub workspace get content draft          # one revision and its files
+vitehub workspace get content draft posts/hello.md
 ```
 
 Add `--json` for machine-readable output. A Store without retained history
@@ -499,7 +499,7 @@ GitHub-backed Stores also expose the retained history reader. Repository branche
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
 includes the commit author and a `url` that opens the commit on GitHub. Revision file
 views read the configured Workspace root from the commit tree and fetch file bytes from
-that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
+that commit. The `vitehub workspace history`, `refs`, and `get` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
 

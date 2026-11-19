@@ -144,7 +144,7 @@ To list the saved jobs, show one job, or run a failed job again:
 
 ```bash [commands/jobs]
 pnpm vitehub queue jobs list
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 ```
 

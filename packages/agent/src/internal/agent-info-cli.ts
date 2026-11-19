@@ -59,7 +59,7 @@ export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: st
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent info [--agent <name>] [--url <url>] [--json]",
+    "Usage: vitehub agent get [--agent <name>] [--url <url>] [--json]",
     "",
     "Inspect a discovered Agent through a running Vite Development Server.",
     "",

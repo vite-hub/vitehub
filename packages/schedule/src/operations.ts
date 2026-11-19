@@ -41,7 +41,7 @@ function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefini
 }
 
 const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRunsResult>({
-  cli: { command: "runs", format: formatRuns, namespace: "schedule", positional: ["id"] },
+  cli: { command: "runs list", format: formatRuns, namespace: "schedule", positional: ["id"] },
   description: "List the recorded runs of one Schedule Definition, newest first.",
   input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
   kind: "read",
@@ -50,8 +50,8 @@ const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRun
 })
 
 const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>({
-  cli: { command: "attempts", format: formatAttempts, namespace: "schedule", positional: ["id"] },
-  description: "List the attempts of one Schedule Run, oldest first.",
+  cli: { command: "runs get", format: formatAttempts, namespace: "schedule", positional: ["id"] },
+  description: "Show one Schedule Run with its attempts, oldest first.",
   input: v.object({ id }),
   kind: "read",
   name: "schedule.attempts",

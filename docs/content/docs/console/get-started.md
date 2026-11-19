@@ -20,7 +20,7 @@ Turn the Console on, deploy, and link the app in [console.vitehub.dev](https://c
 ## In development
 
 ```bash [Terminal]
-pnpm vitehub project info
+pnpm vitehub project get
 pnpm vitehub kv list
 ```
 

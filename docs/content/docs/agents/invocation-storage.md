@@ -526,11 +526,11 @@ Inspect the [default journal](#use-the-default-journal) of the project from the 
 
 ```sh
 vitehub agent invocations list --status running
-vitehub agent invocations show INVOCATION_ID
+vitehub agent invocations get INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
+Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `get`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
 See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
@@ -616,7 +616,7 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 ```sh
 vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
-vitehub agent invocations show INVOCATION_ID --database /data/agent-invocations.sqlite --json
+vitehub agent invocations get INVOCATION_ID --database /data/agent-invocations.sqlite --json
 ```
 
 It opens the file read-only with `node:sqlite` and never migrates or writes it, so the app can keep writing. It reads observations from the record and from the running-record table. It takes a path or `file:` URL, refuses remote libSQL (use `--url`), and honors `--table-prefix`. `cancel` still needs the running app. Without `node:sqlite`, it says so and exits 1.

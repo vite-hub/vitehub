@@ -98,7 +98,8 @@ export interface OperationDefinition<Input, Output> {
   /** Standard Schema (valibot in this repo). Its Standard JSON Schema builds CLI flags and the MCP input schema. */
   input: StandardSchemaV1<unknown, Input>
   output?: StandardSchemaV1<unknown, Output>
-  cli?: {
+  /** `false`: no `vitehub` command. The Console and MCP still call the operation. */
+  cli?: false | {
     /** Defaults: namespace = section, command = verb. */
     namespace?: string
     /** A space groups commands: `jobs list` and `jobs show` run as `vitehub <namespace> jobs list` and `jobs show`. */
@@ -137,7 +138,7 @@ export interface OperationDefinition<Input, Output> {
 /** An operation of any input and output, as a registry holds it. */
 export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "mcp" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
   readOnlyWhen?: (input: never) => boolean
-  cli?: { namespace?: string, command?: string, default?: boolean, positional?: string[], format?: (output: never) => string }
+  cli?: false | { namespace?: string, command?: string, default?: boolean, positional?: string[], format?: (output: never) => string }
   mcp?: false | { title?: string, format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1

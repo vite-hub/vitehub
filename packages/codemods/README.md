@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `cli-get-list`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -59,6 +59,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `cli-get-list` | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -368,6 +369,30 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 
 ```sh
 npx @vite-hub/codemods access-spellings [dir] [--dry-run]
+```
+
+## `cli-get-list`
+
+`get` reads one record and `list` reads many. The codemod renames the `vitehub` calls in `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files:
+
+| Old | New |
+| --- | --- |
+| `vitehub agent info` | `vitehub agent get` |
+| `vitehub agent invocations show` | `vitehub agent invocations get` |
+| `vitehub content show`, `vitehub workspace show` | `get` |
+| `vitehub email outbox show`, `vitehub queue jobs show` | `outbox get`, `jobs get` |
+| `vitehub workflow get`, `vitehub workflow runs show` | `vitehub workflow runs get` |
+| `vitehub schedule runs <schedule>` | `vitehub schedule runs list <schedule>` |
+| `vitehub schedule attempts <run>` | `vitehub schedule runs get <run>` |
+| `vitehub env inspect` | `vitehub env list` |
+| `vitehub env status --url <app>` | `vitehub env list --url <app>` |
+| `vitehub project info` | `vitehub project get` |
+| `vitehub definitions list` | `vitehub inspect definitions` |
+
+`vitehub env status` without `--url` asked the dev server. `vitehub env list` without `--url` reads the local stage, so add `--url` where a script asks an app. An old command fails with the new one, so a call that the codemod missed tells you what to run.
+
+```sh
+npx @vite-hub/codemods cli-get-list [dir] [--dry-run]
 ```
 
 ## Check real apps

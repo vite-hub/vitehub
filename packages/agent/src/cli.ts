@@ -1284,9 +1284,9 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
       description: "Inspect a discovered Agent through a running Vite Development Server.",
-      name: "info",
+      name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent info [--agent <name>] [--json]",
+      usage: "vitehub agent get [--agent <name>] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
@@ -1298,7 +1298,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
     },
   ]
   if (evalFiles.length) {

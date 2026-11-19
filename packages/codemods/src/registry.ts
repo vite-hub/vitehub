@@ -1,5 +1,6 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
+import { cliGetList } from "./cli-get-list/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
@@ -44,6 +45,7 @@ export const codemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  cliGetList,
 ]
 
 /**
@@ -70,4 +72,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  cliGetList,
 ]

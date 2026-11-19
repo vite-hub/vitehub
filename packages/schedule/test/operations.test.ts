@@ -39,8 +39,8 @@ afterEach(() => {
 describe("schedule operations", () => {
   it("are the `vitehub schedule` commands of the Schedules section", () => {
     expect(scheduleOperations.map(operation => [operation.name, operation.kind, operation.section, operationCliPath(operation)])).toEqual([
-      ["schedule.runs", "read", "schedules", { command: "runs", namespace: "schedule" }],
-      ["schedule.attempts", "read", "schedules", { command: "attempts", namespace: "schedule" }],
+      ["schedule.runs", "read", "schedules", { command: "runs list", namespace: "schedule" }],
+      ["schedule.attempts", "read", "schedules", { command: "runs get", namespace: "schedule" }],
       ["schedule.run", "write", "schedules", { command: "run", namespace: "schedule" }],
       ["schedule.list", "read", "schedules", { command: "list", namespace: "schedule" }],
       ["schedule.start", "write", "schedules", { command: "start", namespace: "schedule" }],
@@ -215,7 +215,7 @@ describe("schedule operations", () => {
     const id = (started as { value: { schedule: { id: string } } }).value.schedule.id
     const listed = await call("list", {})
     // SAFETY: The operation formats its own output, which the call above returned.
-    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+    const format = (scheduleOperations.find(operation => operation.name === "schedule.list")?.cli || undefined)?.format as (output: unknown) => string
     expect(listed.ok && format(listed.value)).toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
 
     expect(await call("cancel", { id })).toMatchObject({ ok: true, value: { schedule: { id } } })

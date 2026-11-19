@@ -144,7 +144,7 @@ pnpm vitehub schedule run daily-report --at 2026-01-31T08:00:00Z
 ViteHub saves each manual run and Process Runtime run, with its status and its time. List the runs of `daily-report`, newest first:
 
 ```bash [commands/runs]
-pnpm vitehub schedule runs daily-report
+pnpm vitehub schedule runs list daily-report
 ```
 
 ```txt [output/runs.txt]

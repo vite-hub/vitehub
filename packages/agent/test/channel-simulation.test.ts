@@ -170,7 +170,7 @@ describe("simulated chat Channels", () => {
     ])
     // The chat page keeps the messages in browser memory, so the provider window is not a reason to warn.
     for (const channel of result.channels) expect(channel.retention, channel.channel).not.toHaveProperty("warning")
-    expect(channelsList.cli?.format?.(result)).toBe([
+    expect((channelsList.cli || undefined)?.format?.(result)).toBe([
       "AGENT    CHANNEL  PROVIDER             HISTORY          CHAT PAGE",
       "support  discord  discord (simulated)  provider-window  /_vitehub/agents/support/webhooks/discord",
       "support  slack    slack (simulated)    provider-window  /_vitehub/agents/support/webhooks/slack",

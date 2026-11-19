@@ -406,7 +406,7 @@ export const agentCapacity = createProcessAgentCapacity({
 })
 ```
 
-`concurrency` is the hard maximum. Under CPU or memory pressure, ViteHub admits fewer new Invocations. Active ones continue, the queue stays FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts use Node's available-memory and parallelism signals. A failed sample, or one slower than `sampleTimeoutMs` (default one second), uses `fallbackConcurrency` (default one). `vitehub agent info` shows the current limit, hard maximum, queue depth, and sampling reason.
+`concurrency` is the hard maximum. Under CPU or memory pressure, ViteHub admits fewer new Invocations. Active ones continue, the queue stays FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts use Node's available-memory and parallelism signals. A failed sample, or one slower than `sampleTimeoutMs` (default one second), uses `fallbackConcurrency` (default one). `vitehub agent get` shows the current limit, hard maximum, queue depth, and sampling reason.
 
 ## Use a custom run Driver
 
@@ -581,7 +581,7 @@ State, instructions, and criteria accept JSON. Root numbers and booleans become 
 
 `driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/gateways/limits-and-errors#errors).
 
-The Console and `vitehub agent info` show the Driver kind as `ask`.
+The Console and `vitehub agent get` show the Driver kind as `ask`.
 
 Each question is a trace step, so the journal and Console show what Jev was asked and answered:
 

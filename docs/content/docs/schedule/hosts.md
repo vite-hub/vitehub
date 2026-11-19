@@ -47,8 +47,8 @@ Provider Wake output requires a static five-field cron string compatible with ge
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report
-pnpm vitehub schedule runs daily-report --limit 5 --json
-pnpm vitehub schedule attempts <runId>
+pnpm vitehub schedule runs list daily-report --limit 5 --json
+pnpm vitehub schedule runs get <runId>
 ```
 
 The commands use the same run store and registry as the server. Read [CLI](/docs/cli/primitives#run-and-inspect-schedules) for every command and option.
