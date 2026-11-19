@@ -3,7 +3,7 @@ import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsT
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
-import { repliedSinceResolved } from "../internal/comment-status.ts";
+import { commentTitle, repliedSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -156,8 +156,10 @@ export const CommentPanel = defineComponent({
         [...rowsOf].find((row) => row.dataset.threadId === id)?.focus();
       });
     }
-    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
-    const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
+    // With an outbox, files are saved with the comment and the transport stores them when it sends. Without one, `upload` stores them first.
+    const attachmentsOn = computed(() => (props.upload !== undefined || state.outbox.enabled) && state.client.transport.supportsAttachments !== false);
+    const keys = async (list: File[]) => (!state.outbox.enabled && attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
+    const outboxFiles = (list: File[]) => (state.outbox.enabled && attachmentsOn.value ? list : []);
 
     // The page box belongs to one subject. Another subject starts with an empty, ready box, and a send that is still on
     // its way for the old subject no longer touches it.
@@ -182,7 +184,7 @@ export const CommentPanel = defineComponent({
         const attachments = await keys(submit.files);
         // A comment written on one page never goes to the next one, even when the subject changed during the upload.
         if (run !== sending) return;
-        await state.create({ attachments, body: submit.body, mentions: submit.mentions });
+        await state.create({ attachments, body: submit.body, files: outboxFiles(submit.files), mentions: submit.mentions });
         if (run === sending && body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
           body.value = "";
           mentions.value = [];
@@ -318,7 +320,7 @@ export const CommentPanel = defineComponent({
         },
         onEdit: (messageId: string, text: string, ids: string[]) => state.edit(thread.id, messageId, text, ids),
         onReopen: () => state.reopen(thread.id),
-        onReply: async (text: string, ids: string[], attached: File[]) => state.reply(thread.id, text, ids, await keys(attached)),
+        onReply: async (text: string, ids: string[], attached: File[]) => state.reply(thread.id, text, ids, await keys(attached), outboxFiles(attached)),
         onResolve: () => state.resolve(thread.id),
         people: props.people,
         readOnly: props.readOnly,
@@ -330,7 +332,7 @@ export const CommentPanel = defineComponent({
       h(
         "section",
         {
-          "aria-label": opened.value ? `Comment ${opened.value.n}` : props.title,
+          "aria-label": opened.value ? commentTitle(opened.value) : props.title,
           "data-comments-ui": "",
           "data-slot": "comment-panel",
           "data-variant": props.variant,

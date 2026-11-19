@@ -5,6 +5,7 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
+import { commentTitle } from "../internal/comment-status.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -136,8 +137,10 @@ export const CommentLayer = defineComponent({
     watch(() => state.draft.value, (next, previous) => {
       if (next !== previous) draftFiles.value = next?.files ? [...next.files] : [];
     });
-    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
-    const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
+    // With an outbox, files are saved with the comment and the transport stores them when it sends. Without one, `upload` stores them first.
+    const attachmentsOn = computed(() => (props.upload !== undefined || state.outbox.enabled) && state.client.transport.supportsAttachments !== false);
+    const keys = async (files: File[]) => (!state.outbox.enabled && attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
+    const outboxFiles = (files: File[]) => (state.outbox.enabled && attachmentsOn.value ? files : []);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => state.threads.value.filter(thread =>
@@ -372,7 +375,7 @@ export const CommentLayer = defineComponent({
             // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
             if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
             draft.attachments = attachments;
-            if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
+            if (await state.send({ files: outboxFiles(submit.files) }) && draftFiles.value === submitted) draftFiles.value = [];
           } catch (error) {
             draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
           } finally {
@@ -423,6 +426,8 @@ export const CommentLayer = defineComponent({
       } else cards.delete(key);
     };
 
+    // The `status` slot goes to every thread, for comments that wait in the outbox.
+    const statusSlot = () => (slots.status ? { status: slots.status } : undefined);
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
@@ -438,7 +443,7 @@ export const CommentLayer = defineComponent({
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
         onReopen: () => state.reopen(thread.id),
-        onReply: async (body: string, mentions: string[], files: File[]) => state.reply(thread.id, body, mentions, await keys(files)),
+        onReply: async (body: string, mentions: string[], files: File[]) => state.reply(thread.id, body, mentions, await keys(files), outboxFiles(files)),
         // Resolving puts the thread away, as in Figma.
         onResolve: async () => {
           await state.resolve(thread.id);
@@ -446,7 +451,7 @@ export const CommentLayer = defineComponent({
         },
         thread,
         user: user.value,
-      });
+      }, statusSlot());
 
     // The margin: where each card goes, level with its pin and below the card above it. The open thread and the new
     // comment's box take their place in the column too, but stay inside the screen, so their reply box is never below it.
@@ -484,7 +489,7 @@ export const CommentLayer = defineComponent({
         return [h(
           "button",
           {
-            "aria-label": `Comment ${thread.n}: ${excerpt(thread.messages[0]?.body ?? "")}`,
+            "aria-label": `${commentTitle(thread)}: ${excerpt(thread.messages[0]?.body ?? "")}`,
             "data-margin-key": entry.key,
             "data-slot": "comment-margin-card",
             "data-status": thread.status,
@@ -549,7 +554,8 @@ export const CommentLayer = defineComponent({
                 "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
-                n: thread.n,
+                // A comment in the outbox has no number yet, as a draft.
+                ...(thread.n ? { n: thread.n } : {}),
                 onHover: () => {
                   if (!open && !restoring && !state.draft.value) state.hoverId.value = thread.id;
                 },
@@ -560,7 +566,7 @@ export const CommentLayer = defineComponent({
                 status: thread.status,
               }),
               hover
-                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, size: props.size, thread }))
+                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, size: props.size, thread }, statusSlot()))
                 : null,
             ],
           ),

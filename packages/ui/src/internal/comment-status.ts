@@ -13,3 +13,8 @@ export function messagesSinceResolved(thread: Pick<CommentThread, "status" | "re
  */
 export const repliedSinceResolved = (thread: Pick<CommentThread, "status" | "resolvedAt" | "messages">): boolean =>
   messagesSinceResolved(thread).length > 0;
+
+/** "Comment 3". A comment that waits in the outbox has no number yet. */
+export function commentTitle(thread: Pick<CommentThread, "n">): string {
+  return thread.n ? `Comment ${thread.n}` : "Comment";
+}

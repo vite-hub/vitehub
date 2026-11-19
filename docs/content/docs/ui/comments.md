@@ -275,6 +275,8 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
+With a client [outbox](/docs/comments/offline), the layer and panel need no `upload`: the files are saved with the comment and the transport stores them when it sends.
+
 Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
 ```vue
@@ -300,6 +302,29 @@ const uploads = new Map<string, File>();
 const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: uploads.get(key)?.name, type: uploads.get(key)?.type });
 ```
 
+## Waiting and refused comments
+
+With the [outbox](/docs/comments/offline) of `createCommentsClient()`, a new comment or reply shows at once, before the server has it, and its box empties as soon as it is saved. Until the server answers, the thread has `data-pending="true"`, or `data-failed="true"` when the server refused it, and so does each message that waits. A waiting thread has no number yet, so its title is "Comment".
+
+The parts draw no words for it. The `status` slot renders below each waiting message, with what the reader can do:
+
+```vue
+<template>
+  <CommentLayer :client="client" :subject="{ kind: 'page', id: '/pricing' }">
+    <template #status="{ delivery, retry, dismiss }">
+      <p v-if="delivery.status === 'failed'">
+        {{ delivery.error?.why }}
+        <button @click="retry()">Retry</button>
+        <button @click="dismiss()">Discard</button>
+      </p>
+      <p v-else class="text-muted">Waiting to send</p>
+    </template>
+  </CommentLayer>
+</template>
+```
+
+`comments.outbox` holds the same in code: `queued` and `failures` (computed lists of entries), `delivery(threadId, messageId?)`, and `retry`, `dismiss`, and `edit`.
+
 ## Slots
 
 | Part | Slot | Scope | Where it renders |
@@ -309,13 +334,15 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: upload
 | `CommentThread` | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `CommentReply` | `body` | `{ message }` | Instead of the Markdown body. |
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
+| `CommentReply` | `status` | `{ message, delivery, retry, dismiss, edit }` | Below a message that waits in the outbox. Nothing renders without it. |
 | `CommentComposer` | `extra` | | Above the text field, such as a suggested-change field. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
 | `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
+| `CommentLayer` | `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each thread and hover card. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
 
-`CommentThread` passes `body`, `attachments`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
+`CommentThread` passes `body`, `attachments`, `status`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 
 ::example{name="CommentThreadSlotsExample" height=8}
 ::
@@ -553,6 +580,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 | `anchor` | `{ thread }` | What the thread is about. Replaces the selected-text quote. |
 | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `body`, `attachments` | `{ message }` | Passed on to each `CommentReply`. |
+| `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each `CommentReply`. |
 | `extra`, `mention-item`, `mention-empty` | | Passed on to the reply box. |
 
 ### CommentReply
@@ -584,6 +612,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | --- | --- | --- |
 | `body` | `{ message }` | Replaces the Markdown body. |
 | `attachments` | `{ message }` | Replaces the default attachment list. |
+| `status` | `{ message, delivery, retry, dismiss, edit }` | Below the message while it waits in the outbox. `delivery` has `status` (`pending` or `failed`) and `error`. |
 | `mention-item` | `{ person, active }` | Passed on to the edit box. |
 | `mention-empty` | `{ query, failed }` | Passed on to the edit box. |
 
