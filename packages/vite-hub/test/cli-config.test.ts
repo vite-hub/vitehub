@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -40,6 +40,17 @@ describe("ViteHub CLI config loading", () => {
     roots.push(root)
     await writeFile(join(root, "vite.config.ts"), source, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  // A production install can leave out the optional `vite` peer, which the config scanner parses with.
+  it("keeps the Agent CLI enabled when the config scanner cannot load vite", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), "export default {}\n", "utf8")
+    const missing = (name: string) => Object.assign(new Error(`Cannot find package '${name}' imported from /app/node_modules/vite-hub/dist/scan-module.js`), { code: "ERR_MODULE_NOT_FOUND" })
+    await expect(loadConfigScanner(() => Promise.reject(missing("vite")))).resolves.toBeUndefined()
+    await expect(loadConfigScanner(() => Promise.reject(missing("oxc")))).rejects.toThrow("'oxc'")
+    await expect(isAgentCliEnabled(root, async () => undefined)).resolves.toBe(true)
   })
 
   it("handles nested Agent options and ignores comments or unrelated objects", async () => {

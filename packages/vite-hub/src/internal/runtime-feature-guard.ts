@@ -8,6 +8,17 @@ const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
 type ScanModule = typeof import("@vite-hub/internal/build/scan-module")
 
+/** The config scanner parses with `vite`. A production install can leave out that optional peer. */
+export async function loadConfigScanner(load: () => Promise<ScanModule> = () => import("@vite-hub/internal/build/scan-module")): Promise<ScanModule | undefined> {
+  try {
+    return await load()
+  }
+  catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "ERR_MODULE_NOT_FOUND" && /'vite'/.test(error.message)) return
+    throw error
+  }
+}
+
 interface ViteHubOptionObjects {
   /**
    * The options that take effect, when the file shows them for sure: the only `vitehub({...})` call of a Vite config, or
@@ -19,15 +30,18 @@ interface ViteHubOptionObjects {
   scan: ScanModule
 }
 
-/** The literal `vitehub()` options and `vitehub: {}` keys of a config file, read without evaluating it. */
-async function viteHubOptionObjects(rootDir: string): Promise<ViteHubOptionObjects | undefined> {
+/**
+ * The literal `vitehub()` options and `vitehub: {}` keys of a config file, read without evaluating it. Undefined without
+ * a config file, or without `vite` to parse it.
+ */
+async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<ScanModule | undefined> = loadConfigScanner): Promise<ViteHubOptionObjects | undefined> {
   // Nuxt owns discovery whenever both config families exist, matching loadViteHubCliConfig.
   const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
   const file = configExtensions.map(extension => join(rootDir, `${owner}.config.${extension}`)).find(path => existsSync(path))
   if (!file) return
   const source = await readFile(file, "utf8")
-  // Runtime-only commands need no Vite installation until there is a project config to inspect.
-  const scan = await import("@vite-hub/internal/build/scan-module")
+  const scan = await loadScanner()
+  if (!scan) return
   const { argumentExpression, scanModule, unwrapExpression, walk } = scan
   const module = scanModule(source, file)
   const pluginNames = new Set<string>()
@@ -78,9 +92,12 @@ async function viteHubOptionObjects(rootDir: string): Promise<ViteHubOptionObjec
   return { active, options, scan }
 }
 
-/** Detects explicit Agent CLI opt-outs without evaluating the project config. */
-export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
-  const config = await viteHubOptionObjects(rootDir)
+/**
+ * Detects explicit Agent CLI opt-outs without evaluating the project config. Without `vite`, it cannot parse the config,
+ * so the command stays enabled: `vitehub agent invocations` reads a journal and needs no project.
+ */
+export async function isAgentCliEnabled(rootDir: string, loadScanner: () => Promise<ScanModule | undefined> = loadConfigScanner): Promise<boolean> {
+  const config = await viteHubOptionObjects(rootDir, loadScanner)
   if (!config) return true
   const { findProperty, staticValue } = config.scan
   // True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`.
