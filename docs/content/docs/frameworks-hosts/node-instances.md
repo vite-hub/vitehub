@@ -136,6 +136,12 @@ After you turn on Database, generate the first migration with
 Queue, Realtime, and Workflow do not read `DATABASE_URL` themselves. They use
 the connection of the Default Database, whatever variable its Definition reads.
 
+Share a Postgres database among the instances of one deployment, not across
+apps or environments. For example, give staging and production separate
+databases even when they run on the same Postgres server. Otherwise they can
+claim jobs or Workflow runs from the same tables. A Redis key prefix or a
+Realtime namespace does not isolate those tables.
+
 Give every instance the same store configuration and environment. If only
 some instances receive `REDIS_URL`, Realtime can split between Redis and
 Postgres. Check each server's durability report at startup to confirm the
@@ -422,8 +428,10 @@ others wait for it or find nothing pending. Use real passwords and keep them in
 - When Caddy reloads its config, it closes open WebSockets.
   `stream_close_delay 5m` keeps them open for 5 minutes after a reload.
 - When an instance stops, its clients reconnect through Caddy to another
-  instance and take their presence with them. Unsaved edits are lost only when
-  every instance that has the room open stops.
+  instance and take their presence with them. Unsaved edits live in memory and
+  are lost if every instance that has the room open stops. An
+  [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves)
+  can also reset the room while another instance is still running.
 - When an instance crashes, the other instances remove its clients' presence
   after 30 seconds.
 
