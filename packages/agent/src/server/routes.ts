@@ -117,7 +117,6 @@ import { acknowledgeWebhookAdmission, drainDeferredWebhookAdmissions, openWebhoo
 import type { WebhookInbox } from "./webhook-inbox.ts"
 import {
   agentChannelDeliveryMessageIdentity,
-  agentChannelDeliveryMessagePayload,
   agentChannelDeliveryPayloadFingerprint,
   agentChannelDeliverySourceId,
   agentChannelDeliverySourceValue,
@@ -4420,18 +4419,30 @@ function chatSdkOption<T>(
 }
 
 interface ChatLockTracker {
+  queuedDeliveryId(message: ChatSdkMessage): string | undefined
   refresh(lockKey: string): () => void
   state: StateAdapter
 }
 
-function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promise<void>): ChatLockTracker {
+function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promise<string | undefined>): ChatLockTracker {
   const locks = new Map<string, { lock: Lock; ttlMs: number }>()
+  const queuedDeliveries = new WeakMap<object, string>()
   const trackedState = new Proxy(state, {
     get(target, property) {
       if (property === "enqueue" && beforeEnqueue) {
-        return async (...args: Parameters<StateAdapter["enqueue"]>) => {
-          await beforeEnqueue()
-          return await target.enqueue(...args)
+        return async (threadId: string, entry: QueueEntry, maxSize: number) => {
+          const channelDeliveryId = await beforeEnqueue()
+          const queuedEntry = channelDeliveryId ? { ...entry, channelDeliveryId } : entry
+          return await target.enqueue(threadId, queuedEntry, maxSize)
+        }
+      }
+      if (property === "dequeue") {
+        return async (threadId: string) => {
+          const entry = await target.dequeue(threadId)
+          if (entry && "channelDeliveryId" in entry && typeof entry.channelDeliveryId === "string" && isRecord(entry.message.raw)) {
+            queuedDeliveries.set(entry.message.raw, entry.channelDeliveryId)
+          }
+          return entry
         }
       }
       if (property === "acquireLock") {
@@ -4465,6 +4476,7 @@ function createChatLockTracker(state: StateAdapter, beforeEnqueue?: () => Promis
   })
 
   return {
+    queuedDeliveryId: (message) => isRecord(message.raw) ? queuedDeliveries.get(message.raw) : undefined,
     refresh(lockKey) {
       const tracked = locks.get(lockKey)
       if (!tracked) return () => undefined
@@ -7585,8 +7597,11 @@ async function handleChatSdkMessages(
       try {
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
-        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
-        const queuedDelivery = individualMessages
+        const queuedDeliveryId = individualMessages ? lockTracker.queuedDeliveryId(queuedMessage) : undefined
+        const payloadFingerprint = individualMessages && !queuedDeliveryId ? await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined) : undefined
+        const queuedDelivery = queuedDeliveryId
+          ? await resumeAgentChannelDelivery(state.state, queuedDeliveryId)
+          : individualMessages
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined) ||
             (queuedMessageId
               ? (await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)) ||
@@ -7602,7 +7617,7 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
-        const delivery = queuedDelivery || (queuedMessage === message && (!individualMessages || !requestDelivery?.claimed) ? requestDelivery : undefined)
+        const delivery = queuedDelivery || (!queuedDeliveryId && queuedMessage === message && (!individualMessages || !requestDelivery?.claimed) ? requestDelivery : undefined)
         if (delivery) delivery.claimed = true
         claimedDelivery = delivery
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage, options) : await resolveDeliveryKind(queuedMessage)
@@ -7859,7 +7874,7 @@ async function createChannelChat(
     workflowCustodySupported?: boolean
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<void>,
+  beforeEnqueue?: () => Promise<string | undefined>,
 ): Promise<Chat> {
   // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
   if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
@@ -8831,7 +8846,7 @@ async function createChatWebhookHandler(
   maximumInvocationDeadline?: number,
   state?: { state: StateAdapter; titleKeyPrefix: string },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
-  beforeEnqueue?: () => Promise<void>,
+  beforeEnqueue?: () => Promise<string | undefined>,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
   const chat = await createChannelChat(
     agent,
@@ -9870,7 +9885,6 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
       const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
-      const messagePayloadFingerprint = await agentChannelDeliveryPayloadFingerprint(agentChannelDeliveryMessagePayload(registration.provider, webhookPayload))
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
@@ -9892,9 +9906,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               messageIdentity.messageId,
             ).catch((error) => logChannelDeliveryAliasFailure(delivery, "message", error))
           }
-          for (const fingerprint of new Set([payloadFingerprint, messagePayloadFingerprint])) {
-            if (!fingerprint) continue
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), fingerprint).catch((error) =>
+          if (payloadFingerprint) {
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), payloadFingerprint).catch((error) =>
               logChannelDeliveryAliasFailure(delivery, "payload", error),
             )
           }
@@ -10361,6 +10374,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
           const burst = chatSteerBurst(chatOptions) !== undefined
           const queued = ["serial", "queue"].includes(chatOptions?.concurrency ?? "")
+          const storeQueuedDelivery = adapter.name === "telegram" && !isUntrackedChannelWebhook(registration)
           let queuedForBurst = false
           const handler = await createChatWebhookHandler(
             agent,
@@ -10373,9 +10387,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             maximumInvocationDeadline,
             chatDeliveryState,
             resolveChannelDelivery,
-            burst ? async () => {
-              await resolveChannelDelivery()
-              queuedForBurst = true
+            burst || (queued && storeQueuedDelivery) ? async () => {
+              const delivery = await resolveChannelDelivery()
+              queuedForBurst = burst
+              return storeQueuedDelivery ? delivery.delivery.id : undefined
             } : undefined,
           )
           webhookDeadlineAbort?.signal.throwIfAborted()
