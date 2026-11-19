@@ -350,19 +350,6 @@ function mergeTarget(local: readonly SyncNewWrite[], key: SyncKey, account: stri
   return undefined
 }
 
-/**
- * A version 4 UUID. `crypto.randomUUID()` exists only on HTTPS and localhost, and an app on a LAN address in development
- * has neither, so this falls back to `crypto.getRandomValues()`.
- */
-function randomUUID(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
-  const bytes = crypto.getRandomValues(new Uint8Array(16))
-  bytes[6] = (bytes[6]! & 0x0F) | 0x40
-  bytes[8] = (bytes[8]! & 0x3F) | 0x80
-  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-}
-
 /** Whether a JSON value is a `SyncPullResponse`. */
 function isPull(value: unknown): value is SyncPullResponse {
   if (!value || typeof value !== "object") return false
@@ -374,12 +361,6 @@ function isPull(value: unknown): value is SyncPullResponse {
     && Array.isArray(Reflect.get(value, "rows"))
     && Array.isArray(Reflect.get(value, "deleted"))
     && Boolean(scope) && typeof scope === "object" && typeof Reflect.get(scope as object, "id") === "string"
-}
-
-/** Milliseconds before retry number `attempt + 1`: 1 s doubling to 30 s, with a random wait in the upper half. */
-function backoffDelay(attempt: number, random: number): number {
-  const ceiling = Math.min(30_000, 1000 * 2 ** attempt)
-  return ceiling / 2 + random * ceiling / 2
 }
 
 function readIssues(value: unknown): { path?: string, message: string }[] | undefined {
@@ -421,5 +402,5 @@ function toWireError(error: SyncError): SyncWireError {
   return { code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) }
 }
 
-export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
+export { buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, singleValues, toMutation, toWireError, whereKey }
 export type { SyncLinkedWrite, SyncView, SyncViewContext, SyncViewPage }

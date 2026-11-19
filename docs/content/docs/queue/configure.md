@@ -135,10 +135,10 @@ Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `
 
 | Driver | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
-| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
+| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delay`. |
 | Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
-| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
-| Postgres | `queue: { driver: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node host with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit driver without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
+| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host without a Postgres Database. Supports `delay` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
+| Postgres | `queue: { driver: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node host with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit driver without a Postgres Database needs it. Every instance runs jobs. Supports `delay` and `idempotencyKey`. Install `postgres`. |
 
 ViteHub has no Queue Provider for Deno. The local driver keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. For more than one Node server, use the postgres driver: see [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery). Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
@@ -187,7 +187,7 @@ export default defineQueue<{ reportId: string }>({
 | --- | --- | --- | --- |
 | `cache` | `boolean` | All | Overrides QueueClient caching for this queue. |
 | `concurrency` | `number` | Cloudflare, Local, Postgres | How many jobs of this queue run at the same time: in one batch on Cloudflare, in one server process on local and postgres. Default `1`. Rounded down to an integer, at least `1`. |
-| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delaySeconds?: number } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
+| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delay?: Duration } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
 | `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
 | `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
 

@@ -308,7 +308,7 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

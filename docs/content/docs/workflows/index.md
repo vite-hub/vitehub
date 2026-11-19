@@ -17,13 +17,12 @@ import { defineWorkflow } from 'vite-hub/workflow'
 
 // Each numbered file in this folder is a step.
 // They run in the order you call them.
-export default defineWorkflow(
-  'onboard-user',
-  async (payload: { email: string }, { steps }) => {
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
     const user = await steps.createUser(payload)
     return await steps.sendWelcome(user)
   },
-)
+})
 ```
 
 ```ts [server/workflows/onboard-user/01.create-user.ts]
@@ -54,6 +53,7 @@ import { startWorkflow } from 'vite-hub/workflow'
 // Start a run and return its id at once
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
+  if (!body) return new Response('Missing body', { status: 400 })
   const [error, run] = await startWorkflow('onboard-user', body)
   if (error) throw error
   return run

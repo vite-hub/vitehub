@@ -8,8 +8,9 @@ import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Tel
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
+import { base64 } from "../client-files.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"

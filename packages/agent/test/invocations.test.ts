@@ -2092,6 +2092,19 @@ describe("Agent Invocations", () => {
       role: index % 3 === 0 ? "assistant" : "user",
     })
 
+    it("keeps every part of a message that fits the budget, in the history and the trigger", async () => {
+      const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+      const message = { id: "msg-1", parts: Array.from({ length: 40 }, (_, index) => ({ id: `text-${index}`, text: `part ${index}`, type: "text" })), role: "user" }
+      const journal = await bindAgentInvocations(invocations, runtime("many-parts"))
+      if (!journal) throw new Error("Expected the invocation journal.")
+      await journal.context.traceLog?.append({ attributes: { "input.messages": [message], "input.trigger.message": message }, name: "agent.input", type: "run" })
+      await journal.finish("completed")
+      const observation = (await invocations.getByRunId("many-parts"))?.observations.find(entry => entry.name === "agent.input")
+      expect(observation?.attributes?.["input.messages"]).toEqual([message])
+      expect(observation?.attributes?.["input.trigger.message"]).toEqual(message)
+      expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+    })
+
     it.each([
       ["item count", (index: number) => teamsMessage(index, `Message ${index}: why does b11b lead time change?`, 33)],
       ["string length", (index: number) => teamsMessage(index, `Message ${index}: ${"forecast ".repeat(1_000)}`)],
