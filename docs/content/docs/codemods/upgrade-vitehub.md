@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -293,3 +293,32 @@ npx @vite-hub/codemods shell-driver [dir] [--dry-run]
 ```
 
 The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to `const { createJustBashProvider } = await import(...)`. The codemod changes only calls of the imported `createShellRuntime()` and `createWorkspaceTools()`, so a `provider` key of another API stays. The report lists a call whose options it cannot see, such as a variable or a spread object.
+
+## access-spellings
+
+`access-spellings` updates the access keys of Realtime and MCP definitions. Public access has one spelling, `access: 'public'`, and sign-in has one, `authorize`:
+
+```bash [Terminal]
+npx @vite-hub/codemods access-spellings [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `defineRealtime({ auth: true })` | `defineRealtime({ authorize: true })` |
+| `defineRealtime({ auth: false, authorize })` | `defineRealtime({ authorize })` |
+| `public: true` on `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` | `access: 'public'` |
+| `public: false` on an MCP definition | removed |
+
+```diff [server/realtime/docs.ts]
+ export default defineRealtime({
+-  auth: true,
++  authorize: true,
+   document: { workspace: 'docs' },
+ })
+```
+
+The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, including nested definitions and object literals with `satisfies` or `as`. It recognizes `defineRealtime()` without an import, as Nuxt auto-imports it. An MCP server keeps its own `mcp.auth` option. If a spread, computed key, or competing rule makes the effective access unclear, the codemod leaves the definition unchanged and reports it for manual migration.
+
+A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
+
+If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.

@@ -432,7 +432,7 @@ export default defineQueue<{ id: string }>({
     definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: "${name}" },
 })
 `),

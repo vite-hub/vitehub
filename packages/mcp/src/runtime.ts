@@ -15,7 +15,7 @@ export type McpVerifyResult = readonly [{ code: string, message: string }, undef
 export interface McpHandlerOptions {
   /** The route of the server, such as `/mcp`. */
   route: string
-  /** The route that serves the tools with `public: true`. Without it, a tool that sets `public` is an error. */
+  /** The route that serves the tools with `access: "public"`. Without it, a tool that sets `access` is an error. */
   publicRoute?: string
   /** The name that clients show, such as the app name. `serverInfo.name` replaces it. */
   name: string
@@ -35,7 +35,7 @@ export interface McpHandlerOptions {
   verify?: (request: Request) => Promise<McpVerifyResult>
   /**
    * With `verify`, serve a request without a token too: it may list every tool and call the tools, prompts, and
-   * resources with `public: true`. `mcp.auth: "optional"` sets it.
+   * resources with `access: "public"`. `mcp.auth: "optional"` sets it.
    */
   optional?: boolean
 }
@@ -90,7 +90,7 @@ function issuesText(name: string, issues: ReadonlyArray<{ message: string, path?
  */
 function securitySchemes(definition: McpToolDefinition, optional: boolean): McpSecurityScheme[] {
   const oauth2: McpSecurityScheme = { type: "oauth2", ...(definition.scopes?.length ? { scopes: definition.scopes } : {}) }
-  return optional && definition.public ? [{ type: "noauth" }, oauth2] : [oauth2]
+  return optional && definition.access === "public" ? [{ type: "noauth" }, oauth2] : [oauth2]
 }
 
 /** What `tools/list` shows of a tool. It is the same for every request. */
@@ -327,9 +327,9 @@ function signInResult(request: Request, route: string, text: string, scopes: rea
   return { content: [{ type: "text", text }], isError: true, _meta: { "mcp/www_authenticate": [scopeChallenge(request, route, text, scopes)] } }
 }
 
-/** Whether an optional route refuses a call: a tool without `public` needs a token with its `scopes`. */
+/** Whether an optional route refuses a call: a tool without `access: "public"` needs a token with its `scopes`. */
 function refusal(request: Request, route: string, caller: McpToolCaller | undefined, tool: string, definition: McpToolDefinition): McpToolResult | undefined {
-  if (definition.public) return undefined
+  if (definition.access === "public") return undefined
   const scopes = definition.scopes ?? []
   if (!caller) return signInResult(request, route, `Sign in to call ${tool}. Ask the user to connect their account.`, scopes)
   const missing = scopes.filter(entry => !caller.scopes.includes(entry))
@@ -361,9 +361,9 @@ function unauthorized(request: Request, route: string, error: { code: string, me
 export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) => Promise<Response> {
   const optional = Boolean(options.verify && options.optional)
   if (!options.publicRoute && !optional) {
-    const named = Object.entries(options.tools).filter(([, definition]) => definition.public !== undefined).map(([name]) => name)
+    const named = Object.entries(options.tools).filter(([, definition]) => definition.access !== undefined).map(([name]) => name)
     if (named.length) {
-      throw mcpErrorDiagnostics.MCP_R0001({ message: `[vitehub] The MCP tools ${named.map(name => JSON.stringify(name)).join(", ")} set public, but the MCP server at ${JSON.stringify(options.route)} has no publicRoute and its auth is not "optional".` })
+      throw mcpErrorDiagnostics.MCP_R0001({ message: `[vitehub] The MCP tools ${named.map(name => JSON.stringify(name)).join(", ")} set access, but the MCP server at ${JSON.stringify(options.route)} has no publicRoute and its auth is not "optional".` })
     }
   }
   const { icons, ...info } = options.serverInfo ?? {}
@@ -404,7 +404,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       ...(optional ? { refuse: (tool: string, definition: McpToolDefinition) => refusal(request, options.route, signedIn, tool, definition) } : {}),
     }
     // A caller without a token sees every tool, so the client knows what sign-in unlocks, but only public prompts and resources.
-    const visible = <T extends { definition: { public?: boolean } }>(entries: T[]) => anonymous ? entries.filter(entry => entry.definition.public) : entries
+    const visible = <T extends { definition: { access?: "public" } }>(entries: T[]) => anonymous ? entries.filter(entry => entry.definition.access === "public") : entries
     return serveMcp(request, {
       instructions,
       serverInfo: resolveServerInfo(serverInfo, request),
