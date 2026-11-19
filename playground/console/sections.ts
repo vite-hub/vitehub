@@ -133,7 +133,7 @@ export const playgroundCommentsSection = {
 } as const
 
 /**
- * The Webhooks section of an app with `server/webhooks/`. The build adds it when the folder exists, so it is not in the
+ * The Webhooks section of an app with `server/webhooks/` or member endpoints. The build adds it then, so it is not in the
  * list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to `webhooksConsoleSection`.
  * `webhooks-fixture.ts` answers its operations.
  */
@@ -144,6 +144,6 @@ export const playgroundWebhooksSection = {
   label: "Webhooks",
   view: {
     kind: "webhooks",
-    notice: "The list comes from the webhooks.* operations. The Console shows the names of the URL and secret variables and the URL host, never the full URL or the secret. `vitehub webhooks` and the webhooks MCP tools do the same.",
+    notice: "The list comes from the webhooks.* operations. The Console shows the names of the URL and secret variables and the host of each URL, never the full URL or the secret. Admins see member endpoints read-only and can disable one. Only the member who owns an endpoint can redeliver to it. `vitehub webhooks` and the webhooks MCP tools do the same.",
   },
 } as const
