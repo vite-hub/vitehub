@@ -381,7 +381,7 @@ services:
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "app", "-d", "app"]
       interval: 2s
       retries: 30
 
@@ -416,8 +416,11 @@ docker compose build app1
 docker compose up --no-build
 ```
 
-The three instances start together. One applies the migrations, and the
-others wait for it or find nothing pending. Use real passwords and keep them in
+The Postgres health check uses TCP so the app instances do not start while
+Postgres is still initializing and only accepts local socket connections.
+One instance applies the migrations, and the others wait for it or find nothing
+pending. Check `docker compose logs app1 app2 app3` for the durability report
+from each instance. Use real passwords and keep them in
 [Server Env](/docs/env) or your secret store, not in the compose file.
 
 ## WebSockets behind Caddy
