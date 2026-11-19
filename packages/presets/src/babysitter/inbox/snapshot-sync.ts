@@ -163,8 +163,8 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   for (const check_run of Object.values(snapshot.checks ?? {})) await ingest('check_run', { action: check_run.status, check_run })
   for (const status of Object.values(snapshot.statuses ?? {}) ) await ingest('status', { ...status, sha: snapshot.pr.head?.sha })
   // Workflow runs and check suites come only from webhooks, and the check runs read above do not
-  // replace them. On 2026-11-16 a lost `workflow_run.completed` kept a green PR not merge-ready
-  // after every probe. Read again each one that still runs on the current head.
+  // replace them. A lost `workflow_run.completed` keeps a green PR not merge-ready after every
+  // probe. Read again each one that still runs on the current head.
   for (const [key, item] of Object.entries(s.checks)) {
     const kind = key.slice(0, key.indexOf(':'))
     if ((kind !== 'workflow_run' && kind !== 'check_suite') || item.deleted || item.status === 'completed' || item.head_sha !== snapshot.pr.head?.sha) continue
@@ -311,9 +311,8 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
 
 /**
  * Probes up to `limit` PRs that change detection marked, then records their fingerprints. PRs whose
- * checks settled or that closed come first, up to `settledLimit`: on 2026-11-16 a third of webhook
- * deliveries timed out, 43 PRs waited for a probe, and green PRs waited 30 minutes or more while the
- * probes read PRs whose checks were still running. Older marks come before newer ones.
+ * checks settled or that closed come first, up to `settledLimit`: when many webhook deliveries are
+ * lost, green PRs must not wait while the probes read PRs whose checks are still running. Older marks come before newer ones.
  */
 export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = [], limit = 3, settledLimit = 10): Promise<number> {
   let probed = 0

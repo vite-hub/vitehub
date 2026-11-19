@@ -1,9 +1,9 @@
 # @vite-hub/workspace
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -162,7 +162,7 @@ import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
 ```
 
-```ts [server/workspaces/drop.ts]
+```ts [server/workspaces/notes.ts]
 import { blob } from "@vite-hub/blob"
 import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
@@ -172,7 +172,7 @@ export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
     blob: blob.store("workspace-history"),
     database: () => useDatabase("history").db,
-    workspace: "drop-123",
+    workspace: "notes-123",
   }),
 })
 ```
@@ -180,12 +180,12 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
-const workspace = useWorkspace("drop", { mode: "write" })
+const workspace = useWorkspace("notes", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
   files: { "index.html": "<h1>Hello</h1>" },
   message: "Publish",
-  metadata: { author: "maxi" },
+  metadata: { author: "ada" },
 })
 const version = await workspace.history.open(revision.id)
 await version.readFile("index.html")
