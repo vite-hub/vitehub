@@ -86,8 +86,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
     COMMENTS_R0022: {
-      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
-      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
+      why: "Another comment thread of this scope, or another reply in this thread, already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment or reply. Send the same requestId again only to retry the same one.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,

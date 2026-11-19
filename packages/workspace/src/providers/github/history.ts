@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
+import * as v from "valibot"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -20,6 +21,7 @@ import {
 } from "../../core/path.ts"
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
 import { BoundedMap } from "./bounded-map.ts"
+import { githubKVKey, readWorkspaceKV, writeWorkspaceKV } from "./cache.ts"
 import {
   commitGitHubChanges,
   gitBlobSha,
@@ -53,6 +55,7 @@ import type {
   WorkspaceHistoryListOptions,
   WorkspaceHistoryListResult,
   WorkspaceHistoryRef,
+  WorkspaceLastChange,
   WorkspaceRevision,
   WorkspaceRevisionView,
   WorkspaceStoreHistory,
@@ -84,6 +87,26 @@ export const githubMaxMetadataBytes = 64 * 1024
 export const githubMaxMessageBytes = 16 * 1024
 
 type GitHubCommit = Commit
+
+/** Paths per GitHub file history request. */
+const lastChangedBatch = 100
+const lastChangedHistoryLimit = 100
+
+const pathHistory = v.object({ nodes: v.array(v.object({ oid: v.string(), authoredDate: v.string() })) })
+
+const fileHistoryResponse = v.object({
+  data: v.optional(v.nullable(v.object({
+    repository: v.nullable(v.object({
+      object: v.nullable(v.looseObject({
+        recent: v.object({ nodes: v.array(v.object({
+          oid: v.string(),
+          parents: v.object({ nodes: v.array(v.object({ oid: v.string() })) }),
+        })) }),
+      })),
+    })),
+  }))),
+  errors: v.optional(v.array(v.object({ message: v.string() }))),
+})
 type GitHubTreeItem = TreeEntry
 
 interface GitHubHistoryEntry {
@@ -334,6 +357,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const commitCache = new BoundedMap<string, GitHubCommit>(2_000)
   const treeCache = new BoundedMap<string, GitHubHistoryEntry[]>(32)
   const commitRefs = new BoundedMap<string, string>(2_000)
+  const lastChanges = new BoundedMap<string, Map<string, WorkspaceLastChange | null>>(32)
 
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
@@ -526,10 +550,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const heads = branches.filter(branch => branch.commit === id)
     let branch = heads.find(branch => branch.name === options.branch) ?? heads[0]
     if (!branch) {
-      // Prefer the default branch for shared ancestry, then look through the other branches for older draft commits.
-      // A branch holds the commit when the commit is the merge base of both. One compare request per branch, so a
-      // long history costs no more than a short one.
-      const ordered = [...branches].sort((left, right) => Number(right.name === options.branch) - Number(left.name === options.branch))
+      // Prefer the default branch for shared ancestry, then the branches of `published` and `draft`, which hold older
+      // draft commits, then the other branches. A branch holds the commit when the commit is the merge base of both. One
+      // compare request per branch, so a long history costs no more than a short one.
+      const rank = (name: string) => name === options.branch ? 0 : name === options.refs?.published || name === options.refs?.draft ? 1 : 2
+      const ordered = [...branches].sort((left, right) => rank(left.name) - rank(right.name))
       for (const candidate of ordered) {
         const contains = await githubRequest(client(), async (provider, repo) => {
           try {
@@ -551,6 +576,68 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const ref = fromBranch(branch?.name ?? options.branch)
     commitRefs.set(id, ref)
     return ref
+  }
+
+  /**
+   * GitHub can simplify path history through a merge's side parent. Trust only the linear prefix from `sha` and
+   * cache only proven answers. Each request checks at most 100 paths.
+   */
+  const lastChanged = async (sha: string, gitPaths: readonly string[]): Promise<Map<string, WorkspaceLastChange | null>> => {
+    const cacheKey = await githubKVKey(options.repository, `first-parent-last-changed:${sha}`)
+    let known = lastChanges.get(sha)
+    if (!known) {
+      known = new Map(Object.entries(await readWorkspaceKV<Record<string, WorkspaceLastChange | null>>(cacheKey) ?? {}))
+      lastChanges.set(sha, known)
+    }
+    const missing = [...new Set(gitPaths)].filter(path => !known.has(path))
+    let changed = false
+    for (let start = 0; start < missing.length; start += lastChangedBatch) {
+      const paths = missing.slice(start, start + lastChangedBatch)
+      const query = [
+        `query FileHistory($owner: String!, $name: String!, $sha: GitObjectID!${paths.map((_, index) => `, $p${index}: String!`).join("")}) {`,
+        "  repository(owner: $owner, name: $name) { object(oid: $sha) { ... on Commit {",
+        `    recent: history(first: ${lastChangedHistoryLimit}) { nodes { oid parents(first: 2) { nodes { oid } } } }`,
+        ...paths.map((_, index) => `    p${index}: history(first: 1, path: $p${index}) { nodes { oid authoredDate } }`),
+        "  } } }",
+        "}",
+      ].join("\n")
+      const response = await githubRequest(client(), async (provider, repo) => (await provider.request<unknown>("POST", "/graphql", {
+        body: { query, operationName: "FileHistory", variables: { owner: repo.owner, name: repo.name, sha, ...Object.fromEntries(paths.map((path, index) => [`p${index}`, path])) } },
+        mutates: false,
+      })).data, "file history")
+      const parsed = v.safeParse(fileHistoryResponse, response)
+      if (!parsed.success || parsed.output.errors?.length || !parsed.output.data?.repository?.object) {
+        throw workspaceError(`[vitehub] GitHub workspace file history request failed for ${options.repository}${parsed.success && parsed.output.errors?.length ? `: ${parsed.output.errors.map(error => error.message).join("; ")}` : "."}`)
+      }
+      const commit = parsed.output.data.repository.object
+      const linear = new Set<string>()
+      let next: string | undefined = sha
+      let reachedRoot = false
+      for (const node of commit.recent.nodes) {
+        if (node.oid !== next || node.parents.nodes.length > 1) break
+        linear.add(node.oid)
+        next = node.parents.nodes[0]?.oid
+        if (!next) {
+          reachedRoot = true
+          break
+        }
+      }
+      paths.forEach((path, index) => {
+        const history = v.safeParse(pathHistory, commit[`p${index}`])
+        if (!history.success) return
+        const node = history.output.nodes[0]
+        if (node && linear.has(node.oid)) {
+          known.set(path, { id: node.oid, createdAt: new Date(node.authoredDate).toISOString() })
+          changed = true
+        }
+        else if (!node && reachedRoot) {
+          known.set(path, null)
+          changed = true
+        }
+      })
+    }
+    if (changed) await writeWorkspaceKV(cacheKey, Object.fromEntries(known))
+    return known
   }
 
   const open = async (id: string): Promise<WorkspaceRevisionView> => {
@@ -623,6 +710,16 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
           return entry ? [{ ...entry, path: joinGitPath(options.root, entry.path) }] : []
         })
         await preloadGitHubFiles(client(), commit.sha, entries)
+      },
+      lastChanged: async (paths: readonly string[]) => {
+        const gitPaths = paths.map(path => [path, joinGitPath(options.root, normalizeHistoryPath(path))] as const)
+        const changes = await lastChanged(commit.sha, gitPaths.map(([, gitPath]) => gitPath))
+        const found = new Map<string, WorkspaceLastChange | null>()
+        for (const [path, gitPath] of gitPaths) {
+          const change = changes.get(gitPath)
+          if (change !== undefined) found.set(path, change)
+        }
+        return found
       },
     })
     return view

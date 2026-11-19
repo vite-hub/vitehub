@@ -1,9 +1,9 @@
 # @vite-hub/sandbox
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/sandbox` owns portable execution for ViteHub. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; a runtime Adapter turns that declaration into an inspectable preparation plan and opens active Sandbox sessions without exposing a provider SDK.
 
@@ -347,7 +347,7 @@ A sidecar that is still starting refuses connections. `sshLaunch` connects again
 
 The launch command includes a cancellable `prepare` callback. Agent Drivers await it before starting provider probe deadlines, for both Codex and Claude. It runs a separate `/bin/true` connection check; direct process consumers can await it before starting their own deadline. OpenSSH local diagnostics are kept separate from remote stderr so a command that starts another failing SSH client is never repeated.
 
-The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#commands).
+The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/cli#commands).
 
 This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. When a command ends, the server stops its process group. On Linux it also stops the processes that the command started outside that group, for example with `setsid`. It finds them by the `VITEHUB_SSH_COMMAND` environment variable. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
 

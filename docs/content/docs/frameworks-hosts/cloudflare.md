@@ -126,7 +126,7 @@ export default defineDatabase({
 
 The Nuxt-only `database.driver: 'cloudflare'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
 
-With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores).
+With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/console/agents#which-journal-the-console-reads).
 
 ## Provision boundary
 
@@ -300,7 +300,7 @@ A direct Wrangler command with `--containers-rollout=none` skips ViteHub's deplo
 - The file is JSON, because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values.
 - Wrangler keeps the secrets that the file does not name.
 
-See [Deploy from your machine](/docs/development/cli#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
+See [Deploy from your machine](/docs/cli/project#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
 
 ### Rate Limiting bindings
 
@@ -501,9 +501,9 @@ Agent Definitions run on Cloudflare through generated output when the Agent inte
 
 ### Console on Workers
 
-Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
+Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/console) describes.
 
-To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/development/console#protect-the-console-route).
+To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/console/access#who-can-call-the-endpoint).
 
 ## Next steps
 

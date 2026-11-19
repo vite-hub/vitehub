@@ -88,8 +88,8 @@ export async function repairBaseBranch(
   const tip = v.parse(branchSchema, await github.read(`repos/${repository}/branches/${encodeURIComponent(base)}`));
   const head = tip.commit.sha;
 
-  // A push run on the default branch waits behind the one in progress. A job whose runner vanished kept
-  // a run in progress for 9.5 hours on vite-hub/vitehub, and every later run stayed pending.
+  // A push run on the default branch waits behind the one in progress. A job whose runner vanished can
+  // keep a run in progress for hours, and every later run stays pending.
   const stuckJobMinutes = mainRepair.stuckJobMinutes ?? defaultStuckJobMinutes;
   if (stuckJobMinutes !== false) {
     const running = v.parse(runsSchema, await github.read(`repos/${repository}/actions/runs`, { branch: base, event: "push", status: "in_progress", per_page: 20 }));

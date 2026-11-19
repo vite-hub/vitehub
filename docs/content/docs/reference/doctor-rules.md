@@ -651,14 +651,14 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 **Pass Queue options as the third argument.** Rule `vitehub/queue-payload-options`.
 
-`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
+`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delay`, `idempotencyKey`, `retention`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
 ```ts [server/utils/signup.ts] fails=TS2353
 import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Invalid
-  await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+  await sendQueue('welcome-email', { payload: { email }, delay: '1m' })
 }
 ```
 
@@ -667,7 +667,7 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Valid
-  await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
+  await sendQueue('welcome-email', { email }, { delay: '1m' })
 }
 ```
 
@@ -734,18 +734,20 @@ The rule skips the calls that return `[error, value]`, such as `startWorkflow()`
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports a step that no folder Workflow has, through `.vitehub/workflow.d.ts`. The rule checks the steps of each folder, covers JavaScript files, and runs without a type check.
 
 ```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload)
-  // Invalid: there is no send-welcome-email step file.
-  return await steps.sendWelcomeEmail(user)
-  // Valid
-  // return await steps.sendWelcome(user)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload)
+    // Invalid: there is no send-welcome-email step file.
+    return await steps.sendWelcomeEmail(user)
+    // Valid
+    // return await steps.sendWelcome(user)
+  },
 })
 ```
 
@@ -856,7 +858,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -867,7 +869,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })
@@ -1083,7 +1085,7 @@ import renderReply from './reply.template.md'
 const prompt = await renderReply({ pullRequest })
 ```
 
-To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/reference/markdown-templates).
+To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/markdown-template).
 
 ## VHUB0035
 

@@ -156,7 +156,6 @@ function isRequestLike(value: AuthRequest): value is Request {
     }
     if (!hasPrototypeTag(value, "Request")) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
       return typeof Reflect.get(target, method) === "function"
     })
     if (hasHappyDomRequestState(value)) {

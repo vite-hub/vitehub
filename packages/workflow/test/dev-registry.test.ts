@@ -28,7 +28,7 @@ function workflowModule(name: string, result = name): string {
   return [
     "import { defineWorkflow } from '@vite-hub/workflow'",
     "",
-    `export default defineWorkflow(${JSON.stringify(name)}, async () => ({ result: ${JSON.stringify(result)} }))`,
+    `export default defineWorkflow({ handler: async () => ({ result: ${JSON.stringify(result)} }) })`,
     "",
   ].join("\n")
 }
