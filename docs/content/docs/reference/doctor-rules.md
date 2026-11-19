@@ -758,18 +758,20 @@ The rule reports property reads and destructuring of names that are not `Respons
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports a step that no folder Workflow has, through `.vitehub/workflow.d.ts`. The rule checks the steps of each folder, covers JavaScript files, and runs without a type check.
 
 ```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload)
-  // Invalid: there is no send-welcome-email step file.
-  return await steps.sendWelcomeEmail(user)
-  // Valid
-  // return await steps.sendWelcome(user)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload)
+    // Invalid: there is no send-welcome-email step file.
+    return await steps.sendWelcomeEmail(user)
+    // Valid
+    // return await steps.sendWelcome(user)
+  },
 })
 ```
 
