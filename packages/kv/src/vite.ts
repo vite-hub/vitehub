@@ -287,9 +287,14 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
+/** The part of Nitro's prerender config that KV changes. */
+interface KVPrerenderConfig {
+  virtual?: Record<string, string | (() => string)>
+}
+
 /** The parts of a Nitro build that KV changes. */
 interface KVNitroBuild {
-  hooks?: { hook: (name: "prerender:config", callback: (config: { virtual?: Record<string, string | (() => string)> }) => void) => unknown }
+  hooks?: { hook: (name: "prerender:config", callback: (config: KVPrerenderConfig) => void) => unknown }
   options: NitroCloudflareKVTarget
 }
 
@@ -435,7 +440,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
         // config import there. Nitro copies its virtual modules into that build.
-        nitro.hooks?.hook("prerender:config", (config) => {
+        nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
           // The prerenderer is a Node worker, not the deployed host, so it gets the stores of `vite dev`: a Cloudflare
           // store uses its local folder and an inferred store is fs-lite. Deno KV needs Deno, so such an app keeps the
           // runtime fallback. The prerenderer prints no store notice at boot.
