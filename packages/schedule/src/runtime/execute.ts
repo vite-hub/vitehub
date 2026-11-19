@@ -261,7 +261,6 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
 
 async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined
   const definition = record && isStaticScheduleDefinition(record)
