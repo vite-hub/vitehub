@@ -318,6 +318,43 @@ it("returns the first message when a reply retries with the same requestId, and 
   expect(onMention).toHaveBeenCalledTimes(2)
 })
 
+it.each([
+  { timing: "before", author: member, requestId: "reply-1", error: undefined },
+  { timing: "before", author: admin, requestId: "reply-1", error: "COMMENTS_INVALID_INPUT" },
+  { timing: "after", author: member, requestId: "reply-1", error: undefined },
+  { timing: "after", author: admin, requestId: "reply-1", error: "COMMENTS_INVALID_INPUT" },
+  { timing: "after", author: member, requestId: "reply-2", error: "COMMENTS_RESOLVED" },
+])("handles a reply committed and resolved $timing the store read ($author.id, $requestId)", async ({ timing, author, requestId, error }) => {
+  const onComment = vi.fn()
+  const comments = defineComments({ onComment })
+  installComments(comments, { database: drizzle({ client }) })
+  const [, thread] = await comments.create({ page: "/pricing", body: "Review this page.", author: member })
+  onComment.mockClear()
+
+  const batch = client.batch.bind(client)
+  let reads = 0
+  const intercepted = vi.spyOn(client, "batch").mockImplementation(async (statements, mode) => {
+    const first = statements[0]
+    const query = typeof first === "string" ? first : Array.isArray(first) ? first[0] : first?.sql
+    if (!query?.startsWith("select") || ++reads !== 2) return batch(statements, mode)
+    intercepted.mockRestore()
+    const snapshot = timing === "after" ? await batch(statements, mode) : undefined
+    const [writeError] = await comments.reply(thread!.id, { body: "Winner", author: member, requestId: "reply-1" })
+    expect(writeError).toBeUndefined()
+    const [resolveError] = await comments.resolve(thread!.id, { by: member })
+    expect(resolveError).toBeUndefined()
+    return snapshot ?? batch(statements, mode)
+  })
+
+  const [replyError, message] = await comments.reply(thread!.id, { body: "Overlapping reply", author, requestId })
+  expect(replyError?.code).toBe(error)
+  const [, stored] = await comments.get(thread!.id)
+  expect(stored?.status).toBe("resolved")
+  expect(stored?.messages.map(entry => entry.body)).toEqual(["Review this page.", "Winner"])
+  expect(message).toEqual(error ? undefined : stored?.messages[1])
+  expect(onComment).toHaveBeenCalledOnce()
+})
+
 it("refuses a requestId that another author or a hidden thread already uses", async () => {
   const hidden = new Set<string>()
   const store = setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden.has(thread.id) }))

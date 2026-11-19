@@ -87,7 +87,9 @@ export default defineEventHandler(async (event) => {
 | `sync(threadId)` | Nothing. With `forge`, syncs the thread's pull request comments now, and retries failed posts. | None |
 | `flush()` | Nothing. Waits for pending pull request syncs and `onMention` calls. | None |
 
-A route of your own can do work for a comment before it calls `create` or `reply`, such as storing pasted images. Look up the retry key first, so a retry does that work once:
+A route of your own can do work for a comment before it calls `create` or `reply`, such as storing pasted images. Look up the retry key first to skip that work if the first comment has already been saved. A lookup does not reserve the key: overlapping calls can both get `null`. If the work must happen only once, make it idempotent separately.
+
+For example, a route can return the saved reply before doing any additional work:
 
 ```ts [server/api/feedback/[id]/replies.post.ts] fragment
 import { defineEventHandler, getRouterParam, readBody } from 'h3'
