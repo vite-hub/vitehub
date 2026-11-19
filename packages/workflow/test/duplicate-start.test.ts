@@ -4,6 +4,7 @@ import { defineWorkflow } from "../src/definition.ts"
 import { startWorkflow } from "../src/runtime/client.ts"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 beforeEach(() => {
   resetWorkflowRuntime()
@@ -20,8 +21,8 @@ describe("a second start with the id of an existing run", () => {
   it("returns the stored OpenWorkflow run, not the new payload", async () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
 
-    const first = await startWorkflow("checkout", { order: 1 }, { id: "checkout-1" })
-    const second = await startWorkflow("checkout", { order: 2 }, { id: "checkout-1" })
+    const first = await unwrap(startWorkflow("checkout", { order: 1 }, { id: "checkout-1" }))
+    const second = await unwrap(startWorkflow("checkout", { order: 2 }, { id: "checkout-1" }))
 
     expect(second.id).toBe(first.id)
     expect(second.payload).toEqual({ order: 1 })
@@ -38,7 +39,7 @@ describe("a second start with the id of an existing run", () => {
       } } } } },
     })
 
-    const second = await startWorkflow("checkout", { order: 2 }, { id: "checkout-1" })
+    const second = await unwrap(startWorkflow("checkout", { order: 2 }, { id: "checkout-1" }))
 
     expect(second).toMatchObject({ id: "checkout-1", provider: "cloudflare", status: "running" })
     expect(second.payload).toBeUndefined()
@@ -53,7 +54,7 @@ describe("a second start with the id of an existing run", () => {
       } } } } },
     })
 
-    await expect(startWorkflow("checkout", { order: 3 }, { id: "checkout-3" })).resolves.toEqual({
+    await expect(unwrap(startWorkflow("checkout", { order: 3 }, { id: "checkout-3" }))).resolves.toEqual({
       id: "checkout-3",
       payload: { order: 3 },
       provider: "cloudflare",

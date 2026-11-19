@@ -28,6 +28,14 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
   return name
 }
 
+/** Whether the promise settles within 10 ms. */
+async function settlesSoon(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false
+  void promise.then(() => { settled = true }, () => { settled = true })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  return settled
+}
+
 describe("Workspace runtime preparation", () => {
   it("rejects preparation without startup sources while an unrelated lazy read is pending", async () => {
     let release!: () => void
@@ -365,11 +373,12 @@ describe("Workspace runtime preparation", () => {
     const firstRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
     await loaderStarted
     const secondRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(load).toHaveBeenCalledOnce()
     release()
 
     await expect(Promise.all([firstRead, secondRead])).resolves.toEqual(["# Ready", "# Ready"])
+    expect(load).toHaveBeenCalledOnce()
     resetWorkspaceRegistry()
   })
 
@@ -690,7 +699,7 @@ describe("Workspace runtime preparation", () => {
     await writing
     const stopping = preparation.stop()
     const restarted = preparation.start()
-    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(await settlesSoon(stopping)).toBe(false)
     releaseWrite()
     await stopping
     await expect(first).resolves.toMatchObject({ status: "stopped" })
@@ -756,7 +765,7 @@ describe("Workspace runtime preparation", () => {
     await writing
     const stopping = preparation.stop()
     const restarted = preparation.start()
-    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(await settlesSoon(stopping)).toBe(false)
     releaseWrite()
     await stopping
     await expect(first).resolves.toMatchObject({ status: "stopped" })
@@ -817,8 +826,8 @@ describe("Workspace runtime preparation", () => {
     await snapshotting
     const stopping = preparation.stop()
     const restarted = preparation.start()
-    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
-    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(await settlesSoon(stopping)).toBe(false)
+    expect(await settlesSoon(restarted)).toBe(false)
     expect(snapshots).toBe(1)
     releaseSnapshot()
     await stopping

@@ -5,7 +5,6 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
-import { useRelativeTime } from "../internal/relative-time.ts";
 import { createMotionList, type MotionList } from "../motion/list.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
@@ -117,7 +116,6 @@ export const CommentLayer = defineComponent({
       });
     }
     const layer = ref<HTMLElement | null>(null);
-    const time = useRelativeTime();
     // The comment UI may live in a shadow root. Composers are looked up there, not in the document.
     const uiRoot = () => {
       const node = layer.value?.getRootNode();
@@ -514,7 +512,7 @@ export const CommentLayer = defineComponent({
             style: { top: `${tops[index]}px` },
             type: "button",
           },
-          threadRow(thread, time),
+          threadRow(thread),
         )];
       });
       return { at, node: h("div", { "data-slot": "comment-margin" }, cards) };

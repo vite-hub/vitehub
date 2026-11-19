@@ -5,6 +5,7 @@ import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 let failCreateUser = false
 
@@ -47,9 +48,9 @@ async function runWorker(): Promise<void> {
 
 it("reports the payload, times, and steps that OpenWorkflow stores", async () => {
   const startedAt = Date.now()
-  const started = await startWorkflow("onboard-user", { email: "ada@example.com" })
+  const started = await unwrap(startWorkflow("onboard-user", { email: "ada@example.com" }))
 
-  const queued = await getWorkflowRun("onboard-user", started.id)
+  const queued = await unwrap(getWorkflowRun("onboard-user", started.id))
   expect(queued).toMatchObject({ payload: { email: "ada@example.com" }, status: "queued", steps: [] })
   expect(queued.createdAt).toBeInstanceOf(Date)
   expect(queued.startedAt).toBeUndefined()
@@ -57,7 +58,7 @@ it("reports the payload, times, and steps that OpenWorkflow stores", async () =>
 
   await runWorker()
 
-  const run = await getWorkflowRun("onboard-user", started.id)
+  const run = await unwrap(getWorkflowRun("onboard-user", started.id))
   expect(run).toMatchObject({ payload: { email: "ada@example.com" }, status: "completed" })
   expect(run.createdAt?.getTime()).toBeGreaterThanOrEqual(startedAt - 1000)
   expect(run.startedAt).toBeInstanceOf(Date)
@@ -76,11 +77,11 @@ it("reports the payload, times, and steps that OpenWorkflow stores", async () =>
 
 it("reports a failed step attempt with its message, without the stack", async () => {
   failCreateUser = true
-  const started = await startWorkflow("onboard-user", { email: "ada@example.com" })
+  const started = await unwrap(startWorkflow("onboard-user", { email: "ada@example.com" }))
 
   await runWorker()
 
-  const run = await getWorkflowRun("onboard-user", started.id)
+  const run = await unwrap(getWorkflowRun("onboard-user", started.id))
   expect(run.steps).toEqual([
     expect.objectContaining({
       attempt: 1,

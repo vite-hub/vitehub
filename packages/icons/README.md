@@ -28,6 +28,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `content` | Content |
 | `database` | Database |
 | `decisions` | Decisions |
+| `device` | Device |
 | `email` | Email |
 | `env` | Env |
 | `forge` | Forge |
@@ -44,7 +45,9 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `schedule` | Schedule |
 | `shell` | Shell |
 | `source` | Source |
+| `sync` | Sync |
 | `ui` | UI |
+| `webhooks` | Webhooks |
 | `workflow` | Workflows |
 | `workspace` | Workspace |
 | `skills` | Agent Skills |

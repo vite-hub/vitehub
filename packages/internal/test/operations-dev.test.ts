@@ -175,7 +175,7 @@ describe("standalone operation installation", () => {
       await installStandaloneOperationRpc(config, "serve", formsModule)
       const source = await readFile(handler, "utf8")
       expect(source).toContain(`import { createStandaloneOperationHandler } from ${JSON.stringify(order === "kv-first" ? kvModule : formsModule)}`)
-      expect(source).toContain(`import * as source${order === "kv-first" ? 1 : 0} from ${JSON.stringify(formsModule)}`)
+      expect(source).toMatch(new RegExp(`^import \\* as \\w+ from ${JSON.stringify(formsModule)}$`, "m"))
       const nitro = Reflect.get(config, "nitro") as { handlers: Array<{ handler: string }>, devHandlers: Array<{ handler?: unknown }> }
       expect(nitro.handlers).toEqual([{ handler, route: "/_vitehub/rpc" }])
       expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])

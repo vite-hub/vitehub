@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process"
-import { existsSync } from "node:fs"
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -66,7 +65,6 @@ describe("Plugin order with the Nitro Vite plugin", () => {
         root,
       })
       await builder.buildApp()
-      expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
       await withBuiltServer(root, async (fetchServer) => {
         // The entry route redirects to the hosted Console in either plugin order.

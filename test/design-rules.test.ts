@@ -38,7 +38,7 @@ const allowed = [
 // ring itself. It must still take every color from the tokens.
 const focusThemes = ["packages/kit/src/styles/"]
 
-const ignoreDirs = new Set([".nuxt", ".output", ".vitehub", "dist", "node_modules"])
+const ignoreDirs = new Set([".nuxt", ".output", ".vitehub", ".vitest-tmp", "dist", "node_modules"])
 const sourceFile = /\.(vue|ts|css)$/
 
 interface Finding {

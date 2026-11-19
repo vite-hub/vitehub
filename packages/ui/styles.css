@@ -1679,6 +1679,11 @@
     width: 1.75rem;
   }
 
+  /* RelativeTime, and the time of a comment reply that renders it. Digits keep one width, so the label does not jump when the clock moves. */
+  :is([data-slot="relative-time"], [data-slot="comment-reply-time"]) {
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Status: a 6px dot in the brighter status color and a label. A colored label uses the darker text shade of theme.css. */
   [data-slot="status"] {
     align-items: center;

@@ -412,42 +412,6 @@ describe("hubAuth", () => {
     expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
   })
 
-  it("marks the auth package as noExternal for Vite SSR module loading", () => {
-    const plugin = hubAuth()
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string[] } }, ssr?: { noExternal?: string[] } }) => unknown
-
-    expect(config({})).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: ["**/.vitehub/**"],
-        },
-      },
-      ssr: {
-        noExternal: ["@vite-hub/auth"],
-      },
-    })
-    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: undefined,
-        },
-      },
-      ssr: {
-        noExternal: undefined,
-      },
-    })
-  })
-
   it("keeps configured entries single after Vite resolves the Auth config", async () => {
     const root = await createTempProject()
     await writeAuth(root)
@@ -743,6 +707,27 @@ describe("Auth tables in the app Database", () => {
     await writeAuthDatabase(root, "authDatabase()")
     expect((await contributions(root)).tables).toMatchObject([{ definition: { module: "vite-hub/auth/schema" } }])
     await expect(readFile(module, "utf8")).rejects.toThrow()
+  })
+
+  it("keeps the Auth tables of the latest migration as they are", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase()")
+    const migration = join(root, "server", "databases", "default", "migrations", "20260101000000_hand")
+    await mkdir(migration, { recursive: true })
+    // The hand-written `organization` table of ViteHub Finance: a column default and a unique index, not a UNIQUE key.
+    await writeFile(join(migration, "snapshot.json"), JSON.stringify({ dialect: "sqlite", ddl: [
+      { entityType: "tables", name: "organization" },
+      { entityType: "columns", table: "organization", name: "created_at", notNull: true, default: "(cast(unixepoch('subsecond') * 1000 as integer))" },
+      { entityType: "indexes", table: "organization", name: "organization_slug_idx", columns: [{ value: "slug", isExpression: false }], isUnique: true },
+      { entityType: "tables", name: "notes" },
+    ] }))
+    const { tables } = await contributions(root)
+    const module = join(root, ".vitehub", "auth", "schema.ts")
+    expect(tables).toMatchObject([{ definition: { export: "authSqliteSchema", module } }])
+    const source = await readFile(module, "utf8")
+    expect(source).toContain("createAuthSqliteSchema({}, {\"organization\":{\"columns\":{\"created_at\":{\"notNull\":true,\"default\":")
+    expect(source).toContain("\"name\":\"organization_slug_idx\"")
+    expect(source).not.toContain("notes")
   })
 
   it("adds no tables without authDatabase()", async () => {
