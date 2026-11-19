@@ -286,6 +286,8 @@ The codemod moves a site that extends the `docus` layer to `@vite-hub/docs`:
 
 The report lists what it does not move: Nuxt UI page components in Markdown, such as `::u-page-hero`, Vue components in `components/content/`, frontmatter fields such as `links`, and the app config keys and Docus module options without an equivalent.
 
+The codemod stops without changing files if a destination is occupied, custom collections or extra Markdown could change the published pages, or it cannot preserve routes, local Markdown file links, or computed settings. Resolve the reported issue before migrating.
+
 ```sh
 npx @vite-hub/codemods docus [dir] [--dry-run]
 ```
@@ -294,7 +296,7 @@ npx @vite-hub/codemods docus [dir] [--dry-run]
 
 The codemod moves the collections of `content.config.ts` to `server/content.ts`. Each collection becomes a `glob()` Source with the same files and paths, and a `schema` goes through `contentSource()`. `source.prefix` and `source.exclude` keep their paths. `z` from `@nuxt/content` becomes `z` from `zod`. Content serves the Sources with `access: 'public'`, as Nuxt Content did. `@nuxt/content` becomes `vite-hub/nuxt`, and `package.json` gets `vite-hub` and `@vite-hub/content`.
 
-The report lists what it does not move: `queryCollection()` reads and `<ContentRenderer>`, because ViteHub Content reads with `content.get(path)` and `content.list()`, data collections, which need the `json()` or `yaml()` plugin, `source.repository`, the `content` options of `nuxt.config`, and file names with order prefixes. A Docus site moves with `docus` instead.
+The report lists `queryCollection()` reads and `<ContentRenderer>`, because ViteHub Content reads with `content.get(path)` and `content.list()`. It also flags data collections, which need the `json()` or `yaml()` plugin, and the `content` options of `nuxt.config`. The codemod stops without changing files if any collection has a Source or schema it cannot translate safely, such as a remote `source.repository`, an exclusion it cannot rebase, or a schema that refers to a local declaration. A Docus site moves with `docus` instead.
 
 ```sh
 npx @vite-hub/codemods nuxt-content [dir] [--dry-run]

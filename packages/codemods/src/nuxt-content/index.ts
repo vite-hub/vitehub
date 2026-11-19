@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 
-import { detectStyle, end, findProperty, indentAt, keyName, line, parseProgram, quoteString, start } from "@vite-hub/internal/ast"
+import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
@@ -10,6 +10,7 @@ import { addViteHubOptions, ConfigEditor, createLineResolver, useViteHubModule }
 import { detectNuxtModule } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, readNuxtConfig, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
+import { assertModuleRemoved } from "../shared/removed-module.ts"
 import { codemodError } from "../error-diagnostics.ts"
 import { docus } from "../docus/index.ts"
 
@@ -28,36 +29,31 @@ const readFollowUps: Array<[RegExp, string]> = [
   [/<ContentRenderer\b/, "Render a Content document with the Markdown component of ViteHub UI. See https://vitehub.dev/docs/ui/markdown#content-pages."],
 ]
 
-/** The fixed folders of a glob before its first wildcard, and the rest. */
-function splitGlob(pattern: string): { base: string, rest: string } {
-  const segments = pattern.split("/")
-  const index = segments.findIndex(segment => /[*?[{]/.test(segment))
-  if (index < 0) return { base: pattern, rest: "**" }
-  return { base: segments.slice(0, index).join("/"), rest: segments.slice(index).join("/") }
-}
-
 interface Collection {
   name: string
   /** Source of the `glob()` options. */
   glob: string
   schema?: string
+  schemaNode?: Node
 }
 
 function readSource(node: Node, code: string, style: CodeStyle, followUp: (message: string) => void): string | undefined {
   const quote = (value: string) => quoteString(value, style)
   const literal = literalValue(node)
-  if (typeof literal === "string") return `{ cwd: ${quote("content")}, include: ${quote(literal)} }`
   const object = staticOptionsObject(node)
-  if (!object) {
+  if (!object && typeof literal !== "string") {
     followUp(`source is ${code.slice(start(node), end(node))}, which the codemod cannot read. Write a glob() Source for it by hand.`)
     return undefined
   }
-  let include: string | undefined
+  let include = typeof literal === "string" ? literal : undefined
   let prefix: string | undefined
   let cwd = "content"
   const ignore: string[] = []
-  for (const property of object.properties) {
-    if (property.type !== "ObjectProperty") continue
+  for (const property of object?.properties ?? []) {
+    if (property.type !== "ObjectProperty") {
+      followUp("source contains a computed option. Write the glob() Source by hand.")
+      return undefined
+    }
     const key = keyName(property.key, property.computed)
     const value = unwrapExpression(property.value)
     const text = literalValue(value)
@@ -76,15 +72,26 @@ function readSource(node: Node, code: string, style: CodeStyle, followUp: (messa
     followUp("source has no include, so the codemod cannot read it. Write a glob() Source by hand.")
     return undefined
   }
+  if (/^[!/]|\\|(?:^|\/)\.\.(?:\/|$)/.test(include) || ignore.some(pattern => /^[!/]|\\/.test(pattern))) {
+    followUp("source contains a glob that cannot be translated safely. Write its Source by hand.")
+    return undefined
+  }
   const fields = [`cwd: ${quote(cwd)}`, `include: ${quote(include)}`]
-  // Nuxt Content's prefix replaces the fixed folders of include. glob() puts its prefix before the whole key.
   if (prefix !== undefined) {
-    const { base, rest } = splitGlob(include)
-    fields.splice(0, 2, `cwd: ${quote(posix.join(cwd, base))}`, `include: ${quote(rest)}`)
-    // exclude paths are relative to the content folder, and ignore to the new cwd.
-    const kept = ignore.filter(pattern => !base || pattern.startsWith(`${base}/`))
-    for (const pattern of ignore) if (!kept.includes(pattern)) followUp(`exclude ${pattern} is outside ${base}/, so the codemod dropped it.`)
-    ignore.splice(0, ignore.length, ...kept.map(pattern => base ? pattern.slice(base.length + 1) : pattern))
+    const star = include.indexOf("*")
+    const base = star < 0 ? "" : include.slice(0, star)
+    if ((base && !/^(?:[\w.-]+\/)+$/.test(base)) || (star < 0 && /[?{}[\]()]/.test(include))) {
+      followUp(`source.prefix for ${include} cannot be preserved by glob(). Write its Source by hand.`)
+      return undefined
+    }
+    if (base) {
+      if (ignore.some(pattern => !pattern.startsWith(base) || pattern.length === base.length)) {
+        followUp(`source.exclude cannot be safely rebased from ${cwd}/ to ${posix.join(cwd, base)}. Write its Source by hand.`)
+        return undefined
+      }
+      fields.splice(0, 2, `cwd: ${quote(posix.join(cwd, base.slice(0, -1)))}`, `include: ${quote(include.slice(base.length))}`)
+      ignore.splice(0, ignore.length, ...ignore.map(pattern => pattern.slice(base.length)))
+    }
     const trimmed = prefix.replace(/^\/+|\/+$/g, "")
     if (trimmed) fields.push(`prefix: ${quote(trimmed)}`)
   }
@@ -101,38 +108,42 @@ function readCollections(file: string, code: string, program: File, style: CodeS
   const collections = property && staticOptionsObject(property.value)
   if (!collections) throw codemodError(`${file} must export defineContentConfig({ collections: { ... } }) with an object literal. Write server/content.ts with defineContent() from vite-hub/content by hand.`)
   const result: Collection[] = []
+  const failures: FollowUp[] = []
   for (const entry of collections.properties) {
-    if (entry.type !== "ObjectProperty") continue
+    if (entry.type !== "ObjectProperty") throw codemodError(`${file}:${line(entry)}: Migrate computed collection entries by hand.`)
     const name = keyName(entry.key, entry.computed)
     const call = unwrapExpression(entry.value)
     const follow = (message: string) => followUps.push({ file, line: line(entry), message: `Collection ${name}: ${message}` })
+    const fail = (message: string) => failures.push({ file, line: line(entry), message: `Collection ${name}: ${message}` })
     const definition = call.type === "CallExpression" && call.callee.type === "Identifier" && call.callee.name === "defineCollection" && call.arguments[0]
       ? staticOptionsObject((call as CallExpression).arguments[0]!)
       : undefined
     if (!name || !definition) {
-      follow("it is not defineCollection({ ... }) with an object literal. Write its Source by hand.")
+      fail("it is not defineCollection({ ... }) with an object literal. Write its Source by hand.")
       continue
     }
     const source = findProperty(definition, "source")
-    const sourceText = source && readSource(source.value, code, style, follow)
+    const sourceText = source && readSource(source.value, code, style, fail)
     if (!sourceText) {
-      if (!source) follow("it has no source. Write its Source by hand.")
+      if (!source) fail("it has no source. Write its Source by hand.")
       continue
     }
     const collection: Collection = { name, glob: sourceText }
     for (const option of (definition as ObjectExpression).properties) {
-      if (option.type !== "ObjectProperty") continue
+      if (option.type !== "ObjectProperty") throw codemodError(`${file}:${line(option)}: Migrate computed options of collection ${name} by hand.`)
       const key = keyName(option.key, option.computed)
       if (key === "schema") {
         // Keep the lines of the schema, relative to the line of its property.
         const indent = indentAt(code, start(option))
         collection.schema = code.slice(start(option.value), end(option.value)).split("\n").map((text, index) => index && text.startsWith(indent) ? text.slice(indent.length) : text).join("\n")
+        collection.schemaNode = option.value
       }
       else if (key === "type" && literalValue(option.value) === "data") follow("it is a data collection. Add json() or yaml() from comark-content to plugins in server/content.ts, so Content parses its files.")
       else if (key !== "type" && key !== "source") follow(`${key} has no ViteHub Content equivalent, so the codemod dropped it.`)
     }
     result.push(collection)
   }
+  if (!result.length || failures.length) throw codemodError(`${result.length ? "Not all collections" : "No collection"} of ${file} could be moved:\n${failures.map(entry => `  ${entry.file}:${entry.line} ${entry.message}`).join("\n")}`)
   return result
 }
 
@@ -153,18 +164,41 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const followUps: FollowUp[] = []
   const style = detectStyle(code, program)
   const collections = readCollections(file, code, program, style, followUps)
-  if (!collections.length) throw codemodError(`No collection of ${file} could be moved:\n${followUps.map(entry => `  ${entry.file}:${entry.line} ${entry.message}`).join("\n")}`)
 
   // server/content.ts keeps the app's own imports, such as a shared schema, and takes z from zod.
   const quote = (value: string) => quoteString(value, style)
   const semicolon = style.semicolons ? ";" : ""
   const schemas = collections.some(collection => collection.schema)
-  const usesZ = schemas && program.program.body.some(statement => statement.type === "ImportDeclaration" && statement.source.value === moduleName
-    && statement.specifiers.some(specifier => specifier.local.name === "z"))
+  const zNames = new Set<string>()
+  const bindings = new Set<string>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration") continue
+    for (const specifier of statement.specifiers) {
+      if (statement.source.value !== moduleName) bindings.add(specifier.local.name)
+      else if (specifier.type === "ImportSpecifier" && keyName(specifier.imported, false) === "z") {
+        bindings.add(specifier.local.name)
+        zNames.add(specifier.local.name)
+      }
+    }
+  }
+  const usedZ = new Set<string>()
+  for (const collection of collections) {
+    if (!collection.schemaNode) continue
+    walk(collection.schemaNode, (node, ancestors) => {
+      if ((node.type === "MemberExpression" || node.type === "OptionalMemberExpression") && keyName(node.property, node.computed) === "editor") {
+        throw codemodError(`${file}:${line(node)}: Collection ${collection.name} uses the Nuxt Content .editor() schema helper. Migrate its schema by hand.`)
+      }
+      if (node.type === "Identifier" && (ancestors.length === 0 || isReference(node, ancestors.at(-1)))) {
+        if (!bindings.has(node.name)) throw codemodError(`${file}:${line(node)}: Collection ${collection.name} schema references ${node.name}, which is not a migrated import. Move the schema by hand.`)
+        if (zNames.has(node.name)) usedZ.add(node.name)
+      }
+    })
+  }
+  const zImports = [...usedZ].map(name => name === "z" ? "z" : `z as ${name}`).join(", ")
   const imports = [
     `import { ${schemas ? "contentSource, " : ""}defineContent } from ${quote("vite-hub/content")}${semicolon}`,
     `import { glob } from ${quote("vite-hub/source")}${semicolon}`,
-    ...(usesZ ? [`import { z } from ${quote("zod")}${semicolon}`] : []),
+    ...(zImports ? [`import { ${zImports} } from ${quote("zod")}${semicolon}`] : []),
   ]
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.source.value === moduleName) continue
@@ -179,6 +213,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     return `${indent}${indent}${/^[A-Za-z_$][\w$]*$/.test(collection.name) ? collection.name : quote(collection.name)}: ${value},`
   })
   const definition = `${imports.join("\n")}\n\nexport default defineContent({\n${indent}// Nuxt Content served every collection to every visitor.\n${indent}access: ${quote("public")},\n${indent}sources: {\n${sources.join("\n")}\n${indent}},\n})${semicolon}\n`
+  try {
+    parseProgram(definition, { typescript: true })
+  }
+  catch {
+    throw codemodError(`${file}: The generated imports or schemas conflict. Migrate the schemas by hand.`)
+  }
   const edits: FileEdit[] = [{ path: file, before: code, after: null }, { path: target, before: undefined, after: definition }]
 
   // nuxt.config.
@@ -196,6 +236,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   // A removed root property between two blank lines leaves one of them.
   const configOutput = editor.output.toString()
   const configCode = config.code.includes("\n\n\n") ? configOutput : configOutput.replace(/\n{3,}/g, "\n\n")
+  assertModuleRemoved(config.fileName, configCode, moduleName)
   edits.unshift({ path: config.fileName, before: config.code, after: configCode })
   if (added.hostNote) followUps.unshift({ file: config.fileName, line: createLineResolver(configCode)(["vitehub", "host"]), message: added.hostNote })
 
@@ -207,10 +248,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       if (found) followUps.push({ file: source, line: index + 1, message: found[1] })
     })
   }
-  const numbered = (await glob(["content/**/[0-9]*.*"], { cwd, onlyFiles: false })).filter(path => path.split("/").some(segment => /^\d+\./.test(segment)))
-  if (numbered.length) followUps.push({ file: numbered.sort()[0], message: `Nuxt Content dropped order prefixes such as 1. from paths. ViteHub Content keeps them, so ${numbered.length} file${numbered.length === 1 ? "" : "s"} get new paths. Rename them, or keep links that include the prefix.` })
-
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName, "better-sqlite3"], add: ["vite-hub", "@vite-hub/content"], within: usesZ ? { zod: "^3.25.0 || ^4.0.0" } : undefined })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName, "better-sqlite3"], add: ["vite-hub", "@vite-hub/content"], within: zImports ? { zod: "^3.25.0 || ^4.0.0" } : undefined })
   if (packageResult.edit) edits.push(packageResult.edit)
   return {
     summary: `moved ${collections.length} collection${collections.length === 1 ? "" : "s"} from ${file} to ${target}${added.host ? `, host "${added.host}"` : ""}.`,

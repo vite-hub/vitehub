@@ -49,4 +49,41 @@ describe("nuxt-content", () => {
     })
     await expect(runCodemod("nuxt-content", { cwd, dryRun: true })).rejects.toThrow("No collection of content.config.ts could be moved")
   })
+
+  it.each([
+    ["{ include: 'blog/**/*.md', prefix: '/posts', exclude: ['**/drafts/**'] }", "", /exclude cannot be safely rebased/],
+    ["{ include: 'blog/post-*.md', prefix: '/posts' }", "", /prefix .* cannot be preserved/],
+    ["'blog/*.md'", ", schema: article", /schema references article/],
+    ["'blog/*.md'", ", schema: z.object({ title: z.string().editor({}) })", /\.editor\(\) schema helper/],
+  ])("leaves all collections intact when one cannot migrate: %s%s", async (source, schema, message) => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n"
+    const content = `import { defineCollection, defineContentConfig, z } from '@nuxt/content'\nconst article = z.object({ title: z.string() })\nexport default defineContentConfig({ collections: { home: defineCollection({ type: 'page', source: 'about.md' }), blog: defineCollection({ type: 'page', source: ${source}${schema} }) } })\n`
+    const cwd = await createApp({ "nuxt.config.ts": config, "content.config.ts": content, "content/blog/drafts/private.md": "# Private\n" })
+    await expect(runCodemod("nuxt-content", { cwd })).rejects.toThrow(message)
+    expect(await readFile(join(cwd, "content.config.ts"), "utf8")).toBe(content)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    await expect(readFile(join(cwd, "server/content.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("preserves a literal filename with a prefix and a Zod alias", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxt/content'] })\n",
+      "content.config.ts": "import { defineCollection, defineContentConfig, z as schema } from '@nuxt/content'\nexport default defineContentConfig({ collections: { home: defineCollection({ type: 'page', source: { include: 'about.md', prefix: '/company' }, schema: schema.object({ title: schema.string() }) }) } })\n",
+      "content/about.md": "# About\n",
+    })
+    await runCodemod("nuxt-content", { cwd })
+    const output = await readFile(join(cwd, "server/content.ts"), "utf8")
+    expect(output).toContain("import { z as schema } from 'zod'")
+    expect(output).toContain("glob({ cwd: 'content', include: 'about.md', prefix: 'company' })")
+  })
+
+  it("does not uninstall a Content module referenced by an import", async () => {
+    const config = "import contentModule from '@nuxt/content'\nexport default defineNuxtConfig({ modules: [contentModule] })\n"
+    const cwd = await createApp({
+      "nuxt.config.ts": config,
+      "content.config.ts": "import { defineCollection, defineContentConfig } from '@nuxt/content'\nexport default defineContentConfig({ collections: { home: defineCollection({ type: 'page', source: 'about.md' }) } })\n",
+    })
+    await expect(runCodemod("nuxt-content", { cwd })).rejects.toThrow("remaining @nuxt/content reference")
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+  })
 })

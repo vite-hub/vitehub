@@ -95,6 +95,8 @@ The codemod moves a site that extends the `docus` layer to [`@vite-hub/docs`](/d
 
 The report lists what you change by hand: Nuxt UI page components in Markdown, such as `::u-page-hero`, your own Markdown components in `components/content/`, and fields such as `links`.
 
+The codemod stops without writing if a destination is occupied or it cannot preserve the published pages, routes, links, or settings. Convert local Markdown file links to page URLs and migrate custom collections by hand.
+
 ## nuxt-content
 
 The codemod moves the collections of `content.config.ts` to `server/content.ts`. Each collection becomes a `glob()` [Source](/docs/source) with the same files and paths:
@@ -118,3 +120,5 @@ The codemod moves the collections of `content.config.ts` to `server/content.ts`.
 ```
 
 `@nuxt/content` becomes `vite-hub/nuxt` in `modules`. The codemod does not rewrite `queryCollection()` or `<ContentRenderer>`, because ViteHub [Content](/docs/content) reads with `content.get(path)` and `content.list()`. The report lists each one with its line.
+
+If any Source or schema cannot be translated safely, the codemod leaves the original collections in place and reports which one needs a manual migration.

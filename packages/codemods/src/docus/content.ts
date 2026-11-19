@@ -1,68 +1,56 @@
+import { parseDocument, stringify } from "yaml"
+
+import { codemodError } from "../error-diagnostics.ts"
+
 import type { FollowUp } from "../types.ts"
 
-/** Frontmatter fields that `@vite-hub/docs` accepts on a page. Any other field fails its build with `DOCS_CONTENT_INVALID`. */
 const pageFields = new Set(["title", "description", "tagline", "eyebrow", "credits", "keywords", "icon", "layout", "tutorial", "codePanel", "sidebar", "toc", "navigation", "seo"])
 const navigationFields = new Set(["title", "order", "group", "kind", "panel"])
 const seoFields = new Set(["title", "description", "image", "index"])
 const sectionFields = new Set(["title", "icon", "order", "category", "group", "fold", "related"])
 const layouts = new Set(["article", "tutorial", "landing", "home"])
 
-/** Nuxt UI page components that Docus pages use and comark-ui does not render. */
-const nuxtUiBlock = /^\s*::(u-[a-z-]+)/
-
-/** A path segment without the `1.` order prefix of Nuxt Content, and that order. */
 export function stripOrder(segment: string): { name: string, order?: number } {
-  const match = /^(\d+)\.(.+)$/.exec(segment)
+  const match = /^\d+(?:\.\d+)+$/.test(segment) ? null : /^(\d+)\.(.+)$/.exec(segment)
   return match ? { name: match[2]!, order: Number(match[1]) } : { name: segment }
 }
 
-/** One top-level frontmatter entry: its key and its lines, with the indented lines of a nested value. */
-interface Entry {
-  key: string
-  lines: string[]
+function mapping(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-function parseEntries(lines: readonly string[]): Entry[] | undefined {
-  const entries: Entry[] = []
-  for (const text of lines) {
-    if (/^\s/.test(text) || text.startsWith("- ") || text === "") {
-      const last = entries.at(-1)
-      if (!last) return text === "" ? entries : undefined
-      last.lines.push(text)
-      continue
-    }
-    if (text.startsWith("#")) continue
-    const match = /^([\w.$-]+|"[^"]+"|'[^']+'):(?:\s|$)/.exec(text)
-    if (!match) return undefined
-    entries.push({ key: match[1]!.replace(/^["']|["']$/g, ""), lines: [text] })
+function readMapping(file: string, code: string): Record<string, unknown> {
+  try {
+    const document = parseDocument(code, { stringKeys: true })
+    if (document.errors.length || document.warnings.length) throw new Error("Unsupported YAML")
+    const value: unknown = document.toJS({ maxAliasCount: 0 })
+    if (value === null && !document.contents) return {}
+    if (mapping(value)) return value
   }
-  return entries
-}
-
-/** The scalar value of `key: value`, without quotes. */
-function scalar(text: string): string {
-  return text.slice(text.indexOf(":") + 1).trim().replace(/^(["'])(.*)\1$/, "$2")
-}
-
-function yamlString(value: string): string {
-  return /^[\w ./@-]+$/.test(value) && !/^(?:true|false|null|yes|no|\d)/i.test(value) ? value : JSON.stringify(value)
-}
-
-/** The child entries of a nested entry, such as `seo:` and its indented keys. */
-function children(entry: Entry): Array<{ key: string, text: string }> | undefined {
-  const rest = entry.lines.slice(1).filter(text => text.trim() !== "")
-  if (!rest.length) return []
-  const indent = /^\s+/.exec(rest[0]!)?.[0] ?? ""
-  const result: Array<{ key: string, text: string }> = []
-  for (const text of rest) {
-    if (!text.startsWith(indent)) return undefined
-    const inner = text.slice(indent.length)
-    if (/^\s/.test(inner)) return undefined
-    const match = /^([\w$-]+):(?:\s|$)/.exec(inner)
-    if (!match) return undefined
-    result.push({ key: match[1]!, text: inner })
+  catch {
+    // Report the original file rather than a partial rewrite.
   }
-  return result
+  throw codemodError(`${file}:1: Expected a YAML mapping that can be migrated. No files changed.`)
+}
+
+function keepFields(fields: Record<string, unknown>, allowed: Set<string>, dropped: (key: string) => void): void {
+  for (const key of Object.keys(fields)) {
+    if (allowed.has(key)) continue
+    dropped(key)
+    delete fields[key]
+  }
+}
+
+function expandFields(file: string, fields: Record<string, unknown>, key: string): void {
+  for (const field of Object.keys(fields)) {
+    if (!field.startsWith(`${key}.`)) continue
+    const name = field.slice(key.length + 1)
+    fields[key] ??= {}
+    const nested = fields[key]
+    if (!mapping(nested) || Object.hasOwn(nested, name)) throw codemodError(`${file}:1: Conflicting ${key} frontmatter fields.`)
+    Object.defineProperty(nested, name, { value: fields[field], writable: true, configurable: true, enumerable: true })
+    delete fields[field]
+  }
 }
 
 export interface PageMove {
@@ -70,120 +58,94 @@ export interface PageMove {
   followUps: FollowUp[]
 }
 
-/**
- * Moves the frontmatter of a Docus page to the fields of `@vite-hub/docs`: `seo.ogImage` becomes `seo.image`,
- * `navigation.icon` becomes `icon`, a page without `title` takes its first `# Heading`, the order prefix of the file
- * becomes `navigation.order`, and `::callout` becomes `::note`. Fields with no equivalent go, and the report lists them.
- */
 export function movePage(file: string, code: string, order: number | undefined): PageMove {
   const followUps: FollowUp[] = []
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(code)
-  let body = match ? code.slice(match[0].length) : code
-  const entries = match ? parseEntries(match[1]!.split(/\r?\n/)) : []
-  if (!entries) {
-    return { code, followUps: [{ file, line: 1, message: "The codemod could not read this frontmatter. Check that it uses only the @vite-hub/docs page fields, or the build fails with DOCS_CONTENT_INVALID." }] }
+  const opening = /^\uFEFF?---[ \t]*\r?\n/.exec(code)
+  const rest = opening ? code.slice(opening[0].length) : code
+  const closing = opening ? /^---[ \t]*(?:\r?\n|$)/m.exec(rest) : null
+  if (opening && !closing) throw codemodError(`${file}:1: The YAML frontmatter has no closing delimiter.`)
+  const frontmatter = closing ? readMapping(file, rest.slice(0, closing.index)) : {}
+  const body = closing ? rest.slice(closing.index + closing[0].length) : code
+  const dropped = (key: string) => followUps.push({ file, message: `The codemod dropped the ${key} field, which @vite-hub/docs does not read.${key === "links" ? " Put the links in the page body, for example as a ::card-group." : ""}` })
+
+  if (Object.hasOwn(frontmatter, "path")) throw codemodError(`${file}:1: Migrate the custom page path by hand.`)
+  expandFields(file, frontmatter, "navigation")
+  expandFields(file, frontmatter, "seo")
+  keepFields(frontmatter, pageFields, dropped)
+  if (frontmatter.title !== undefined && typeof frontmatter.title !== "string") throw codemodError(`${file}:1: Expected title to be a string.`)
+  if (frontmatter.layout !== undefined && (typeof frontmatter.layout !== "string" || !layouts.has(frontmatter.layout))) {
+    followUps.push({ file, message: `layout ${String(frontmatter.layout)} is not a @vite-hub/docs layout, so the codemod dropped it. Use article, tutorial, landing, or home.` })
+    delete frontmatter.layout
   }
-  const out: string[] = []
-  let title = entries.find(entry => entry.key === "title")
-  let icon = entries.find(entry => entry.key === "icon") ? undefined : ""
-  let hasOrder = false
-  for (const entry of entries) {
-    const first = entry.lines[0]!
-    if (entry.key.startsWith("navigation.")) {
-      const field = entry.key.slice("navigation.".length)
-      if (field === "icon" && icon === "") icon = scalar(first)
-      else if (navigationFields.has(field)) {
-        hasOrder ||= field === "order"
-        out.push(...entry.lines)
-      }
-      else followUps.push({ file, message: `The codemod dropped ${entry.key}, which @vite-hub/docs does not read.` })
-      continue
+  if (mapping(frontmatter.seo)) {
+    const seo = frontmatter.seo
+    if (Object.hasOwn(seo, "ogImage")) {
+      seo.image ??= seo.ogImage
+      delete seo.ogImage
     }
-    if (entry.key.startsWith("seo.")) {
-      const field = entry.key.slice("seo.".length)
-      if (field === "ogImage") out.push(`seo.image:${first.slice(first.indexOf(":") + 1)}`)
-      else if (seoFields.has(field)) out.push(...entry.lines)
-      else followUps.push({ file, message: `The codemod dropped ${entry.key}, which @vite-hub/docs does not read.` })
-      continue
-    }
-    if (!pageFields.has(entry.key)) {
-      followUps.push({ file, message: `The codemod dropped the ${entry.key} field, which @vite-hub/docs does not read.${entry.key === "links" ? " Put the links in the page body, for example as a ::card-group." : ""}` })
-      continue
-    }
-    if (entry.key === "layout" && !layouts.has(scalar(first))) {
-      followUps.push({ file, message: `layout ${scalar(first)} is not a @vite-hub/docs layout, so the codemod dropped it. Use article, tutorial, landing, or home.` })
-      continue
-    }
-    if (entry.key === "navigation" || entry.key === "seo") {
-      const value = scalar(first)
-      if (entry.key === "navigation" && value === "true") continue
-      if (value) {
-        out.push(...entry.lines)
-        continue
-      }
-      const nested = children(entry)
-      if (!nested) {
-        followUps.push({ file, message: `The codemod could not read ${entry.key}. Check that it uses only the fields that @vite-hub/docs reads.` })
-        out.push(...entry.lines)
-        continue
-      }
-      const kept: string[] = []
-      for (const child of nested) {
-        if (entry.key === "navigation" && child.key === "icon") {
-          if (icon === "") icon = scalar(child.text)
-          continue
-        }
-        if (entry.key === "seo" && child.key === "ogImage") {
-          kept.push(`  image:${child.text.slice(child.text.indexOf(":") + 1)}`)
-          continue
-        }
-        if ((entry.key === "navigation" ? navigationFields : seoFields).has(child.key)) {
-          hasOrder ||= entry.key === "navigation" && child.key === "order"
-          kept.push(`  ${child.text}`)
-        }
-        else followUps.push({ file, message: `The codemod dropped ${entry.key}.${child.key}, which @vite-hub/docs does not read.` })
-      }
-      if (kept.length) out.push(`${entry.key}:`, ...kept)
-      continue
-    }
-    out.push(...entry.lines)
+    keepFields(seo, seoFields, key => dropped(`seo.${key}`))
   }
-  if (!title) {
-    const heading = /^# +(.+?)\s*#*\s*$/m.exec(body)
-    if (heading) {
-      title = { key: "title", lines: [`title: ${yamlString(heading[1]!)}`] }
-      // The page layout draws the title as the only h1.
-      body = body.replace(heading[0], "").replace(/^\s*\n/, "")
-    }
-    else {
-      const name = stripOrder(file.split("/").at(-1)!.replace(/\.md$/, "")).name
-      title = { key: "title", lines: [`title: ${yamlString(name === "index" ? "Overview" : name.replace(/[-_]/g, " ").replace(/^\w/, letter => letter.toUpperCase()))}`] }
-      followUps.push({ file, line: 1, message: "This page has no title and no # heading, so the codemod named it after the file. Check the title." })
-    }
-    out.unshift(...title.lines)
+  else if (frontmatter.seo !== undefined) throw codemodError(`${file}:1: Expected seo to be a YAML mapping.`)
+
+  if (frontmatter.navigation === true) delete frontmatter.navigation
+  if (mapping(frontmatter.navigation)) {
+    frontmatter.icon ??= frontmatter.navigation.icon
+    if (frontmatter.icon === undefined) delete frontmatter.icon
+    delete frontmatter.navigation.icon
+    keepFields(frontmatter.navigation, navigationFields, key => dropped(`navigation.${key}`))
+    if (!Object.keys(frontmatter.navigation).length) delete frontmatter.navigation
   }
-  if (icon) out.push(`icon: ${yamlString(icon)}`)
-  if (order !== undefined && !hasOrder && !/^navigation:\s*false\s*$/m.test(out.join("\n"))) out.push(`navigation.order: ${order}`)
-  body = body.replace(/^(\s*:{2,})callout\b/gm, "$1note")
-  const lineOffset = out.length + 2
-  body.split("\n").forEach((text, index) => {
-    const block = nuxtUiBlock.exec(text)
-    if (block) followUps.push({ file, line: index + 1 + lineOffset, message: `::${block[1]} is a Nuxt UI component, which the docs Markdown does not render. Rewrite the block with comark-ui blocks, such as ::card-group, or with the home layout.` })
+  else if (frontmatter.navigation !== undefined && frontmatter.navigation !== false) throw codemodError(`${file}:1: Expected navigation to be a boolean or YAML mapping.`)
+  if (order !== undefined && frontmatter.navigation !== false) {
+    if (mapping(frontmatter.navigation)) frontmatter.navigation.order ??= order
+    else frontmatter["navigation.order"] = order
+  }
+
+  const lines = body.split("\n")
+  const firstBodyLine = closing ? code.slice(0, code.length - body.length).split("\n").length : 1
+  let fence: string | undefined
+  let title = typeof frontmatter.title === "string" ? frontmatter.title : undefined
+  const output = lines.flatMap((text, index) => {
+    const marker = /^[ \t]*(?:(?:>|[-+*]|\d+[.)])[ \t]+)*(`{3,}|~{3,})(.*)$/.exec(text)
+    if (fence) {
+      if (marker && marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined
+      return [text]
+    }
+    if (marker) {
+      fence = marker[1]
+      return [text]
+    }
+    if (/^(?: {4}|\t)/.test(text)) return [text]
+    if (/(?:\]\(|\]:\s*|href\s*=\s*["'])(?:\s*<?)(?![a-z][\w+.-]*:|\/\/)[^\s)>"']+\.md(?:[\s)>"'#?]|$)/i.test(text)) {
+      throw codemodError(`${file}:${firstBodyLine + index}: Convert local Markdown file links to their Nuxt Content page URLs before migrating.`)
+    }
+    const heading = /^ {0,3}# +(.+?)(?: +#+)?\s*$/.exec(text)
+    if (!title && heading) {
+      title = heading[1]
+      return []
+    }
+    const block = /^ {0,3}::(u-[a-z-]+)/.exec(text)
+    if (block) followUps.push({ file, line: firstBodyLine + index, message: `::${block[1]} is a Nuxt UI component, which the docs Markdown does not render. Rewrite the block with comark-ui blocks, such as ::card-group, or with the home layout.` })
+    return [text.replace(/^( {0,3}:{2,})callout\b/, "$1note")]
   })
-  return { code: `---\n${out.join("\n")}\n---\n\n${body.replace(/^\n+/, "")}`, followUps }
+  if (!title) {
+    const name = stripOrder(file.split("/").at(-1)!.replace(/\.md$/, "")).name
+    title = name === "index" ? "Overview" : name.replace(/[-_]/g, " ").replace(/^\w/, letter => letter.toUpperCase())
+    followUps.push({ file, line: 1, message: "This page has no title and no # heading, so the codemod named it after the file. Check the title." })
+  }
+  delete frontmatter.title
+  if (mapping(frontmatter.navigation) && Object.keys(frontmatter.navigation).length === 1 && frontmatter.navigation.order !== undefined) {
+    frontmatter["navigation.order"] = frontmatter.navigation.order
+    delete frontmatter.navigation
+  }
+  const yaml = stringify({ title, ...frontmatter }, { lineWidth: 0 })
+  return { code: `---\n${yaml}---\n\n${output.join("\n").replace(/^\r?\n(?:\r?\n)*/, "")}`, followUps }
 }
 
-/** Keeps the `.navigation.yml` fields that `@vite-hub/docs` reads, and adds the order prefix of the folder. */
-export function moveSection(file: string, code: string | undefined, order: number | undefined): PageMove | undefined {
+export function moveSection(file: string, code: string | undefined, order: number | undefined): PageMove {
   const followUps: FollowUp[] = []
-  const entries = code === undefined ? [] : parseEntries(code.split(/\r?\n/))
-  if (!entries) return { code: code!, followUps: [{ file, message: "The codemod could not read this file. Keep only title, icon, order, category, group, fold, and related, or the build fails." }] }
-  const out: string[] = []
-  for (const entry of entries) {
-    if (sectionFields.has(entry.key)) out.push(...entry.lines.filter(text => text !== ""))
-    else followUps.push({ file, message: `The codemod dropped ${entry.key}, which @vite-hub/docs does not read in .navigation.yml.` })
-  }
-  if (order !== undefined && !entries.some(entry => entry.key === "order")) out.push(`order: ${order}`)
-  if (!out.length) return undefined
-  return { code: `${out.join("\n")}\n`, followUps }
+  const fields = code === undefined ? {} : readMapping(file, code)
+  keepFields(fields, sectionFields, key => followUps.push({ file, message: `The codemod dropped ${key}, which @vite-hub/docs does not read in .navigation.yml.` }))
+  if (order !== undefined) fields.order ??= order
+  return { code: stringify(fields, { lineWidth: 0 }), followUps }
 }
