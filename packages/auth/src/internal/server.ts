@@ -589,10 +589,10 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
 
 type CoreAuthorization = AuthAuthorization<unknown>
 
-function checkedAuthorization<TRegistry = unknown>(request: CoreAuthorization["request"], session: Record<string, unknown>, user: Record<string, unknown> & { id: string }): AuthAuthorization<TRegistry> {
-  // SAFETY: The guard read `getSession()` from the selected Auth instance. Only the default Definition uses the registry.
+function checkedAuthorization(request: CoreAuthorization["request"], session: Record<string, unknown>, user: Record<string, unknown> & { id: string }): CoreAuthorization {
+  // SAFETY: The guard read `getSession()` from the selected Auth instance.
   // An alternate access identity reaches only route `authorize` callbacks, which read the plain access context.
-  return Object.freeze({ request, session, user }) as AuthAuthorization<TRegistry>
+  return Object.freeze({ request, session, user }) as CoreAuthorization
 }
 
 type AuthCheck =
@@ -910,14 +910,14 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
   return async (input) => {
     const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
-    const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
-      ? checkedAuthorization<ViteHub.AuthRegistry>(request, session.session, session.user)
+    const authorization: CoreAuthorization | AuthAnonymousAuthorization = session
+      ? checkedAuthorization(request, session.session, session.user)
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
     if (rejection.response) return sendSessionCookies(input, rejection.response)
-    return sendSessionCookies(input, await handler(input, authorization))
+    return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization | AuthAnonymousAuthorization))
   }
 }
 
@@ -1138,7 +1138,7 @@ function readAbilityAuthorization(input: AuthRequestInput): Promise<AuthAuthoriz
     pending = readRequestSession(input, resolveDefaultDefinition()).then(({ refusal, request, session }) => {
       if (refusal) throw authenticationRefusalError(refusal)
       return session
-        ? checkedAuthorization<ViteHub.AuthRegistry>(request, session.session, session.user)
+        ? checkedAuthorization(request, session.session, session.user) as AuthAuthorization
         : Object.freeze({ request, session: null, user: null })
     })
     // A failed read is not kept, so a later check reads again.
