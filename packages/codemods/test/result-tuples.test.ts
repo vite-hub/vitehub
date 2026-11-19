@@ -31,6 +31,29 @@ describe("result-tuples", () => {
     expect(names.indexOf("result-tuples")).toBeGreaterThan(names.indexOf("queue-workflow-verbs"))
   })
 
+  it("reports ambiguous auto-imports, non-route returns and direct gateway exports without editing them", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-bindings-"))
+    try {
+      await mkdir(join(cwd, "server/api"), { recursive: true })
+      await mkdir(join(cwd, "server/utils"))
+      await mkdir(join(cwd, "lib/routes"), { recursive: true })
+      await writeFile(join(cwd, "server/api/render.ts"), "export default async function () { return runBrowser('report') }\n")
+      await writeFile(join(cwd, "server/utils/runBrowser.ts"), "export function runBrowser(id: string) { return { id } }\n")
+      await writeFile(join(cwd, "lib/routes/report.ts"), "import { runSandboxTask } from 'vite-hub/sandbox/task'\nexport default async function () { return runSandboxTask('report') }\n")
+      await writeFile(join(cwd, "gateway.ts"), "import { typesafe as createGateway } from 'vite-hub/gateways'\nexport default createGateway()\n")
+      const { result } = await runCodemod("result-tuples", { cwd, dryRun: true })
+      expect(result.edits).toEqual([])
+      expect(result.followUps).toMatchObject([
+        { file: "gateway.ts", message: expect.stringContaining("exported gateway") },
+        { file: "lib/routes/report.ts", message: expect.stringContaining("toResponse(error ?? data)") },
+        { file: "server/api/render.ts", message: expect.stringContaining("Confirm that this auto-import comes from ViteHub") },
+      ])
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
   it("leaves app-provided runSchedule helpers alone", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-schedule-"))
     try {

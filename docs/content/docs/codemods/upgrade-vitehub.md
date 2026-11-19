@@ -130,7 +130,9 @@ These calls changed in the same way, and `result-tuples` reads them too:
 | `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` | threw | `vite-hub/gateways` |
 | `runBrowser()`, `runSandboxTask()` | returned a `Response` | `vite-hub/browser`, `vite-hub/sandbox/task`, and their Nuxt auto-imports |
 
-`runBrowser()` and `runSandboxTask()` returned a `Response`, and now return the value of the handler as `data`. The codemod rewrites them only where a route file returns the call, as in `return runBrowser(...)`, because the route then answers with the same body. It lists the other calls, such as `const response = await runSandboxTask(...)` followed by `response.json()`. It also lists a gateway that a file exports. i18n `save()` already returned `[error, data]`, so it needs no change. A custom gateway `ask()` that `defineChoices({ gateway })` gets must return `[undefined, answers]` now. Change it by hand.
+`runBrowser()` and `runSandboxTask()` returned a `Response`, and now return the value of the handler as `data`. The codemod rewrites an explicitly imported call that a known route handler returns. It uses `return toResponse(error ?? data)` from `vite-hub/runtime` to keep the HTTP response. It reports other calls, including Nuxt auto-imports whose source it cannot confirm and calls whose result the code reads with `response.json()`.
+
+The codemod also lists a gateway that a file exports. i18n `save()` already returned `[error, data]`, so it needs no change. A custom gateway `ask()` that `defineChoices({ gateway })` gets must return `[undefined, answers]` now. Change it by hand.
 
 ## one-entry-imports
 

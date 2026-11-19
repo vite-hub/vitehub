@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
-import { rewriteResultCalls, scriptBlocks } from "../shared/result-calls.ts"
+import { enclosingFunction, rewriteResultCalls, scriptBlocks } from "../shared/result-calls.ts"
 
 import type { CallExpression, File, Identifier, ImportDeclaration } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -154,7 +154,13 @@ function migrateBlock(context: BlockContext): number {
       }
       for (const specifier of statement.specifiers) if (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type") addExport(specifier.local)
     }
-    else if (statement.type === "ExportDefaultDeclaration" && statement.declaration.type === "Identifier") addExport(statement.declaration)
+    else if (statement.type === "ExportDefaultDeclaration") {
+      const declaration = statement.declaration
+      if (declaration.type === "Identifier") addExport(declaration)
+      else if (declaration.type === "CallExpression" && handleKind(declaration) === "gateway") {
+        followUps.push({ file, line: block.lineOffset + line(declaration), message: `\`${calleeText(declaration, block.code)}()\` is an exported gateway. In other files, read \`.ask()\` as \`[error, answers]\`. Those call sites are not rewritten automatically.` })
+      }
+    }
   }
   for (const handle of exportedHandles) {
     followUps.push({
@@ -165,14 +171,20 @@ function migrateBlock(context: BlockContext): number {
         : `\`${handle.name}\` is an exported Workflow handle. In other files, read \`.start()\`, \`.getRun()\`, and \`.cancel()\` as \`[error, data]\`. Those call sites are not rewritten automatically.`,
     })
   }
-  const passedOn = route ? returnedCalls(program) : new Set<CallExpression>()
-  const match = (call: CallExpression): ResultCall | undefined => {
+  const handler = route ? directRouteHandler(program) : undefined
+  let responseHelper: string | undefined
+  const match = (call: CallExpression, ancestors: readonly Node[]): ResultCall | undefined => {
     const callee = call.callee
     const name = exportedName(callee)
     const result = name ? resultFunctions.get(name) : undefined
-    if (result?.returnedResponse && !passedOn.has(call)) {
-      // A route that returns the call answers with the same body. Other code read the `Response`.
-      if (!readsTuple(call, program)) followUps.push({ file, line: block.lineOffset + line(call), message: responseFollowUp(calleeText(call, block.code)) })
+    if (result?.returnedResponse) {
+      const unbound = callee.type === "Identifier" && !resolveBinding(callee)
+      const parent = ancestors.at(-1)
+      const returned = parent?.type === "AwaitExpression" ? ancestors.at(-2) : parent
+      if (!unbound && handler && returned?.type === "ReturnStatement" && enclosingFunction(ancestors) === handler) {
+        return { error: "error", value: result.value, responseHelper: freeName => responseHelper ??= freeName("toResponse") }
+      }
+      if (!readsTuple(call, program)) followUps.push({ file, line: block.lineOffset + line(call), message: responseFollowUp(calleeText(call, block.code), unbound) })
       return undefined
     }
     if (result) return { error: "error", errorAfterValue: true, value: result.value }
@@ -182,7 +194,7 @@ function migrateBlock(context: BlockContext): number {
     const method = kind && property ? handleMethods[kind].get(property) : undefined
     return method ? { error: "error", errorAfterValue: true, value: method } : undefined
   }
-  return rewriteResultCalls(context, match, (call) => {
+  const rewritten = rewriteResultCalls(context, match, (call) => {
     const callee = calleeText(call, block.code)
     const name = exportedName(call.callee)
     followUps.push({
@@ -191,21 +203,35 @@ function migrateBlock(context: BlockContext): number {
       message: name && resultFunctions.get(name)?.returnedResponse ? responseFollowUp(callee) : `\`${callee}()\` returns \`[error, data]\` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: \`const [error, data] = await ${callee}(...)\`, then \`if (error) throw error\`.`,
     })
   })
+  if (responseHelper) {
+    const { output, style } = context
+    const lastImport = program.program.body.findLast(statement => statement.type === "ImportDeclaration")
+    if (lastImport) {
+      const specifier = responseHelper === "toResponse" ? "toResponse" : `toResponse as ${responseHelper}`
+      output.appendLeft(block.offset + end(lastImport), `\nimport { ${specifier} } from ${quoteString("vite-hub/runtime", style)}${style.semicolons ? ";" : ""}`)
+    }
+  }
+  return rewritten
 }
 
-function responseFollowUp(callee: string): string {
-  return `\`${callee}()\` returns \`[error, data]\` now, not a \`Response\`. \`data\` is the value that the handler returned, so code that reads \`response.ok\`, \`response.status\`, or \`response.json()\` must change. Read \`const [error, data] = await ${callee}(...)\`, then \`if (error) return toResponse(error)\` with \`toResponse\` from \`vite-hub/runtime\`.`
+function responseFollowUp(callee: string, unbound = false): string {
+  const read = unbound ? `Confirm that this auto-import comes from ViteHub before changing \`${callee}()\`. If it does, the call` : `\`${callee}()\``
+  return `${read} returns \`[error, data]\` now, not a \`Response\`. Read \`const [error, data] = await ${callee}(...)\`. Keep the HTTP response with \`toResponse(error ?? data)\` from \`vite-hub/runtime\`, or handle the error and use \`data\` directly.`
 }
 
-/** Calls whose value a function returns, as in `return await runBrowser(...)` or `return runBrowser(...)`. */
-function returnedCalls(program: File): Set<CallExpression> {
-  const calls = new Set<CallExpression>()
-  walk(program, (node) => {
-    if (node.type !== "ReturnStatement" || !node.argument) return
-    const argument = node.argument.type === "AwaitExpression" ? node.argument.argument : node.argument
-    if (argument.type === "CallExpression") calls.add(argument)
-  })
-  return calls
+/** A default-exported handler, either bare or passed directly to a known H3 or Nitro wrapper. */
+function directRouteHandler(program: File): Node | undefined {
+  const declaration = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")?.declaration
+  if (!declaration) return undefined
+  if (declaration.type === "FunctionDeclaration" || declaration.type === "FunctionExpression" || declaration.type === "ArrowFunctionExpression") return declaration
+  if (declaration.type !== "CallExpression" || declaration.callee.type !== "Identifier" || declaration.arguments.length !== 1) return undefined
+  const [handler] = declaration.arguments
+  if (handler?.type !== "ArrowFunctionExpression" && handler?.type !== "FunctionExpression") return undefined
+  const name = declaration.callee.name
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !["h3", "nitro"].includes(statement.source.value)) continue
+    if (statement.specifiers.some(specifier => specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && specifier.local.name === name && importedName(specifier) === "defineEventHandler")) return handler
+  }
 }
 
 /** Whether the code already reads the call as a Result, as in `const [error, data] = await runBrowser(...)`. */
@@ -230,7 +256,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     summary: rewritten ? `read ${rewritten} call(s) as \`[error, data]\` in ${edits.length} file(s)` : "found no call to read as a Result",
     edits,
     followUps,
-    notes: rewritten ? ["Each rewritten call throws its error, as the call did before. Return the error to the client, or handle it, where that is better."] : [],
+    notes: rewritten ? ["Rewritten calls throw their errors or, for former Response calls in routes, return them with `toResponse()`."] : [],
     nextSteps: edits.length ? ["Run your typecheck."] : [],
   }
 }
@@ -246,7 +272,7 @@ async function plan(cwd: string): Promise<{ edits: FileEdit[], followUps: Follow
     if (!needles.some(needle => source.includes(needle))) continue
     const output = new MagicString(source)
     const autoImports = /(?:^|\/)server\//.test(file)
-    const route = /(?:^|\/)(?:api|routes)\//.test(file)
+    const route = /^server\/(?:api|routes)\//.test(file) && !file.endsWith(".vue")
     for (const block of scriptBlocks(file, source)) {
       let program: File
       try {
