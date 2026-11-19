@@ -90,7 +90,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
-    delaySeconds: 60,
+    delay: '1m',
   })
   if (error) throw error
   return result
@@ -99,7 +99,7 @@ export default defineEventHandler(async (event) => {
 
 `sendQueue()` returns `[error, result]`. When Cloudflare accepts the job, `result` is `{ status: 'queued', messageId }`, not the handler's result. `messageId` is ViteHub's id; Cloudflare never sees it and gives the handler its own id.
 
-Cloudflare accepts `delaySeconds` and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs at once, call `sendBatch()` on `useQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
+Cloudflare accepts `delay`, such as `'1m'`, and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs at once, call `sendBatch()` on `useQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
 
 ## What the build generates
 
@@ -121,7 +121,7 @@ A handler that returns acknowledges the message. One that throws gets a Cloudfla
 
 - `'ack'` drops the message.
 - `'retry'` retries it.
-- `{ retry: { delaySeconds } }` retries it later.
+- `{ retry: { delay: '30s' } }` retries it later.
 - Nothing keeps the default.
 
 ```ts [server/queues/welcome-email.ts]
@@ -138,7 +138,7 @@ export default defineQueue<{ email: string }>({
   concurrency: 5,
   onError: error => getViteHubErrorShape(error)?.code === 'WELCOME_INVALID_EMAIL'
     ? 'ack'
-    : { retry: { delaySeconds: 30 } },
+    : { retry: { delay: '30s' } },
 })
 ```
 
@@ -146,7 +146,7 @@ export default defineQueue<{ email: string }>({
 
 ## How to use Cloudflare Queues locally
 
-`pnpm dev` runs jobs in the dev server, with no binding or account. It uses Cloudflare's defaults: 4 attempts, an instant retry, `delaySeconds` up to 24 hours, and payloads up to 128 KB. It does not run batches or call `onError`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+`pnpm dev` runs jobs in the dev server, with no binding or account. It uses Cloudflare's defaults: 4 attempts, an instant retry, a `delay` of up to 24 hours, and payloads up to 128 KB. It does not run batches or call `onError`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
 ```bash [Terminal]
 pnpm dev

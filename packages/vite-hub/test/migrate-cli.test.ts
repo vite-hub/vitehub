@@ -87,6 +87,7 @@ describe("vitehub migrate", () => {
         "})",
         "",
       ].join("\n"),
+      "server/api/welcome.post.ts": "import { runQueue } from 'vite-hub/queue'\nexport default defineEventHandler(() => runQueue('welcome', {}, { delaySeconds: 60 }))\n",
       "tsconfig.json": "{\n  \"extends\": \"./.nuxt/tsconfig.json\",\n  \"compilerOptions\": {\n    \"paths\": {\n      \"#vitehub/emails/*\": [\"./.vitehub/email/templates/*\"],\n      \"#vitehub/env/server\": [\"./.vitehub/env/server.d.ts\"]\n    }\n  }\n}\n",
     }
     for (const [path, contents] of Object.entries(files)) {
@@ -113,9 +114,10 @@ describe("vitehub migrate", () => {
     ].join("\n"))
     expect(await readFile(join(root, "scripts/kv.vite.config.ts"), "utf8")).toBe("import { hubKV } from '@vite-hub/kv/vite'\nexport default { plugins: [hubKV()] }\n")
     expect(await readFile(join(root, "server/utils/shell.ts"), "utf8")).toBe("import { createShellRuntime } from 'vite-hub/shell'\nimport { createJustBashDriver } from 'vite-hub/shell/providers/just-bash'\nexport const shell = (fs) => createShellRuntime({ driver: createJustBashDriver({ fs }) })\n")
+    expect(await readFile(join(root, "server/api/welcome.post.ts"), "utf8")).toBe("import { sendQueue } from 'vite-hub/queue'\nexport default defineEventHandler(() => sendQueue('welcome', {}, { delay: '60s' }))\n")
     expect(await readFile(join(root, "tsconfig.json"), "utf8")).toBe("{\n  \"extends\": \"./.nuxt/tsconfig.json\",\n  \"compilerOptions\": {\n  }\n}\n")
     expect(await readFile(join(root, ".env.example"), "utf8")).toBe(files[".env.example"])
-    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "result-tuples", "renamed-apis", "tsconfig-paths", "shell-driver"]) expect(result.stdout).toContain(`\n${name} (`)
+    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "queue-durations", "result-tuples", "renamed-apis", "tsconfig-paths", "shell-driver"]) expect(result.stdout).toContain(`\n${name} (`)
     expect(result.stdout).toContain("Keep `NUXT_APP_SECRET` when another module, such as nuxt-og-image, reads it.")
     expect(result.stdout).toContain("Rule VHUB0003 lists Result calls whose error the code drops, such as `await email.send(...)`")
 

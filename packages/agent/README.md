@@ -1,9 +1,9 @@
 # @vite-hub/agent
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="AI SDK" src="https://comark-ui.onmax.me/badge.svg?label=AI+SDK&amp;value=v7">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="AI SDK" src="https://img.shields.io/static/v1?label=AI+SDK&amp;message=v7&amp;color=blue">
 </p>
 
 `@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
