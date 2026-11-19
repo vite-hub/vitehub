@@ -41,6 +41,8 @@ export interface FakeSyncServer {
   pageSize: number
   /** The most rows in one page of a paged snapshot. */
   snapshotPageSize: number
+  /** `false` ignores `paged` and `after`, as a server without paged snapshots. */
+  paging: boolean
   readonly rows: Map<SyncKey, SyncRow>
   /** Every request that reached the server, in order. */
   readonly requests: { method: string, url: URL, body?: SyncPushRequest, live?: SyncLiveRequest }[]
@@ -106,6 +108,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     refuse: undefined,
     pageSize: 500,
     snapshotPageSize: 500,
+    paging: true,
     rows,
     requests: [],
     applied: [],
@@ -177,6 +180,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
 
   function pull(scope: SyncScope, account: string, cursor: number | undefined, scopeId: string | undefined, version: string | undefined, paged = false, after?: SyncKey): SyncPullResponse {
     const base = { key: "id", scope, account, version: server.version, defaults: server.defaults }
+    paged = paged && server.paging
     const reset = cursor === undefined || scopeId !== scope.id || version !== server.version || cursor < floor
     if (reset && !paged) {
       return { ...base, cursor: seq, reset: true, rows: [...rows.values()].filter(row => matches(row, scope.values)), deleted: [], more: false }

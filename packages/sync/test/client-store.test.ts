@@ -113,6 +113,23 @@ describe("start and pull", () => {
     expect(store.getState().rows).toHaveLength(12)
   })
 
+  it("starts the snapshot again when the server answers its next page with changes, as a server without paging", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        const response = await h.server.fetch(input, init)
+        if (++answered === 1) h.server.paging = false
+        return response
+      },
+    })
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready" })
+    expect(store.getState().rows).toHaveLength(12)
+  })
+
   it("pulls again while the server has more changes", async () => {
     const h = setup()
     const { store } = h.open()

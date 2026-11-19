@@ -92,6 +92,14 @@ function isRetryable(error: SyncError): boolean {
   return error.code === "SYNC_NETWORK" || error.code === "SYNC_SERVER_ERROR"
 }
 
+/**
+ * `true` when a server answered the next page of a snapshot with changes instead, as a server without paged snapshots
+ * does. The rows after the page then never come, so the client starts the snapshot again.
+ */
+function ignoredPage(sentAfter: string | undefined, pull: SyncPullResponse): boolean {
+  return sentAfter !== undefined && !pull.reset && pull.after === undefined
+}
+
 function isPush(value: unknown): value is SyncPushResponse {
   return Boolean(value) && typeof value === "object" && Array.isArray(Reflect.get(value as object, "results")) && isPull(Reflect.get(value as object, "pull"))
 }
@@ -196,6 +204,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const results = new Map<string, unknown>()
   // Ids of writes on their way to storage. A new update does not merge into them.
   const storing = new Set<string>()
+  // A server ignored the page of a snapshot, so the next pull starts a new snapshot.
+  let freshSnapshot = false
 
   let meta: SyncMeta | undefined
   let confirmed = new Map<SyncKey, SyncRow>()
@@ -678,7 +688,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   /** The query of a pull: where the client is, and its subset. */
   function pullQuery(): string {
     const query = new URLSearchParams()
-    if (meta) {
+    if (meta && !freshSnapshot) {
       query.set("cursor", String(meta.cursor))
       query.set("scope", meta.scope.id)
       query.set("version", meta.version)
@@ -693,9 +703,15 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     // The writes held before the pull started are in its answer.
     const mark = holdMark
     for (;;) {
+      const sentAfter = freshSnapshot ? undefined : meta?.after
       const answer = await request(`${url}${pullQuery()}`, { method: "GET", headers: { accept: "application/json" } })
       if (!answer.ok) return fail(answer.error)
       if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
+      if (ignoredPage(sentAfter, answer.body)) {
+        freshSnapshot = true
+        continue
+      }
+      if (answer.body.reset) freshSnapshot = false
       recover()
       await commit(pullChange(meta, answer.body, writes), answer.body.more ? undefined : mark)
       pulled = true
@@ -743,6 +759,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
     const done: SyncStorageChange = { remove: settled.remove, ...(stored.length ? { results: stored } : {}) }
+    if (ignoredPage(sentMeta.after, answer.body.pull)) {
+      await commit({ update: settled.update })
+      freshSnapshot = true
+      if (!(await pull())) return false
+      await commit(done)
+      return true
+    }
     if (!answer.body.pull.more) {
       await commit({ ...pulled, ...done, update: [...settled.update, ...pulled.update ?? []] })
       return true
