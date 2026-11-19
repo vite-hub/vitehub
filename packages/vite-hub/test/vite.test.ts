@@ -106,7 +106,7 @@ vi.mock("@vite-hub/blob/vite", async () => ({
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
-vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
+vi.mock("@vite-hub/channels/vite", () => ({ findWebhookChannel: () => undefined, hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
   hubDatabase: integrationMocks.hubDatabase,
@@ -843,7 +843,7 @@ describe("vitehub", () => {
       workspace: true,
     })
 
-    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
+    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith(undefined, {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({

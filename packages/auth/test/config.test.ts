@@ -284,6 +284,26 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }] })
   })
 
+  it("resolves the sign-in page or provider, and afterSignIn, for the Nuxt page guard", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { signIn: '/sign-in', afterSignIn: '/dashboard' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [], signIn: { page: "/sign-in" }, afterSignIn: "/dashboard" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], signIn: { provider: 'github', scopes: ['read:org'] } },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], signIn: { provider: true } })
+  })
+
+  it.each([
+    ["signIn: signInPage", "AUTH_C0028"],
+    ["signIn: 'login'", "AUTH_C0028"],
+    ["signIn: { provider: 'github', callbackURL: '/app' }", "AUTH_SIGN_IN_CALLBACK_URL_MOVED"],
+    ["afterSignIn: '//evil.example'", "AUTH_AFTER_SIGN_IN_INVALID"],
+  ])("rejects access.%s", async (value, code) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
+  })
+
   it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/**'], public: ${value} },`])

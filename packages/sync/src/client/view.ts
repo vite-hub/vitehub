@@ -304,8 +304,10 @@ function toMutation(write: SyncNewWrite, meta: SyncMeta | undefined): SyncMutati
  */
 function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: readonly SyncQueuedWrite[]): SyncStorageChange {
   const update = writes.filter(write => write.account === null).map(write => ({ ...write, account: pull.account }))
+  // A page of a snapshot says where the next one starts. Other pulls, such as the one in a push answer, keep it.
+  const after = pull.after !== undefined ? pull.after ?? undefined : pull.reset ? undefined : meta?.after
   return {
-    meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults },
+    meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults, ...(after === undefined ? {} : { after }) },
     reset: pull.reset || (meta !== undefined && (meta.scope.id !== pull.scope.id || meta.version !== pull.version)),
     put: pull.rows.map(row => [String(row[pull.key]), row]),
     delete: pull.deleted,
