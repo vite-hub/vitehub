@@ -58,7 +58,7 @@ describe("agent get CLI", () => {
     expect(stderr.output).toContain("--agent is now the name argument. Run vitehub agent get docs.")
   })
 
-  it("reads a deployed app through its status.get operation", async () => {
+  it.each(["https://app.example.com", "http://localhost:3000"])("reads the Console at %s through status.get", async (app) => {
     const stdout = stream()
     const calls: string[] = []
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -66,8 +66,14 @@ describe("agent get CLI", () => {
       calls.push(`${String(url)} ${call.m} ${JSON.stringify(call.a)}`)
       return Response.json({ i: call.i, r: { agent: "docs", ready: true }, t: "s" })
     })
-    expect(await runAgentInfoCli(["docs", "--url", "https://app.example.com"], { env: {}, rootDir: "/app", stderr: stream(), stdout }, { fetch: fetch as never })).toBe(0)
-    expect(calls).toEqual(['https://app.example.com/_vitehub/rpc status.get [{"agent":"docs"}]'])
+    expect(await runAgentInfoCli(["docs", "--url", app], { env: {}, rootDir: "/app", stderr: stream(), stdout }, { fetch: fetch as never })).toBe(0)
+    expect(calls).toEqual([`${app}/_vitehub/rpc status.get [{"agent":"docs"}]`])
     expect(JSON.parse(stdout.output)).toEqual({ agent: "docs", ready: true })
+  })
+
+  it("selects the Dev Loop explicitly on a custom hostname", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ inspection: { name: "docs" }, root: "/app" }))
+    expect(await runAgentInfoCli(["docs", "--server=https://dev.example.com"], { env: {}, rootDir: "/app", stderr: stream(), stdout: stream() }, { fetch })).toBe(0)
+    expect(fetch).toHaveBeenCalledWith("https://dev.example.com/__vitehub/agent/invocation-stream?inspect=1&agent=docs", expect.anything())
   })
 })

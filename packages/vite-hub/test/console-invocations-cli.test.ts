@@ -69,16 +69,19 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
     expect(anonymous.exitCode).toBe(1)
     expect(anonymous.stderr).toContain("HTTP 401")
 
-    const list = await cli(["list", "--status", "running", "--json"], fixture.host)
+    const list = await cli(["list", "--agent", "support", "--status", "running", "--json"], fixture.host)
     expect(list.exitCode).toBe(0)
     expect(JSON.parse(list.stdout).invocations).toEqual([expect.objectContaining({ id: value.id, status: "running" })])
+    const otherAgent = await cli(["list", "--agent", "other", "--json"], fixture.host)
+    expect(otherAgent.exitCode).toBe(0)
+    expect(JSON.parse(otherAgent.stdout).invocations).toEqual([])
 
     // Running status is persisted before the asynchronous trace journal writes.
     await vi.waitFor(async () => expect((await fixture.invocations.get(value.id))?.observations)
       .toEqual(expect.arrayContaining([expect.objectContaining({ name: "agent.invocation.start" })])))
-    const show = await cli(["show", value.id], fixture.host)
-    expect(show.stdout).toContain(`${value.id} running`)
-    expect(show.stdout).toContain("agent.invocation.start")
+    const get = await cli(["get", value.id], fixture.host)
+    expect(get.stdout).toContain(`${value.id} running`)
+    expect(get.stdout).toContain("agent.invocation.start")
 
     const cancel = await cli(["cancel", value.id, "--json"], fixture.host)
     expect(cancel.exitCode).toBe(0)

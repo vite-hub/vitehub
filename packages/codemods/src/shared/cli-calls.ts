@@ -17,16 +17,16 @@ const call = /\bvitehub[ \t]+([^\n"'`&;|)]*)/g
 
 /**
  * Rewrites the arguments of each `vitehub` call in the files that call the CLI. `rewrite` gets the text after
- * `vitehub ` and returns the new text, or the same text when the call does not change.
+ * `vitehub `, the file, and the character that ended the match (if any).
  */
-export async function rewriteCliCalls(cwd: string, rewrite: (args: string) => string): Promise<{ calls: number, edits: FileEdit[] }> {
+export async function rewriteCliCalls(cwd: string, rewrite: (args: string, file: string, nextChar: string | undefined) => string): Promise<{ calls: number, edits: FileEdit[] }> {
   const files = (await glob(callerPatterns, { cwd, dot: true, ignore: ignoredPatterns })).sort()
   const edits: FileEdit[] = []
   let calls = 0
   for (const file of files) {
     const before = await readFile(join(cwd, file), "utf8")
-    const after = before.replace(call, (whole, args: string) => {
-      const next = rewrite(args)
+    const after = before.replace(call, (whole, args: string, index: number) => {
+      const next = rewrite(args, file, before[index + whole.length])
       if (next === args) return whole
       calls++
       return `${whole.slice(0, whole.length - args.length)}${next}`

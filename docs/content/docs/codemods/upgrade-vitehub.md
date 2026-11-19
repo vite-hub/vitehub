@@ -392,4 +392,8 @@ npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
 +    "agent:status": "vitehub agent get support --url https://app.example.com"
 ```
 
-`vitehub agent invocations delete <id> --url <app>` asks before it deletes. Add `--yes` in a script.
+The codemod leaves old Console deletes untouched. Migrate them by hand to `vitehub agent invocations delete <id> --url <app>` and pass the same app. Without `--url`, this command deletes from the journal file. Add `--yes` to confirm in a script.
+
+Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
+
+Use `agent get <name> --server <dev-url>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.

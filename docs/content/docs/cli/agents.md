@@ -40,9 +40,9 @@ pnpm vitehub agent get support --json
 
 The output shows the Driver (the code that runs the Agent), its execution authority, tools, visible Workspace files and Sources, instructions, Invoker Profiles, warnings, and metadata status.
 Execution authority is a snapshot of what the Agent can reach: filesystem, network, environment, credentials, processes, and isolation. `unknown` means the runtime or provider cannot prove that part during inspection. It does not mean restricted or denied. The snapshot describes the inspected context. It is not an enforcement decision or proof of safety.
-`--json` gives the structured contract at `config.driver.executionAuthority`. Use `--url` when Vite is not on `http://localhost:5173`.
+`--json` gives the structured contract at `config.driver.executionAuthority`. Use `--server <dev-url>` to select a specific Dev Loop, including one behind a custom hostname.
 With more than one Agent, pass the name.
-`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`. With the `--url` of a deployed app, it reads the `status.get` [operation](/docs/console/operations) of that app's Console instead, and prints JSON.
+`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`. With `--url <app>`, it reads the `status.get` [operation](/docs/console/operations) of that app's Console instead, and prints JSON. This includes locally served production builds, such as `--url http://localhost:3000`.
 
 With the Console on, `vitehub agent list` lists the Agents of the app, and `vitehub agent invoke <agent> --prompt <text>` starts an Invocation. Both take `--url` for a deployed app.
 
@@ -81,13 +81,13 @@ Pass the app URL with `--url` to list, show, follow, or cancel Invocations throu
 
 ```bash [Terminal]
 export VITEHUB_CONSOLE_PRIVATE_KEY_CI='<private key>'
-pnpm vitehub agent invocations list --url https://app.example.com --status running
+pnpm vitehub agent invocations list --url https://app.example.com --agent support --status running
 pnpm vitehub agent invocations get ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations undo ainv_0123 --change chg_… --url https://app.example.com
 pnpm vitehub agent invocations capabilities --agent support --url https://app.example.com
-pnpm vitehub agent invocations workspace ainv_0123 --url https://app.example.com
+pnpm vitehub agent invocations workspace ainv_0123 --path README.md --url https://app.example.com
 pnpm vitehub agent invocations delete ainv_0123 --url https://app.example.com --yes
 ```
 

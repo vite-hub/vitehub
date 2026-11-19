@@ -94,7 +94,7 @@ pnpm vitehub agent list
 pnpm vitehub agent get support
 pnpm vitehub agent invocations list --limit 10
 pnpm vitehub agent invocations get ainv_123 --json
-pnpm vitehub agent invocations delete ainv_123 --yes
+pnpm vitehub agent invocations delete ainv_123 --url https://app.example.com --yes
 pnpm vitehub agent invocations list --url https://app.example.com
 ```
 

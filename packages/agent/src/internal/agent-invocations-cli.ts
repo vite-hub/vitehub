@@ -107,7 +107,10 @@ interface ParsedArgs {
   urlSet: boolean
   /** How long wait-idle waits. `timeout` stays the request timeout. */
   waitTimeout: number
+  workspace: { cursor?: string, history?: boolean, path?: string, ref?: string, revision?: string }
 }
+
+const workspaceValueOptions = ["cursor", "path", "ref", "revision"] as const
 
 const cancelEndpoint = { ...agentInvocationsDevGuard, route: agentInvocationsDevRoute }
 
@@ -175,7 +178,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --interval <ms>           Polling interval, such as 500 or 5s. Defaults to 1000 for tail and 5s for wait-idle.",
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
-    "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
+    "  --agent <name>            Filter Console list results or wait-idle by Agent.",
     "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
     "                            .vitehub/data/agent-invocations.sqlite in the project. list, get, tail, export, and",
     "                            wait-idle read a local SQLite file read-only, such as the journal inside a running",
@@ -197,6 +200,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
     "                            token usage, approvals, and errors, in order. Long text is cut.",
     "  --change <id>             The page change that undo puts back, as get lists it.",
+    "  --path <path>             Read a path in an Invocation Workspace.",
+    "  --ref, --revision, --cursor, --history  Select a Workspace ref, revision, page, or history.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -286,10 +291,11 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     url: env.VITEHUB_AGENT_INVOCATIONS_URL || "",
     urlSet: false,
     waitTimeout: waitIdleDefaults.timeout,
+    workspace: {},
   }
   const target: { timeout?: number, url: string } = { url: parsed.url }
   // --timeout is the request timeout, except for wait-idle, where it is how long to wait.
-  const actionOptionsWithValues = new Set(["--agent", "--url", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since"])
+  const actionOptionsWithValues = new Set(["--agent", "--url", "--server", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since", "--cursor", "--path", "--ref", "--revision"])
   let actionFromPositionals: Action | "cancel" | undefined
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
@@ -302,6 +308,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   let staleAfterSet = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
+    const workspaceOption = workspaceValueOptions.find(key => argument === `--${key}` || argument.startsWith(`--${key}=`))
     const used = waiting && (argument === "--timeout" || argument.startsWith("--timeout="))
       ? undefined
       : readViteHubDevTargetOption(args, index, target, devTargetErrors)
@@ -322,6 +329,22 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "--yes" || argument === "-y") parsed.yes = true
     else if (argument === "--observations") parsed.observations = true
     else if (argument === "--activity") parsed.activity = true
+    else if (workspaceOption) {
+      const flag = `--${workspaceOption}`
+      const value = argument === flag ? optionValue(args, index++, flag) : argument.slice(flag.length + 1)
+      if (!value) throw agentDiagnostics.AGENT_R0502({ message: `Missing value for ${flag}.` })
+      parsed.workspace[workspaceOption] = value
+    }
+    else if (argument === "--no-history") parsed.workspace.history = false
+    else if (argument === "--history" || argument.startsWith("--history=")) {
+      const value = argument === "--history" ? args[index + 1] : argument.slice("--history=".length)
+      if (value === "true" || value === "false") {
+        parsed.workspace.history = value === "true"
+        if (argument === "--history") index += 1
+      }
+      else if (argument === "--history") parsed.workspace.history = true
+      else throw agentDiagnostics.AGENT_R0503({ message: "--history must be true or false." })
+    }
     else if (argument === "--change") { parsed.change = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--change=")) parsed.change = argument.slice("--change=".length)
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
@@ -371,10 +394,12 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
-  if (!parsed.help && !waiting && parsed.action !== "export" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle, export, and capabilities." })
+  if (!parsed.help && !waiting && parsed.action !== "list" && parsed.action !== "export" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for list, wait-idle, export, and capabilities." })
   if (!parsed.help && parsed.yes && parsed.action !== "delete") throw agentDiagnostics.AGENT_R0505({ message: "--yes is only supported for delete." })
+  if (!parsed.help && parsed.action !== "workspace" && Object.keys(parsed.workspace).length) throw agentDiagnostics.AGENT_R0505({ message: "Workspace options are only supported for workspace." })
   if (!parsed.help && consoleActions.has(parsed.action) && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} reads the Console of the app. Pass --url instead of --database.` })
   if (!parsed.help && parsed.action === "delete" && parsed.urlSet && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
+  if (!parsed.help && consoleActions.has(parsed.action) && parsed.server) throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} needs the app's Console. Pass --url instead of --server.` })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
   if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
   const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
@@ -394,6 +419,9 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
       if (app.consolePath) parsed.deprecated = { form: "is the Console URL", use: `--url ${displayUrl(app.base)}, the app URL` }
     }
     else if (localUrl(parsed.url)) parsed.deprecated = oldLocalForm(parsed)
+  }
+  if (!parsed.help && parsed.urlSet && !parsed.console && (parsed.action === "delete" || consoleActions.has(parsed.action))) {
+    throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} needs a valid Console app URL when targeting a server. Pass --url <app> without credentials, a query, or a fragment.` })
   }
   if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations get <id>` lists." })
   if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
@@ -645,10 +673,11 @@ async function collectPages(
 }
 
 /** List through the Console. The Console has no status filter, so the CLI filters and follows cursors until it has enough records. */
-async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>): Promise<InvocationSummary[]> {
+async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>, agent?: string): Promise<InvocationSummary[]> {
   return await collectPages(async (cursor, collected) => {
     const input: Record<string, unknown> = { limit: Math.min(consolePageLimit, statuses ? consolePageLimit : wanted - collected) }
     if (cursor !== undefined) input.cursor = cursor
+    if (agent !== undefined) input.agent = agent
     return await consoleCall(target, invocationOperationNames.list, input, parseInvocationList)
   }, record => !statuses || statuses.has(record.status), wanted)
 }
@@ -670,7 +699,7 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
       ...(observations === undefined ? {} : { observationCount: observations.count, observationCursor: observations.cursor }),
     }, parseInvocationDetail),
     list: async () => ({
-      invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),
+      invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined, parsed.agent),
     }),
     // One pass over the Console pages serves every status.
     scan: async (statuses, timeout) => {
@@ -1285,12 +1314,14 @@ export async function runAgentInvocationsCli(
   const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
   let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
   try {
+    const filteredList = parsed.action === "list" && parsed.agent !== undefined
+    if (filteredList && (!parsed.console || readsJournalFile(parsed))) throw agentDiagnostics.AGENT_R0505({ message: "list with --agent needs the app's Console. Pass --url <app>." })
     if (parsed.deprecated) writeDeprecation(context, parsed, parsed.deprecated)
     const local = () => localInvocationsTarget(parsed, context, fetchImpl, timeout)
     const consoleTarget = parsed.console ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed) : undefined
     const target = readsJournalFile(parsed)
       ? file = await journalFileTarget(parsed, context)
-      : consoleTarget && parsed.consoleFallback
+      : consoleTarget && parsed.consoleFallback && !filteredList
         ? appInvocationsTarget(consoleTarget, local, () => writeDeprecation(context, parsed, oldLocalForm(parsed)))
         : consoleTarget ?? local()
     if (parsed.action === "cancel") {
@@ -1308,7 +1339,7 @@ export async function runAgentInvocationsCli(
       const call = { base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }
       const value = parsed.action === "capabilities"
         ? await consoleCall(call, "invocations.capabilities", parsed.agent === undefined ? {} : { agent: parsed.agent }, value => value)
-        : await consoleCall(call, "invocations.workspace", { id: parsed.id! }, value => value)
+        : await consoleCall(call, "invocations.workspace", { id: parsed.id!, ...parsed.workspace }, value => value)
       context.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
       return 0
     }

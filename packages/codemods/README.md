@@ -407,7 +407,9 @@ Every Agent command is under `vitehub agent`. The codemod moves the `vitehub` ca
 | `vitehub invocations list\|get\|cancel\|undo\|delete\|capabilities\|workspace` | `vitehub agent invocations …` |
 | `vitehub conversations export` | `vitehub agent conversations export` |
 
-`vitehub agent invocations delete <id> --url <app>` asks before it deletes. Add `--yes` in a script.
+The codemod leaves old Console deletes untouched. Migrate them by hand to `vitehub agent invocations delete <id> --url <app>` with the same app, and use `--yes` in scripts. Without `--url` the new command deletes from the journal file.
+
+Migrate old `invocations list` and `get` calls by hand. Check the new command's `--help` for supported inputs. The CLI list output no longer includes the Console cursor, and get emits a flat record with `--json` and does not accept observation paging options. The Console RPC still supports the old contracts. For Agent inspection, `--url` selects the Console and `--server` selects an explicit Dev Loop URL.
 
 ```sh
 npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]

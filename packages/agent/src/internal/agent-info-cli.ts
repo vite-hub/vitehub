@@ -27,8 +27,7 @@ interface AgentInfoCliOptions {
 
 interface ParsedInfoArgs {
   agent?: string
-  /** `--url` was passed. A deployed app answers through its Console RPC, not the dev endpoint. */
-  explicitUrl?: boolean
+  target?: "console" | "dev"
   help: boolean
   json: boolean
   url: string
@@ -62,13 +61,14 @@ export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: st
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent get [name] [--url <url>] [--json]",
+    "Usage: vitehub agent get [name] [--url <app> | --server <dev-url>] [--json]",
     "",
-    "Inspect one Agent through the running dev server, or through the app of a deployed --url.",
+    "Inspect one Agent through the running dev server, or through an app's Console.",
     "The name is required when the app has several Agents.",
     "",
     "Options:",
-    "  --url <url>     Compatible Vite Development Server URL. Defaults to the dev server running in this project,",
+    "  --url <app>     App URL for Console inspection, including locally served production builds.",
+    "  --server <url>  Agent Dev Loop URL. Defaults to the dev server running in this project,",
     "                  then VITEHUB_DEV_SERVER_URL, then http://localhost:5173.",
     "  --json          Print structured Agent metadata.",
     "  -h, --help      Show this help.",
@@ -105,17 +105,15 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
       const name = arg === "--agent" ? args[index + 1] : arg.slice("--agent=".length)
       throw agentDiagnostics.AGENT_R0499({ message: `--agent is now the name argument. Run vitehub agent get ${name && !name.startsWith("-") ? name : "<name>"}.` })
     }
-    if (arg === "--url" || arg === "--server") {
-      parsed.url = readOptionValue(args, index, arg)
-      parsed.explicitUrl = true
-      index++
-      continue
-    }
-    if (arg.startsWith("--url=")) {
-      const value = arg.slice("--url=".length)
+    const targetFlag = /^--(url|server)(?:=|$)/.exec(arg)
+    if (targetFlag) {
+      const flag = `--${targetFlag[1]}`
+      const target = flag === "--url" ? "console" : "dev"
+      if (parsed.target && parsed.target !== target) throw agentDiagnostics.AGENT_R0499({ message: "Pass --url or --server, not both." })
+      const value = arg === flag ? readOptionValue(args, index++, flag) : arg.slice(flag.length + 1)
       if (!value) throw agentDiagnostics.AGENT_R0498({ message: `Missing value for ${arg}.` })
       parsed.url = value
-      parsed.explicitUrl = true
+      parsed.target = target
       continue
     }
     if (arg.startsWith("-")) throw agentDiagnostics.AGENT_R0499({ message: `Unknown option: ${arg}.` })
@@ -241,16 +239,6 @@ async function fetchAgentInfo(url: string, rootDir: string, fetchImpl: typeof fe
   })
 }
 
-function isLoopbackUrl(value: string): boolean {
-  try {
-    const { hostname } = new URL(value)
-    return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]"
-  }
-  catch {
-    return false
-  }
-}
-
 /** `vitehub agent get --url <deployed app>`: the `status.get` operation of the app's Console RPC. */
 async function readDeployedAgent(parsed: ParsedInfoArgs, context: AgentInfoCliContext, options: AgentInfoCliOptions): Promise<number> {
   const result = await callOperationFromCli({
@@ -286,7 +274,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     writeInfoUsage(context)
     return 0
   }
-  if (parsed.explicitUrl && !isLoopbackUrl(parsed.url)) return await readDeployedAgent(parsed, context, options)
+  if (parsed.target === "console") return await readDeployedAgent(parsed, context, options)
 
   let url: string
   try {

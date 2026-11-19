@@ -163,8 +163,9 @@ describe("vitehub agent invocations through the Console of the app", () => {
     const app = localApp({ console: operation => operation === "invocations.capabilities" ? { capabilities: [{ name: "fetch" }] } : { files: [] } })
     const capabilities = await run(["capabilities", "--agent", "support", "--url", "http://localhost:3000"], app.fetch)
     expect(capabilities).toEqual({ exitCode: 0, stderr: "", stdout: `${JSON.stringify({ capabilities: [{ name: "fetch" }] }, null, 2)}\n` })
-    expect((await run(["workspace", "ainv_1", "--url", "http://localhost:3000"], app.fetch)).exitCode).toBe(0)
+    expect((await run(["workspace", "ainv_1", "--path", "README.md", "--ref=main", "--revision", "rev_1", "--cursor", "next", "--history", "false", "--url", "http://localhost:3000"], app.fetch)).exitCode).toBe(0)
     expect(app.calls.map(call => call.operation)).toEqual(["invocations.capabilities", "invocations.workspace"])
+    expect(operationRpcRequest(vi.mocked(app.fetch).mock.calls[1]?.[1]?.body).input).toEqual({ cursor: "next", history: false, id: "ainv_1", path: "README.md", ref: "main", revision: "rev_1" })
     expect((await run(["workspace", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("workspace requires an invocation id")
   })
 
@@ -179,4 +180,5 @@ describe("vitehub agent invocations through the Console of the app", () => {
     expect(app.calls.map(call => call.operation)).toEqual(["invocations.delete"])
     expect((await run(["list", "--yes", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("--yes is only supported for delete")
   })
+
 })

@@ -1283,10 +1283,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const evalFiles = discoverAgentEvalFiles(evalRoots)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
-      description: "Inspect a discovered Agent through a running Vite Development Server.",
+      description: "Inspect a discovered Agent through the Dev Loop or the app's Console.",
       name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent get [name] [--url <app>] [--json]",
+      usage: "vitehub agent get [name] [--url <app> | --server <dev-url>] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",

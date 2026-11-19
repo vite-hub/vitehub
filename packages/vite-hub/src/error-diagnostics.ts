@@ -339,7 +339,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0058: {
       ...dynamicError,
-      fix: "Pass the `cursor` of the last `vitehub agent invocations list` result without changes, or omit `cursor` to read the first page.",
+      fix: "Pass the `cursor` from the previous `invocations.list` Console RPC result without changes, or omit `cursor` to read the first page.",
     },
     VITE_HUB_R0059: {
       ...dynamicError,

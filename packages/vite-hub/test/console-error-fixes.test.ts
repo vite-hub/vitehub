@@ -97,7 +97,7 @@ describe("Console error fixes", () => {
     for (const cursor of ["[]", "{}", "{\"done\":1}", "not json", '{"done":{"toString":null}}']) {
       await expect(listConsoleInvocations({ cursor })).rejects.toMatchObject({
         code: "VITE_HUB_R0058",
-        fix: expect.stringContaining("vitehub invocations list"),
+        fix: expect.stringContaining("`invocations.list` Console RPC result"),
         status: 400,
       })
     }
