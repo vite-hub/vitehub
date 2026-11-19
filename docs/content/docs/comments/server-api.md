@@ -74,7 +74,7 @@ export default defineEventHandler(async (event) => {
 | `getByMessage(messageId)` | The thread holding a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `create({ subject?, page?, anchor?, context?, metadata?, revision?, requestId?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number in its scope. Give `subject`, or `page` for a page subject. `anchor` defaults to `{ kind: 'page' }`. Runs `onComment` and `onMention`. With `requestId`, a retry by the same author for the same subject returns the first thread and runs no hooks. Another author or subject with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
 | `reply(threadId, { body, author, actor?, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with open threads until someone resolves it again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
-| `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
+| `resolve(threadId, { by, actor? })` | The thread, with `status: 'resolved'`, `resolvedBy`, `resolvedAt`, and `resolvedActor` when you pass the Agent that resolves it for `by`. Threads show "Resolved by Claude (Ana)". The `comments.resolve` operation records the person only. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and its messages. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `removeMessage(messageId)` | Nothing. Deleting the first message deletes the thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -113,6 +113,7 @@ interface CommentThread {
   author: CommentUser
   actor?: CommentActor            // the Agent that wrote it for `author`
   resolvedBy?: CommentUser
+  resolvedActor?: CommentActor    // the Agent that resolved it for `resolvedBy`
   resolvedAt?: number             // milliseconds since the epoch
   createdAt: number
   updatedAt: number
@@ -311,7 +312,7 @@ const transport = createRestTransport({
   // The name that a guest typed, when `authorize` lets anonymous people write.
   guest: () => readGuest(),
 })
-const client = createCommentsClient({ transport, user, query: { subject: { kind: 'drop', id: '42' } } })
+const client = createCommentsClient({ transport, user, query: { subject: { kind: 'doc', id: '42' } } })
 
 // A thumbnail of an attachment: the URL checks that the reader may read its thread.
 const src = transport.attachmentUrl(thread.messages[0].attachments[0])

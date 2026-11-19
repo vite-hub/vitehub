@@ -80,19 +80,19 @@ import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
-```ts [server/workspaces/drop.ts]
+```ts [server/workspaces/notes.ts]
 import { blob } from 'vite-hub/blob'
 import { useDatabase } from 'vite-hub/database'
 import { defineWorkspace } from 'vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 
-export const dropStore = createBlobDatabaseWorkspaceStore({
+export const notesStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
   database: () => useDatabase('history').db,
-  workspace: 'drop-123',
+  workspace: 'notes-123',
 })
 
-export default defineWorkspace({ store: dropStore })
+export default defineWorkspace({ store: notesStore })
 ```
 
 `database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
@@ -133,7 +133,7 @@ DROP INDEX workspace_history_timeline;
 CREATE INDEX workspace_history_timeline ON workspace_history_revisions (workspace, ref, committed, sequence);
 ```
 
-To delete the workspace and all its history, check authorization in your app, then call `await dropStore.delete()`. It marks the identity with a tombstone, then removes objects and catalog rows.
+To delete the workspace and all its history, check authorization in your app, then call `await notesStore.delete()`. It marks the identity with a tombstone, then removes objects and catalog rows.
 
 ::warning
 Deletion is permanent. A replacement workspace needs a new identity.
@@ -153,7 +153,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 export default defineWorkspace({
   store: {
     driver: 'github',
-    repository: 'onmax/docs',
+    repository: 'acme/docs',
     branch: 'main',
     root: '',
     refs: { published: 'main', draft: 'vitehub/content' },

@@ -89,7 +89,7 @@ Retained history publishes a full folder and lets you read earlier versions. It 
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const workspace = useWorkspace('drop', { mode: 'write' })
+const workspace = useWorkspace('notes', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
   ifHead: base?.id ?? null,
@@ -98,7 +98,7 @@ const revision = await workspace.history.commit({
     'assets/data.bin': new Uint8Array([0, 255]),
   },
   message: 'Publish the site',
-  metadata: { author: 'maxi' },
+  metadata: { author: 'ada' },
 })
 
 const version = await workspace.history.open(revision.id)
@@ -131,7 +131,7 @@ const saved = await workspace.history.commit({
   ref: 'draft',
   ifHead: draft?.id ?? null,
   changes: {
-    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'maxi' } } },
+    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'ada' } } },
     delete: ['posts/old.md'],
   },
   message: 'Save hello',
