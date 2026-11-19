@@ -3825,7 +3825,7 @@ cli_auth_credentials_store = "keyring"
       "agent.message.delta",
       "agent.stream.finish",
     ])
-    expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
+    expect(traceLog.entries()[0]?.attributes).toMatchObject({ "message.content": "Inspecting files", "message.phase": "reasoning" })
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.output")?.attributes).toMatchObject({
       "step.id": "tool-1",
       "tool.id": "tool-1",

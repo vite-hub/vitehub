@@ -21211,6 +21211,7 @@ describe("server helpers", () => {
         run: () => ({
           stream: (async function* () {
             yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting toggle configuration**", type: "reasoning-delta" }
+            yield { id: "reasoning-1", text: "AI SDK private reasoning.", type: "reasoning-delta" }
             yield { id: "private", phase: "reasoning", type: "text-start" }
             yield { delta: "Private reasoning.", id: "private", type: "text-delta" }
             yield { id: "private", type: "text-end" }
