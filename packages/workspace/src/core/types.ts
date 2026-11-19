@@ -437,6 +437,20 @@ export interface WorkspaceRevisionView {
    * them from one archive of the commit. Stores without it read each file on its own.
    */
   preload?(paths: readonly string[]): Promise<void>
+  /**
+   * The revision that last changed each of `paths` in the history of this revision, with its `createdAt`. Null for a
+   * path without one. The GitHub Store asks GitHub for 100 paths in one request, as `git log -1 -- <path>` answers.
+   * Stores without it leave it out, and a caller compares the files of each revision with its parent.
+   */
+  lastChanged?(paths: readonly string[]): Promise<ReadonlyMap<string, WorkspaceLastChange | null>>
+}
+
+/** The revision that last changed a path, as `WorkspaceRevisionView.lastChanged()` answers. */
+export interface WorkspaceLastChange {
+  /** The revision id: the commit sha for the GitHub Store. */
+  id: string
+  /** When the revision was made, as an ISO date: the commit's author date for the GitHub Store. */
+  createdAt: string
 }
 
 /** An open pull request on a forge, for a Store whose refs are branches. */

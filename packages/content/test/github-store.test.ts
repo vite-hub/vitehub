@@ -992,6 +992,47 @@ describe("Content reads on the GitHub store", () => {
     expect(await createContentConsoleActions({ default: content }).overview({}, { user: { id: "ada" } } as never)).toEqual(overview)
   })
 
+  it("lists the Console pages with one file history request, not a tree per commit", async () => {
+    const files: Record<string, string> = { "README.md": "# Docs\n" }
+    for (let index = 0; index < 30; index++) files[`content/posts/p${index}.md`] = page(`P${index}`)
+    const { posts } = await setupWith(files)
+    // Each page changes once, a minute apart, and a commit outside the collection comes last.
+    for (let index = 0; index < 30; index++) {
+      fake.commit("main", { [`content/posts/p${index}.md`]: page(`P${index}`, `Edit ${index}\n`) }, { author: { date: new Date(Date.UTC(2026, 9, 20, 8, index)).toISOString(), name: "Ada" } })
+    }
+    fake.commit("main", { "README.md": "# Docs, again\n" }, { author: { date: "2026-10-21T08:00:00.000Z", name: "Ada" } })
+    // Other branches list before the draft branch, as GitHub sorts them by name.
+    for (const name of ["a", "b", "c", "d", "e", "f"]) {
+      fake.branch(`feature/${name}`, "main")
+      fake.commit(`feature/${name}`, { [`notes/${name}.md`]: `${name}\n` })
+    }
+    // A save, then a commit by another writer, so the status reads an older draft commit by its id.
+    await posts.save("p1", { data: { title: "P1, draft" }, body: "Draft\n" })
+    fake.commit("vitehub/content", { "README.md": "# Draft readme\n" })
+    // A new runtime holds nothing in memory, like a server instance that just started.
+    const workspace = `github-${process.pid}-${++workspaces}`
+    registerWorkspace(workspace, {
+      store: { driver: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      rules: { "**": { write: false } },
+    })
+    const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })
+    cleanup.push(() => fresh.dispose())
+    fake.requests.length = 0
+    const listed = await createContentConsoleActions({ default: fresh }).list({ collection: "posts", limit: 50, sort: { field: "title", direction: "asc" } }, { user: { id: "ada" } } as never)
+    expect(listed.items).toHaveLength(30)
+    for (const item of listed.items) {
+      const index = Number(item.id.slice(1))
+      if (index === 1) expect(item.updatedAt).not.toBeNull()
+      else expect(item.updatedAt).toBe(new Date(Date.UTC(2026, 9, 20, 8, index)).toISOString())
+    }
+    const requests = shapes()
+    expect(requests.filter(shape => shape.startsWith("GET /git/trees/")).length).toBeLessThanOrEqual(3)
+    expect(requests.filter(shape => shape === "POST /graphql")).toHaveLength(1)
+    // Finding the branch of an older draft commit asks the default and the draft branch, not every branch.
+    expect(requests.filter(shape => shape.startsWith("GET /compare/")).length).toBeLessThanOrEqual(4)
+    expect(requests.length).toBeLessThanOrEqual(16)
+  })
+
   it("lists each page with the updatedAt that get() reads", async () => {
     const { posts } = await longHistory()
     const seen: Array<{ id: string, updatedAt: string | null }> = []

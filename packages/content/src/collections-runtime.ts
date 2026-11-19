@@ -991,7 +991,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
    * When each of `paths` last changed on the ref of a revision. Walks the ref backwards: Content commits name the
    * documents they changed, and any other commit is compared with its parent. A revision whose answer for a path is
    * already known ends the walk for that path. Only the asked paths cost a walk, so reading one document does not compare
-   * the history of every document.
+   * the history of every document. A Store with `lastChanged()`, such as GitHub, answers instead of the walk.
    */
   async function updatedAtOf(opened: OpenedRevision, paths: Iterable<string>): Promise<ReadonlyMap<string, string | null>> {
     const id = opened.revision.id
@@ -1004,6 +1004,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (known.has(path)) continue
       if (digest === undefined) known.set(path, null)
       else pending.set(path, digest)
+    }
+    // A Store that knows the last change of a path, such as GitHub, answers every path with a few requests.
+    if (pending.size && opened.view.lastChanged) {
+      const changes = await opened.view.lastChanged([...pending.keys()])
+      for (const path of pending.keys()) known.set(path, changes.get(path)?.createdAt ?? null)
+      pending.clear()
     }
     const retained = pending.size ? await history() : undefined
     const ref = opened.revision.ref
