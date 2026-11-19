@@ -853,10 +853,15 @@ describe("docs Nuxt setup", () => {
 })
 
 describe("docs search checks", () => {
+  let appRoot = ""
   /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
   async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
     hooks.clear()
-    await setupDocs(docs, appBase)
+    const options = await setupDocs(docs, appBase)
+    // Hints go to `.vitehub/hints.json` of the app.
+    options.rootDir = mkdtempSync(join(tmpdir(), "docs-seo-hints-"))
+    roots.push(options.rootDir)
+    appRoot = options.rootDir
     const nitroHooks = new Map<string, Hook[]>()
     const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
@@ -879,10 +884,16 @@ describe("docs search checks", () => {
     })
   })
 
-  it.each([undefined, "warn"] as const)("logs the problems and keeps building when seoAudit is %s", async (seoAudit) => {
+  it.each([undefined, "warn"] as const)("reports the problems as hints and keeps building when seoAudit is %s", async (seoAudit) => {
     logger.warn.mockClear()
     await prerender({ seoAudit }, routes)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("/guides is in the sitemap, but it redirects."))
+    const report = JSON.parse(readFileSync(join(appRoot, ".vitehub/hints.json"), "utf8"))
+    expect(report).toMatchObject({ command: "build", hints: [{
+      code: "DOCS_SEO_SITEMAP_NOT_PAGE",
+      why: expect.stringContaining("- /guides is in the sitemap, but it redirects."),
+      docs: "https://vitehub.dev/docs/docs-site/diagnostics/docs_seo_sitemap_not_page",
+    }] })
   })
 
   it("adds no prerender hooks when seoAudit is false", async () => {

@@ -484,6 +484,22 @@ describe("comments() without vite-hub", () => {
     expect(await plugin()).toContain(`connectDatabase("env:COMMENTS_DATABASE_URL", { name: "comments", fallback: ${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)} })`)
   })
 
+  it("reports a hint when the database URL holds a token", async () => {
+    const root = await project({ "package.json": "{\"type\":\"module\"}" })
+    const warn = vi.fn()
+    const configResolved = (database: string) => (comments({ database })[0] as Plugin).configResolved as (config: unknown) => void
+    configResolved("libsql://comments.turso.io?authToken=secret")({ root, command: "build", logger: { warn } })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("COMMENTS_DATABASE_TOKEN_IN_BUILD"))
+    expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([expect.objectContaining({
+      code: "COMMENTS_DATABASE_TOKEN_IN_BUILD",
+      docs: "https://vitehub.dev/docs/comments/diagnostics/comments_database_token_in_build",
+    })])
+
+    // The next build without a token starts an empty report.
+    configResolved("env:COMMENTS_DATABASE_URL")({ root, command: "build", logger: { warn } })
+    expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
+  })
+
   it.each([undefined, "env:COMMENTS_DATABASE_URL", ":memory:"])("opens runtime-selected files in generated Node output (%s)", async (database) => {
     vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
     const root = await project({ "package.json": "{\"type\":\"module\"}" })

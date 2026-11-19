@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { reportViteHubHint } from "@vite-hub/internal/hints"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -38,7 +39,7 @@ import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPag
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
+import { docsSeoError, docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
@@ -141,7 +142,8 @@ export interface DocsModuleOptions {
    * Checks every prerendered page as a site audit does: a sitemap URL that is not a prerendered page, a missing or
    * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
    * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
-   * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
+   * or a canonical link to another page are left out. `"warn"`, the default, reports one hint for each kind of problem,
+   * such as `DOCS_SEO_TITLE_INVALID`, in the build output and in `.vitehub/hints.json`. `"error"` or `true` stops the
    * build with `DOCS_SEO_FAILED`. `false` turns the check off.
    */
   seoAudit?: "warn" | "error" | boolean
@@ -858,9 +860,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
-          const error = docsSeoError(problems)
-          if (seoAudit === "error" || seoAudit === true) throw error
-          useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
+          if (seoAudit === "error" || seoAudit === true) throw docsSeoError(problems)
+          const hints = { root: nuxt.options.rootDir, command: "build" as const, logger: useLogger("@vite-hub/docs") }
+          for (const hint of docsSeoHints(problems)) reportViteHubHint(hints, hint)
         })
       }
     }])

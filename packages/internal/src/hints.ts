@@ -6,7 +6,7 @@ import { formatDiagnostic } from "nostics"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "./build/vite.ts"
 
 import type { Diagnostic } from "nostics"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin } from "vite"
 
 /**
  * The file that lists the hints of the last build or dev server, relative to the project root. A hint is a warning
@@ -40,7 +40,15 @@ interface HintsRun {
   keys: Set<string>
 }
 
-type HintsConfig = Pick<ResolvedConfig, "root" | "command" | "logger">
+/**
+ * Where a hint goes: the resolved Vite config, or the project root and a logger from a Nitro or Nuxt hook that has no
+ * Vite config.
+ */
+export interface ViteHubHintsConfig {
+  root: string
+  command: "build" | "serve"
+  logger: { warn: (message: string) => void }
+}
 
 // Each feature package bundles its own copy of this module, so every copy shares one map through the global. Runs
 // are keyed by the report file: a Vite environment has its own config object, but the same project root.
@@ -55,12 +63,12 @@ const started = startedShared[startedKey] ??= new WeakSet<object>()
  * The report of the ViteHub project root, where the other generated files go. A Nuxt app with `srcDir: "app"` has its
  * Vite root in `app/`, one folder below.
  */
-function hintsFile(config: HintsConfig): string {
+function hintsFile(config: ViteHubHintsConfig): string {
   const projectRoot: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
   return resolve(typeof projectRoot === "string" ? projectRoot : resolveViteHubProjectRoot(config.root), viteHubHintsFile)
 }
 
-function startRun(config: HintsConfig): HintsRun {
+function startRun(config: ViteHubHintsConfig): HintsRun {
   const file = hintsFile(config)
   const run = { file, report: { version: 1 as const, command: config.command, startedAt: new Date().toISOString(), hints: [] }, keys: new Set<string>() }
   runs.set(file, run)
@@ -73,10 +81,10 @@ function write(run: HintsRun): void {
 }
 
 /**
- * Reports a hint from a Vite plugin hook: prints it once with its fix and docs link, and adds it to
+ * Reports a hint from a Vite plugin hook, or from a Nitro or Nuxt hook of the same build: prints it once with its fix and docs link, and adds it to
  * {@link viteHubHintsFile}. Build the diagnostic from the package's nostics catalog, so its code has a docs page.
  */
-export function reportViteHubHint(config: HintsConfig, diagnostic: Diagnostic): void {
+export function reportViteHubHint(config: ViteHubHintsConfig, diagnostic: Diagnostic): void {
   const run = runs.get(hintsFile(config)) ?? startRun(config)
   const hint: ViteHubHint = {
     code: diagnostic.code,
@@ -99,7 +107,7 @@ export function reportViteHubHint(config: HintsConfig, diagnostic: Diagnostic): 
  * package used without `vitehub()` starts its own run. The first call for a resolved config starts the run, and the
  * calls of other plugins of the same build keep it.
  */
-export function startViteHubHints(config: HintsConfig): void {
+export function startViteHubHints(config: ViteHubHintsConfig): void {
   if (started.has(config)) return
   started.add(config)
   write(startRun(config))
