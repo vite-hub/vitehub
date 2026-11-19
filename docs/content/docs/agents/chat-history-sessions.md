@@ -134,17 +134,19 @@ turn that starts a new provider thread. A resumed provider thread already has
 the earlier turns, so it gets only attachments from the current message and
 any queued or coalesced messages. A Sandbox provider gets no history photos.
 
-### Check which photos the model received
+### Check which photos went to the provider
 
 A Provider Driver, such as Codex or Claude Code, records one
 `agent.input.attachments` observation on the Invocation once the provider
-accepts the turn. The Console shows it as one row, such as
+accepts the turn. It lists what ViteHub handed to the provider with that turn.
+A provider can still drop an image it accepted, for example when Claude Code's
+own input budget is full. The Console shows the record as one row, such as
 `Sent 3 images (2.1 MB), skipped 1: byte-budget`. Open the row to see each
 attachment. The AI SDK Driver does not record it.
 
 | Attribute | Value |
 | --- | --- |
-| `input.attachments.sent` | Each attachment the model received: `messageId`, `partId`, `name`, `mediaType`, `bytes`, and `origin` (`current` or `history`). |
+| `input.attachments.sent` | Each attachment handed to the provider: `messageId`, `partId`, `name`, `mediaType`, `bytes`, and `origin` (`current` or `history`). |
 | `input.attachments.skipped` | Each attachment left out, with the same fields and a `reason`. |
 | `input.attachments.sentCount`, `sentBytes`, `skippedCount` | Totals. |
 
@@ -157,7 +159,7 @@ attachment. The AI SDK Driver does not record it.
 | `fetch-failed:<code>` | The download failed. `<code>` is the error code, HTTP status, or error name. |
 | `no-data` | The part has no data and no `fetchData()`. |
 | `sandbox` | A Sandbox provider cannot read history images. |
-| `not-inline` | A Provider Driver sends GIF, JPEG, PNG, and WebP images to the model. For other image types, the model gets only the path of the saved file. |
+| `not-inline` | The provider takes only GIF, JPEG, PNG, and WebP images as image input. Codex gets the path of the saved file for other image types. |
 
 ## Add a session
 
