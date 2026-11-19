@@ -43,7 +43,7 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     CHANNELS_C0007: {
       ...dynamicError,
-      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()`, `webhook()`, or `slack()` from `vite-hub/channels`, or your own `{ kind, send }`.",
+      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()` or `webhook()` from `vite-hub/channels`, `slack()` from `vite-hub/agent/channels`, or your own `{ kind, send }`.",
     },
     CHANNELS_C0008: {
       ...dynamicError,

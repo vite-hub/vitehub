@@ -57,7 +57,9 @@ import { chatContextModelText, isChatReplyPartType } from "./internal/chat-messa
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent, traceAgentInputAttachments } from "./trace.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, retainedUserMessages, selectedOutAttachments } from "./internal/input-attachments.ts"
+import type { InputAttachmentOrigin, InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -379,7 +381,7 @@ const chatgptLaunchEnvironmentKeys = new Set<string>([
   providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
-  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_MCP_BEARER_TOKEN",
   "VITEHUB_BROWSER_ACTIVE",
   "AGENT_BROWSER_SESSION",
   "AGENT_BROWSER_SOCKET_DIR",
@@ -2144,17 +2146,6 @@ async function resolveInstructions<
   }) : undefined
 }
 
-function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
-  const index = messageId
-    ? messages.findIndex(message => message.id === messageId)
-    : messages.findLastIndex(message => message.role === "user")
-  const chat = messages[index]?.metadata?.chat
-  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
-  if (typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
-  // Queue and steer coalescing retain these messages for the current Invocation.
-  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
-}
-
 function latestUserMessages(messages: Message[]): Message[] {
   const index = messages.findLastIndex(message => message.role === "user")
   return index === -1 ? messages.slice(-1) : [...retainedUserMessages(messages), ...messages.slice(index)]
@@ -2204,6 +2195,8 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+// `attachmentBytes` raises these when an attachment does not fit in the remaining bytes.
+const overBudgetAttachmentCodes = new Set(["AGENT_R0702", "AGENT_R0705", "AGENT_R0706", "AGENT_R0707"])
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (typeof part.size === "number" && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
@@ -2226,17 +2219,25 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
+ * The report names every attachment that was staged or left out, with the reason.
  */
 async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+  const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
+  const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
-  const history = includeHistory
-    ? (resumed ? latestUserMessages(context.messages) : context.messages)
-        .filter(message => message.role === "user")
-        .flatMap(message => message.parts.filter(isAttachmentPart))
-        .filter(part => !currentParts.has(part) && part.type === "image" && (part.data !== undefined || typeof part.fetchData === "function"))
-    : []
-  if (!current.length && !history.length) return
+  const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
+  const report: InputAttachmentsReport = { prepared: [], skipped: selectedOutAttachments(historyMessages) }
+  const history: AttachmentPart[] = []
+  for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
+    if (currentParts.has(part)) continue
+    const reason = !includeHistory
+      ? "sandbox"
+      : part.type !== "image" ? "not-image" : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+    if (reason) report.skipped.push({ ...entry(part, "history"), reason })
+    else history.push(part)
+  }
+  if (!current.length && !history.length) return { report }
   let remaining = maxBytes
   const resolved = new Map<AttachmentPart, Uint8Array>()
   for (const part of current) {
@@ -2246,14 +2247,20 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     resolved.set(part, bytes)
   }
   for (const part of history) {
-    if (remaining <= 0) break
+    if (remaining <= 0) {
+      report.skipped.push({ ...entry(part, "history"), reason: "byte-budget" })
+      continue
+    }
     try {
       const bytes = await attachmentBytes(part, remaining)
       remaining -= bytes.byteLength
       resolved.set(part, bytes)
-    } catch {}
+    } catch (error) {
+      const code = isRuntimeRecord(error) ? error.code : undefined
+      report.skipped.push({ ...entry(part, "history"), reason: typeof code === "string" && overBudgetAttachmentCodes.has(code) ? "byte-budget" : attachmentFetchFailure(error) })
+    }
   }
-  if (!resolved.size) return
+  if (!resolved.size) return { report }
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   // Keep message order so the images line up with the history they came from.
@@ -2262,7 +2269,9 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (!bytes) continue
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
-    await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
+    const path = join(runtime.attachmentsDirectory, `${id}${extension}`)
+    await writeFile(path, bytes)
+    report.prepared.push({ ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength, path })
     attachments.push({
       id,
       mimeType: part.mediaType,
@@ -2272,7 +2281,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       type: "image" as const,
     })
   }
-  return attachments
+  return { attachments, report }
 }
 
 function approvalDecision(approved: boolean): ProviderApprovalDecision {
@@ -2697,6 +2706,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
+      if (event.payload.streamKind === "reasoning_text" || event.payload.streamKind === "reasoning_summary_text") return [{ id: providerTextDeltaId(event), text: event.payload.delta, type: "reasoning-delta" }]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
@@ -2931,7 +2941,7 @@ async function* runProvider<
     const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
     return workspaceBrowserEnvironment(
       browserRuntimeEnvironment(context.context),
-      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}) } : environment,
     )
   }
   let developerInstructionsDigest: string | undefined
@@ -3201,6 +3211,9 @@ async function* runProvider<
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
       throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
     }
+    if (options.provider === "codex" && providerEnvironmentOverrides?.T3_MCP_BEARER_TOKEN !== undefined && providerEnvironmentOverrides.VITEHUB_MCP_BEARER_TOKEN === undefined) {
+      throw agentDiagnostics.AGENT_MCP_BEARER_TOKEN_RENAMED()
+    }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
@@ -3266,13 +3279,13 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
+      providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = ""
       chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
@@ -3283,8 +3296,8 @@ async function* runProvider<
       providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
       delete providerRuntimeEnvironment.PATHEXT
       if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
-      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "VITEHUB_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "VITEHUB_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
     }
@@ -3295,7 +3308,7 @@ async function* runProvider<
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
-        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
@@ -3504,7 +3517,7 @@ async function* runProvider<
       if (claudeSandboxPromptFile) claudePromptFile = posix.join(providerSandbox.home, claudeSandboxPromptFile)
       const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {})
       const preparedEnvironment = { ...providerRuntimeEnvironment }
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : [])
       providerLaunchDiagnosticPath = join(launchRoot, "sandbox-diagnostic.json")
       providerSandboxRelay = await startProviderSandboxRelay({
         sandbox: providerSandbox,
@@ -3547,14 +3560,14 @@ async function* runProvider<
       // reject them before the host receives the request. Shell policy stays intact.
       ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
-          ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
-          '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
+          ...(toolServer ? [`-c 'mcp_servers.vitehub-invocation.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
           // Clear only this invocation's transport token in native shell tools.
           // Preserve the caller's existing environment exclusions.
-          '-c \'shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""\'',
+          '-c \'shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""\'',
           // CLI override paths split on dots without parsing quoted TOML keys.
           // An inline table preserves the exact tool names, including punctuation.
-          `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+          `-c '${(`mcp_servers.vitehub-invocation.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
       // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
@@ -3671,7 +3684,7 @@ async function* runProvider<
         type: "run",
       })
     }
-    const attachments = await waitForProviderOperation(
+    const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
       effectiveSignal,
@@ -3679,6 +3692,14 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
+    await traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, attachmentReport)
     // The lost native thread had the earlier attachments, so replay them like an unpreserved session.
     const replayAttachments = (!preservesProviderSession || resumeFailed) && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)

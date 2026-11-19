@@ -15,7 +15,7 @@ These Channels work like [`github()`](/docs/agents/channels#reconcile-github-pul
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { forgejo, gitlab } from 'vite-hub/channels'
+import { forgejo, gitlab } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {

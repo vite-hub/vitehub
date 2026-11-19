@@ -115,7 +115,7 @@ process.stdin.on("end", () => {
       SANDBOX_TOKEN: process.env.SANDBOX_TOKEN,
       DRIVER_VALUE: process.env.DRIVER_VALUE,
       HOST_ONLY: process.env.VITEHUB_SANDBOX_TEST_HOST_ONLY,
-      RUNTIME_TOKEN: process.env.T3_MCP_BEARER_TOKEN,
+      RUNTIME_TOKEN: process.env.VITEHUB_MCP_BEARER_TOKEN,
     },
     home,
     input,
@@ -271,7 +271,7 @@ describe("Agent Sandbox environment", () => {
   it("forwards Driver and provider runtime values but keeps host values on the host", () => {
     expect(providerSandboxEnvironment({
       explicit: ["DRIVER_VALUE", "PATH_OVERRIDE"],
-      host: { HOST_SECRET: "host", PATH: "/host/bin", T3_MCP_BEARER_TOKEN: "stale-host-token" },
+      host: { HOST_SECRET: "host", PATH: "/host/bin", VITEHUB_MCP_BEARER_TOKEN: "stale-host-token" },
       prepared: { DRIVER_VALUE: "driver", PATH: "/host/bin", PATH_OVERRIDE: "/driver/bin" },
       received: {
         "BAD-NAME": "value",
@@ -280,10 +280,10 @@ describe("Agent Sandbox environment", () => {
         HOST_SECRET: "host",
         PATH: "/host/bin",
         PATH_OVERRIDE: "/driver/bin",
-        T3_MCP_BEARER_TOKEN: "runtime",
+        VITEHUB_MCP_BEARER_TOKEN: "runtime",
         XDG_CONFIG_HOME: "/host/config",
       },
-    })).toEqual({ DRIVER_VALUE: "driver", PATH_OVERRIDE: "/driver/bin", T3_MCP_BEARER_TOKEN: "runtime" })
+    })).toEqual({ DRIVER_VALUE: "driver", PATH_OVERRIDE: "/driver/bin", VITEHUB_MCP_BEARER_TOKEN: "runtime" })
   })
 
   it("reports boxed provider inspection as unsupported", async () => {
@@ -683,7 +683,7 @@ describe("Agent Sandbox provider execution", () => {
         expect(launcher).not.toBe(process.execPath)
         const launched = await runLauncher(launcher, ["-e", probeScript, join(cwd, "notes.txt")], {
           cwd,
-          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: "runtime-token" },
+          env: { ...options?.environment, VITEHUB_MCP_BEARER_TOKEN: "runtime-token" },
           stdin: `{"path":"${cwd}/notes.txt"}\n`,
         })
         results.push({ launched, localRoot: cwd })

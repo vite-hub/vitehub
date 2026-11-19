@@ -294,10 +294,14 @@ export const CommentReply = defineComponent({
   },
 });
 
-/** "Resolved by Ana", as a line across the thread. */
+/** "Resolved by Ana", or "Resolved by Claude (Ana)" when her agent did, as a line across the thread. */
 const resolvedMarker = (thread: CommentThreadModel) =>
   h(Marker, { key: "resolved", variant: "separator" }, () =>
-    h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
+    h(
+      MarkerContent,
+      () =>
+        `Resolved${thread.resolvedBy ? ` by ${writerName({ author: thread.resolvedBy, ...(thread.resolvedActor ? { actor: thread.resolvedActor } : {}) })}` : ""}`,
+    ),
   );
 
 export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";

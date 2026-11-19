@@ -107,6 +107,25 @@ it("inserts one thread when two creates with the same requestId race", async () 
   expect((await store.createThread({ ...thread("Other scope"), requestId: "draft-1", scope: "doc:guide" })).id).not.toBe(a.id)
 })
 
+it("keeps the agent that resolved a thread until it opens again, and reads resolvers stored without one", async () => {
+  const { store } = await countedStore()
+  const opened = await store.createThread({ ...thread("Grace asks"), author: grace })
+  const claude = { id: "claude", name: "Claude" }
+
+  expect(await store.setStatus(opened.id, "resolved", ada, Date.now(), claude)).toMatchObject({ resolvedBy: ada, resolvedActor: claude })
+  const reopened = await store.setStatus(opened.id, "open", ada, Date.now())
+  expect(reopened.resolvedBy).toBeUndefined()
+  expect(reopened.resolvedActor).toBeUndefined()
+  const byHand = await store.setStatus(opened.id, "resolved", grace, Date.now())
+  expect(byHand.resolvedBy).toEqual(grace)
+  expect(byHand.resolvedActor).toBeUndefined()
+
+  await store.setStatus(opened.id, "resolved", ada, Date.now(), claude)
+  expect(await store.deleteUser("ada")).toEqual([opened.id])
+  expect(await store.getById(opened.id)).toMatchObject({ status: "resolved", messages: [{ body: "Grace asks" }] })
+  expect((await store.getById(opened.id))?.resolvedActor).toBeUndefined()
+})
+
 it("deletes the messages of one person and keeps the replies of other people", async () => {
   const { store } = await countedStore()
   const alone = await store.createThread(thread("Only Ada wrote here"))

@@ -53,7 +53,7 @@ async function buildCloudflareAgentApp({ driver, workflow }: { driver: string[],
   await mkdir(join(root, "server/agents"), { recursive: true })
   await writeFile(join(root, "server/agents/hello.ts"), [
     "import { defineAgent } from \"vite-hub/agent\"",
-    "import { webChat } from \"vite-hub/channels\"",
+    "import { webChat } from \"vite-hub/agent/channels\"",
     "",
     "export default defineAgent({",
     "  channels: { web: webChat() },",

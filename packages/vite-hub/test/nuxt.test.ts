@@ -1634,17 +1634,25 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile(file, "utf8")).rejects.toThrow()
   })
 
-  it("prints the open-access notice of a Nuxt dev server", async () => {
+  it.each([
+    ["::1", false],
+    ["::", true],
+  ] as const)("warns about unsigned Console access only beyond loopback (address %s)", async (address, shouldWarn) => {
     const application = createNuxt(true)
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       await viteHubNuxtModule({ host: "node", console: { auth: false } }, application.nuxt)
-      const server = Object.assign(new EventEmitter(), { address: () => ({ address: "::1", port: 3000 }) })
+      const server = Object.assign(new EventEmitter(), { address: () => ({ address, port: 3000 }) })
       for (const listen of application.listenHooks) listen(server, { url: "http://localhost:3000/" })
-      expect(info).toHaveBeenCalledWith(expect.stringContaining("without a signature"))
+      const notice = expect.stringContaining("without a signature")
+      expect(info).not.toHaveBeenCalledWith(notice)
+      if (shouldWarn) expect(warn).toHaveBeenCalledWith(notice)
+      else expect(warn).not.toHaveBeenCalledWith(notice)
     }
     finally {
       info.mockRestore()
+      warn.mockRestore()
       await application.runCloseHook()
     }
   })

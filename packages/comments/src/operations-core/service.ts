@@ -271,7 +271,7 @@ export const contextSchema = v.object({
 })
 
 const revisionSchema = v.pipe(v.number(), v.integer(), v.minValue(0))
-/** The retry key of `comments.create`, such as `crypto.randomUUID()`. */
+/** The retry key of `comments.create` and `comments.reply`, such as `crypto.randomUUID()`. */
 export const requestIdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200))
 const attachmentKey = v.pipe(v.string(), v.minLength(1), v.maxLength(500))
 
@@ -420,16 +420,42 @@ export interface ReplyInput {
   actor?: CommentActor
   mentions?: readonly string[]
   attachments?: readonly string[]
+  /** A retry with the same key in the same thread gets the message of the first call. */
+  requestId?: string
+}
+
+/**
+ * The id of the message that a reply with `requestId` stores in a thread. Every retry gets the same id, so the primary
+ * key of the messages refuses a second message.
+ */
+async function replyMessageId(threadId: string, requestId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([threadId, requestId]))))
+  return `message_${Array.from(digest.subarray(0, 16), byte => byte.toString(16).padStart(2, "0")).join("")}`
+}
+
+/** The message that an earlier reply with this `requestId` stored in the thread. A retry gets it back before the reply checks. */
+export async function earlierReply(thread: CommentThread, requestId: string | undefined): Promise<CommentMessage | undefined> {
+  if (requestId === undefined) return undefined
+  const id = await replyMessageId(thread.id, check(requestIdSchema, requestId, "requestId"))
+  return thread.messages.find(message => message.id === id)
+}
+
+/** Only the author of the first call gets its message back. */
+export function retriedReply(thread: CommentThread, message: CommentMessage, author: CommentUser): { thread: CommentThread, message: CommentMessage } {
+  if (message.author.id !== personOf(author).id) throw fail(commentsErrorDiagnostics.COMMENTS_R0022(), 409)
+  return { message, thread }
 }
 
 /** Adds a message to a thread. The caller checked access. */
 export async function replyToThread(runtime: CommentsRuntime, thread: CommentThread, input: ReplyInput, options: WriteOptions & { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
+  const earlier = await earlierReply(thread, input.requestId)
+  if (earlier) return retriedReply(thread, earlier, input.author)
   if (thread.status === "resolved" && !options.allowResolved) throw fail(commentsErrorDiagnostics.COMMENTS_R0016(), 409)
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
   const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
-  const id = newId("message")
+  const id = input.requestId === undefined ? newId("message") : await replyMessageId(thread.id, input.requestId)
   let next: CommentThread
   try {
     next = await runtime.store.addMessage(thread.id, {
@@ -443,6 +469,13 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
     }, { allowResolved: options.allowResolved === true })
   }
   catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0022") {
+      // A retry with the same key won the race: the first call stored the message and sent its notifications.
+      const stored = await runtime.store.getById(thread.id)
+      const winner = stored?.messages.find(message => message.id === id)
+      if (stored && winner) return retriedReply(stored, winner, input.author)
+      throw fail(error, 409)
+    }
     if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0016") throw fail(error, 409)
     if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0002") throw fail(error, 404)
     throw error

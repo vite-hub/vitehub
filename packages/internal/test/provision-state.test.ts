@@ -160,7 +160,7 @@ describe("provision state", () => {
 describe("provision status", () => {
   function createStatus(rootDir: string) {
     const plan = vi.fn(async () => [])
-    const status = createProvisionNamespace([{ id: "test", provider: "cloudflare", plan }]).features.find(feature => feature.name === "status")!
+    const status = createProvisionNamespace(async () => ({ rootDir, steps: [{ id: "test", provider: "cloudflare", plan }] })).features.find(feature => feature.name === "status")!
     const context = {
       cwd: rootDir,
       env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
