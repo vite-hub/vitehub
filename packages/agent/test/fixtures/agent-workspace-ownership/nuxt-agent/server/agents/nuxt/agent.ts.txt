@@ -39,7 +39,7 @@ export default defineAgent({
           secretToken: telegram.webhookSecretToken.unseal(),
         })
       },
-      webhooks: { secretToken: () => useServerEnv().telegram.webhookSecretToken.unseal() },
+      webhooks: { secret: () => useServerEnv().telegram.webhookSecretToken.unseal() },
     }),
   },
   driver: { kind: "codex", model: "gpt-5.6-terra" },

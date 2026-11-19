@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, isReference, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
 
-import type { CallExpression, File, Identifier, ImportDeclaration } from "@babel/types"
+import type { CallExpression, Expression, File, Identifier, ImportDeclaration, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -20,7 +20,19 @@ const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActu
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /vite-hub\/agent\/channels|\bhttp\b/
+const needle = /vite-hub\/agent\/channels|\bhttp\b|\b(?:webhook|stripe)\b|\bsecretToken\b/
+
+/** Modules whose import marks a file with Agent webhook registrations, in `webhooks` of a Channel or a trigger. */
+const agentModules = /^(?:@?vite-hub\/(?:agent|channels)(?:\/|$)|vite-hub\/agent\/)/
+
+/** Modules that export `webhook()` and `stripe()`, whose `secret` and `signature` follow Webhooks now. */
+const webhookModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+
+/** Signature names before they followed `defineWebhook({ signature })`. */
+const renamedSignatures = new Map([["github-sha256", "github"], ["stripe-sha256", "stripe"]])
+
+const variableName = /^[A-Z_][A-Z0-9_]*$/i
+
 
 interface Block {
   code: string
@@ -185,6 +197,183 @@ function replaceHttp(context: FileContext) {
   }
 }
 
+function property(object: ObjectExpression, name: string): ObjectProperty | undefined {
+  const found = object.properties.find(entry => entry.type === "ObjectProperty" && !entry.computed && keyName(entry.key) === name)
+  return found?.type === "ObjectProperty" ? found : undefined
+}
+
+function unwrap(node: Node): Node {
+  let current = node
+  while (current.type === "TSAsExpression" || current.type === "TSSatisfiesExpression" || current.type === "TSNonNullExpression" || current.type === "ParenthesizedExpression") current = current.expression
+  return current
+}
+
+/** `toleranceSeconds: 60` becomes `tolerance: "60s"`. Returns false when the value is not a number literal. */
+function renameTolerance(context: FileContext, entry: ObjectProperty): boolean {
+  const value = unwrap(entry.value)
+  if (value.type !== "NumericLiteral") {
+    followUp(context, entry, "`toleranceSeconds` is now `tolerance`, a duration such as `tolerance: \"5m\"`. Set it by hand.")
+    return false
+  }
+  overwrite(context, entry, `tolerance: ${quoteString(`${value.value}s`, context.style)}`)
+  return true
+}
+
+/** Rewrites a signature and returns whether it used the old syntax. */
+function rewriteSignature(context: FileContext, entry: ObjectProperty): boolean {
+  const value = unwrap(entry.value)
+  if (value.type === "StringLiteral") {
+    const renamed = renamedSignatures.get(value.value)
+    if (renamed) overwrite(context, value, quoteString(renamed, context.style))
+    return renamed !== undefined
+  }
+  if (value.type !== "ObjectExpression") return false
+  const tolerance = property(value, "toleranceSeconds")
+  if (tolerance) renameTolerance(context, tolerance)
+  const preset = property(value, "preset")
+  if (!preset) return tolerance !== undefined
+  const name = unwrap(preset.value)
+  if (name.type !== "StringLiteral") {
+    followUp(context, preset, "`signature: { preset }` is now `signature: { type }`. Set it by hand.")
+    return true
+  }
+  const type = name.value === "stripe-sha256" ? "stripe" : name.value
+  overwrite(context, preset, `type: ${quoteString(type, context.style)}`)
+  return true
+}
+
+/**
+ * A string `secret` names a server variable now. Only wrap expressions known to return secret values.
+ */
+function rewriteSecret(context: FileContext, entry: ObjectProperty, ambiguousLiteral: boolean) {
+  const value = unwrap(entry.value)
+  if (isSecretResolverOrFlag(value)) return
+  const name = processEnvName(value)
+  if (name) {
+    overwrite(context, value, quoteString(name, context.style))
+    return
+  }
+  const literal = value.type === "StringLiteral" ? value.value : value.type === "TemplateLiteral" && !value.expressions.length ? value.quasis[0]?.value.cooked : undefined
+  if (literal !== undefined && literal !== null && variableName.test(literal)) {
+    if (ambiguousLiteral) followUp(context, entry, "Check that `secret` names a server variable. If it is a secret value, move it to a server variable and set `secret` to that variable's name.")
+    return
+  }
+  if (literal !== undefined && literal !== null) {
+    followUp(context, entry, "This secret is written in the code. Move it to a server variable and set `secret` to its name, such as `secret: \"PREFECT_WEBHOOK_SECRET\"`.")
+    wrapSecret(context, entry)
+    return
+  }
+  if (isServerEnvRead(value)) {
+    wrapSecret(context, entry)
+    return
+  }
+  followUp(context, entry, "Check what `secret` returns. Pass the name of the server variable or a function that returns the secret. Keep existing secret resolvers as they are.")
+}
+
+function isSecretResolverOrFlag(value: Node): boolean {
+  return value.type === "BooleanLiteral" || value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "ObjectExpression"
+}
+
+function isServerEnvRead(value: Node): boolean {
+  if (value.type !== "MemberExpression" || value.computed) return false
+  const object = unwrap(value.object)
+  return isServerEnvRead(object) || (object.type === "CallExpression" && object.callee.type === "Identifier" && object.callee.name === "useServerEnv" && !object.arguments.length)
+}
+
+function wrapSecret({ block, output }: FileContext, entry: ObjectProperty) {
+  output.prependLeft(block.offset + start(entry.value), "() => ")
+}
+
+/** The `process.env` variable that `node` reads, such as `X` in `process.env.X`. */
+function processEnvName(node: Node): string | undefined {
+  if (node.type !== "MemberExpression" || node.object.type !== "MemberExpression") return undefined
+  const { object } = node
+  if (object.object.type !== "Identifier" || object.object.name !== "process" || object.computed) return undefined
+  if (object.property.type !== "Identifier" || object.property.name !== "env") return undefined
+  const name = node.computed ? (node.property.type === "StringLiteral" ? node.property.value : undefined) : node.property.type === "Identifier" ? node.property.name : undefined
+  return name && variableName.test(name) ? name : undefined
+}
+
+/**
+ * An Agent webhook registration: `secretToken` becomes `secret`, and the signature takes the Webhooks name.
+ * `secretToken: process.env.X` becomes `secret: "X"`. A literal stays, with a report line: it is a value, and a
+ * `secret` string names a variable.
+ */
+function rewriteRegistration(context: FileContext, registration: ObjectExpression) {
+  const signature = property(registration, "signature")
+  if (signature) rewriteSignature(context, signature)
+  const token = property(registration, "secretToken")
+  if (!token) return
+  const value = unwrap(token.value)
+  const { style } = context
+  const name = processEnvName(value)
+  if (name) {
+    overwrite(context, token, `secret: ${quoteString(name, style)}`)
+    return
+  }
+  if (value.type === "StringLiteral" || value.type === "TemplateLiteral") {
+    followUp(context, token, "`secretToken` is now `secret`, and a `secret` string names the server variable that holds the secret. Move this secret to a server variable, such as `GITHUB_WEBHOOK_SECRET`, and set `secret: \"GITHUB_WEBHOOK_SECRET\"`.")
+    return
+  }
+  const envRead = isServerEnvRead(value)
+  if (!envRead && !isSecretResolverOrFlag(value)) {
+    followUp(context, token, "`secretToken` is now `secret`. Set `secret` to the name of the server variable that holds the secret, or to a function that returns it.")
+    return
+  }
+  overwrite(context, token.key, "secret")
+  if (envRead) wrapSecret(context, token)
+}
+
+/** Registrations under a `webhooks` key: one object, an array of them, or a map of them by provider, as in `chat()`. */
+function webhookRegistrations(value: Node): ObjectExpression[] {
+  const node = unwrap(value)
+  if (node.type === "ArrayExpression") return node.elements.flatMap(element => element && element.type === "ObjectExpression" ? [element] : [])
+  if (node.type !== "ObjectExpression") return []
+  const keys = node.properties.flatMap(entry => entry.type === "ObjectProperty" && !entry.computed ? [keyName(entry.key)] : [])
+  const registrationKeys = ["secretToken", "secret", "signature", "secretHeader", "path", "aliases", "provider", "id"]
+  if (keys.some(key => key && registrationKeys.includes(key)) || !keys.length) return [node]
+  return node.properties.flatMap(entry => entry.type === "ObjectProperty" && unwrap(entry.value).type === "ObjectExpression" ? [unwrap(entry.value) as ObjectExpression] : [])
+}
+
+/** Rewrites Agent webhook registrations in a file that imports ViteHub Agents or Channels. */
+function rewriteAgentRegistrations(context: FileContext) {
+  const { program } = context
+  const imports = program.program.body.some(statement => statement.type === "ImportDeclaration" && agentModules.test(statement.source.value))
+  if (!imports) return
+  walk(program, (node) => {
+    if (node.type !== "ObjectProperty" || node.computed || keyName(node.key) !== "webhooks") return
+    for (const registration of webhookRegistrations(node.value)) rewriteRegistration(context, registration)
+  })
+}
+
+/** Rewrites the options of `webhook()` and `stripe()` from `vite-hub/channels`. */
+function rewriteWebhookOptions(context: FileContext) {
+  const { program } = context
+  const resolve = bindingResolver(program)
+  const adapters = new Map<Identifier, "stripe" | "webhook">()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || !webhookModules.has(statement.source.value) || statement.importKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      const name = importedName(specifier)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && (name === "stripe" || name === "webhook")) adapters.set(specifier.local, name)
+    }
+  }
+  if (!adapters.size) return
+  walk(program, (node) => {
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
+    const binding = resolve(node.callee)
+    const adapter = binding && adapters.get(binding)
+    const options = adapter && node.arguments[0] && unwrap(node.arguments[0] as Expression)
+    if (options?.type !== "ObjectExpression") return
+    const signature = property(options, "signature")
+    const legacySignature = signature && rewriteSignature(context, signature)
+    const secret = property(options, "secret")
+    if (secret) rewriteSecret(context, secret, adapter === "stripe" || legacySignature === true)
+    const tolerance = adapter === "stripe" ? property(options, "toleranceSeconds") : undefined
+    if (tolerance) renameTolerance(context, tolerance)
+  })
+}
+
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
   const edits: FileEdit[] = []
@@ -201,17 +390,20 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
       }
       catch (error) {
-        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). ${manualHttp}` })
+        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). ${manualHttp} Migrate webhook secrets and signatures by hand.` })
         continue
       }
       const before = output.toString()
-      replaceHttp({ block, file, followUps, output, program, style: detectStyle(block.code, program) })
+      const context: FileContext = { block, file, followUps, output, program, style: detectStyle(block.code, program) }
+      replaceHttp(context)
+      rewriteWebhookOptions(context)
+      rewriteAgentRegistrations(context)
       changed = output.toString() !== before || changed
     }
     if (changed) edits.push({ path: file, before: source, after: output.toString() })
   }
   return {
-    summary: edits.length ? `replaced http() in ${edits.length} file(s)` : "no http() calls changed",
+    summary: edits.length ? `replaced http() and moved webhook options in ${edits.length} file(s)` : "no http() call or webhook option changed",
     edits,
     followUps,
     notes: [],
@@ -221,12 +413,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const channels: Codemod = {
   name: "channels",
-  description: "Replace the Agent `http()` adapter with `channelAdapter(\"http\")`",
+  description: "Replace the Agent `http()` adapter with `channelAdapter(\"http\")`, and move `webhook()`, `stripe()`, and Agent webhook registrations to `secret` names and Webhooks signature names",
   usage: "[dir]",
   async detect({ cwd }) {
     const result = await migrate({ cwd })
     const [edit] = result.edits
-    if (edit) return { reason: `${edit.path} calls the Agent \`http()\` adapter` }
+    if (edit) return { reason: `${edit.path} calls the Agent \`http()\` adapter or sets an old webhook option` }
     const [followUp] = result.followUps
     return followUp ? { reason: `${followUp.file} needs a manual Agent Channel migration` } : undefined
   },
