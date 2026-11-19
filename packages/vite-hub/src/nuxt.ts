@@ -1032,7 +1032,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
+  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options), viteRoot }
   // Definition files, such as `server/auth.ts`, turn their features on, and the `cms` preset turns on Workspace,
   // Database, and Blob. Nuxt knows the root here, so resolve them once.
   const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments(resolveDefinitionFeatures({
@@ -1120,7 +1121,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
-  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const configuredDatabaseDiscoveryRoot = configuredProjectRoot(rootDir, options.database)
   const effectiveBlob = consoleOptions ? options.blob : false
   const explicitBlob = explicitBlobOption(effectiveBlob)
