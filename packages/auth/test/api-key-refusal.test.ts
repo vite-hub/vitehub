@@ -20,6 +20,7 @@ function createApiKeyAuth() {
     database: memoryAdapter(db),
     emailAndPassword: { enabled: true },
     plugins: [apiKey({ enableSessionForAPIKeys: true })],
+    session: { additionalFields: { region: { type: "string", required: true, defaultValue: "local" } } },
     secret: "vitehub-api-key-refusal-test-secret-8c2f4a1e9d",
   })
 }
@@ -83,7 +84,7 @@ describe("requireAuth() with the API Key plugin", () => {
     await expect(response.json()).resolves.toMatchObject({ data: { code: "TOKEN_REVOKED" } })
   })
 
-  it("accepts a valid API key", async () => {
+  it("accepts a valid API key without the additional fields of a stored session", async () => {
     const definition = createApiKeyAuth()
     const signUp = await handleAuthRequest(definition, new Request(`${origin}/api/auth/sign-up/email`, {
       body: JSON.stringify({ email: "ada@example.com", name: "Ada", password: "passwordpassword" }),
@@ -95,6 +96,11 @@ describe("requireAuth() with the API Key plugin", () => {
     const auth = getAuthForDefinition(definition) as unknown as { api: { createApiKey: (input: { body: { userId: string } }) => Promise<{ key: string }> } }
     const { key } = await auth.api.createApiKey({ body: { userId: user.id } })
 
-    await expect(requireAuth(apiRequest(key), definition)).resolves.toMatchObject({ user: { id: user.id } })
+    const cookie = signUp.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; ")
+    await expect(requireAuth(new Request(`${origin}/api/jobs`, { headers: { cookie } }), definition))
+      .resolves.toMatchObject({ session: { region: "local", userId: user.id } })
+    const authorization = await requireAuth(apiRequest(key), definition)
+    expect(authorization.user.id).toBe(user.id)
+    expect(authorization.session).not.toHaveProperty("region")
   })
 })

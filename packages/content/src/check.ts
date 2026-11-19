@@ -88,6 +88,8 @@ export interface ContentCheckOptions {
    * another route of the app may serve them.
    */
   ignoreLinks?: ReadonlyArray<string | RegExp>
+  /** Whether a local link that Content cannot resolve is valid in the host app. */
+  isLinkTarget?: (url: URL, href: string) => boolean
   /** The public origin, such as `https://vitehub.dev`. Absolute links to it are checked like `/` links. */
   site?: string
   /**
@@ -415,6 +417,7 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
       if (ignored(url.pathname) || ignored(`${url.pathname}${url.hash}`) || ignored(link)) continue
       const found = targets.get(target)
       if (!found) {
+        if (options.isLinkTarget?.(url, link)) continue
         const unavailable = input.targets?.find(source => {
           if (!source.unavailable) return false
           // A reader's paths, a function URL, and a root pattern can serve any internal path. Without their

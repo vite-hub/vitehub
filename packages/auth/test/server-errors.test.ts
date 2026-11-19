@@ -7,7 +7,7 @@ import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
-import type { AuthAuthorization } from "../src/index.ts"
+import type { AuthAccessAuthorize, AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"
 import { returnHeaders } from "./session-result.ts"
 
@@ -24,7 +24,7 @@ vi.mock("better-auth", () => ({
 const definition = defineAuth({ appName: "ViteHub" })
 // Each test sends its own request: guards of one request share one session lookup.
 let request: Request
-const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization) => "protected")
+const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization<unknown>) => "protected")
 
 describe("server authentication provider boundaries", () => {
   beforeEach(() => {
@@ -41,7 +41,7 @@ describe("server authentication provider boundaries", () => {
   })
 
   it.each(["withAuth", "withAuthorization"] as const)("runs a foreign handler through %s after checking the session", async (wrapper) => {
-    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization) => string
+    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization<unknown>) => string
     const guarded = wrapper === "withAuth"
       ? withAuth(handler, definition)
       : withAuthorization(true, handler, definition)
@@ -53,7 +53,7 @@ describe("server authentication provider boundaries", () => {
   })
 
   it("runs a foreign authorization callback and enforces its verdict", async () => {
-    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (authorization: AuthAuthorization) => boolean
+    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as AuthAccessAuthorize
     const guarded = withAuthorization(authorize, protectedAction, definition)
     providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
     await expect(guarded(request)).resolves.toBe("protected")
@@ -573,7 +573,7 @@ describe("server authentication provider boundaries", () => {
     })
 
     it("ignores a forged authorization from the caller", async () => {
-      const forged: AuthAuthorization = { request, session: { id: "forged" }, user: { id: "admin" } }
+      const forged = { request, session: { id: "forged" }, user: { id: "admin" } }
       const guarded = withAuthorization(true, protectedAction, definition)
       providerMocks.getSession.mockResolvedValue(null)
 

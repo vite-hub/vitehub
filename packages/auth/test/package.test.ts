@@ -38,12 +38,10 @@ describe("@vite-hub/auth package contract", () => {
     expect(Object.keys(await import("../src/server.ts")).sort()).toEqual([
       "AbilityError",
       "aggregateAuthEvents",
-      "auth",
       "can",
       "checkAuthMember",
       "createAuthHandler",
       "default",
-      "getAuth",
       "getAuthConsoleForRequest",
       "getAuthEvents",
       "handleAuth",

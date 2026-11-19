@@ -2,16 +2,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseAst } from "vite"
 import { afterAll, describe, expect, it } from "vitest"
 
+import { readCmsPresetUsage } from "../../cms/src/build.ts"
 import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
-import { readCmsOptions } from "./cms-roles-reader.mjs"
 
 const scratch = fileURLToPath(new URL("../.tmp/cms-roles-test/", import.meta.url))
 
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
-async function project(files: Record<string, string>): Promise<string> {
+async function project(files) {
   await mkdir(scratch, { recursive: true })
   const cwd = await mkdtemp(join(scratch, "app-"))
   for (const [path, contents] of Object.entries(files)) {
@@ -67,9 +68,9 @@ const otherOption = defineContent({ data: [cms, { access: 'roles' }] })
     const code = `import { defineContent as content } from 'vite-hub/content'\n${importPreset}\nexport default content({ extends: [${reference}, { access: 'roles' }] })\n`
     const cwd = await project({ "server/content.ts": code })
     const file = join(cwd, "server/content.ts")
-    expect(() => readCmsOptions(code, file, cwd)).toThrow('Replace `access: "roles"` with `roles: true`')
+    expect(() => readCmsPresetUsage(code, file, cwd, parseAst)).toThrow('Replace `access: "roles"` with `roles: true`')
     const run = await runCodemod("cms-roles", { cwd, dryRun: false })
     expect(run.result.followUps).toEqual([])
-    expect(readCmsOptions(await readFile(file, "utf8"), file, cwd)).toEqual({ roles: true })
+    expect(readCmsPresetUsage(await readFile(file, "utf8"), file, cwd, parseAst)?.options).toEqual({ roles: true })
   })
 })
