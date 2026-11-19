@@ -26,7 +26,7 @@ describe("Realtime inspection", () => {
   it("describes adapters, codecs, access, persistence, and driver without executing definitions", async () => {
     const root = await project({
       "server/realtime/docs.ts": `import { defineRealtime } from "vite-hub/realtime"
-export default defineRealtime({ auth: true, document: { workspace: "docs" }, history: { checkpoint: true } })
+export default defineRealtime({ authorize: true, document: { workspace: "docs" }, history: { checkpoint: true } })
 `,
       "server/realtime/content.ts": `import { defineRealtime } from "vite-hub/realtime"
 import { contentDocument, contentEditor } from "./content-adapter"
@@ -67,7 +67,7 @@ export default defineRealtime({
   it("describes a definition without a document", async () => {
     const root = await project({
       "server/realtime/presence.ts": `import { defineRealtime } from "vite-hub/realtime"
-export default defineRealtime({ auth: true, authorize: () => true, document: false })
+export default defineRealtime({ authorize: () => true, document: false })
 `,
     })
 
@@ -77,7 +77,7 @@ export default defineRealtime({ auth: true, authorize: () => true, document: fal
       Driver: "memory: one Node process, rooms lost on restart",
       Authorization: "authorize() per room, read only",
       Document: "none: presence only, nothing stored",
-      Identity: "ViteHub Auth session, required",
+      Identity: "ViteHub Auth session when signed in",
     })
   })
 

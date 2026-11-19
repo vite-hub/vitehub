@@ -456,14 +456,14 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
  * dev server runs the normal handler inline, as for every other Workflow there.
  */
 function runsNatively<TPayload, TResult>(definition: WorkflowDefinition<TPayload, TResult> | undefined): definition is WorkflowDefinition<TPayload, TResult> {
-  return Boolean(definition?.options?.native) && !getWorkflowDevRecorder()
+  return Boolean(definition?.native) && !getWorkflowDevRecorder()
 }
 
 /** Whether a registered Workflow has a native Vercel entry, so a run of it can wait for a signal. */
 async function hasNativeWorkflowDefinition(): Promise<boolean> {
   const names = new Set([...Object.keys(getWorkflowRuntimeRegistry() ?? {}), ...getInlineWorkflowDefinitions().keys()])
   for (const name of names) {
-    if ((await loadWorkflowDefinition(name))?.options?.native) return true
+    if ((await loadWorkflowDefinition(name))?.native) return true
   }
   return false
 }

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { features } from "@vite-hub/internal/features"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { assertWorkflowDefinitionName, defineWorkflow } from "../src/definition.ts"
+import { defineWorkflow } from "../src/definition.ts"
 import { discoverWorkflowDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
@@ -16,12 +16,17 @@ afterEach(async () => {
 })
 
 describe("workflow definitions", () => {
-  it("validates the name and the handler", () => {
+  it("takes one object with a handler and no name", () => {
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
-    expect(() => defineWorkflow((async () => ({ ok: true })) as never, undefined as never)).toThrow(/requires the Workflow name/)
+    expect(() => defineWorkflow("onboard" as never, (async () => ({ ok: true })) as never)).toThrow(expect.objectContaining({ code: "WORKFLOW_C0015", message: expect.stringContaining("The file path is the Workflow name") }))
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
-    expect(() => defineWorkflow("onboard", undefined as never)).toThrow(/requires a workflow handler/)
-    expect(defineWorkflow("onboard", async () => ({ ok: true }))).toEqual({ handler: expect.any(Function), name: "onboard", options: undefined })
+    expect(() => defineWorkflow((async () => ({ ok: true })) as never)).toThrow(expect.objectContaining({ code: "WORKFLOW_C0015" }))
+    // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
+    expect(() => defineWorkflow({ handler: async () => undefined, name: "onboard" } as never)).toThrow(/does not support the "name" option/)
+    // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
+    expect(() => defineWorkflow({} as never)).toThrow(expect.objectContaining({ code: "WORKFLOW_C0014" }))
+    const handler = async () => ({ ok: true })
+    expect(defineWorkflow({ handler })).toEqual({ handler })
   })
 
   it("loads the starter that `vitehub add workflow` writes", async () => {
@@ -32,30 +37,19 @@ describe("workflow definitions", () => {
       .replace("\"vite-hub/workflow\"", JSON.stringify(fileURLToPath(new URL("../src/definition.ts", import.meta.url))))
     await writeFile(file, source)
 
-    const { default: definition } = await import(pathToFileURL(file).href) as { default: ReturnType<typeof defineWorkflow> }
+    const { default: definition } = await import(pathToFileURL(file).href) as { default: ReturnType<typeof defineWorkflow<{ id: string }>> }
 
-    expect(definition.name).toBe("welcome")
     // SAFETY: The starter handler reads only the payload.
-    await expect(definition.handler({ id: "user-1" } as never, {} as never)).resolves.toEqual({ id: "user-1" })
+    await expect(definition.handler({ payload: { id: "user-1" } } as never)).resolves.toEqual({ id: "user-1" })
   })
 
   it("registers optional native durable entries", () => {
     const handler = async () => ({ inline: true })
     const native = async () => ({ inline: false })
 
-    expect(defineWorkflow("onboard", handler, { native })).toEqual({
-      handler,
-      name: "onboard",
-      options: { native },
-    })
+    expect(defineWorkflow({ handler, native })).toEqual({ handler, native })
     // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
-    expect(() => defineWorkflow("onboard", handler, { native: "invalid" as never })).toThrow(/native entry/)
-  })
-
-  it("rejects a name that differs from the discovered name", () => {
-    expect(() => assertWorkflowDefinitionName("onboard-user", defineWorkflow("onboard", async () => undefined))).toThrow(/Pass "onboard-user"/)
-    expect(() => assertWorkflowDefinitionName("onboard-user", defineWorkflow("onboard-user", async () => undefined))).not.toThrow()
-    expect(() => assertWorkflowDefinitionName("inline", {})).not.toThrow()
+    expect(() => defineWorkflow({ handler, native: "invalid" as never })).toThrow(/native entry/)
   })
 
   it("discovers Vite suffix and server workflow definitions", async () => {

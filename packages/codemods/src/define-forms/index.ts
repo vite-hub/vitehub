@@ -10,6 +10,7 @@ import { rewriteQueues } from "./queue.ts"
 import { rewriteSandboxTasks } from "./sandbox-task.ts"
 import { rewriteSchedules } from "./schedule.ts"
 import { ignoredPatterns, parseSource, readSourceFiles } from "./shared.ts"
+import { rewriteWorkflows } from "./workflow.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { SourceFile } from "./shared.ts"
@@ -28,13 +29,19 @@ interface Counts {
   sandboxTasks: number
   contentFiles: number
   contentImports: number
+  workflows: number
+  workflowFollowUps: number
+}
+
+function emptyCounts(): Counts {
+  return { queues: 0, queueFollowUps: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0, workflows: 0, workflowFollowUps: 0 }
 }
 
 /** Rewrites the define calls and Content exports of one file. */
 function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts: Counts, followUps: FollowUp[], migratedContentFiles?: Set<string>): string {
   let parsed = parseSource(file)
   if (!("program" in parsed)) {
-    if (/defineQueue|defineSchedule|defineSandboxTask|defineContent/.test(file.code)) followUps.push(parsed)
+    if (/defineQueue|defineSchedule|defineSandboxTask|defineContent|defineWorkflow|createWorkflow/.test(file.code)) followUps.push(parsed)
     return file.code
   }
   const queues = new MagicString(file.code)
@@ -57,6 +64,9 @@ function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts
   const output = new MagicString(file.code)
   counts.schedules += rewriteSchedules(file, parsed, output, followUps)
   counts.sandboxTasks += rewriteSandboxTasks(file, parsed, output, followUps)
+  const beforeWorkflowFollowUps = followUps.length
+  counts.workflows += rewriteWorkflows(file, parsed, output, followUps)
+  counts.workflowFollowUps += followUps.length - beforeWorkflowFollowUps
   if (contentFiles.has(file.path)) {
     if (rewriteContentFile(file, parsed, output, followUps)) {
       counts.contentFiles++
@@ -70,7 +80,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const sources = await readSourceFiles(cwd)
   const followUps: FollowUp[] = []
   const notes: string[] = []
-  const counts: Counts = { queues: 0, queueFollowUps: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
+  const counts = emptyCounts()
   const contentFiles = new Set(sources.filter(file => contentFilePattern.test(file.path)).map(file => file.path))
 
   // The define forms first, then the Database moves on the result, so a moved file keeps both changes.
@@ -117,6 +127,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     counts.queues && `${counts.queues} Queue(s) to \`defineQueue({ handler })\``,
     counts.schedules && `${counts.schedules} Schedule(s) to \`defineSchedule({ cron, handler })\``,
     counts.sandboxTasks && `${counts.sandboxTasks} Sandbox Task(s) from \`run\` to \`handler\``,
+    counts.workflows && `${counts.workflows} Workflow(s) to \`defineWorkflow({ handler })\` and a handler that takes one object`,
     counts.contentFiles && `${counts.contentFiles} Content file(s) to a default export`,
     counts.contentImports && `${counts.contentImports} import(s) of \`server/content.ts\``,
     plan.files.size && `${plan.files.size} Database file(s) to \`server/databases/<name>/\``,
@@ -156,21 +167,23 @@ async function detectFormerForm(cwd: string): Promise<string | undefined> {
   const sources = await readSourceFiles(cwd)
   const contentFiles = new Set(sources.filter(file => contentFilePattern.test(file.path)).map(file => file.path))
   for (const file of sources) {
-    if (!/defineQueue|defineSchedule|defineSandboxTask/.test(file.code) && !contentFiles.has(file.path)) continue
-    const counts: Counts = { queues: 0, queueFollowUps: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
+    if (!/defineQueue|defineSchedule|defineSandboxTask|defineWorkflow|createWorkflow/.test(file.code) && !contentFiles.has(file.path)) continue
+    const counts = emptyCounts()
     rewriteCode(file, contentFiles, counts, [])
     if (counts.queues) return `${file.path} calls defineQueue(handler)`
     if (counts.queueFollowUps) return `${file.path} has a Queue call that may need manual migration`
     if (counts.schedules) return `${file.path} calls defineSchedule(cron, handler)`
     if (counts.sandboxTasks) return `${file.path} passes \`run\` to defineSandboxTask()`
     if (counts.contentFiles) return `${file.path} exports \`content\` by name`
+    if (counts.workflows) return `${file.path} calls defineWorkflow(name, handler) or passes a (payload, context) Workflow handler`
+    if (counts.workflowFollowUps) return `${file.path} has Workflow definitions to review`
   }
   return undefined
 }
 
 export const defineForms: Codemod = {
   name: "define-forms",
-  description: "Move to one define form: defineQueue({ handler }), defineSchedule({ cron, handler }), defineSandboxTask({ handler }), a default Content export, and server/databases/<name>/index.ts",
+  description: "Move to one define form: defineQueue({ handler }), defineSchedule({ cron, handler }), defineSandboxTask({ handler }), defineWorkflow({ handler }), a default Content export, and server/databases/<name>/index.ts",
   usage: "[dir]",
   async detect({ cwd }) {
     const reason = await detectFormerForm(cwd)

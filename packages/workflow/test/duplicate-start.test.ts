@@ -9,7 +9,7 @@ import { unwrap } from "./unwrap.ts"
 beforeEach(() => {
   resetWorkflowRuntime()
   setWorkflowRuntimeRegistry({
-    checkout: async () => ({ default: defineWorkflow("checkout", async (payload: { order: number }) => payload) }),
+    checkout: async () => ({ default: defineWorkflow<{ order: number }>({ handler: async ({ payload }) => payload }) }),
   })
 })
 

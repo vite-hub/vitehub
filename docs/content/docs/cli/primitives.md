@@ -10,7 +10,7 @@ Each Server Primitive package adds its own commands. A namespace shows in `viteh
 
 ## Read and write blobs
 
-Start the dev server, then run `vitehub blob` in another terminal. Each command runs a `blob.*` [operation](/docs/development/operations) of the app, so it uses the app's blobs. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](/docs/cli/inspect#run-any-operation).
+Start the dev server, then run `vitehub blob` in another terminal. Each command runs a `blob.*` [operation](/docs/console/operations) of the app, so it uses the app's blobs. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](/docs/cli/inspect#run-any-operation).
 
 ```bash [Terminal]
 pnpm vitehub blob list --prefix avatars/ --limit 20
@@ -70,7 +70,7 @@ pnpm vitehub rate-limit peek <id> <key>
 pnpm vitehub rate-limit reset <id> <key> [--yes]
 ```
 
-`<id>` is the stable ID of `requireRateLimit()`. `<key>` is the limited key, such as a client IP or user ID. Put `--` before a key that starts with a dash. Both commands take `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, they call this project's dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/development/console) on, and sign with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
+`<id>` is the stable ID of `requireRateLimit()`. `<key>` is the limited key, such as a client IP or user ID. Put `--` before a key that starts with a dash. Both commands take `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, they call this project's dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/console) on, and sign with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 
 The commands run `rate-limit.peek` (a read) and `rate-limit.reset` in the `rate-limits` Console section. `reset` is destructive: it asks for confirmation on a terminal and refuses elsewhere, so scripts pass `--yes`. The Console **Rate Limits** page uses the same operations.
 
@@ -200,7 +200,7 @@ The GitHub API refused a request, for example because the token cannot write sec
 ### `SETUP_ENV_VALUE_UNSUPPORTED`
 
 The host cannot safely store this value, such as a Deno value with a single quote or a line break, a secret name Deno cannot classify, or an existing Netlify variable without Functions scope or secret storage. Set it in the host dashboard. The command exits with `3`.
-`env status` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/development/operations). Pass `--url` to check a deployment:
+`env status` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/console/operations). Pass `--url` to check a deployment:
 
 ```bash [Terminal]
 pnpm vitehub env status --url https://my-app.example.com
@@ -216,7 +216,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive myapp:webhooks
 pnpm vitehub secret console-key ci
 ```
 
-`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` in the shell. `secret console-key [name]` prints a new Ed25519 key pair for [signed Console requests](/docs/development/console#sign-console-requests): the `VITEHUB_CONSOLE_KEY_<NAME>` line for the app and the `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` line for the CLI. The name defaults to `CLI`. None of them loads the project.
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints `deriveSecret(purpose)` for the `VITEHUB_SECRET` in the shell. `secret console-key [name]` prints a new Ed25519 key pair for [signed Console requests](/docs/console/signed-requests): the `VITEHUB_CONSOLE_KEY_<NAME>` line for the app and the `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` line for the CLI. The name defaults to `CLI`. None of them loads the project.
 
 ## Manage Database migrations
 
@@ -297,7 +297,7 @@ Without `--remote`, KV and Blob write the stores of the running dev server, so s
 
 ## Browse Database tables
 
-`database tables` and `database rows` run `databases.tables` and `databases.browse`, the [operations](/docs/development/operations) of the Console Databases section. They read the running app's Database Definitions, so they work on SQLite, D1, libSQL, and Postgres without a Drizzle Kit config. They never write.
+`database tables` and `database rows` run `databases.tables` and `databases.browse`, the [operations](/docs/console/operations) of the Console Databases section. They read the running app's Database Definitions, so they work on SQLite, D1, libSQL, and Postgres without a Drizzle Kit config. They never write.
 
 ```bash [Terminal]
 pnpm vitehub database tables
@@ -310,7 +310,7 @@ pnpm vitehub database rows users --database analytics --offset 20 --url https://
 
 ## Read and invalidate the cache
 
-With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/development/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
+With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/console/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
 
 ```bash [Terminal]
 pnpm vitehub cache list
@@ -329,7 +329,7 @@ pnpm vitehub cache delete --prefix 'nitrofunctions.Cm3ZWo:getStars'
 
 ## Read and write KV keys
 
-Start the dev server, then run `vitehub kv` in another terminal. Each command runs a `kv.*` [operation](/docs/development/operations) of the app, so it uses the app's keys. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](/docs/cli/inspect#run-any-operation).
+Start the dev server, then run `vitehub kv` in another terminal. Each command runs a `kv.*` [operation](/docs/console/operations) of the app, so it uses the app's keys. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](/docs/cli/inspect#run-any-operation).
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users: --limit 20
@@ -482,7 +482,7 @@ pnpm vitehub task run db:seed --url https://app.example.com --yes
 
 `vitehub inspect definitions --kind task` lists the files in `server/tasks/` with no server. `task list` asks the running app, so it also shows tasks that `nitro.tasks` declares in the Vite config.
 
-`task list` and `task run` are the `task.list` and `task.run` [operations](/docs/development/operations) in the `tasks` section. They exist when the app has task files or declares `nitro.tasks`. A generated Nitro plugin gives them Nitro's registry, so they also work on a deployment with `--url` and the Console credentials (`task run` needs `console.invoke`). `task run` is `destructive`, so it asks for `--yes`. The `tasks` section has no Console page. Grant it in `console.authorize` with `sections: ['tasks']`, or `'tasks:read'` for listing only.
+`task list` and `task run` are the `task.list` and `task.run` [operations](/docs/console/operations) in the `tasks` section. They exist when the app has task files or declares `nitro.tasks`. A generated Nitro plugin gives them Nitro's registry, so they also work on a deployment with `--url` and the Console credentials (`task run` needs `console.invoke`). `task run` is `destructive`, so it asks for `--yes`. The `tasks` section has no Console page. Grant it in `console.authorize` with `sections: ['tasks']`, or `'tasks:read'` for listing only.
 
 > [!WARNING]
 > A task can change anything the app can. Give `tasks` only to people who may run a seed or a backfill.
@@ -493,7 +493,7 @@ Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `
 
 ## Edit and publish Content
 
-Start the dev server, then run `vitehub content` in another terminal. Each command runs a `content.*` [operation](/docs/development/operations) with the app's `server/content.ts`, so it sees the app's drafts and published documents.
+Start the dev server, then run `vitehub content` in another terminal. Each command runs a `content.*` [operation](/docs/console/operations) with the app's `server/content.ts`, so it sees the app's drafts and published documents.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -522,9 +522,9 @@ pnpm vitehub schedule run sync --url https://app.example.com
 
 `--at` runs the definition as if its cron fired at that time, without checking the cron. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under it. Use it to test code that depends on the fire time, such as a job near midnight or on a month's last day. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. No time zone, a date only, or a day that does not exist (`2026-02-30`) fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`), and nothing runs.
 
-`schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the [credentials below](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app). The deployment runs only definitions that the [Console](/docs/development/console) installed with `invoke: true`, which is on in development and off in a production build.
+`schedule run` is the `schedule.run` [operation](/docs/console/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the [credentials below](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app). The deployment runs only definitions that the [Console](/docs/console) installed with `invoke: true`, which is on in development and off in a production build.
 
-A CI job needs no Console login. Make a key pair with `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: true`, and set `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a secret of the job. `vitehub schedule run <name> --url <origin>` then [signs the call](/docs/development/console#sign-console-requests), the same as every other command with `--url`.
+A CI job needs no Console login. Make a key pair with `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: true`, and set `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a secret of the job. `vitehub schedule run <name> --url <origin>` then [signs the call](/docs/console/signed-requests), the same as every other command with `--url`.
 
 The Console Schedules page runs the same operation. A read-only grant (`"schedules:read"`) can list runs but cannot run a Schedule.
 
@@ -571,7 +571,7 @@ pnpm vitehub workflow runs show <runId>
 pnpm vitehub workflow runs clear --yes
 ```
 
-The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
 
 Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare resume, and OpenWorkflow resume return unsupported-operation errors. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
 
@@ -643,4 +643,4 @@ c08f4415a5303b77a6a0e58436b885215950ed298e3e6cebbc85c18f2b97edb9  draft      202
 
 A Workspace whose Store keeps no revisions fails with `WORKSPACE_R0069` and names the [Blob + Database Store](/docs/workspace/configure#blob-database-store), which keeps refs and revisions.
 
-The commands are the `workspace.history`, `workspace.refs`, and `workspace.show` [operations](/docs/development/operations) of the Workspaces section. They run in the app's Nitro runtime, so they work on the dev server and on a deployed app. All three read, so `console.authorize` grants them with `workspaces` or `workspaces:read`.
+The commands are the `workspace.history`, `workspace.refs`, and `workspace.show` [operations](/docs/console/operations) of the Workspaces section. They run in the app's Nitro runtime, so they work on the dev server and on a deployed app. All three read, so `console.authorize` grants them with `workspaces` or `workspaces:read`.
