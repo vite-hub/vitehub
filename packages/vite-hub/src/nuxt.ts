@@ -509,7 +509,9 @@ function restartOnSyncDefinitions(nuxt: NuxtLike, projectRoot: string): void {
   hookBuilderWatch?.("builder:watch", async (event, path) => {
     if (event !== "add" && event !== "unlink" && event !== "addDir" && event !== "unlinkDir") return
     const file = resolve(projectRoot, path)
-    if (folders.some(folder => file === folder || dirname(file) === folder)) await nuxt.callHook?.("restart")
+    // Sync reads `<name>.ts`, `.mts`, `.js`, and `.mjs` files, not declarations.
+    const definition = event.endsWith("Dir") ? folders.includes(file) : folders.includes(dirname(file)) && /\.m?[jt]s$/.test(file) && !file.endsWith(".d.ts")
+    if (definition) await nuxt.callHook?.("restart")
   })
 }
 

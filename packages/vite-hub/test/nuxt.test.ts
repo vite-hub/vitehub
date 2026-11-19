@@ -4831,6 +4831,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
       await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "change")
       await development.runBuilderWatchHook(resolve(root, "server/api/todos.ts"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/README.md"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.d.ts"), "add")
       expect(development.nuxt.callHook).not.toHaveBeenCalledWith("restart")
       await development.runBuilderWatchHook(resolve(root, "server/sync"), "addDir")
       await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "add")
