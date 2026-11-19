@@ -570,6 +570,9 @@ room. Saves need a Workspace Store with conditional writes. A Cloudflare room
 also needs a durable Workspace Store.
 
 `history.checkpoint()` commits the working tree to Workspace history. The
+signed-in user who asked for the checkpoint is the commit author, so the GitHub
+Store writes their name and email as the Git author. A user without an email
+keeps the Store's author. The
 commit includes every staged path, also other documents saved by their rooms.
 If Workspace history moved, Realtime rebases onto the remote head and retries.
 A path changed both locally and remotely takes the remote version and re-seeds

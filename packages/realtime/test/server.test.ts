@@ -1427,6 +1427,22 @@ describe("tiptap-markdown documents", () => {
   })
 
   it.each([
+    ["Ana", { email: "ana@example.com", id: "u1", name: "Ana" }, { author: { email: "ana@example.com", name: "Ana" }, message: "docs: checkpoint docs/page.md" }],
+    ["a user without a name", { email: "ana@example.com", id: "u1" }, { author: { email: "ana@example.com", name: "ana@example.com" }, message: "docs: checkpoint docs/page.md" }],
+    ["a user without an email", { id: "u1", name: "Ana" }, { message: "docs: checkpoint docs/page.md" }],
+    ["no user", undefined, { message: "docs: checkpoint docs/page.md" }],
+  ] as const)("commits a Workspace checkpoint as %s", async (_name, user, expected) => {
+    const checkpoint = vi.fn(async () => ({ entries: { "docs/page.md": { digest: "saved" } }, id: "snapshot-1" }))
+    serverMocks.useWorkspaceFiles.mockReturnValue({ history: { checkpoint } })
+
+    await workspaceDocument("docs").checkpoint!(
+      { authority: "memory", definition: "docs", documentId: "docs/page.md" },
+      { digest: "saved", user },
+    )
+    expect(checkpoint).toHaveBeenCalledWith(expected)
+  })
+
+  it.each([
     ["source", workspaceDocument],
     ["packaged", packagedWorkspaceDocument],
   ] as const)("preserves non-document save errors through the %s Workspace adapter", async (_entry, createAdapter) => {

@@ -70,8 +70,8 @@ async function serializeWorkspace<T>(workspaceName: string, operation: () => Pro
 
 /**
  * Stores each Realtime document as the Markdown file at its path in a Workspace working tree.
- * `history.checkpoint()` commits the working tree to Workspace history. `document: { workspace }`
- * in a Realtime Definition uses this adapter.
+ * `history.checkpoint()` commits the working tree to Workspace history, with the signed-in user as the author.
+ * `document: { workspace }` in a Realtime Definition uses this adapter.
  */
 export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocumentAdapter {
   return {
@@ -122,10 +122,14 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "save" })
       return { digest: written.baselineDigest, stored: { body: written.markdown } }
     },
-    async checkpoint({ documentId }, { digest, message }): Promise<WorkspaceSnapshot> {
+    async checkpoint({ documentId }, { digest, message, user }): Promise<WorkspaceSnapshot> {
       return await serializeWorkspace(workspaceName, async () => {
         const workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
-        const options = { message: message || `docs: checkpoint ${documentId}` }
+        // The user who saved is the commit author. A Git author needs an email, so a user without one keeps the Store's.
+        const options = {
+          message: message || `docs: checkpoint ${documentId}`,
+          ...(user?.email ? { author: { email: user.email, name: user.name || user.email } } : {}),
+        }
         let snapshot: WorkspaceSnapshot
         try {
           try {
