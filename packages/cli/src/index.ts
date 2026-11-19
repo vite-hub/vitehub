@@ -405,6 +405,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   if (setupCommand) {
     return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), loadProvision, rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
+  // Provision loads the config of a build for its `--host`, as deploy does, so it skips the project load below.
+  const provisionNamespace = createProvisionNamespace(loadProvision)
+  if (args[0] === provisionNamespace.name) {
+    return await runNamespace(provisionNamespace, args, { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
+  }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   const runtimeFeatures = [...options.runtimeFeatures ?? [], hostEnvFeatures].find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
@@ -424,7 +429,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const namespaces = [
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations, handlers),
-    createProvisionNamespace(contribution.provision),
+    provisionNamespace,
     createSeedNamespace(contribution.seeds),
     ...runtimeNamespaces,
   ]

@@ -497,9 +497,10 @@ export default ({ mode }) => ({
   })
 
   it.each([
-    { args: ["inspect", "definitions"], expectedExitCode: 0, feature: "definitions" },
-    { runHostCli: noHostCli, args: ["provision", "run"], expectedExitCode: 1, feature: "run" },
-  ])("reserves built-in namespaces from runtime features ($args)", async ({ args, expectedExitCode, feature }) => {
+    { args: ["inspect", "definitions"], expectedExitCode: 0, feature: "definitions", loadsConfig: 1 },
+    // Provision loads the config only after it reads `--host`.
+    { runHostCli: noHostCli, args: ["provision", "run"], expectedExitCode: 1, feature: "run", loadsConfig: 0 },
+  ])("reserves built-in namespaces from runtime features ($args)", async ({ args, expectedExitCode, feature, loadsConfig }) => {
     const runtime = vi.fn(() => 42)
     const stdout = stream()
     const stderr = stream()
@@ -510,7 +511,7 @@ export default ({ mode }) => ({
 
     expect(exitCode).toBe(expectedExitCode)
     expect(runtime).not.toHaveBeenCalled()
-    expect(loadConfig).toHaveBeenCalledOnce()
+    expect(loadConfig).toHaveBeenCalledTimes(loadsConfig)
   })
 
   it("runs runtime namespaces without loading the project config", async () => {
@@ -767,6 +768,32 @@ export default ({ mode }) => ({
     expect(exitCode).toBe(0)
     expect(apply).not.toHaveBeenCalled()
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+  })
+
+  it.each([["run", "--dry-run"], ["status"]])("loads the config of a build for the --host of provision %s, as deploy does", async (...args) => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const hostsSeen: Array<[string | undefined, string | undefined, string]> = []
+    // A config that picks its store with `detectHost()` declares the Cloudflare resource only on a Cloudflare build.
+    const loadConfig = vi.fn(async (_root: string, command: "build" | "serve") => {
+      hostsSeen.push([process.env.VITEHUB_HOST, process.env.VITEHUB_HOST_SOURCE, command])
+      return { plugins: process.env.VITEHUB_HOST === "cloudflare" ? [provisionPlugin(apply)] : [], root: rootDir, vitehubConfigResolved: true as const }
+    })
+    const stdout = stream()
+
+    const exitCode = await runViteHubCli({
+      runHostCli: noHostCli, args: ["provision", ...args, "--host", "cloudflare"],
+      cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
+      loadConfig,
+      stderr: stream(),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(hostsSeen).toEqual([["cloudflare", "cli", "build"]])
+    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+    expect(apply).not.toHaveBeenCalled()
   })
 
   it.each([
