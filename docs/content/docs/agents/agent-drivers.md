@@ -90,6 +90,8 @@ VITEHUB_MODELS=emulate vite dev
 - A Codex Driver with Capability tools fails with `AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED`, because Codex sends the tools as one `namespace` tool, which the emulator rejects. A Codex Driver with a `sandbox` fails with `AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED`, because the Sandbox cannot reach the emulator on your machine.
 - A Claude Code Driver fails with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, because the emulator rejects the `system` turns that Claude Code sends.
 - In these failures, ViteHub fails before it reads a credential, and it does not start the provider.
+- The emulator rejects hosted provider tools, so the model gets none of them, whether they come from a Capability, `runAgent(..., { tools })`, or `prepareCall`. `webSearch({ mode: 'model' })` adds no `web_search` tool, and the Invocation records an `agent.diagnostic.warning` observation with the code `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED`. `webSearch({ mode: 'tool' })` keeps its tools. The same applies to a model from `languageModel(emulate(), id)`.
+- A tool choice that only a dropped tool can satisfy, such as `{ type: 'tool', toolName: 'web_search' }`, or `'required'` with no other tool, becomes `'auto'`, and the Invocation records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`. The run continues as it does without the tool, so an Agent that you test on the emulator does not fail on a tool that the emulator cannot serve.
 
 ## Use a provider-backed Driver
 
