@@ -3,8 +3,8 @@ import ts from "typescript"
 import { expect, it } from "vitest"
 
 /** Type-checks `source` as a file next to these tests and returns its error messages. */
-function typeErrors(source: string): string[] {
-  const config = ts.getParsedCommandLineOfConfigFile(fileURLToPath(new URL("../tsconfig.json", import.meta.url)), {}, {
+function typeErrors(source: string, options: ts.CompilerOptions = {}): string[] {
+  const config = ts.getParsedCommandLineOfConfigFile(fileURLToPath(new URL("../tsconfig.json", import.meta.url)), options, {
     ...ts.sys,
     onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
       throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
@@ -46,4 +46,32 @@ it("names the wrong secondary storage member in a Definition callback", { timeou
   `)
   expect(errors).toHaveLength(1)
   expect(errors[0]).toContain("is missing the following properties from type 'SecondaryStorage': getAndDelete, increment")
+})
+
+// A composite project writes declarations, so TypeScript must write the type of the default export.
+const declarations = { declaration: true, emitDeclarationOnly: true }
+const compositeDefinition = (exported: string) => `
+  import { apiKey } from "@better-auth/api-key"
+  import { defineAuth, type AuthDefinition, type AuthDefinitionResolver, type AuthFor } from "../src/index.ts"
+
+  ${exported}
+    plugins: [apiKey({ enableSessionForAPIKeys: true })],
+    secret: "define-auth-types-secret-abcdefghijklmnopqrstuvwxyz",
+    trustedOrigins: [requestOrigin],
+  }))
+`
+
+it("exports a Definition with a Better Auth plugin from a composite project through an annotated const", { timeout: 120_000 }, () => {
+  // TypeScript cannot write the inferred type of a Definition with `apiKey()`: it is too long (TS7056), or it names
+  // types that Better Auth does not export.
+  const inferred = typeErrors(compositeDefinition("export default defineAuth(({ requestOrigin }) => ({"), declarations)
+  expect(inferred.length).toBeGreaterThan(0)
+  for (const error of inferred) expect(error).toMatch(/type annotation is (?:needed|necessary)/)
+
+  const errors = typeErrors(`${compositeDefinition("const auth: AuthDefinition<AuthDefinitionResolver<{ plugins: [ReturnType<typeof apiKey>] }>> = defineAuth(({ requestOrigin }) => ({")}
+    export default auth
+    // The annotation keeps the endpoints of the plugin.
+    export type CreateApiKey = AuthFor<typeof auth>["api"]["createApiKey"]
+  `, declarations)
+  expect(errors).toEqual([])
 })

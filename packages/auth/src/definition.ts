@@ -142,15 +142,18 @@ export function validateAuthAccessPolicy(value: unknown): asserts value is AuthA
   if (value.recheck !== undefined) parseDuration(value.recheck as Duration, "recheck")
 }
 
+// `NoInfer` keeps an annotation such as `const auth: AuthDefinition<...> = defineAuth(...)` from inferring the options:
+// they always come from the argument. A composite project needs that annotation when TypeScript cannot write the
+// inferred type (TS7056), as with the Better Auth `apiKey()` plugin.
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(
   options: AuthDefinitionResolver<TOptions>,
-): AuthDefinition<AuthDefinitionResolver<TOptions>>
+): AuthDefinition<AuthDefinitionResolver<NoInfer<TOptions>>>
 
 // `runtime` in the constraint makes a Definition that still sets it report `runtime` itself. Without it, TypeScript
 // reports that the object is not a resolver function.
 export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "database" | "runtime">>(
   options: AuthDefinitionOptions<TOptions>,
-): AuthDefinition<AuthDefinitionOptions<TOptions>>
+): AuthDefinition<AuthDefinitionOptions<NoInfer<TOptions>>>
 
 export function defineAuth(
   options: AuthDefinitionOptions | AuthDefinitionResolver,
