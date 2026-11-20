@@ -178,8 +178,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
     },
     QUEUE_MAX_BATCH_SIZE_INVALID: {
-      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads it from the file to configure the Cloudflare consumer.`,
-      fix: "Write `maxBatchSize: 5` (any whole number from 1 to 100) in the object of `export default defineQueue({ ... })`, not in a variable or a spread object.",
+      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads the options from the file to configure the Cloudflare consumer, so they cannot use a spread or a computed key.`,
+      fix: "Write each option, such as `maxBatchSize: 5` (a whole number from 1 to 100), directly in the object of `export default defineQueue({ ... })`, without a variable, a spread, or a computed key.",
     },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,
