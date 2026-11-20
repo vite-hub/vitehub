@@ -185,7 +185,7 @@ export interface WritableWorkspaceFs<Name extends WorkspaceName = WorkspaceName>
 
 export interface ReadonlyWorkspaceFiles<Name extends WorkspaceName = WorkspaceName> {
   fs: ReadonlyWorkspaceFs<Name>
-  history: WorkspaceHistoryReader
+  history: WorkspaceHistoryReader & Pick<WorkspaceRetainedHistory, "diff">
   getMeta?(key: string): Promise<unknown>
 }
 
@@ -328,6 +328,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
       refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),
       open: async id => await requireWorkspaceHistory(await resolveWorkspace()).open(id),
       usage: async () => await requireWorkspaceHistory(await resolveWorkspace()).usage(),
+      diff: async options => await requireWorkspaceHistory(await resolveWorkspace()).diff(options),
       commit: async options => {
         const history = requireWorkspaceHistory(await resolveWorkspace())
         validateHistoryMessage(options.message)
@@ -637,6 +638,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Nam
       refs: () => requireWorkspaceHistory(workspace).refs(),
       open: (id: string) => requireWorkspaceHistory(workspace).open(id),
       usage: () => requireWorkspaceHistory(workspace).usage(),
+      diff: (options: import("./types.ts").WorkspaceHistoryDiffOptions) => requireWorkspaceHistory(workspace).diff(options),
     },
     getMeta: async (key: string) => await workspace.getMeta?.(key),
   }

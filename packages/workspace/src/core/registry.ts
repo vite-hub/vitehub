@@ -1,7 +1,7 @@
 import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { workspaceNotFoundError } from "./errors.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput, WorkspaceName } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -206,6 +206,14 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
       }
     }
   }
+}
+
+/** Whether a Workspace Definition has this name. Use it to check a name that comes from a request or a database. */
+export function isWorkspaceName(name: string): name is WorkspaceName {
+  const state = workspaceRegistryState()
+  return state.registeredDefinitions.has(name)
+    || [...state.scopedDefinitions.values()].some(definitions => definitions.has(name))
+    || Object.hasOwn(workspaceRuntimeRegistryState().loaders, name)
 }
 
 export async function resolveRegisteredWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {
