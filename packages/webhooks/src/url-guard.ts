@@ -61,15 +61,27 @@ function privateIPv4([a, b, c]: IPv4): string | undefined {
   return undefined
 }
 
+const embeddedIPv4 = (high: number, low: number): IPv4 => [high >> 8, high & 0xFF, low >> 8, low & 0xFF]
+
 function privateIPv6(groups: readonly number[]): string | undefined {
-  const [first = 0, second = 0, , , , sixth = 0, seventh = 0, eighth = 0] = groups
+  const [first = 0, second = 0, third = 0, , , sixth = 0, seventh = 0, eighth = 0] = groups
   const zeroUntil = (end: number) => groups.slice(0, end).every(group => group === 0)
   if (zeroUntil(8)) return "an unspecified address"
   if (zeroUntil(7) && eighth === 1) return "a loopback address"
-  // ::ffff:0:0/96 is an IPv4 address written as IPv6. 64:ff9b::/96 reaches IPv4 through NAT64.
+  // ::ffff:0:0/96 is an IPv4 address written as IPv6, and ::/96 is the deprecated IPv4-compatible form of it.
+  // 64:ff9b::/96 reaches IPv4 through NAT64.
   const mapped = zeroUntil(5) && sixth === 0xFFFF
+  const compatible = zeroUntil(6)
   const nat64 = first === 0x64 && second === 0xFF9B && groups.slice(2, 6).every(group => group === 0)
-  if (mapped || nat64) return privateIPv4([seventh >> 8, seventh & 0xFF, eighth >> 8, eighth & 0xFF])
+  if (mapped || nat64) return privateIPv4(embeddedIPv4(seventh, eighth))
+  if (compatible) return privateIPv4(embeddedIPv4(seventh, eighth)) ?? "a deprecated IPv4-compatible address"
+  // 64:ff9b:1::/48 is NAT64 for local networks, so it can reach any address behind the translator.
+  if (first === 0x64 && second === 0xFF9B && third === 1) return "a local-use NAT64 address"
+  // 2002::/16 is 6to4: the next 32 bits are the IPv4 address of the tunnel.
+  if (first === 0x2002) {
+    const reason = privateIPv4(embeddedIPv4(second, third))
+    if (reason) return `a 6to4 address of ${reason}`
+  }
   if ((first & 0xFE00) === 0xFC00) return "a private address"
   if ((first & 0xFFC0) === 0xFE80) return "a link-local address"
   if ((first & 0xFF00) === 0xFF00) return "a multicast address"

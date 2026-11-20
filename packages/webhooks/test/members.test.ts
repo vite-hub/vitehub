@@ -131,6 +131,22 @@ describe("checkWebhookUrl", () => {
     }
   })
 
+  it.each([
+    ["an IPv4-compatible loopback", "https://[::7f00:1]/hook", "loopback"],
+    ["an IPv4-compatible metadata address", "https://[::a9fe:a9fe]/hook", "metadata"],
+    ["a 6to4 loopback", "https://[2002:7f00:1::]/hook", "6to4 address of a loopback"],
+    ["a 6to4 metadata address", "https://[2002:a9fe:a9fe::]/hook", "6to4 address of a link-local"],
+    ["a local-use NAT64 address", "https://[64:ff9b:1::a9fe:a9fe]/hook", "local-use NAT64"],
+  ])("refuses %s", async (_, url, reason) => {
+    const [error] = await checkWebhookUrl(url)
+    expect(error).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
+    expect(error?.message).toContain(reason)
+  })
+
+  it("passes a 6to4 address of a public IPv4 address", async () => {
+    expect((await checkWebhookUrl("https://[2002:cb00:710a::1]/hook"))[0]).toBeUndefined()
+  })
+
   it("refuses a name that resolves to a private address", async () => {
     expect((await checkWebhookUrl("https://intranet.example.com/hook"))[0]?.message).toContain("resolves to a private address")
     // One private address among public ones is enough to refuse.
