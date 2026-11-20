@@ -10,7 +10,7 @@ import {
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
-import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
+import { custom, file, github, glob, markdown, mcpResources, source, url as urlSource, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { discoverViteWorkspaceDefinitions, hubWorkspace } from "../src/vite.ts"
 import type { DiscoveredWorkspaceDefinition } from "../src/vite.ts"
 import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
@@ -75,7 +75,7 @@ describe("workspace types", () => {
     const githubOptions = { auth: false, repo: "acme/docs" } satisfies GitHubSourceOptions
     const globOptions = { include: "**/*.md" } satisfies GlobSourceOptions
     const mcpResourcesOptions = { server: { transport: { type: "http", url: "https://example.com/mcp" } } } satisfies McpResourcesSourceOptions
-    const githubStoreOptions = { driver: "github", repository: "acme/app", token: () => "github-token" } satisfies GitHubWorkspaceStoreOptions
+    const githubStoreOptions = { driver: "github", repo: "acme/app", token: () => "github-token" } satisfies GitHubWorkspaceStoreOptions
 
     expectTypeOf(fetchOptions).toMatchTypeOf<FetchSourceOptions>()
     expectTypeOf(githubOptions).toMatchTypeOf<GitHubSourceOptions>()
@@ -170,7 +170,7 @@ describe("workspace types", () => {
       include: "**/*.md",
       prefix: "content",
     })
-    fetch<{ status: string }, { ok: boolean }>({
+    urlSource<{ status: string }, { ok: boolean }>({
       querySchema: {
         "~standard": {
           jsonSchema: {
@@ -187,7 +187,7 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
-    fetch<{ status: string }>({
+    urlSource<{ status: string }>({
       // @ts-expect-error Workspace Sources do not own access scopes.
       scopes: ["support"] as const,
       transform(data) {
@@ -196,7 +196,7 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
-    fetch({
+    urlSource({
       body: { scope: "all" },
       cookies: { auth_token: "secret" },
       method: "POST",
@@ -206,7 +206,7 @@ describe("workspace types", () => {
       }),
       url: "https://status.example.com/query",
     })
-    fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+    urlSource<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
       expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
@@ -239,15 +239,15 @@ describe("workspace types", () => {
       },
     })
     // @ts-expect-error fetch does not expose public lifecycle hooks
-    fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
+    urlSource({ url: "https://status.example.com/api/summary", beforeRequest() {} })
     // @ts-expect-error fetch uses workspacePath as its only Workspace-facing address
-    fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    urlSource({ url: "https://status.example.com/api/summary", mount: "status" })
     // @ts-expect-error fetch uses workspacePath instead of path for Workspace placement
-    fetch({ url: "https://status.example.com/api/summary", path: "status.json" })
+    urlSource({ url: "https://status.example.com/api/summary", path: "status.json" })
     // @ts-expect-error fetch does not expose generic source validation mode
-    fetch({ url: "https://status.example.com/api/summary", validate: "request" })
+    urlSource({ url: "https://status.example.com/api/summary", validate: "request" })
     // @ts-expect-error fetch request factories cannot redefine query
-    fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
+    urlSource({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
@@ -282,8 +282,8 @@ describe("workspace types", () => {
     expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     expectTypeOf(await runtimeWorkspace.sync({ details: "paths", snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     const workspaceOptions: WorkspaceOptions = { assets: ["typed"], store: { driver: "memory" } }
-    const githubWorkspaceOptions: WorkspaceOptions = { store: { branch: "main", driver: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
-    const lazyGithubWorkspaceOptions: WorkspaceOptions = { store: { driver: "github", repository: () => "acme/app", token: () => "token" } }
+    const githubWorkspaceOptions: WorkspaceOptions = { store: { branch: "main", driver: "github", repo: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
+    const lazyGithubWorkspaceOptions: WorkspaceOptions = { store: { driver: "github", repo: () => "acme/app", token: () => "token" } }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceOptions>()
     expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()
     expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()

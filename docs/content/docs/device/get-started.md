@@ -69,7 +69,7 @@ With server rendering, also await `openDevice()` before `app.mount()`. A compone
 :::
 
 - `version` names the shape of your data. Change it when an answer changes shape, and the device deletes the old copies. Without it, a new build keeps the copies.
-- Opening never fails. Without IndexedDB, the copies stay in memory.
+- `openDevice()` never fails. Without IndexedDB, the copies stay in memory.
 
 ::
 
@@ -92,7 +92,7 @@ export function useSession() {
 }
 ```
 
-Call `useSession()` in `App.vue`. The answer of the session read is stored under its account, and the next visit shows it at once. The other reads store only the answers of requests that start after the session answered. A read that started before shows its answer, and asks again. Another account, or `null` after a sign-out, deletes every copy. A stored copy of the session names nothing, and an answer that is not 2xx names nothing either: only a session that the server sent does.
+Call `useSession()` in `App.vue`. The answer of the session read is stored under its account, and the next visit shows it at once. The other reads store only the answers of requests that start after the session answered. A read that started before shows its answer and asks again. Another account, or `null` after a sign-out, deletes every copy. A stored copy of the session names no account. An answer that is not 2xx names no account either. Only a session that the server sent names the account.
 
 If your app knows the account another way, such as from the HTML or an auth client, call `setDeviceAccount(id)` instead.
 
@@ -145,13 +145,13 @@ import { inspectDevice } from 'vite-hub/device'
 console.log(inspectDevice())
 ```
 
-It gives the account that you named, `persisted: true`, `storage: 'indexeddb'`, and one entry for `/api/projects` with its time and size in bytes.
+It returns the account that you named, `persisted: true`, `storage: 'indexeddb'`, and one entry for `/api/projects` with its time and size in bytes.
 
 ::
 
 ## In production
 
-The stored copy is a copy in the browser, not a cache on the server. Each read still calls your route, and your route still checks the session. On a shared computer, the next person sees the copy of the last account until your app names the new account, so call `setDeviceAccount(null)` on a sign-out. ViteHub Auth in Nuxt does it for you.
+The stored copy is a copy in the browser, not a cache on the server. Each read still calls your route, and your route still checks the session. On a shared computer, the next person sees the copy of the last account until your app names the new account, so call `setDeviceAccount(null)` on a sign-out. ViteHub Auth in Nuxt does this for you.
 
 ## Next
 

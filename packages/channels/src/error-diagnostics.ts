@@ -55,7 +55,7 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     CHANNELS_C0011: {
       ...dynamicError,
-      fix: "Set both `signature` and `secret` in `webhook()`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`, and a `header` for `signature: 'token'`. To accept unsigned requests, set `secret: false` and no `signature`.",
+      fix: "Set both `signature` and `secret` in `webhook()`. `secret` names the server variable that holds the secret, such as `webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' })`, or is a function that returns it. `signature` is `'bearer'`, `'token'` with a `header`, `'github'`, `'stripe'`, `{ type: 'hmac-sha256' }`, `{ type: 'stripe', tolerance: '5m' }`, or `{ verify }`. To accept unsigned requests, set `secret: false` and no `signature`.",
     },
     CHANNELS_R0002: {
       ...dynamicError,

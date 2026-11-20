@@ -2,7 +2,7 @@
 title: Workflows
 layout: landing
 navigation.title: Overview
-description: Run long tasks in steps, get a run id at once, and check the status and result later.
+description: Run long tasks in steps, get a run ID at once, and check the status and result later.
 navigation.order: 1
 icon: i-lucide-workflow
 ---
@@ -80,15 +80,15 @@ export default defineEventHandler(async (event) => {
   :::
 
   :::product-feature-item{title="Split work into steps" icon="i-lucide-list-checks" to="/docs/workflows/get-started#define-the-workflow-steps"}
-  Put numbered files in a workflow folder. A durable host can retry a failed step.
+  Put numbered files in a workflow folder so durable hosts can retry failed steps.
   :::
 
   :::product-feature-item{title="Start now, check later" icon="i-lucide-play-circle" to="/docs/workflows/server-api#start-a-run"}
-  `startWorkflow()` starts a run and returns its id. Your route does not wait for the work.
+  `startWorkflow()` starts a run and returns its ID. Your route does not wait for the work.
   :::
 
   :::product-feature-item{title="Status and result" icon="i-lucide-activity" to="/docs/workflows/server-api#inspect-a-run"}
-  `getWorkflowRun()` returns the status (queued, running, completed, or failed) and the result.
+  `getWorkflowRun()` returns the status, whether queued, running, completed, or failed, and the result.
   :::
 
   :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#drivers"}
@@ -96,7 +96,7 @@ export default defineEventHandler(async (event) => {
   :::
 
   :::product-feature-item{title="Clear error codes" icon="i-lucide-circle-alert" to="/docs/workflows/limits-and-errors#structured-errors"}
-  Throw an error with a fixed code that is the same on every host.
+  Throw errors with fixed codes that work the same on every host.
   :::
 ::
 

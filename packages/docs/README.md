@@ -443,7 +443,7 @@ export default defineContent({
 | Code | When | Fix |
 | --- | --- | --- |
 | `DOCS_CONTENT_INVALID` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
-| `DOCS_REDIRECTS_BROKEN` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
+| `DOCS_REDIRECTS_BROKEN` | A production build with the link checker on finds a redirect route rule into the docs that no page or server route answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
 | `DOCS_ASSISTANT_AGENTS_MISSING` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect
