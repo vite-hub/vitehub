@@ -211,6 +211,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/codemods") return "framework tooling";
+  if (specifier === "@vite-hub/agent/emulate-models") return "opt-in test tooling with optional emulator peers";
   if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
