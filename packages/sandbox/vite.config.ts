@@ -3,9 +3,7 @@ import { defineConfig } from "vite-plus"
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 const exportNames: Record<string, string> = {
-  "./internal/cloudflare": "./_internal/cloudflare",
-  "./internal/host-toolchain": "./_internal/toolchain",
-  "./internal/vercel": "./_internal/vercel",
+  "./internal/host-toolchain": "./internal/toolchain",
   "./task/index": "./task",
 }
 
@@ -48,9 +46,9 @@ export default defineConfig({
         const taskExport = renamed["./task"]
         return normalizePackageExports({
           ...renamed,
-          ...(taskExport ? { "./_internal/task/runtime": taskExport } : {}),
-          "./_internal/task/runtime/providers/cloudflare": "./dist/task/runtime/providers/cloudflare.js",
-          "./_internal/task/runtime/providers/vercel": "./dist/task/runtime/providers/vercel.js",
+          ...(taskExport ? { "./internal/task/runtime": taskExport } : {}),
+          "./internal/task/runtime/providers/cloudflare": "./dist/task/runtime/providers/cloudflare.js",
+          "./internal/task/runtime/providers/vercel": "./dist/task/runtime/providers/vercel.js",
         })
       },
       inlinedDependencies: false,
