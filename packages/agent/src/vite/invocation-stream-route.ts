@@ -1,4 +1,5 @@
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { isViteHubForwardedRequest, isViteHubLoopbackAddress, isViteHubLoopbackHost } from "@vite-hub/internal/dev-peer"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -45,8 +46,13 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
           if (closed || res.destroyed) return
           res.statusCode = 500
           res.setHeader("Content-Type", "text/plain; charset=utf-8")
-          // The CLI prints this text, so a module that fails to load shows its own error. Only local dev requests get here.
-          res.end(redactInspectionText(formatRuntimeDiagnosticError(error)))
+          const host = req.headers[":authority"] ?? req.headers.host
+          const directLoopback = isViteHubLoopbackAddress(req.socket.remoteAddress)
+            && typeof host === "string" && isViteHubLoopbackHost(host)
+            && !isViteHubForwardedRequest(req.headers)
+          res.end(directLoopback || !isAgentDevLoopDiscoveryRequest(req)
+            ? redactInspectionText(formatRuntimeDiagnosticError(error))
+            : "Agent Invocation Stream endpoint failed.")
         })
         .finally(() => {
           req.off("aborted", onClose)
