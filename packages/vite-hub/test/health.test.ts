@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node
 import { createServer, type RequestListener } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { blob } from "@vite-hub/blob"
 import { checkBlobStoreHealth, setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
@@ -13,6 +14,7 @@ import { readViteHubVersion } from "../src/version.ts"
 
 type Handler = { fetch(): Promise<Response> }
 type Modules = Record<string, Record<string, unknown>>
+const blobRuntimeModule = fileURLToPath(import.meta.resolve("@vite-hub/blob/runtime/state"))
 
 /** Evaluates the generated handler, with stubs for the modules that it imports. */
 function handler(targets: Partial<HealthTargets>, modules: Modules = {}): Handler {
@@ -64,7 +66,7 @@ describe("health route", () => {
     const modules = (failingKV?: string): Modules => ({
       "@vite-hub/database/runtime/registry": { pingDatabases: async () => ({ default: true }) },
       "vite-hub/kv": { kv: { store: store("kv", failingKV) } },
-      "@vite-hub/blob/runtime/state": { checkBlobStoreHealth: async (name: string) => { reads.push(`blob:${name}`) } },
+      [blobRuntimeModule]: { checkBlobStoreHealth: async (name: string) => { reads.push(`blob:${name}`) } },
     })
     const targets = { database: true, kv: ["default", "sessions"], blob: ["default"] }
 
@@ -89,7 +91,7 @@ describe("health route", () => {
   it("counts a store that does not answer within 2 seconds as failed", async () => {
     vi.useFakeTimers()
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
-    const modules: Modules = { "@vite-hub/blob/runtime/state": { checkBlobStoreHealth: () => new Promise(() => {}) } }
+    const modules: Modules = { [blobRuntimeModule]: { checkBlobStoreHealth: () => new Promise(() => {}) } }
 
     const pending = handler({ blob: ["uploads"] }, modules).fetch()
     await vi.advanceTimersByTimeAsync(2_000)
@@ -127,7 +129,7 @@ type BlobStore = Exclude<Parameters<typeof setBlobRuntimeConfig>[0], false | und
 /** The Blob check of the generated handler, run against the real Blob runtime with `store` as the `uploads` store. */
 async function checkUploads(store: BlobStore): Promise<{ status: number, uploads: boolean }> {
   setBlobRuntimeConfig({ store, stores: { uploads: store } })
-  const response = await handler({ blob: ["uploads"] }, { "@vite-hub/blob/runtime/state": { checkBlobStoreHealth } }).fetch()
+  const response = await handler({ blob: ["uploads"] }, { [blobRuntimeModule]: { checkBlobStoreHealth } }).fetch()
   const body = await response.json() as { checks: { blob: { uploads: boolean } } }
   return { status: response.status, uploads: body.checks.blob.uploads }
 }

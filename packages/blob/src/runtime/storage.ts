@@ -1,4 +1,4 @@
-import { createBlobStorage } from "../storage.ts"
+import { checkBlobDriverHealth, checkBlobStorageHealth, createBlobStorage, registerBlobStorageHealthCheck } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
@@ -32,8 +32,6 @@ const driverModules = {
   s3: "s3",
   vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
-
-const healthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare") {
@@ -78,7 +76,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   return importRuntimeDriverModule(config)
 }
 
-async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
+async function importRuntimeDriverModule<Config extends ResolvedBlobStoreConfig>(config: Config) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
@@ -87,7 +85,8 @@ async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   const modulePath = isSourceRuntime
     ? new URL(`../drivers/${moduleName}.ts`, import.meta.url).href
     : `@vite-hub/blob/drivers/${moduleName}`
-  const module = await import(modulePath) as { createDriver: (options: typeof config) => BlobDriverAdapter<ResolvedBlobStoreConfig> }
+  // SAFETY: The driver name selects the module whose factory accepts this config.
+  const module = await import(modulePath) as { createDriver: (options: Config) => BlobDriverAdapter<Config> }
   return module.createDriver(config)
 }
 
@@ -112,13 +111,7 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, na
     ...(config.images === undefined ? {} : { images: config.images }),
     url: pathname => servedBlobUrl(name, pathname),
   })
-  if (driver.checkHealth) healthChecks.set(storage, driver.checkHealth.bind(driver))
-  else if (driver.name === "s3") {
-    healthChecks.set(storage, async () => {
-      const [error] = await storage.list({ limit: 1 })
-      if (error) throw error
-    })
-  }
+  registerBlobStorageHealthCheck(storage, () => checkBlobDriverHealth(driver))
   return storage
 }
 
@@ -177,11 +170,7 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
 }
 
 export async function checkBlobStoreHealth(name: string): Promise<void> {
-  const storage = await resolveStorage(name)
-  const check = healthChecks.get(storage)
-  if (check) return check()
-  const [error] = await storage.head("vitehub-health-check")
-  if (error) throw error
+  await checkBlobStorageHealth(await resolveStorage(name))
 }
 
 // Completed multipart objects get the served URL, like put().
