@@ -6,6 +6,7 @@ import { channels } from "./channels/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { docus } from "./docus/index.ts"
 import { driverKey } from "./driver-key/index.ts"
+import { kvListPrefix } from "./kv-list-prefix/index.ts"
 import { nuxtContent } from "./nuxt-content/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
@@ -56,6 +57,7 @@ export const codemods: readonly Codemod[] = [
   channels,
   authAccessors,
   workspaceRepo,
+  kvListPrefix,
 ]
 
 /**
@@ -86,4 +88,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   channels,
   authAccessors,
   workspaceRepo,
+  kvListPrefix,
 ]
