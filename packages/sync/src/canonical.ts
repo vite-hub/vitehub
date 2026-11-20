@@ -1,3 +1,6 @@
+import { sha256 } from "@noble/hashes/sha2.js"
+import { bytesToHex } from "@noble/hashes/utils.js"
+
 /** A `JSON.stringify()` replacer that writes a `bigint` as text, so rows with bigint columns go over the wire. */
 export function jsonReplacer(_key: string, value: unknown): unknown {
   return typeof value === "bigint" ? value.toString() : value
@@ -36,6 +39,6 @@ export async function fingerprint(text: string): Promise<string> {
 }
 
 /** The account of a user, as the server names it in a pull and the browser on the writes it queues. */
-export function accountOf(userId: string): Promise<string> {
-  return fingerprint(`account\n${userId}`)
+export function accountOf(userId: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(`account\n${userId}`)).subarray(0, 16))
 }

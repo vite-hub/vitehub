@@ -528,11 +528,11 @@ export default defineNuxtPlugin({
     const session = useUserSession()
     // A session read that failed names nobody, so an offline reload keeps the user.
     watch(() => session.ready.value && !session.error.value ? session.user.value?.id ?? null : undefined, (id) => {
-      if (id !== undefined) void setSyncUser(id)
+      if (id !== undefined) setSyncUser(id)
     }, { immediate: true, flush: "sync" })
     onSignOut(async () => {
       await clearSync({ keepWrites: true })
-      await setSyncUser(null)
+      setSyncUser(null)
     })
   },
 })

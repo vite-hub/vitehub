@@ -4943,15 +4943,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     nuxt.options.serverDir = resolve(root, "server")
     await viteHubNuxtModule({ auth: true, host: "node" }, nuxt)
 
-    const { computed, ref } = await import("vue")
-    const calls: string[] = []
+    const { computed, ref, watch } = await import("vue")
+    const sync = await import("@vite-hub/sync/client")
     const signOut = { listener: undefined as (() => unknown) | undefined }
     const state = ref<{ pending: boolean, error: Error | null, user: { id: string } | null }>({ pending: true, error: null, user: null })
     vi.doMock("#imports", async () => ({ defineNuxtPlugin: <T>(plugin: T) => plugin, watch: (await import("vue")).watch }))
-    vi.doMock("vite-hub/sync/client", () => ({
-      clearSync: async (options?: { keepWrites?: boolean }) => void calls.push(`clear ${JSON.stringify(options ?? {})}`),
-      setSyncUser: async (id: string | null) => void calls.push(`user ${id}`),
-    }))
+    vi.doMock("vite-hub/sync/client", () => sync)
     vi.doMock("vite-hub/auth/vue", () => ({
       onSignOut: (listener: () => unknown) => {
         signOut.listener = listener
@@ -4964,20 +4961,33 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       }),
     }))
     const copy = await mkdtemp(resolve(import.meta.dirname, ".sync-plugin-"))
+    vi.stubGlobal("window", new EventTarget())
+    vi.stubGlobal("document", new EventTarget())
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const store = sync.createSync("todos", { interval: false, fetch: async () => { throw new TypeError("Failed to fetch") } })
+    const writes = Array<ReturnType<typeof store.insert>>()
+    let stop: (() => void) | undefined
     try {
       await writeFile(resolve(copy, "plugin.mjs"), await readFile(resolve(root, ".vitehub/sync/nuxt-sign-out.mjs"), "utf8"))
       // SAFETY: the generated plugin is the object that `defineNuxtPlugin()` got, which the fake returns as is.
       const { default: plugin } = await import(pathToFileURL(resolve(copy, "plugin.mjs")).href) as { default: { dependsOn?: string[], setup: () => void } }
       plugin.setup()
       expect(plugin.dependsOn).toEqual(["vitehub:auth"])
-      expect(calls).toEqual([])
+      stop = watch(() => state.value.user, user => {
+        if (user) writes.push(store.insert({ title: "Offline" }))
+      }, { flush: "sync" })
       state.value = { pending: false, error: null, user: { id: "ada" } }
+      expect(store.getState()).toMatchObject({ queued: 1, rows: [{ title: "Offline" }] })
       state.value = { pending: false, error: new Error("Failed to fetch"), user: null }
-      expect(calls).toEqual(["user ada"])
       await signOut.listener?.()
-      expect(calls).toEqual(["user ada", "clear {\"keepWrites\":true}", "user null"])
+      expect(writes[0]?.state).toBe("queued")
+      expect(store.getState()).toMatchObject({ queued: 0, rows: [] })
     }
     finally {
+      stop?.()
+      store.destroy()
+      await sync.clearSync()
+      vi.unstubAllGlobals()
       await rm(copy, { recursive: true, force: true })
       vi.doUnmock("#imports")
       vi.doUnmock("vite-hub/sync/client")

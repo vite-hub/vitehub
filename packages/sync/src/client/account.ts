@@ -2,20 +2,27 @@
 import { accountOf } from "../canonical.ts"
 
 let known: string | null = null
-let calls = 0
+
+const provisionalPrefix = "user:"
+
+function provisionalAccount(account: string): string {
+  return `${provisionalPrefix}${account}`
+}
+
+function isProvisionalAccount(account: string | null): boolean {
+  return account?.startsWith(provisionalPrefix) === true
+}
 
 /** The account of the user that `setSyncUser()` named, or `null`. */
 function knownAccount(): string | null {
   return known
 }
 
-async function setKnownUser(userId: string | null): Promise<void> {
-  const call = ++calls
-  // The writes queued while the account is worked out belong to nobody, not to the user before.
-  known = null
-  if (userId === null) return
-  const account = await accountOf(userId)
-  if (call === calls) known = account
+function setKnownUser(userId: string | null): boolean {
+  const next = userId === null ? null : provisionalAccount(accountOf(userId))
+  if (known === next) return false
+  known = next
+  return true
 }
 
-export { knownAccount, setKnownUser }
+export { isProvisionalAccount, knownAccount, provisionalAccount, setKnownUser }

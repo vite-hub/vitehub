@@ -203,7 +203,7 @@ Each write belongs to the account that was signed in when it was made: the user 
 
 Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
 
-With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync({ keepWrites: true })` for you, after the server ended the session and before the next page opens, so the writes that a person made offline go out when they sign in again. It also names the signed-in user with `setSyncUser()`, so a write made before the first pull belongs to that user. To drop every queued write on sign-out instead, add `onSignOut(() => clearSync())` in a plugin: it runs after the one of ViteHub. In a Vue app without Nuxt, add it once with `onSignOut()`:
+With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync({ keepWrites: true })` for you, after the server ended the session and before the next page opens. Signing in again also retries writes from subsets that are no longer open. A write made before the first pull waits for the same Auth user; that user's first pull establishes the Sync account, including for definitions with `identify`. To drop every queued write on sign-out instead, add `onSignOut(() => clearSync())` in a plugin: it runs after the one of ViteHub. In a Vue app without Nuxt, add it once with `onSignOut()`:
 
 ```ts [src/main.ts] fragment
 import { onSignOut } from 'vite-hub/auth/vue'
@@ -231,12 +231,12 @@ To clear the rows and keep the writes that wait, such as changes that a person m
 import { clearSync, setSyncUser } from 'vite-hub/sync/client'
 
 // After each sign-in, and on start once the session is known.
-await setSyncUser(user.id)
+setSyncUser(user.id)
 
 export async function signOut() {
   await $fetch('/api/logout', { method: 'POST' })
   await clearSync({ keepWrites: true })
-  await setSyncUser(null)
+  setSyncUser(null)
 }
 ```
 

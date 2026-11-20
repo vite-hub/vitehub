@@ -2,7 +2,7 @@ import { backoffDelay, randomUUID } from "@vite-hub/internal/browser-environment
 
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
-import { knownAccount } from "./account.ts"
+import { isProvisionalAccount, knownAccount } from "./account.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
 import { buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, toMutation, toWireError, whereKey } from "./view.ts"
@@ -125,7 +125,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && meta!.after === change.meta!.after
     && !change.reset
     && !change.put?.length && !change.delete?.length && !change.add?.length && !change.update?.length && !change.remove?.length
-    && !change.results?.length
+    && !change.results?.length && !change.claim
 }
 
 /** Thrown inside a round that `forget()` ended, so it writes nothing more. */
@@ -318,7 +318,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     baseAt = at
     readsPage = false
     try {
-      base = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report, page: pageReader, held: held.map(item => item.write), handed })
+      base = buildView(confirmed, [...writes, ...local], { meta, active: visibleWrite, where, actions: optimistic, report, page: pageReader, held: held.map(item => item.write), handed })
     }
     finally {
       basing = false
@@ -367,7 +367,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const failures: SyncFailure[] = []
     let queued = 0
     for (const write of [...writes, ...local]) {
-      if (isActive(write, account)) queued++
+      if (visibleWrite(write)) queued++
     }
     for (const write of writes) {
       if (!isOwnFailure(write, account)) continue
@@ -576,17 +576,17 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
    * Stores the writes of this tick in one change, then sends them in one push. It runs also after `destroy()`, so each
    * write that the store took reaches storage and the server.
    */
-  function flush(): void {
+  function flush(keeping = false): void {
     flushQueued = false
-    if (paused || (!local.length && !removals.length)) return
+    if ((!keeping && paused) || (!local.length && !removals.length)) return
     // A write made before the stored copy was read gets its account from that copy, not from the next pull, which can
     // come from another account.
-    if (!started) {
+    if (!started && !keeping) {
       flushQueued = true
-      void loading.then(flush)
+      void loading.then(() => flush())
       return
     }
-    const batch = local.filter(write => !storing.has(write.id)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
+    const batch = local.filter(write => !storing.has(write.id) && (!keeping || write.account !== null || meta)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
     const removed = removals
     removals = []
     for (const write of batch) storing.add(write.id)
@@ -746,6 +746,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     if (subset) query.set("where", subset)
     query.set("paged", "1")
+    if (writes.some(write => isProvisionalAccount(write.account))) query.set("claim", "1")
     return `?${query.toString()}`
   }
 
@@ -763,7 +764,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       if (answer.body.reset) freshSnapshot = false
       recover()
-      await commit(pullChange(meta, answer.body, writes), answer.body.more ? undefined : mark)
+      const claimant = answer.body.authAccount === undefined ? answer.body.account : answer.body.authAccount
+      await commit(pullChange(meta, answer.body, writes, claimant), answer.body.more ? undefined : mark)
       pulled = true
       if (!answer.body.more) return true
     }
@@ -1080,7 +1082,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const reason = new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write.")
     if (keepWrites) {
       // The writes of this tick go to storage first. A write gets the account of the stored copy there.
-      if (flushQueued && started) flush()
+      if (local.length) flush(true)
       const kept = [...writes.filter(write => write.account !== null), ...local.filter(write => storing.has(write.id) && (write.account !== null || meta))]
       for (const { id: mutationId } of kept) {
         const handles = pending.get(mutationId)
@@ -1131,6 +1133,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return meta?.account ?? knownAccount()
   }
 
+  function visibleWrite(write: SyncNewWrite): boolean {
+    return isActive(write, meta?.account)
+      || (!meta && !write.error && pending.has(write.id) && write.account === knownAccount())
+  }
+
   return {
     // SAFETY: the rows are the JSON rows of the table of `TRow`.
     getState: () => current() as SyncState<TRow>,
@@ -1149,8 +1156,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     update(key, patch) {
       assertOpen()
       // A later patch of the same row in the same tick merges into the update that waits, so one push sends one update.
-      const target = mergeTarget(local, key, meta?.account, storing)
-      const write: SyncNewWrite = { id: randomUUID(), account: owner(), key, op: "update", patch: { ...target?.patch, ...patch } }
+      const account = owner()
+      const target = mergeTarget(local, key, account, storing)
+      const write: SyncNewWrite = { id: randomUUID(), account, key, op: "update", patch: { ...target?.patch, ...patch } }
       if (target) {
         local = local.filter(item => item !== target)
         moveHandles(target.id, write.id)

@@ -245,14 +245,15 @@ async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
 }
 
 /**
- * Names the signed-in user, with the id that the server's Sync user has (`user.id`), or `null` after a sign-out. A
- * write queued before the first pull then belongs to that user: `clearSync({ keepWrites: true })` keeps it, and it
- * goes out only with a session of that user. ViteHub Auth in Nuxt calls it for you.
+ * Names the signed-in user (`user.id`), or `null` after a sign-out. A write queued before the first pull waits for
+ * a pull from that user to establish its Sync account. With ViteHub Auth, use the Auth user ID; Nuxt names it for you.
  * @experimental
  */
-async function setSyncUser(userId: string | null): Promise<void> {
+function setSyncUser(userId: string | null): void {
   if (!isBrowser()) return
-  await setKnownUser(userId)
+  if (setKnownUser(userId) && userId !== null) {
+    for (const storage of senders.keys()) void sendStored(storage)
+  }
 }
 
 export { clearSync, openSync, setSyncUser }

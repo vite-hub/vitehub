@@ -184,7 +184,7 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   await captureScope(resolved, whereValues)
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
   const id = accountId(resolved, context, whereValues)
-  const account = id === null ? scope.id : await accountOf(id)
+  const account = id === null ? scope.id : accountOf(id)
   return [undefined, { ...resolved, context, scope, account }]
 }
 
@@ -1137,7 +1137,12 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
     const [stopped, scoped] = await resolveScope(resolved, request, services, subset)
     if (stopped) return fail(stopped.status, stopped.error)
     const after = url.searchParams.get("after") || undefined
-    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined, paged: url.searchParams.get("paged") === "1", after }))
+    const answer = await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined, paged: url.searchParams.get("paged") === "1", after })
+    if (url.searchParams.get("claim") === "1" && resolved.definition.options.identify && services.identify) {
+      const auth = await services.identify(request)
+      answer.authAccount = auth?.user ? accountOf(auth.user.id) : null
+    }
+    return json(200, answer)
   }
 
   const [refused, raw] = await readJson(request, "push", "Send fewer mutations in one push.")
