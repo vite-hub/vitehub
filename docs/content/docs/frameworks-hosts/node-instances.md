@@ -13,16 +13,20 @@ front of them.
 
 Start with a ViteHub app from [Installation](/docs/getting-started/installation).
 Follow [Add feature packages](/docs/getting-started/installation#add-feature-packages)
-for Database, KV, Queue, Rate Limit, Realtime, Schedule, and Workflow before
+for KV, Queue, Rate Limit, Realtime, Schedule, and Workflow before
 you turn them on. Use package versions that match your `vite-hub` release.
 
 ## Define one Postgres Database
 
 The Default Database is the shared store. Queue, Schedule, Workflow, KV, Rate
-Limit, and Realtime find it and use its connection, so you set one URL.
+Limit, and Realtime can use its connection, so you set one URL. Install the
+Database package, the Postgres client, Drizzle ORM for the schema, and Drizzle
+Kit for generating migrations. Use a matching pair of Drizzle versions supported
+by your ViteHub release; for example:
 
 ```bash [Terminal]
-pnpm add postgres
+pnpm add @vite-hub/database postgres drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ```ts [server/databases/default.ts]
