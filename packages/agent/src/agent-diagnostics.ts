@@ -4763,6 +4763,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
     },
+    AGENT_STATE_MIGRATE_ARGUMENT_INVALID: {
+      why: ({ reason }: { reason: string }) => `vitehub agent state migrate: ${reason}`,
+      fix: "Run `vitehub agent state migrate --agent <name> --channel <adapter> --url <libsql-url>`, check the moves it prints, then add `--apply`.",
+    },
+    AGENT_STATE_MIGRATE_DATABASE_MISSING: {
+      why: ({ path }: { path: string }) => `No Agent State database exists at ${path}. vitehub agent state migrate does not create one.`,
+      fix: "Pass `--url` with the `file:` URL or path of the Agent State database that the app used, such as the `url` of the old `messages.state`.",
+    },
     AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
       why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
       fix: ({ host }: { host: "vercel" | "netlify" }) => host === "netlify"
