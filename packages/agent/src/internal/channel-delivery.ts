@@ -14,10 +14,10 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
-// Finding the deliveries a trim removes reads the whole index, so the index trims once per this many admissions.
-const indexTrimInterval = 50
+// Finding the deliveries a trim removes reads the whole index, so the index trims at most once per this interval.
+const indexTrimIntervalMs = 60_000
 const indexKey = "deliveries:index"
-const admissionsSinceTrimKey = "deliveries:index:admissions"
+const indexTrimLeaseKey = "deliveries:index:trim"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 let workflowOwnershipResolver: AgentChannelDeliveryWorkflowOwnershipResolver | undefined
@@ -197,10 +197,7 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
 }
 
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<string[]> {
-  // Concurrent admissions can count the same value, which only moves the next trim by an admission.
-  const admissions = ((await state.get<number>(admissionsSinceTrimKey)) || 0) + 1
-  await state.set(admissionsSinceTrimKey, admissions % indexTrimInterval, retentionMs)
-  if (admissions < indexTrimInterval) {
+  if (!(await state.setIfNotExists(indexTrimLeaseKey, true, indexTrimIntervalMs))) {
     await state.appendToList(indexKey, deliveryId, { ttlMs: retentionMs })
     return []
   }
@@ -218,15 +215,16 @@ async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Prom
 }
 
 async function deleteDeliveryRecords(state: StateAdapter, deliveryIds: string[]): Promise<void> {
-  const locks: Lock[] = []
+  const locks = new Map<string, Lock>()
   try {
     // Sorted order keeps two concurrent trims from each holding a lock the other waits for.
-    for (const deliveryId of [...deliveryIds].sort()) locks.push(await acquireDeliveryLock(state, deliveryId))
+    for (const deliveryId of [...deliveryIds].sort()) locks.set(deliveryId, await acquireDeliveryLock(state, deliveryId))
     // Admissions append under these same journal locks. Recheck after acquiring them:
     // the snapshot that selected these candidates may predate a completed retry.
     const indexed = new Set(await state.getList<string>(indexKey))
-    for (const deliveryId of deliveryIds) {
-      if (indexed.has(deliveryId)) continue
+    for (const [deliveryId, lock] of locks) {
+      // A lock that expired while the trim took later ones no longer covers the recheck, so a retry may have re-admitted this delivery.
+      if (indexed.has(deliveryId) || !(await state.extendLock(lock, 30_000))) continue
       const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
       if (delivery) {
         // A later delivery can own the same source after this record expired, so delete the source only while it points here.
@@ -237,7 +235,7 @@ async function deleteDeliveryRecords(state: StateAdapter, deliveryIds: string[])
       await state.delete(deliveryRecordKey(deliveryId))
     }
   } finally {
-    for (const lock of locks) await state.releaseLock(lock)
+    for (const lock of locks.values()) await state.releaseLock(lock)
   }
 }
 
