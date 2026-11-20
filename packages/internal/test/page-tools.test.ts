@@ -667,3 +667,53 @@ describe("mounted page tool exclusions", () => {
     }
   })
 })
+
+describe("page tools on the public origin only", () => {
+  // Drop serves drops on a content origin from the same deployment. The pill there breaks the drop's own import map.
+  const publicUrl = "https://drop.example.com"
+
+  it("adds the pill and answers the page tools route only on the public origin", async () => {
+    const app = nitro3App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app, { origins: [publicUrl] })
+
+    const own = await app.fetch(new Request(`${publicUrl}/d/report?vitehub`))
+    expect(await own.text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
+    expect(await (await app.fetch(new Request(`${publicUrl}/d/report`))).text()).toBe(`<html><body>Page${bootstrap}</body></html>`)
+    const session = await app.fetch(new Request(`${publicUrl}/_vitehub/page/session`, { headers: { cookie: "person=ada" } }))
+    expect(session.status).toBe(200)
+
+    for (const origin of ["https://content.example.com", "https://abc-drop.example.com"]) {
+      expect(await (await app.fetch(new Request(`${origin}/?vitehub`))).text()).toBe("<html><body>Page</body></html>")
+      expect(await (await app.fetch(new Request(`${origin}/`))).text()).toBe("<html><body>Page</body></html>")
+      const request = new Request(`${origin}/_vitehub/page/session`, { headers: { cookie: "person=ada" } })
+      await app.fetch(request)
+      const response = await viteHubPageSessionHandler.fetch(request)
+      expect(response.status).toBe(404)
+      expect((await response.json()).error.code).toBe("VITEHUB_PAGE_TOOLS_ORIGIN")
+    }
+  })
+
+  it("matches the host that a proxy forwards, a loopback host, and the prerenderer", async () => {
+    const app = nitro3App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app, { origins: [publicUrl] })
+    const page = async (url: string, headers: Record<string, string> = {}) => (await app.fetch(new Request(url, { headers }))).text()
+
+    // A TLS proxy that does not forward the scheme, and one that forwards the host.
+    expect(await page("http://drop.example.com/?vitehub")).toContain(loaderTag)
+    expect(await page("http://10.0.0.4:3000/?vitehub", { "x-forwarded-host": "drop.example.com", "x-forwarded-proto": "https" })).toContain(loaderTag)
+    expect(await page("http://10.0.0.4:3000/?vitehub", { "x-forwarded-host": "content.example.com" })).not.toContain("data-vitehub-page-tools")
+    // A preview build, or a proxy that sends its own Host.
+    expect(await page("http://localhost:3000/?vitehub")).toContain(loaderTag)
+    expect(await page("http://127.0.0.1:3000/?vitehub")).toContain(loaderTag)
+    expect(await page("http://prerender.invalid/guide", { "x-nitro-prerender": "/guide" })).toContain(bootstrap)
+  })
+
+  it("serves every origin without origins", async () => {
+    const app = nitro3App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app, { origins: [] })
+    expect(await (await app.fetch(new Request("https://content.example.com/?vitehub"))).text()).toContain(loaderTag)
+  })
+})

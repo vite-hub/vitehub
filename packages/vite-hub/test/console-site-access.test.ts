@@ -310,6 +310,26 @@ describe("GET /_vitehub", () => {
     expect(Object.fromEntries(location.searchParams)).toMatchObject({ project: `${origin}/portal`, site: "/runs/42" })
   })
 
+  it("answers only on the public URL, so another hostname of the deployment gets 404", async () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://drop.example.com" })
+    try {
+      const own = await siteEntryRoute.fetch(new Request("https://drop.example.com/_vitehub/d/report"))
+      expect(own.status).toBe(303)
+      expect(new URL(own.headers.get("location")!).searchParams.get("project")).toBe("https://drop.example.com")
+      for (const url of ["https://abc-drop.example.com/_vitehub", "https://abc-drop.example.com/_vitehub/d/report"]) {
+        const response = await siteEntryRoute.fetch(new Request(url))
+        expect(response.status, url).toBe(404)
+        expect(response.headers.get("location"), url).toBeNull()
+      }
+      // A development server answers on every origin.
+      installConsoleDevelopment("", true)
+      expect((await siteEntryRoute.fetch(new Request("https://abc-drop.example.com/_vitehub"))).status).toBe(303)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("answers only GET, and 404 for another method on a page path", async () => {
     expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { method: "POST" }))).status).toBe(405)
     expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub/schedules/run`, { method: "POST" }))).status).toBe(404)

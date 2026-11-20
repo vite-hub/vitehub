@@ -111,6 +111,8 @@ An `authorize` that returns `true` for every context shows the link to every vis
 
 The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
 
+When you set `vitehub({ publicUrl })`, a build shows the pill only on that origin. Another hostname of the same deployment, such as a domain that serves user uploads, gets no pill, and `/_vitehub` and the page tools route answer `404` there. Other ViteHub routes, such as `/_vitehub/rpc`, Realtime, Channels, and webhooks, answer on every hostname. A `localhost` or `127.0.0.1` host and a development server always get the pill.
+
 The link adds the [page tools script](/docs/comments/configure#turn-comment-mode-on-and-off) to every HTML page, about 320 bytes inline. To leave the link and the script out, set `pill: false`:
 
 ::tabs{sync="framework"}

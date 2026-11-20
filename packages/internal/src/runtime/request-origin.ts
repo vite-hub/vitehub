@@ -22,3 +22,15 @@ export function forwardedRequestOrigin(request: Pick<Request, "headers" | "url">
     return url.origin
   }
 }
+
+/**
+ * Whether a request came in on one of the public `origins` of the app, such as the origin of `vitehub({ publicUrl })`.
+ * It compares the host that the client used, so a proxy that does not forward the scheme still matches. A loopback
+ * host, such as `localhost:3000` for a preview or a proxy that does not forward the host, also matches: it cannot be a
+ * second public hostname. Every request matches when `origins` is empty.
+ */
+export function matchesPublicOrigin(request: Pick<Request, "headers" | "url">, origins: readonly string[]): boolean {
+  if (origins.length === 0) return true
+  const { host, hostname } = new URL(forwardedRequestOrigin(request))
+  return hostname === "localhost" || hostname === "[::1]" || hostname.startsWith("127.") || origins.some(origin => new URL(origin).host === host)
+}

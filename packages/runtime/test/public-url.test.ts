@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl } from "../src/public-url.ts"
+import { configuredPublicOrigins, consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl } from "../src/public-url.ts"
 
 describe("public URL", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     resetPublicUrlAgentNames()
+  })
+
+  it("lists the configured origins", () => {
+    expect(configuredPublicOrigins()).toEqual([])
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://shop.example.com" })
+    expect(configuredPublicOrigins()).toEqual(["https://shop.example.com"])
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://a.example.com", helper: "https://a.example.com", support: "https://b.example.com" } })
+    expect(configuredPublicOrigins()).toEqual(["https://a.example.com", "https://b.example.com"])
   })
 
   it("falls back to the request origin when no public URL is configured", () => {
