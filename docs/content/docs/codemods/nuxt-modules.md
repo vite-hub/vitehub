@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
+description: Migrate a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
