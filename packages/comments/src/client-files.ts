@@ -2,6 +2,12 @@ import type { CommentAttachment, CommentFiles, CommentSubject, CommentUploadInpu
 
 export const outboxAccountHeader = "x-vitehub-comments-outbox-account"
 
+export class CommentPreparationError extends Error {
+  constructor(cause: unknown) {
+    super("The comment write did not start.", { cause })
+  }
+}
+
 /** The file as Base64, the form that `comments.upload` takes. */
 export async function base64(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer())
@@ -40,7 +46,13 @@ export async function withCommentFiles<T extends { attachments?: string[] }>(
   upload: (input: CommentUploadInput) => Promise<CommentAttachment>,
 ): Promise<T> {
   if (!files?.length) return input
-  return { ...input, attachments: [...(input.attachments ?? []), ...await uploadFiles(files, subject, upload, outbox?.uploaded)] }
+  try {
+    return { ...input, attachments: [...(input.attachments ?? []), ...await uploadFiles(files, subject, upload, outbox?.uploaded)] }
+  }
+  catch (cause) {
+    if (!outbox) throw cause
+    throw new CommentPreparationError(cause)
+  }
 }
 
 /** The `Retry-After` of an answer in milliseconds: seconds, or an HTTP date. */

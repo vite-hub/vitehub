@@ -2,6 +2,7 @@
 // shows, and goes to the server one at a time, in order, with its `requestId` as the retry key. One tab sends at a time.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
+import { CommentPreparationError } from "./client-files.ts"
 import { replyMessageId } from "./reply-id.ts"
 
 import type { BrowserEnvironment } from "@vite-hub/internal/browser-environment"
@@ -37,7 +38,7 @@ interface CommentsOutboxEntryBase {
   createdAt: number
   /** The place in the queue. */
   order: number
-  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry`, `edit`, or `dismiss`. */
+  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry` or a safe `edit` or `dismiss`. */
   status: "pending" | "sending" | "failed"
   /** Why the last try did not go out. */
   error?: CommentDeliveryError
@@ -49,12 +50,8 @@ interface CommentsOutboxEntryBase {
   uploaded?: string[]
 }
 
-/**
- * Whether the reader may still edit or dismiss an entry. Not while a tab sends it, nor while an earlier try may have
- * landed. A refusal answers that: the server looked the retry key up and turned it down.
- */
 function changeable(entry: CommentsOutboxEntryBase) {
-  return entry.status === "failed" || (entry.status !== "sending" && !entry.uncertain)
+  return entry.status !== "sending" && !entry.uncertain
 }
 
 /** A comment or reply that the outbox holds. */
@@ -434,6 +431,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       if (current && current.claim === entry.claim) return change(current, drafts)
     })
     let thread: CommentThread
+    let writing = false
     try {
       const files: CommentFiles = {
         files: entry.files.slice(entry.uploaded?.length ?? 0),
@@ -449,6 +447,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const extra = { ...files, requestId: entry.requestId, ...(attachments.length ? { attachments } : {}) }
       if (entry.kind === "create") {
         if (!await withClaim(() => true)) return
+        writing = true
         thread = await host.transport.create({ ...entry.input, ...extra })
       }
       else {
@@ -456,17 +455,19 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         const subject = entry.subject ?? serverThread(threadId)?.subject ?? (files.files?.length ? (await host.transport.get({ id: threadId }))?.subject : undefined)
         if (files.files?.length && !subject) throw Object.assign(new Error("The thread for this reply does not exist."), { status: 404 })
         if (!await withClaim(() => true)) return
+        writing = true
         thread = await host.transport.reply({ ...entry.input, ...extra, threadId, ...(subject ? { subject } : {}) })
       }
     }
     catch (cause) {
-      const { retryAfter, ...error } = deliveryError(cause)
+      const beforeWrite = cause instanceof CommentPreparationError
+      const { retryAfter, ...error } = deliveryError(beforeWrite ? cause.cause : cause)
       const outcome = outcomeOf(error.status)
       const attempts = entry.attempts ?? 0
       const saved = await withClaim((current, drafts) => drafts.set(entry.id, {
         ...current,
         status: outcome === "fail" ? "failed" : "pending",
-        uncertain: entry.uncertain || (outcome === "wait" && error.status !== 429),
+        uncertain: entry.uncertain || (writing && !beforeWrite && outcome === "wait" && error.status !== 429),
         held: outcome === "hold",
         retryAt: outcome === "wait" ? Date.now() + Math.max(1, retryAfter ?? backoffDelay(attempts, environment.random())) : undefined,
         attempts: attempts + 1,
