@@ -582,6 +582,36 @@ await import("data-package", { with: { type: "json" } })
     await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("mapped-config")
   })
 
+  it("preserves Deno specifiers and stages packages reached through private imports", async () => {
+    const root = await temporaryDirectory("vitehub-deno-native-imports-")
+    const packageDir = join(root, "node_modules", "image-package")
+    await Promise.all([
+      mkdir(join(root, ".output/server"), { recursive: true }),
+      mkdir(join(root, ".vitehub/schedule"), { recursive: true }),
+      mkdir(packageDir, { recursive: true }),
+    ])
+    await writeJson(join(root, "package.json"), {
+      imports: { "#image/*": { import: "image-package/*", default: "./unused.js" } },
+    })
+    await writeJson(join(packageDir, "package.json"), { name: "image-package", version: "1.0.0", exports: { "./asset": "./index.mjs" } })
+    await writeFile(join(packageDir, "index.mjs"), 'export default new URL("./asset.txt", import.meta.url)\n')
+    await writeFile(join(packageDir, "asset.txt"), "image asset")
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n")
+    const imports = 'import "npm:chalk@5"\nimport "jsr:@std/path"\nimport image from "#image/asset"\nglobalThis.image = image\n'
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), imports)
+    await writeFile(join(root, "main.ts"), `${imports}await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n`)
+
+    await finalize({ rootDir: root })
+
+    for (const entry of ["main.ts", "schedule/deno-cron.mjs"]) {
+      const output = await readFile(join(root, ".output", entry), "utf8")
+      for (const specifier of ["npm:chalk@5", "jsr:@std/path", "image-package/asset"]) {
+        expect(output).toContain(JSON.stringify(specifier))
+      }
+    }
+    await expect(readFile(join(root, ".output/node_modules/image-package/asset.txt"), "utf8")).resolves.toBe("image asset")
+  })
+
   it.each(["application", "schedule"])("stages %s externals from their original importer", async (target) => {
     const root = await temporaryDirectory(`vitehub-deno-${target}-external-importer-`)
     const helperDir = join(root, "packages/helper")

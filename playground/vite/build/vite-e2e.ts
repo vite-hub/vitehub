@@ -34,7 +34,7 @@ import { createWorkflowRegistryContents } from "../../../packages/workflow/src/i
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"

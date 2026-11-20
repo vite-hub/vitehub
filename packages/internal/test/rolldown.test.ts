@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -7,14 +8,16 @@ import { runInNewContext } from "node:vm"
 import { transform } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
+
+type Plugin = Rolldown.Plugin
 
 const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 
 const tempDirs: string[] = []
 
 async function createTempDir() {
-  const dir = await mkdtemp(join(tmpdir(), "vitehub-internal-esbuild-"))
+  const dir = await mkdtemp(join(tmpdir(), "vitehub-internal-rolldown-"))
   tempDirs.push(dir)
   return dir
 }
@@ -24,6 +27,54 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("preserves a handled missing dynamic import without tolerating required imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "out.mjs")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const handled = 'export const run = () => import("missing-adapter").then(m => m.default).catch(() => "fallback")'
+    await writeFile(entry, handled)
+    await bundleEsmEntry(entry, outfile)
+    const loaded: { run: () => Promise<string> } = await import(pathToFileURL(outfile).href)
+    await expect(loaded.run()).resolves.toBe("fallback")
+
+    await writeFile(entry, `${handled}\nexport const required = () => import("missing-adapter")`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+    await writeFile(entry, `${handled}\nimport "missing-adapter"`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+  })
+
+  it("resolves a private import alias without probing a synthetic private subpath", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "dependency.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(resolve(rootDir, "package.json"), JSON.stringify({ imports: { "#generated/registry": "./fallback.mjs" } })),
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\nexport { registry } from "#generated/registry"\n`),
+      writeFile(dependency, 'export const value = "dependency"\n'),
+      writeFile(resolve(rootDir, "fallback.mjs"), 'export const registry = "fallback"\n'),
+      writeFile(replacement, 'export const registry = "replacement"\n'),
+    ])
+
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "#generated/registry", replacement }]),
+      packages: "external",
+      plugins: [{
+        name: "strict-private-imports",
+        resolveId(source) {
+          if (source === "#generated/registry/") this.error(`Unexpected private import: ${source}`)
+        },
+      }],
+      workingDir: rootDir,
+    })
+
+    expect(await import(pathToFileURL(outfile).href)).toMatchObject({ registry: "replacement", value: "dependency" })
+  })
+
   it("skips package alias probes for an explicitly selected entry", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
@@ -36,15 +87,14 @@ describe("bundleEsmEntry", () => {
     const probedAliases: string[] = []
     const plugin: Plugin = {
       name: "unrelated-package-alias",
-      setup(build) {
-        build.onResolve({ filter: /^unrelated-package$/ }, args => {
-          probedAliases.push(args.path)
-          return { path: entry }
-        })
+      resolveId(source) {
+        if (source !== "unrelated-package") return
+        probedAliases.push(source)
+        return entry
       },
     }
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "unrelated-package": replacement },
       platform: "node",
@@ -65,16 +115,15 @@ describe("bundleEsmEntry", () => {
       writeFile(replacement, 'export const value = "replacement"\n'),
     ])
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     for (const resolveEntryPackageAliases of [undefined, true]) {
       const probedAliases: string[] = []
       const plugin: Plugin = {
         name: "provider-entry-package-alias",
-        setup(build) {
-          build.onResolve({ filter: /^entry-package$/ }, args => {
-            probedAliases.push(args.path)
-            return { path: entry }
-          })
+        resolveId(source) {
+          if (source !== "entry-package") return
+          probedAliases.push(source)
+          return entry
         },
       }
       const bundleOptions: NonNullable<Parameters<typeof bundleEsmEntry>[2]> = {
@@ -139,7 +188,7 @@ export default async function handleRequest(request) {
 }
 `)
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const outputs = new Map<string, string>()
     for (const [mode, minification] of Object.entries({
       compact: {},
@@ -189,8 +238,6 @@ export default async function handleRequest(request) {
       const denied = await loaded.default(new Request("https://provider.test/error"))
       expect(denied.status).toBe(403)
       await expect(denied.json()).resolves.toEqual({ name: "ViteHubError", code: "PROVIDER_DENIED", message: "Access denied", details: { reason: "test" } })
-      const identifiersMinified = provider === "netlify-config" || bundleOptions.minifyIdentifiers !== false
-      expect(/function handleRequest\(/.test(code)).toBe(!identifiersMinified)
     }
     const compact = outputs.get("compact")!
     const readable = outputs.get("readable")!
@@ -199,18 +246,12 @@ export default async function handleRequest(request) {
     else expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(outputs.get("noIdentifiers")!))
     expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(readable) * 0.9)
     expect(compact.split("\n").length).toBeLessThan(outputs.get("syntax")!.split("\n").length)
-    expect(compact).not.toContain("unreachable-provider-branch")
-    expect(outputs.get("syntax")).not.toContain("unreachable-provider-branch")
-    expect(outputs.get("whitespace")).toContain("unreachable-provider-branch")
-    expect(outputs.get("identifiers")).toContain("unreachable-provider-branch")
-    expect(outputs.get("noSyntax")).toContain("unreachable-provider-branch")
-    expect(outputs.get("noWhitespace")).not.toContain("unreachable-provider-branch")
-    expect(readable).toContain("unreachable-provider-branch")
+    // Rolldown drops the dead branch while it bundles, with or without syntax minification.
+    for (const code of outputs.values()) expect(code).not.toContain("unreachable-provider-branch")
     const intermediate = resolve(rootDir, "intermediate.mjs")
     await bundleEsmEntry(entry, intermediate, { external: ["node:*"], platform: provider === "cloudflare" ? "neutral" : "node" })
     const intermediateCode = await readFile(intermediate, "utf8")
     expect(intermediateCode).toContain("function handleRequest(")
-    expect(intermediateCode).toContain("unreachable-provider-branch")
     if (provider !== "netlify-config") expect(intermediateCode).toBe(readable)
   })
 
@@ -232,7 +273,8 @@ export default async function handleRequest(request) {
       }),
     })
     const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
-    expect(await readFile(outfile, "utf8")).not.toContain("function handleRequest(")
+    // Minified: one line, no indentation.
+    expect(await readFile(outfile, "utf8")).not.toMatch(/\n\s/)
     const loaded = await import(pathToFileURL(outfile).href)
     expect(loaded.default.name).toBe("handleRequest")
     expect(loaded.default(new Request("https://provider.test/"))).toBe("https://provider.test/")
@@ -255,7 +297,7 @@ export default function handleRequest() {
   return [declaredFunction, DeclaredClass, inferredFunction, InferredClass].map(value => value.name)
 }
 `)
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, minification)
     const loaded = await import(pathToFileURL(outfile).href)
     expect(loaded.default.name).toBe("handleRequest")
@@ -325,7 +367,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement-token'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@", replacement: `${replacementDir}/$&` }]),
@@ -342,7 +384,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = resolve(rootDir, "output.mjs")
     await writeFile(entry, 'import "optional-package"\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: resolve(rootDir, "replacement") }]),
@@ -369,7 +411,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { example: `${resolve(rootDir, "replacement")}/$&` },
       format: "esm",
@@ -394,7 +436,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { example: replacement },
       format: "esm",
@@ -420,7 +462,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(nestedDir, "job.mjs"), "export const value = 'nested'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([
@@ -445,7 +487,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     const alias = encodeProviderOutputAliases([{ find: "__proto__", replacement }])
     expect(Object.hasOwn(alias, "__proto__")).toBe(true)
@@ -466,7 +508,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [original]: replacement },
       format: "esm",
@@ -492,7 +534,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "example"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [original]: replacement },
       format: "esm",
@@ -517,7 +559,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [original]: replacement },
       format: "esm",
@@ -548,7 +590,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "./packages/kv/dist/vite.mjs"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [original]: replacement },
       format: "esm",
@@ -579,7 +621,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [linkedOriginal]: replacement },
       format: "esm",
@@ -605,7 +647,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "@vite-hub/kv/vite": replacement },
       format: "esm",
@@ -614,6 +656,33 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
 
     expect(await readFile(outfile, "utf8")).toContain("runtime-guard")
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
+  })
+
+  it("does not probe a synthetic package prefix for unrelated absolute imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "retained.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\n`),
+      writeFile(dependency, 'export const value = "retained"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example/server/registry", replacement }]),
+      platform: "node",
+      plugins: [{
+        name: "reject-invalid-package-prefix",
+        resolveId(source) {
+          if (source === "example/server/registry/") this.error(`Cannot resolve ${source}`)
+        },
+      }],
+    })
+
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("retained")
   })
 
   it("matches scope aliases after scoped package imports become absolute", async () => {
@@ -632,7 +701,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "@scope", replacement: replacementDir }]),
@@ -668,7 +737,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
@@ -699,7 +768,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
@@ -729,7 +798,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "example/jobs/task.mjs"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example", replacement: replacementDir }]),
@@ -757,7 +826,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "example/foo", replacement: resolve(replacementDir, "foo") }]),
@@ -784,7 +853,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { value } from ${JSON.stringify(original)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "example/job": replacement },
       format: "esm",
@@ -813,7 +882,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, `export { rootValue } from ${JSON.stringify(root)}\nexport { internalValue } from ${JSON.stringify(internal)}\n`, "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { example: replacement },
       format: "esm",
@@ -852,7 +921,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { rootValue } from "./root-importer.mjs"\nexport { nestedValue } from "./nested/nested-importer.mjs"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { example: replacement },
       format: "esm",
@@ -884,26 +953,16 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
 
     const plugin: Plugin = {
       name: "plugin-context-alias",
-      setup(build) {
-        build.onResolve({ filter: /^context:/ }, args => ({
-          namespace: "plugin-context",
-          path: args.path,
-          pluginData: { context: args.path },
-        }))
-        build.onLoad({ filter: /.*/, namespace: "plugin-context" }, args => ({
-          contents: `export { value } from ${JSON.stringify(candidate)}`,
-          loader: "js",
-          pluginData: args.pluginData,
-          resolveDir: rootDir,
-        }))
-        build.onResolve({ filter: /^example$/ }, args => ({
-          namespace: "file",
-          path: args.pluginData?.context === "context:first" ? candidate : otherCandidate,
-        }))
+      resolveId(source, importer) {
+        if (source.startsWith("context:")) return `\0${source}`
+        if (source === "example") return importer === "\0context:first" ? candidate : otherCandidate
+      },
+      load(id) {
+        if (id.startsWith("\0context:")) return `export { value } from ${JSON.stringify(candidate)}`
       },
     }
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { example: replacement },
       format: "esm",
@@ -933,7 +992,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(replacementDir, "jobs/task.mjs"), "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
       format: "esm",
@@ -961,7 +1020,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(replacementDir, "job.mjs"), "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { [`${sourceDir}/\0vitehub-prefix:0`]: replacementDir },
       format: "esm",
@@ -991,7 +1050,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(replacementDir, "jobs/task.mjs"), "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
       format: "esm",
@@ -1021,7 +1080,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(replacementDir, "jobs/task.mjs"), "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
       format: "esm",
@@ -1051,7 +1110,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(replacementDir, "job.mjs"), "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "./src/\0vitehub-prefix:0": `${replacementDir}/` },
       format: "esm",
@@ -1077,7 +1136,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(replacement, "export const value = 'replacement'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "alias-source": "./replacement.mjs" },
       format: "esm",
@@ -1098,7 +1157,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(entry, 'export { value } from "@/"\n', "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "@/": replacement, "@//": `${dirname(replacement)}/` },
       format: "esm",
@@ -1112,7 +1171,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       alias: { "@/": replacement, "@//": `${dirname(replacement)}/` },
       format: "esm",
       platform: "node",
-    })).rejects.toThrow('Could not resolve "@/jobs"')
+    })).rejects.toThrow("Could not resolve '@/jobs'")
   })
 
   it("preserves declaration order for overlapping prefix aliases", async () => {
@@ -1131,7 +1190,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(resolve(specificDir, "task.mjs"), "export const value = 'specific'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
         "@/": `${broadDir}/`,
@@ -1158,7 +1217,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(specific, "export const value = 'specific'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
         "@/": `${broadDir}/`,
@@ -1184,7 +1243,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(second, "export const value = 'second'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
         duplicate: first,
@@ -1211,7 +1270,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       writeFile(explicit, "export const value = 'explicit'\n", "utf8"),
     ])
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
         "@": broadDir,
@@ -1232,7 +1291,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = join(rootDir, "workers", "schedule.mjs")
     await writeFile(entry, "export default 'scheduled'\n", "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       format: "esm",
       platform: "node",
@@ -1252,14 +1311,15 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(rawEntry, 'import context from "./context.md?raw"\nexport default context\n', "utf8")
     await writeFile(plainEntry, 'import context from "./context.md"\nexport default context\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(rawEntry, outfile, { format: "esm", platform: "node" })
 
     // SAFETY: This bundle's entry module exports the string imported from context.md.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("# Repository context\n\nUse **trusted** Markdown.\n")
+    // Without the query, Rolldown parses the Markdown file as JavaScript and fails.
     await expect(bundleEsmEntry(plainEntry, outfile, { format: "esm", platform: "node" }))
-      .rejects.toThrow('No loader is configured for ".md" files')
+      .rejects.toThrow(/PARSE_ERROR[\s\S]*context\.md/)
   })
 
   it("bundles caller-relative Markdown prompt templates without runtime source files", async () => {
@@ -1277,7 +1337,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       ``,
     ].join("\n"), "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       format: "esm",
       platform: "node",
@@ -1297,7 +1357,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(rootDir, "prompt.md"), "Hello {{ data.name }}", "utf8")
     await writeFile(entry, 'import render from "./prompt.md?markdown-template"\nexport default render\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
     // SAFETY: The fixture exports the renderer built above.
     const bundled = await import(pathToFileURL(outfile).href) as { default: (data: { name: string }) => Promise<string> }
@@ -1316,9 +1376,9 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(rootDir, "prompt.md"), "Hello {{ data.name }}", "utf8")
     await writeFile(entry, `import render from "./prompt.md?${query}"\nexport default render\n`, "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))
-      .rejects.toThrow('No loader is configured for ".md" files')
+      .rejects.toThrow(/prompt\.md/)
   })
 
   it("keeps missing import text literal in bundled Markdown templates", async () => {
@@ -1328,7 +1388,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(rootDir, "prompt.template.md"), "@./missing.md\n", "utf8")
     await writeFile(entry, `import prompt from "./prompt.template.md"\nexport default prompt\n`, "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
     // SAFETY: The fixture exports the renderer built above.
     const bundled = await import(pathToFileURL(outfile).href) as { default: () => Promise<string> }
@@ -1344,7 +1404,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(sourceDir, "context.md"), "# Root context\n", "utf8")
     await writeFile(entry, 'import context from "/src/context.md?raw"\nexport default context\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
     // SAFETY: This bundle's entry module exports the root-relative raw file contents.
@@ -1369,7 +1429,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       ``,
     ].join("\n"), "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
     // SAFETY: This bundle's entry module exports the two raw file contents under these keys.
@@ -1384,19 +1444,15 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(entry, 'import context from "virtual:context?raw"\nexport default context\n', "utf8")
     const callerPlugin: Plugin = {
       name: "caller-raw",
-      setup(build) {
-        build.onResolve({ filter: /^virtual:context\?raw$/ }, () => ({
-          namespace: "caller-raw",
-          path: "context",
-        }))
-        build.onLoad({ filter: /.*/, namespace: "caller-raw" }, () => ({
-          contents: 'export default "caller handled raw"',
-          loader: "js",
-        }))
+      resolveId(source) {
+        if (source === "virtual:context?raw") return "\0caller-raw:context"
+      },
+      load(id) {
+        if (id === "\0caller-raw:context") return 'export default "caller handled raw"'
       },
     }
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", plugins: [callerPlugin] })
 
     // SAFETY: The caller plugin defines this bundle's default export as a string.
@@ -1413,7 +1469,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(template, "Hello :insert{:markdown=\"data.partial\"}", "utf8")
     await writeFile(join(rootDir, "partial.template.md"), "{{ data.name }}!", "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
 
     // SAFETY: This bundle's entry module exports a renderer for the template's named input.
@@ -1425,32 +1481,22 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const outfile = join(rootDir, "bundle.mjs")
-    const importerData = { owner: "caller-plugin" }
-    let resolverContext: { pluginData: unknown, with: Record<string, string> } | undefined
-    await writeFile(entry, 'import context from "external-context?raw" with { type: "text" }\nexport default context\n', "utf8")
+    let resolverImporter: string | undefined
+    await writeFile(entry, 'import context from "external-context?raw"\nexport default context\n', "utf8")
     const externalPlugin: Plugin = {
       name: "external-context",
-      setup(build) {
-        build.onLoad({ filter: /entry\.mjs$/, namespace: "file" }, async args => ({
-          contents: await readFile(args.path),
-          loader: "js",
-          pluginData: importerData,
-        }))
-        build.onResolve({ filter: /^external-context$/ }, (args) => {
-          resolverContext = { pluginData: args.pluginData, with: args.with }
-          return {
-            external: true,
-            path: "external-context",
-          }
-        })
+      resolveId(source, importer) {
+        if (source !== "external-context") return
+        resolverImporter = importer
+        return { id: "external-context", external: true }
       },
     }
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", plugins: [externalPlugin] })
 
     await expect(readFile(outfile, "utf8")).resolves.toContain('from "external-context"')
-    expect(resolverContext).toEqual({ pluginData: importerData, with: { type: "text" } })
+    expect(resolverImporter).toBe(entry)
   })
 
   it("rejects non-file raw fallback results with a targeted error", async () => {
@@ -1460,21 +1506,17 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(entry, 'import context from "virtual:context?raw"\nexport default context\n', "utf8")
     const virtualPlugin: Plugin = {
       name: "virtual-context",
-      setup(build) {
-        build.onResolve({ filter: /^virtual:context$/ }, () => ({
-          namespace: "virtual-context",
-          path: "context",
-        }))
-        build.onLoad({ filter: /.*/, namespace: "virtual-context" }, () => ({
-          contents: "virtual contents",
-          loader: "text",
-        }))
+      resolveId(source) {
+        if (source === "virtual:context") return "\0virtual-context:context"
+      },
+      load(id) {
+        if (id === "\0virtual-context:context") return 'export default "virtual contents"'
       },
     }
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", plugins: [virtualPlugin] }))
-      .rejects.toThrow('Vite raw fallback cannot load "virtual:context?raw" from the "virtual-context" namespace')
+      .rejects.toThrow('Vite raw fallback cannot load "virtual:context?raw" from the virtual module')
   })
 
   it("keeps CommonJS globals available in Node ESM bundles", async () => {
@@ -1483,7 +1525,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(entry, "export default () => ({ dirname: __dirname, filename: __filename, requireType: typeof require })\n", "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
 
     const bundled = await readFile(outfile, "utf8")
@@ -1497,7 +1539,8 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     })
 
     const commonjs = await transform(bundled, { format: "cjs", logLevel: "silent", target: "node24" })
-    expect(() => runInNewContext(commonjs.code, { exports: {}, module: { exports: {} } })).not.toThrow()
+    // Rolldown loads `require` through `createRequire` from `node:module`, which a CommonJS host gives as `require`.
+    expect(() => runInNewContext(commonjs.code, { exports: {}, module: { exports: {} }, require: createRequire(outfile) })).not.toThrow()
   })
 
   it("does not redeclare Netlify runtime filename globals", async () => {
@@ -1506,7 +1549,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(entry, "export default () => ({ filename: __filename, requireType: typeof require })\n", "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", minifyIdentifiers: true, platform: "node" })
 
     const bundled = await readFile(outfile, "utf8")
@@ -1532,7 +1575,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(packageDir, "index.js"), "export const value = 'neutral-main'\n", "utf8")
     await writeFile(entry, "import { value } from 'main-only-package'\nexport default value\n", "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "neutral" })
 
     // SAFETY: This bundle's entry module exports the package's string default export.
@@ -1549,7 +1592,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(entry, 'import value from "@/jobs.mjs"\nexport default value\n', "utf8")
     await writeFile(join(targetDir, "jobs.mjs"), 'export default "aliased subpath"\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: {
         "@/": `${targetDir}/`,
@@ -1575,7 +1618,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(entry, 'import root from "exact-alias"\nimport errors from "exact-alias/errors"\nexport default { errors, root }\n', "utf8")
     await writeFile(target, 'export default "aliased root"\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "exact-alias": target },
       format: "esm",
@@ -1597,7 +1640,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(join(packageDir, "index.mjs"), 'export default "bare replacement"\n', "utf8")
     await writeFile(entry, 'import value from "alias-source"\nexport default value\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "alias-source": "alias-target" },
       format: "esm",
@@ -1618,7 +1661,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(first, 'export default "first"\n', "utf8")
     await writeFile(second, 'export default "second"\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: [
         { find: /^virtual\/value$/, replacement: first },
@@ -1644,7 +1687,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(first, 'export { default } from "second-alias"\n', "utf8")
     await writeFile(second, 'export default "chained"\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: [
         { find: "first-alias", replacement: first },
@@ -1686,7 +1729,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await writeFile(entry, 'import value from "conditional-package"\nexport default value\n', "utf8")
     await writeFile(requireEntry, 'module.exports = require("conditional-package")\n', "utf8")
 
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
 
     // SAFETY: This ESM bundle exports the selected conditional string.
