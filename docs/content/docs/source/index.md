@@ -13,16 +13,20 @@ icon: i-lucide-folder-input
 
 ::code-tree
 ```ts [server/sources/docs.ts]
-import { github, glob } from 'vite-hub/source'
+import { glob } from 'vite-hub/source'
 
 // Markdown files from your docs folder
-export const docs = glob({
+export default glob({
   cwd: 'docs',
   include: '**/*.md',
 })
+```
+
+```ts [server/sources/handbook.ts]
+import { github } from 'vite-hub/source'
 
 // Files from a GitHub repository
-export const handbook = github({
+export default github({
   repo: 'acme/handbook',
   ref: 'main',
 })
@@ -30,24 +34,22 @@ export const handbook = github({
 
 ```ts [server/api/intro.get.ts]
 import { defineEventHandler } from 'h3'
-import { createSource } from 'vite-hub/source'
-import { docs } from '../sources/docs'
+import { useSource } from 'vite-hub/source'
 
 // Read one file: docs/intro.md
 export default defineEventHandler(async () => {
-  const reader = createSource(docs)
+  const reader = useSource('docs')
   return reader.read('intro.md')
 })
 ```
 
 ```ts [server/api/handbook.get.ts]
 import { defineEventHandler } from 'h3'
-import { createSource } from 'vite-hub/source'
-import { handbook } from '../sources/docs'
+import { useSource } from 'vite-hub/source'
 
 // List the path of every file in the repository
 export default defineEventHandler(async () => {
-  const reader = createSource(handbook)
+  const reader = useSource('handbook')
   return reader.keys()
 })
 ```
@@ -99,7 +101,7 @@ const { items, hasMore, loadMore } =
   :::
 
   :::product-feature-item{title="Read from any route" icon="i-lucide-code-2" to="/docs/source/server-api#source-reader-api"}
-  `createSource()` opens a reader. `keys()`, `read()`, and `list()` fetch files.
+  `useSource('docs')` opens a reader for `server/sources/docs.ts`. `keys()`, `read()`, and `list()` fetch files.
   :::
 
   :::product-feature-item{title="Bring your own data" icon="i-lucide-blocks" to="/docs/source/configure#source-object-contract"}

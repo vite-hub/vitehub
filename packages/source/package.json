@@ -43,6 +43,11 @@
       "import": "./dist/drizzle.js",
       "default": "./dist/drizzle.js"
     },
+    "./internal/registry": {
+      "types": "./dist/internal/registry.d.ts",
+      "import": "./dist/internal/registry.js",
+      "default": "./dist/internal/registry.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
