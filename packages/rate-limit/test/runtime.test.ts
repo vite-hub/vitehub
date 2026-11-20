@@ -1,4 +1,5 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { createRequestLogger, initLogger } from "evlog"
 import { H3, HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -486,7 +487,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
     await expect(requireRateLimit(event, "image-upload", policy)).rejects.toMatchObject({ status: 429 })
 
     expect(log.set).toHaveBeenCalledOnce()
-    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: {
+    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: [{
       name: "image-upload",
       limit: 1,
       window: "1m",
@@ -495,7 +496,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
       allowed: false,
       reason: "limited",
       retryAfter: 30,
-    } })
+    }] })
     expect(JSON.stringify(log.set.mock.calls)).not.toContain("user-123")
   })
 
@@ -506,7 +507,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
     await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
     await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
 
-    expect(log.set.mock.calls[0]![0]).toMatchObject({ rateLimit: { name: "previews", keySource: "client-address", allowed: false, reason: "limited" } })
+    expect(log.set.mock.calls[0]![0]).toMatchObject({ rateLimit: [{ name: "previews", keySource: "client-address", allowed: false, reason: "limited" }] })
     expect(JSON.stringify(log.set.mock.calls)).not.toContain("192.0.2.41")
   })
 
@@ -517,7 +518,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
 
     await checkRateLimit(event, "open-previews", { failure: "allow", key: "user", limit: 1, window: "1m" })
 
-    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: {
+    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: [{
       name: "open-previews",
       limit: 1,
       window: "1m",
@@ -525,7 +526,35 @@ describe("Rate Limit refusals on the request's wide event", () => {
       keySource: "option",
       allowed: true,
       reason: "unavailable",
-    } })
+    }] })
+  })
+
+  it("keeps each policy decision separate in the emitted event", async () => {
+    initLogger({ redact: false, silent: true, drain: vi.fn() })
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    let count = 0
+    setRateLimitRuntimeConfig({ driver: "cloudflare" }, {
+      driver: async () => "upstash",
+      store: "default",
+      storage: {
+        delete: async () => [undefined, undefined],
+        get: async () => [undefined, null],
+        increment: async () => [undefined, ++count],
+      },
+    })
+    const event = cloudflareEvent("previews", { limit: async () => { throw new Error("provider unavailable") } })
+    const log = createRequestLogger()
+    Object.assign(event.req, { context: { log } })
+    const policy = { key: "private-key", limit: 1, window: "2m" } as const
+    await expect(checkRateLimit(event, "uploads", policy)).resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(event, "uploads", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
+    await expect(checkRateLimit(event, "previews", { failure: "allow", key: "private-key", limit: 1, window: "1m" }))
+      .resolves.toMatchObject([undefined, { allowed: true, reason: "unavailable" }])
+
+    expect(log.emit()?.rateLimit).toEqual([
+      { name: "uploads", limit: 1, window: "2m", driver: "kv", keySource: "option", allowed: false, reason: "limited", retryAfter: 90 },
+      { name: "previews", limit: 1, window: "1m", driver: "cloudflare", keySource: "option", allowed: true, reason: "unavailable" },
+    ])
   })
 
   it("refuses as before without evlog", async () => {

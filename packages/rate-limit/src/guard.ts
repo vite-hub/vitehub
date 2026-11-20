@@ -158,7 +158,7 @@ async function consumeRateLimit(
   const decision = await limiter.consume({ key: call.key })
   if (decision.reason) {
     // The key can be a client address or a user id, so the event says only where it came from.
-    requestLog(event)?.set({ rateLimit: {
+    requestLog(event)?.set({ rateLimit: [{
       name: call.id,
       limit: call.policy.limit,
       window: call.policy.window,
@@ -167,7 +167,7 @@ async function consumeRateLimit(
       allowed: decision.allowed,
       reason: decision.reason,
       ...(decision.retryAfter === undefined ? {} : { retryAfter: decision.retryAfter }),
-    } })
+    }] })
   }
   return [undefined, decision]
 }

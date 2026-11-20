@@ -133,7 +133,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 
 ## Refusals in request logs
 
-With the evlog Nitro module registered, a request that `requireRateLimit()` or `checkRateLimit()` refuses gets a `rateLimit` field on its wide event: `{ name, limit, window, driver, keySource, allowed, reason, retryAfter? }`. `keySource` is `option` or `client-address`; the key value is not on the event, because it can be an IP address or a user id. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/rate-limit/server-api#see-refusals-on-each-request).
+With the evlog Nitro module registered, `requireRateLimit()` and `checkRateLimit()` append each refusal or unavailable decision to the `rateLimit` array on the request's wide event: `[{ name, limit, window, driver, keySource, allowed, reason, retryAfter? }]`. `keySource` is `option` or `client-address`; the key value is not on the event, because it can be an IP address or a user id. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/rate-limit/server-api#see-refusals-on-each-request).
 
 ## Public imports
 

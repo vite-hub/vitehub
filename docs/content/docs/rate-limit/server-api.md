@@ -168,10 +168,10 @@ Use `createRateLimiter()` when you need the decision for a custom response, logg
 
 ## See refusals on each request
 
-With the evlog Nitro module, added through `vitehub({ observability })` or by hand, `requireRateLimit()` and `checkRateLimit()` put each refusal on the request's wide event, in a `rateLimit` field:
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, `requireRateLimit()` and `checkRateLimit()` append each refusal or unavailable decision to the `rateLimit` array on the request's wide event:
 
 ```json
-{ "path": "/api/uploads", "status": 429, "rateLimit": { "name": "image-upload", "limit": 10, "window": "1m", "driver": "kv", "keySource": "option", "allowed": false, "reason": "limited", "retryAfter": 42 } }
+{ "path": "/api/uploads", "status": 429, "rateLimit": [{ "name": "image-upload", "limit": 10, "window": "1m", "driver": "kv", "keySource": "option", "allowed": false, "reason": "limited", "retryAfter": 42 }] }
 ```
 
 | Field | Meaning |
@@ -183,7 +183,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `reason` | `limited` or `unavailable`. |
 | `retryAfter` | Seconds until the window resets, when the driver gives it. |
 
-An allowed request gets no `rateLimit` field. Without evlog, nothing is set.
+A request with only successful limiter checks gets no `rateLimit` field. Without evlog, nothing is set.
 
 ## Use a direct driver
 
