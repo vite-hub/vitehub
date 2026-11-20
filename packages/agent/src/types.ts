@@ -399,6 +399,8 @@ export interface AgentTelemetryConfiguration {
   driver: {
     kind: AgentDriverKind
     model?: {
+      /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+      gateway?: string
       id?: string
       provider?: string
     }
@@ -3117,6 +3119,8 @@ export interface AgentInspectionCapabilityMetadata {
 
 export interface AgentInspectionModelMetadata {
   dynamic?: boolean
+  /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+  gateway?: string
   id?: string
   provider?: string
   transport?: string

@@ -1,8 +1,8 @@
-import { aiGatewayStructuredOutputs, aiGatewaySupports, resolveAiGatewayModelRoute } from "./definition.ts"
+import { aiGatewayLanguageModel, aiGatewayStructuredOutputs, aiGatewaySupports, resolveAiGatewayModelRoute } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { LanguageModelV4 } from "@ai-sdk/provider"
-import type { AiGatewayModelRoute } from "./definition.ts"
+import type { AiGatewayLanguageModelRoute, AiGatewayModelRoute } from "./definition.ts"
 import type { AiGateway, AiGatewayCapabilities, AiGatewayRoute } from "./types.ts"
 
 /**
@@ -139,7 +139,7 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     const resolved = await resolveAiGatewayModelRoute(gateway, route, abortSignal ? { abortSignal } : {})
     return await createModel(gateway.name, id, api, resolved, options.fetch, structuredOutputs)
   }
-  return {
+  const languageModel: LanguageModelV4 = {
     specificationVersion: "v4",
     provider: `${gateway.name}.${api}`,
     modelId: id,
@@ -150,4 +150,6 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     doGenerate: async callOptions => await (await model(callOptions.abortSignal)).doGenerate(callOptions),
     doStream: async callOptions => await (await model(callOptions.abortSignal)).doStream(callOptions),
   }
+  const modelRoute: AiGatewayLanguageModelRoute = Object.freeze({ api, gateway: gateway.name, modelId: id })
+  return Object.defineProperty(languageModel, aiGatewayLanguageModel, { value: modelRoute })
 }

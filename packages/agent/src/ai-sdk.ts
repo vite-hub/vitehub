@@ -20,6 +20,7 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
+import { emulatedGateway, languageModelRoute } from "./internal/agent-emulation.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
@@ -1356,9 +1357,9 @@ async function createAgent(
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const model = options.gateway
+  const model = await materializeAgentModel(options.gateway
     ? chatgptLanguageModel(options.gateway, String(options.model), { ...modelContext, abortSignal: context.input.abortSignal })
-    : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
+    : await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
@@ -1396,6 +1397,7 @@ async function createAgent(
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
         model: {
+          ...(languageModelRoute(model)?.gateway === emulatedGateway ? { gateway: emulatedGateway } : {}),
           ...(typeof telemetryModel?.modelId === "string" ? { id: telemetryModel.modelId } : {}),
           ...(typeof telemetryModel?.provider === "string" ? { provider: telemetryModel.provider } : {}),
         },

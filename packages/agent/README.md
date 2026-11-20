@@ -127,6 +127,20 @@ Inside a running host, `runAgent(agent, input)` gets the same runtime capabiliti
 
 Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, schedule })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
 
+## Run on the AI emulator
+
+`VITEHUB_MODELS=emulate` sends the model requests of every model Driver Agent to the AI emulator (`@emulators/ai`), with no AI key. Use it in dev and tests. `VITEHUB_EMULATE_URL` sets the emulator URL; the default is `http://localhost:4014`. The switch is read from the Cloudflare bindings of the run, else from `process.env`, and the URL from Server Env.
+
+`materializeAgentModel()` in `src/internal/agent-model.ts` is the one place that applies the switch, and every model entry point calls it: the Driver model, `chatgpt()` models, Capability models such as `title()`, and the workspace fallback. Under the switch:
+
+- A model ID or `{ id, apiKey }` keeps its ID and goes to the API of its prefix: `openai/*` to OpenAI Responses, `anthropic/*` to Anthropic Messages, others to Chat Completions. ViteHub does not read `apiKey` or `AI_GATEWAY_API_KEY`.
+- A `languageModel(gateway, id, { api })` model keeps its model API, and a `chatgpt()` model uses Responses. ViteHub reads the route from the `aiGatewayLanguageModel` symbol of the model and resolves no gateway credential and no ChatGPT grant.
+- Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
+- `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
+
+Codex and Claude Code Drivers do not read the switch yet. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
