@@ -77,6 +77,7 @@ function wrangler() {
   }
   // FAKE_D1_APPLIED maps a binding to the names in its migrations table. A binding that it does not name has no table.
   if (argv[0] === "d1" && argv[1] === "execute") {
+    if (process.env.WRANGLER_LOG === "error") return
     const applied = JSON.parse(process.env.FAKE_D1_APPLIED ?? "{}")[argv[2]]
     const sql = flag("--command")
     const results = /sqlite_master/u.test(sql) ? (applied ? [{ name: /name = '(\w+)'/u.exec(sql)[1] }] : []) : (applied ?? []).map(name => ({ name }))

@@ -166,9 +166,32 @@ describe("vitehub deploy on Cloudflare", () => {
     expect((await hosts.state()).deploys).toBe(0)
   })
 
-  it("deploys when the remote D1 database has applied every migration of the build", async () => {
+  it("checks only the D1 bindings in the selected Wrangler environment", async () => {
+    const config = "./server dir/wrangler.json"
+    const output = buildOutput("cloudflare", `npx wrangler deploy --config '${config}'`)
+    const root = await builtProject("cloudflare", {
+      ...output,
+      ".output/server dir/wrangler.json": JSON.stringify({
+        d1_databases: [{ binding: "DB_DEFAULT", migrations_dir: "migrations" }],
+        env: { production: { d1_databases: [{ binding: "DB", migrations_dir: "migrations", migrations_table: "prod_migrations" }] } },
+      }),
+      ".output/server dir/migrations/0001_init.sql": "CREATE TABLE t (id INTEGER);\n",
+    })
+    const hosts = await fakeHosts({ ...cloudflareEnv, CLOUDFLARE_ENV: "production", FAKE_D1_APPLIED: JSON.stringify({ DB: [] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.fix).toContain(`npx wrangler d1 migrations apply DB --remote --config '${config}' --env production`)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'prod_migrations'"],
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", 'SELECT name FROM "prod_migrations"'],
+    ])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("deploys with quiet Wrangler logging when D1 has applied every migration of the build", async () => {
     const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql", "0002_draft_images.sql"] }))
-    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql", "0002_draft_images.sql"] }) })
+    const hosts = await fakeHosts({ ...cloudflareEnv, WRANGLER_LOG: "error", FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql", "0002_draft_images.sql"] }) })
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)

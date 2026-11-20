@@ -308,6 +308,8 @@ The command runs each host CLI with an argument array and no shell. It runs only
 
 The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
 
+For Cloudflare's read-only migration check, the API token needs at least the account's **D1 Read** permission (**D1 Write** also works). This applies even with `--no-provision` and an existing D1 database ID.
+
 A temporary deploy has no account. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 
 After a first deploy to a host, `.vitehub/link.json` gets the target of that host with `verified: false`, so `vitehub status` finds it, and keeps the other targets. Run `vitehub link --host <host>` to verify it.

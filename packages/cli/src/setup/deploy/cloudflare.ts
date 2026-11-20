@@ -5,6 +5,7 @@ import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
 import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
+import { shellQuote } from "../add.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
 import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand, untilInterrupted } from "./host.ts"
 
@@ -181,7 +182,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
   const pendingD1Migrations = async (target: D1Migrations): Promise<string[]> => {
     const query = async (sql: string) => {
       const step = `wrangler d1 execute ${target.binding}`
-      const result = await run(["d1", "execute", target.binding, "--remote", "--config", command.config, "--json", "--command", sql])
+      const result = await run(["d1", "execute", target.binding, "--remote", "--config", command.config, "--json", "--command", sql], { env: { ...env, WRANGLER_LOG: "log" } })
       if (result.exitCode !== 0) throw hostCliFailed(step, result, context.secrets)
       const names = d1ResultNames(result)
       if (!names) throw hostCliFailed(`${step} printed no JSON`, result, context.secrets)
@@ -199,11 +200,14 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
         // Without `database.migrateOnDeploy`, nothing applies the migrations of the build. New code on old tables
         // answers every query that needs a new table or column with an error, so the deploy stops before it ships.
         const wranglerConfig = await readWranglerConfig(context.outputDir, command.config)
-        for (const target of await unmigratedD1Bindings(context.outputDir, command.config, wranglerConfig, command.migrations)) {
+        const environment = env.CLOUDFLARE_ENV
+        const named = environment && isRecord(wranglerConfig.env) && Object.hasOwn(wranglerConfig.env, environment) ? wranglerConfig.env[environment] : undefined
+        const config = isRecord(named) ? named : wranglerConfig
+        for (const target of await unmigratedD1Bindings(context.outputDir, command.config, config, command.migrations)) {
           const pending = await pendingD1Migrations(target)
           if (!pending.length) continue
           throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_D1_MIGRATIONS_PENDING({
-            apply: `npx wrangler d1 migrations apply ${target.binding} --remote --config ${command.config}`,
+            apply: `npx wrangler d1 migrations apply ${shellQuote(target.binding)} --remote --config ${shellQuote(command.config)}${environment ? ` --env ${shellQuote(environment)}` : ""}`,
             binding: target.binding,
             migrations: pending.join(", "),
           }), setupExitCodes.error)
