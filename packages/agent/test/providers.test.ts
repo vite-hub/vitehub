@@ -175,6 +175,8 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const namedChannelHosts = () => ({})",
     "export const resolvePublicUrl = () => undefined",
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
+    "export const installChannelsConsoleHost = () => {}",
+    "export const setAgentWorkflowCapabilityLoaders = () => {}",
   ].join("\n"), "utf8")
   return (["index", "server/internal", "server/workspace", "internal/workspace/internal/runtime/hosted", "internal/workspace/internal/runtime/hosted-vercel-blob"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
@@ -1254,7 +1256,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
       await runProviderOutputHooks(plugin)
@@ -2295,10 +2297,9 @@ describe("agent Vite plugin", () => {
             vitehub: { host: "netlify" },
             resolve: {
               alias: [
-                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
-                // Since #2493 the Netlify function also imports the host database capability.
-                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/src/runtime/registry.ts") },
                 ...await stubNetlifyAgentRuntime(root),
+                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/dist/index.js") },
+                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/dist/runtime/registry.js") },
               ],
             },
             root,
@@ -2897,6 +2898,37 @@ export default defineAgent({
     } finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("warns when a Vercel or Netlify build has no Agent State URL", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const build = async (host: string, env: string | undefined) => {
+      vi.stubEnv("VITEHUB_AGENT_STATE_URL", env)
+      const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${host}-state-warning-`))
+      const warn = vi.fn()
+      try {
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const plugin = hubAgent()
+        if (typeof plugin.configResolved === "function") {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          await plugin.configResolved.call({} as never, { command: "build", logger: { info: vi.fn(), warn }, vitehub: { host }, root } as never)
+        }
+        return warn.mock.calls.map(call => String(call[0])).filter(message => message.includes("VITEHUB_AGENT_STATE_URL"))
+      }
+      finally {
+        vi.unstubAllEnvs()
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+
+    expect(await build("vercel", undefined)).toEqual([expect.stringContaining("VITEHUB_AGENT_STATE_URL is not visible to this Vercel build")])
+    const netlify = await build("netlify", "")
+    expect(netlify).toEqual([expect.stringContaining("If the deployed function also lacks it, Agent State fails with AGENT_R0893")])
+    expect(netlify[0]).toContain("Functions scope for the target deploy context")
+    expect(await build("vercel", "libsql://state.example.turso.io")).toEqual([])
+    // A Node server reads its variables when it starts, not when it builds.
+    expect(await build("node", undefined)).toEqual([])
   })
 
   it("requires durable automatic state on deployed Vercel output", async () => {

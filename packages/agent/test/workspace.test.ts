@@ -2290,7 +2290,7 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.model).toMatchObject({ modelId: "model-acme" })
   })
 
-  it("passes provider-defined capability tools to AI SDK agents", async () => {
+  it("passes provider capability tools to AI SDK agents", async () => {
     const { webSearch } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
 
@@ -2307,7 +2307,7 @@ describe("defineAgent workspace option", () => {
         args: {},
         id: "openai.web_search",
         name: "web_search",
-        type: "provider-defined",
+        type: "provider",
       },
     })
   })
