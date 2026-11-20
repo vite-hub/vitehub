@@ -49,6 +49,14 @@ interface CommentsOutboxEntryBase {
   uploaded?: string[]
 }
 
+/**
+ * Whether the reader may still edit or dismiss an entry. Not while a tab sends it, nor while an earlier try may have
+ * landed. A refusal answers that: the server looked the retry key up and turned it down.
+ */
+function changeable(entry: CommentsOutboxEntryBase) {
+  return entry.status === "failed" || (entry.status !== "sending" && !entry.uncertain)
+}
+
 /** A comment or reply that the outbox holds. */
 export type CommentsOutboxEntry = CommentsOutboxEntryBase & (
   | { kind: "create", input: Omit<CommentCreateInput, "requestId"> }
@@ -616,7 +624,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async dismiss(id) {
       const removed = await update((drafts) => {
         const entry = drafts.get(id)
-        if (!entry || entry.status === "sending" || entry.uncertain) return false
+        if (!entry || !changeable(entry)) return false
         if (entry.kind === "create") {
           for (const reply of drafts.values()) if (reply.kind === "reply" && reply.input.threadId === id) drafts.delete(reply.id)
         }
@@ -631,7 +639,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async edit(id, body, mentions) {
       const edited = await update((drafts) => {
         const entry = drafts.get(id)
-        if (!entry || entry.status === "sending" || entry.uncertain) return false
+        if (!entry || !changeable(entry)) return false
         const fields = { body, ...(mentions ? { mentions } : {}) }
         if (entry.kind === "create") drafts.set(id, { ...entry, input: { ...entry.input, ...fields }, status: "pending", error: undefined })
         else drafts.set(id, { ...entry, input: { ...entry.input, ...fields }, status: "pending", error: undefined })

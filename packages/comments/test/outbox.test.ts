@@ -429,6 +429,29 @@ describe("the comments outbox", () => {
     expect(server.memory.threads[0]!.messages[0]!.body).toBe("First")
   })
 
+  it("lets the reader edit or dismiss a comment refused after a try that got no answer", async () => {
+    const { browser, server, client } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    server.plan.push(failure(0), failure(413))
+    const draft = await client.create({ subject, anchor, body: "Too long" })
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+    await expect(client.outbox.dismiss(draft.id)).resolves.toBe(false)
+
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    await expect(client.outbox.edit(draft.id, "Short")).resolves.toBe(true)
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.memory.threads.map(thread => thread.messages[0]!.body)).toEqual(["Short"])
+
+    server.plan.push(failure(0), failure(404))
+    const gone = await client.create({ subject, anchor, body: "Drop deleted" })
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    await expect(client.outbox.dismiss(gone.id)).resolves.toBe(true)
+    expect(client.outbox.entries).toEqual([])
+  })
+
   it("dismisses a comment and its replies, and sends nothing", async () => {
     const { browser, server, client } = setup()
     browser.online = false
