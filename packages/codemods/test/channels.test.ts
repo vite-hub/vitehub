@@ -103,19 +103,20 @@ describe("channels", () => {
   it("moves webhook() and stripe() to secret names and Webhooks signature names", async () => {
     const { after, run } = await migrate({
       "server/channels/prefect.ts": [
-        "import { defineChannel, webhook } from 'vite-hub/channels'",
+        "import { defineChannel } from 'vite-hub/channels'",
+        "import { webhook } from 'vite-hub/channels/adapters'",
         "export default defineChannel({",
         "  adapter: webhook({ signature: 'github-sha256', secret: process.env.PREFECT_WEBHOOK_SECRET }),",
         "})",
         "",
       ].join("\n"),
       "server/channels/payments.ts": [
-        "import { defineChannel, stripe } from '@vite-hub/channels'",
+        "import { defineChannel } from '@vite-hub/channels'\nimport { stripe } from '@vite-hub/channels/adapters'",
         "export default defineChannel({ adapter: stripe({ secret: useServerEnv().stripe.secret, toleranceSeconds: 600 }) })",
         "",
       ].join("\n"),
       "server/channels/hmac.ts": [
-        "import { defineChannel, webhook as hook } from 'vite-hub/channels'",
+        "import { defineChannel } from 'vite-hub/channels'\nimport { webhook as hook } from 'vite-hub/channels/adapters'",
         "export default defineChannel({ adapter: hook({ signature: { preset: 'hmac-sha256', prefix: 'sha256=' }, header: 'x-sig', secret: 'whsec-123' }) })",
         "export const old = hook({ signature: { preset: 'stripe-sha256', toleranceSeconds: 60 }, secret: () => 'value' })",
         "",
@@ -123,40 +124,41 @@ describe("channels", () => {
     })
     expect(after).toEqual({
       "server/channels/prefect.ts": [
-        "import { defineChannel, webhook } from 'vite-hub/channels'",
+        "import { defineChannel } from 'vite-hub/channels'",
+        "import { webhook } from 'vite-hub/channels/adapters'",
         "export default defineChannel({",
         "  adapter: webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' }),",
         "})",
         "",
       ].join("\n"),
       "server/channels/payments.ts": [
-        "import { defineChannel, stripe } from '@vite-hub/channels'",
+        "import { defineChannel } from '@vite-hub/channels'\nimport { stripe } from '@vite-hub/channels/adapters'",
         "export default defineChannel({ adapter: stripe({ secret: () => useServerEnv().stripe.secret, tolerance: '600s' }) })",
         "",
       ].join("\n"),
       "server/channels/hmac.ts": [
-        "import { defineChannel, webhook as hook } from 'vite-hub/channels'",
+        "import { defineChannel } from 'vite-hub/channels'\nimport { webhook as hook } from 'vite-hub/channels/adapters'",
         "export default defineChannel({ adapter: hook({ signature: { type: 'hmac-sha256', prefix: 'sha256=' }, header: 'x-sig', secret: () => 'whsec-123' }) })",
         "export const old = hook({ signature: { type: 'stripe', tolerance: '60s' }, secret: () => 'value' })",
         "",
       ].join("\n"),
     })
-    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/hmac.ts", line: 2, message: expect.stringContaining("Move it to a server variable") })])
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/hmac.ts", line: 3, message: expect.stringContaining("Move it to a server variable") })])
   })
 
   it("keeps the new webhook form, and reports a secret it cannot read", async () => {
-    const current = "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' }) })\n"
+    const current = "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' }) })\n"
     const { after, run } = await migrate({
       "server/channels/prefect.ts": current,
-      "server/channels/shared.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nconst secret = readSecret()\nexport default defineChannel({ adapter: webhook({ signature: 'bearer', secret }) })\n",
+      "server/channels/shared.ts": "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nconst secret = readSecret()\nexport default defineChannel({ adapter: webhook({ signature: 'bearer', secret }) })\n",
     })
     expect(after).toEqual({})
-    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/shared.ts", line: 3, message: expect.stringContaining("name of the server variable") })])
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/shared.ts", line: 4, message: expect.stringContaining("name of the server variable") })])
   })
 
   it("preserves sealed secrets and reports ambiguous secret expressions without quoting them", async () => {
     const source = [
-      "import { webhook, stripe } from 'vite-hub/channels'",
+      "import { webhook, stripe } from 'vite-hub/channels/adapters'",
       "webhook({ signature: 'github-sha256', secret: { unseal: () => 'fixture-value' } })",
       "webhook({ signature: 'github', secret: await loadSecret() })",
       "webhook({ signature: 'github', secret: loadResolver() })",
