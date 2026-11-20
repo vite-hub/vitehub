@@ -90,6 +90,7 @@ VITEHUB_MODELS=emulate vite dev
 - A Codex Driver with Capability tools fails with `AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED`, because Codex sends the tools as one `namespace` tool, which the emulator rejects. A Codex Driver with a `sandbox` fails with `AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED`, because the Sandbox cannot reach the emulator on your machine.
 - A Claude Code Driver fails with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, because the emulator rejects the `system` turns that Claude Code sends.
 - In these failures, ViteHub fails before it reads a credential, and it does not start the provider.
+- The emulator rejects hosted provider tools, so the model gets none of them. `webSearch({ mode: 'model' })` adds no `web_search` tool, and the Invocation records an `agent.diagnostic.warning` observation with the code `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED`. `webSearch({ mode: 'tool' })` keeps its tools.
 
 ## Use a provider-backed Driver
 

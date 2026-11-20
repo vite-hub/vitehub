@@ -4563,6 +4563,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
       fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
     },
+    AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED: {
+      why: ({ tool }: { tool: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, so the Agent ran without the hosted provider tool "${tool}". The AI emulator rejects hosted tools, such as the web search of webSearch({ mode: "model" }).`,
+      fix: "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or unset `VITEHUB_MODELS` to run with the hosted tool. The run continues without it.",
+    },
     AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
       why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
       fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",

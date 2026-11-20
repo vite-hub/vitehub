@@ -43,6 +43,7 @@ import {
 import {
   aiSdkTelemetryIntegration,
   hasAgentTraceLog,
+  traceAgentEvent,
 } from "./trace.ts"
 
 import type {
@@ -1353,6 +1354,31 @@ function withEmulatedModelOverrides(settings: Record<string, unknown>, context: 
   }
 }
 
+/** Records `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED` on the Invocation for each hosted tool that an emulated run drops. */
+async function traceDroppedProviderTools(context: AgentAdapterRunContext): Promise<void> {
+  for (const tool of context.providerTools || []) {
+    const diagnostic = agentDiagnostics.AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED({ tool: tool.id })
+    await traceAgentEvent({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, {
+      attributes: {
+        "diagnostic.code": diagnostic.code,
+        "diagnostic.fix": diagnostic.fix,
+        "diagnostic.message": diagnostic.message,
+        "tool.id": tool.id,
+        "tool.name": tool.name,
+      },
+      name: "agent.diagnostic.warning",
+      type: "policy",
+    })
+  }
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1409,7 +1435,9 @@ async function createAgent(
     ...context.tools,
     ...adapterTools,
   }, [])).tools, fallbackCapture)), jsonSchema)
-  const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
+  // The AI emulator rejects hosted tools, so an emulated run drops them and records why.
+  if (emulated) await traceDroppedProviderTools(context)
+  const providerTools = Object.fromEntries((emulated ? [] : context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
     name: tool.name,

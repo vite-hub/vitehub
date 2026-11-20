@@ -50,6 +50,8 @@ export default defineAgent({
 
 Model mode adds the AI SDK tool `openai.web_search` as `web_search`; the provider runs it and gives results to the model.
 
+On the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator) (`VITEHUB_MODELS=emulate`), model mode has no `web_search` tool, because the emulator rejects hosted tools. The run continues and records the warning `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED` on the Invocation. Tool mode works on the emulator as usual.
+
 Tool mode loads `@agntn/web` on the first call:
 
 - `web_search` queries the provider and returns `title`, `url`, and `snippet` results in one shape.
