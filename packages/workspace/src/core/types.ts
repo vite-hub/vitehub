@@ -559,6 +559,18 @@ export interface WorkspaceHistoryExtensions {
   merge?(options: WorkspaceMergeOptions): Promise<WorkspaceRevision | null>
   /** Open a pull request from one ref into another. */
   openPullRequest?(options: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest>
+  /**
+   * Delete a ref and its revisions. Returns false when the ref does not exist. File bytes that no other ref uses are
+   * deleted too. The default ref `main` cannot be deleted: it throws `WORKSPACE_DEFAULT_REF_DELETE`.
+   */
+  deleteRef?(options: WorkspaceHistoryDeleteRefOptions): Promise<boolean>
+}
+
+export interface WorkspaceHistoryDeleteRefOptions {
+  /** The ref to delete, such as `run-42`. */
+  ref: string
+  /** The expected head of `ref`. When the head moved, the call throws `WORKSPACE_CONFLICT` and deletes nothing. */
+  ifHead?: string
 }
 
 export interface WorkspaceHistoryDiffOptions {

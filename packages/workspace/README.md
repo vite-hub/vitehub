@@ -227,6 +227,15 @@ if (saved) {
 }
 ```
 
+`history.deleteRef({ ref, ifHead? })` deletes a ref, its revisions, and the file bytes
+that no other ref has. It returns `false` when the ref does not exist, and it cannot
+delete `main`:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
 Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
 before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
 
@@ -249,7 +258,8 @@ Normal file writes stage changes in instance memory until checkpoint or snapshot
 which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
-objects outside retained usage accounting until deletion. Pruning is not supported.
+objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
+one ref and the objects that no other revision uses.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).

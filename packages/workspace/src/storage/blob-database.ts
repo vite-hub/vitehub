@@ -2,9 +2,9 @@ import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { ViteHubError } from "@vite-hub/runtime"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
-import { workspaceError } from "../core/errors.ts"
+import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
-import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, readHistoryDeleteRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -14,7 +14,7 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
+import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryDeleteRefOptions, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
 
 const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
 type RevisionRow = typeof revisions.$inferSelect
@@ -135,6 +135,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       }
       return revision
     }),
+    deleteRef: async options => await this.#mutate(async () => await this.#deleteRef(readHistoryDeleteRef(options))),
   }
 
   async #key() {
@@ -372,12 +373,15 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     }
     const id = await sha256(manifest)
     const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
-    await this.#db.insert(objects).select(sql`
-      select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
-      from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
-      where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-    `).onConflictDoNothing()
-    await this.#assertActive()
+    const digests = JSON.stringify(registry.map(object => object.digest))
+    const register = async () => {
+      await this.#db.insert(objects).select(sql`
+        select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
+        from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
+        where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+      `).onConflictDoNothing()
+      await this.#assertActive()
+    }
     const upload = async ([digest, bytes]: [string, Uint8Array]) => {
       const key = `${workspace}/sha256/${digest}`
       const [headError, object] = await this.options.blob.head(key)
@@ -395,46 +399,115 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         this.#deleted()
       }
     }
-    const uploads = [...contents]
-    for (let offset = 0; offset < uploads.length; offset += 8) {
-      const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
-      for (const result of results) if (result.status === "rejected") throw result.reason
+    const uploadAll = async () => {
+      const uploads = [...contents]
+      for (let offset = 0; offset < uploads.length; offset += 8) {
+        const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
+        for (const result of results) if (result.status === "rejected") throw result.reason
+      }
     }
+    // An object that `deleteRef()` removes, or is removing (size -1), cannot back this commit. The ref only moves when
+    // each object of the commit is still registered, so its bytes were uploaded after the removal.
+    const missingObjects = sql`exists (
+      select 1 from json_each(${digests}) as needed
+      where not exists (
+        select 1 from ${objects}
+        where ${objects.workspace} = ${workspace} and ${objects.digest} = needed.value and ${objects.size} >= 0
+      )
+    )`
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
-    // Check the other refs in the same statement that advances this ref, including absent refs.
-    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
-    // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-    const [, , changed] = await this.#db.batch([
-      this.#db.insert(refs).select(sql`
-        select ${workspaces.workspace}, ${ref}, null, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.#db.insert(revisions).select(sql`
-        select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
-          ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
-          ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
-        eq(refs.workspace, workspace),
-        eq(refs.ref, ref),
-        sql`${refs.head} is ${options.ifHead}`,
-        ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
-          ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
-          : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
-        this.#active(workspace),
-      )).returning({ head: refs.head }),
-      this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
-    ])
-    if (!changed.length) {
+    for (let attempt = 0; ; attempt++) {
+      await register()
+      await uploadAll()
+      // All supported Database drivers execute batch atomically. No interactive transaction is needed.
+      const [, , changed] = await this.#db.batch([
+        this.#db.insert(refs).select(sql`
+          select ${workspaces.workspace}, ${ref}, null, 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+        `).onConflictDoNothing(),
+        this.#db.insert(revisions).select(sql`
+          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
+            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
+            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+        `).onConflictDoNothing(),
+        this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
+          eq(refs.workspace, workspace),
+          eq(refs.ref, ref),
+          sql`${refs.head} is ${options.ifHead}`,
+          // Check the other refs in the same statement that advances this ref, including absent refs.
+          ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
+            ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
+            : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
+          sql`not ${missingObjects}`,
+          this.#active(workspace),
+        )).returning({ head: refs.head }),
+        this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
+      ])
+      if (changed.length) break
       if (await this.#isDeleted()) this.#deleted()
       for (const [name, expected] of expectedHeads) {
         const actual = (await this.#ref(workspace, name))?.head ?? null
         if (actual !== expected) throw this.#conflict(name, expected, actual)
       }
-      rejectHistoryHead(options, this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null))
+      const actual = (await this.#ref(workspace, ref))?.head ?? null
+      const [[missing] = [0]] = await this.#db.values<[number]>(sql`select ${missingObjects}`)
+      if (actual !== options.ifHead || !missing) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
+      // A `deleteRef()` removed bytes that this commit reuses. Wait until it finishes, then register and upload them again.
+      if (attempt === 4) throw workspaceConflict("[vitehub] History objects of this commit are being deleted by history.deleteRef(). Retry the commit.", { details: { workspace: this.options.workspace, ref } })
+      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt))
     }
     return publicRevision({ ...row, committed: true })
+  }
+
+  async #deleteRef({ ref, ifHead }: WorkspaceHistoryDeleteRefOptions): Promise<boolean> {
+    const workspace = await this.#key()
+    await this.#assertActive()
+    const current = await this.#ref(workspace, ref)
+    const head = current?.head ?? null
+    if (ifHead !== undefined && head !== ifHead) throw this.#conflict(ref, ifHead, head)
+    if (!current) {
+      await this.#removeUnusedObjects(workspace, [])
+      return false
+    }
+    // The objects of every revision on the ref, also of commits that lost a race for its head.
+    const digests = (await this.#db.values<[string]>(sql`
+      select distinct json_extract(file.value, '$.digest')
+      from ${revisions}, json_each(${revisions.entries}) as file
+      where ${revisions.workspace} = ${workspace} and ${revisions.ref} = ${ref}
+    `)).map(([digest]) => digest)
+    const sameHead = sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} is ${head})`
+    const [, removed] = await this.#db.batch([
+      this.#db.delete(revisions).where(and(eq(revisions.workspace, workspace), eq(revisions.ref, ref), sameHead)),
+      this.#db.delete(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${head}`)).returning({ ref: refs.ref }),
+    ])
+    if (!removed.length) throw this.#conflict(ref, head, (await this.#ref(workspace, ref))?.head ?? null)
+    await this.#removeUnusedObjects(workspace, digests)
+    return true
+  }
+
+  /**
+   * Delete the objects among `digests` that no revision uses, and the objects that an earlier call marked but did not
+   * finish. The statement that checks an object is unused also marks it: its size becomes minus the time of the mark.
+   * A commit does not move its ref while one of its objects is marked or missing, so it uploads the bytes again after
+   * the object is gone. A mark older than ten minutes belongs to a call that stopped, and the next call takes it over.
+   */
+  async #removeUnusedObjects(workspace: string, digests: string[]) {
+    const mark = -Date.now()
+    const marked = await this.#db.update(objects).set({ size: mark }).where(and(
+      eq(objects.workspace, workspace),
+      sql`(${objects.digest} in (select value from json_each(${JSON.stringify(digests)})) and ${objects.size} >= 0
+        or ${objects.size} < 0 and ${objects.size} > ${mark + 10 * 60_000})`,
+      sql`not exists (
+        select 1 from ${revisions}, json_each(${revisions.entries}) as file
+        where ${revisions.workspace} = ${workspace} and json_extract(file.value, '$.digest') = ${objects.digest}
+      )`,
+    )).returning({ digest: objects.digest })
+    if (!marked.length) return
+    for (let offset = 0; offset < marked.length; offset += 8) {
+      await Promise.all(marked.slice(offset, offset + 8).map(({ digest }) => this.#removeObject(`${workspace}/sha256/${digest}`)))
+    }
+    await this.#db.delete(objects).where(and(eq(objects.workspace, workspace), eq(objects.size, mark)))
   }
 
   #conflict(ref: string, expected: string | null, actual: string | null) {
