@@ -53,13 +53,13 @@ When the dev server has Email on, read the in-memory outbox from another termina
 
 ```bash [Terminal]
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show <id> --html
+pnpm vitehub email outbox get <id> --html
 pnpm vitehub email outbox clear
 ```
 
 Add `--json` for machine-readable output. The outbox exists only in `vite dev` and empties when the server restarts. `vitehub email preview <template>` renders a `server/emails` template without sending it, in your terminal, with no server.
 
-The commands run `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` in the `email` Console section, so you need access to that section. `email.outbox-clear` is destructive: `vitehub email outbox clear` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The `email.preview` operation renders a template through the same RPC. The written `vitehub email preview` command renders in your terminal without a server. The generated commands `vitehub email outbox list`, `outbox show`, and `outbox clear` print JSON.
+The commands run `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` in the `email` Console section, so you need access to that section. `email.outbox-clear` is destructive: `vitehub email outbox clear` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The `email.preview` operation renders a template through the same RPC. The written `vitehub email preview` command renders in your terminal without a server. The generated commands `vitehub email outbox list`, `outbox get`, and `outbox clear` print JSON.
 
 ## Read and reset Rate Limit counters
 
@@ -82,7 +82,7 @@ The commands run `rate-limit.peek` (a read) and `rate-limit.reset` in the `rate-
 These commands report the status of declared Server Env values, without the values.
 
 ```bash [Terminal]
-pnpm vitehub env inspect [--stage <name>] [--json]
+pnpm vitehub env list [--stage <name>] [--json]
 pnpm vitehub env check [--stage <name>] [--json]
 ```
 
@@ -200,10 +200,10 @@ The GitHub API refused a request, for example because the token cannot write sec
 ### `SETUP_ENV_VALUE_UNSUPPORTED`
 
 The host cannot safely store this value, such as a Deno value with a single quote or a line break, a secret name Deno cannot classify, or an existing Netlify variable without Functions scope or secret storage. Set it in the host dashboard. The command exits with `3`.
-`env status` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/console/operations). Pass `--url` to check a deployment:
+`env list --url <app>` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/console/operations). Pass `--url` to check a deployment:
 
 ```bash [Terminal]
-pnpm vitehub env status --url https://my-app.example.com
+pnpm vitehub env list --url https://my-app.example.com
 ```
 
 It returns `ok` and, for each declaration, the status, the `names` it reads, the `name` that supplied the value, and the required, secret, and blocking flags. Values never leave the app.
@@ -520,9 +520,9 @@ pnpm vitehub schedule run sync --at 2026-01-31T23:59:00Z
 pnpm vitehub schedule run sync --url https://app.example.com
 ```
 
-`--at` runs the definition as if its cron fired at that time, without checking the cron. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under it. Use it to test code that depends on the fire time, such as a job near midnight or on a month's last day. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. No time zone, a date only, or a day that does not exist (`2026-02-30`) fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`), and nothing runs.
+`--at` runs the definition as if its cron fired at that time, without checking the cron. The handler gets it as `scheduledAt`, and `vitehub schedule runs list <name>` lists the run under it. Use it to test code that depends on the fire time, such as a job near midnight or on a month's last day. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. No time zone, a date only, or a day that does not exist (`2026-02-30`) fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`), and nothing runs.
 
-`schedule run` is the `schedule.run` [operation](/docs/console/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the [credentials below](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app). The deployment runs only definitions that the [Console](/docs/console) installed with `invoke: true`, which is on in development and off in a production build.
+`schedule run` is the `schedule.run` [operation](/docs/console/operations) of the Schedules section. Without `--url`, the dev server runs the definition in its Nitro runtime, with the app's Nitro plugins and dev bindings, and the run shows in `vitehub schedule runs list <name>`. With `--url`, it calls the deployment with the [credentials below](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app). The deployment runs only definitions that the [Console](/docs/console) installed with `invoke: true`, which is on in development and off in a production build.
 
 A CI job needs no Console login. Make a key pair with `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: true`, and set `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a secret of the job. `vitehub schedule run <name> --url <origin>` then [signs the call](/docs/console/signed-requests), the same as every other command with `--url`.
 
@@ -530,12 +530,12 @@ The Console Schedules page runs the same operation. A read-only grant (`"schedul
 
 ## Run and inspect Schedules
 
-Start the dev server, then run `vitehub schedule` in another terminal. `runs` and `attempts` read that server's Schedule Run store, so they show the runs the app recorded: manual runs and Process Runtime runs.
+Start the dev server, then run `vitehub schedule` in another terminal. `runs list` and `runs get` read that server's Schedule Run store, so they show the runs the app recorded: manual runs and Process Runtime runs.
 
 ```bash [Terminal]
-pnpm vitehub schedule runs digest --limit 5
-pnpm vitehub schedule runs digest --json
-pnpm vitehub schedule attempts srun_static_digest_2026-05-22T07:00:00.000Z
+pnpm vitehub schedule runs list digest --limit 5
+pnpm vitehub schedule runs list digest --json
+pnpm vitehub schedule runs get srun_static_digest_2026-05-22T07:00:00.000Z
 ```
 
 ```txt [Output]
@@ -557,7 +557,7 @@ pr-upkeep      */15 * * * *
 pnpm vitehub schedule start reminder --at 2026-11-08T09:00:00Z
 pnpm vitehub schedule start reminder --input '{"name":"reminder","cron":"0 9 * * 1-5","timeZone":"Europe/Madrid","payload":{"text":"Stand-up"}}'
 pnpm vitehub schedule list
-pnpm vitehub schedule runs sched_mh1x2y3z_ab12cd34
+pnpm vitehub schedule runs list sched_mh1x2y3z_ab12cd34
 pnpm vitehub schedule cancel sched_mh1x2y3z_ab12cd34 --yes
 ```
 
@@ -571,23 +571,22 @@ Turn on `hubWorkflow()` and start the dev server.
 
 ```bash [Terminal]
 pnpm vitehub workflow start welcome '{"name":"Ada"}'
-pnpm vitehub workflow get <runId>
+pnpm vitehub workflow runs get <runId>
 pnpm vitehub workflow cancel <runId> --yes
 pnpm vitehub workflow resume <token> '{"approved":true}'
 pnpm vitehub workflow runs list --status failed
-pnpm vitehub workflow runs show <runId>
 pnpm vitehub workflow runs clear --yes
 ```
 
-The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `runs get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `runs get` and `runs list`.
 
-Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare resume, and OpenWorkflow resume return unsupported-operation errors. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
+Inline runs can be read with `runs get` for five minutes. Inline cancellation, Cloudflare resume, and OpenWorkflow resume return unsupported-operation errors. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
 
 ### Inspect runs in development
 
-`vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. `vitehub workflow runs show <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs and does not change what `get` returns.
+`vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. In `vite dev`, `vitehub workflow runs get <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs, and `runs get` still reads a run from its provider after it.
 
-The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so the history is empty there; read a run with `vitehub workflow get`. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
+The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so the history is empty there; read a run with `vitehub workflow runs get`. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list` and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`), and `runs get` reads the run from the provider, without steps. Read one deployed run with `vitehub workflow runs get <runId> --workflow <name>`.
 ## Run Workspace commands during development
 
 Use `vitehub workspace dev` to run a command in a Workspace without an Agent.
@@ -630,9 +629,9 @@ Run `pnpm vitehub hooks install` once to check for conflicts before each commit 
 pnpm vitehub workspace history content
 pnpm vitehub workspace history content --ref draft --limit 10
 pnpm vitehub workspace refs content
-pnpm vitehub workspace show content draft
-pnpm vitehub workspace show content published posts/hello.md
-pnpm vitehub workspace show content 9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a posts/hello.md
+pnpm vitehub workspace get content draft
+pnpm vitehub workspace get content published posts/hello.md
+pnpm vitehub workspace get content 9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a posts/hello.md
 ```
 
 ```txt [Output]
