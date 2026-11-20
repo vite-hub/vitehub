@@ -34,6 +34,8 @@ export interface WritableTranslationsWorkspace extends TranslationsWorkspace {
     commit(options: {
       ref: string
       ifHead: string | null
+      /** Observe a rejection of this commit's expected head, not a conflict from a hook. */
+      onHeadConflict?: (error: unknown) => void
       changes: { put?: Record<string, string>, delete?: string[] }
       message?: string
     }): Promise<Revision>

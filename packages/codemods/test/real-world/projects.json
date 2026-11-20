@@ -209,5 +209,36 @@
         "moved 4 cron jobs"
       ]
     }
+  },
+  {
+    "id": "nuxt-color-mode-docs",
+    "repo": "nuxt-modules/color-mode",
+    "commit": "0a0df98f93abc531f0e2fb9e22d6d55f4678c708",
+    "dir": "docs",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "docus"
+      ],
+      "report": [
+        "moved the site from the docus layer to @vite-hub/docs/nuxt and 9 pages",
+        "::u-page-hero is a Nuxt UI component"
+      ]
+    },
+    "build": {
+      "port": 4812,
+      "probes": [
+        {
+          "path": "/getting-started/installation",
+          "status": 200,
+          "contains": "Installation"
+        },
+        {
+          "path": "/llms.txt",
+          "status": 200,
+          "contains": "Nuxt Color Mode"
+        }
+      ]
+    }
   }
 ]

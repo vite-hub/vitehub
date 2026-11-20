@@ -8,7 +8,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { custom } from "../src/sources/custom.ts"
-import { fetch as fetchSource } from "../src/sources/fetch.ts"
+import { url as fetchSource } from "../src/sources/fetch.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
@@ -100,7 +100,7 @@ describe("Workspace glob cwd", () => {
     const request = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected provider request"))
     const store = provider === "memory"
       ? createMemoryWorkspaceStore()
-      : createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "test-token" }, "descriptor-cwd")
+      : createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "test-token" }, "descriptor-cwd")
     const querySchema = {
       "~standard": {
         jsonSchema: { input: () => ({ type: "object", properties: {} }) },

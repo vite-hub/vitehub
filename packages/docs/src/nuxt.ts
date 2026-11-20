@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, posix, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -38,8 +39,8 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
+import { docsSeoError, docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
@@ -142,7 +143,8 @@ export interface DocsModuleOptions {
    * Checks every prerendered page as a site audit does: a sitemap URL that is not a prerendered page, a missing or
    * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
    * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
-   * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
+   * or a canonical link to another page are left out. `"warn"`, the default, reports one hint for each kind of problem,
+   * such as `DOCS_SEO_TITLE_INVALID`, in the build output and in `.vitehub/hints.json`. `"error"` or `true` stops the
    * build with `DOCS_SEO_FAILED`. `false` turns the check off.
    */
   seoAudit?: "warn" | "error" | boolean
@@ -257,6 +259,7 @@ interface PrerenderResult {
 
 interface NitroInstance {
   options: NitroOptions & { output?: { publicDir: string } }
+  routing?: { routes: { routes: DocsServerRoute[] } }
   hooks?: {
     hook(name: "compiled" | "prerender:done", handler: () => void | Promise<void>): void
     hook(name: "prerender:generate", handler: (route: PrerenderRoute) => void): void
@@ -963,6 +966,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
 
     // Nuxt types Nitro hooks only when Nitro's types load.
+    const buildingHints = () => !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare") && !Reflect.get(nuxt.options, "vitehubCliDiscovery")
+    const hintsConfig = () => ({ root: nuxt.options.rootDir, command: "build" as const, logger: useLogger("@vite-hub/docs") })
+    const startHints = () => {
+      if (buildingHints()) startViteHubHints(hintsConfig(), nuxt)
+    }
+    nuxt.hook("build:before", startHints)
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:build:before", startHints])
     let checkSourceLinks: (() => Promise<void>) | undefined
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: NitroInstance) => {
       const building = !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")
@@ -995,7 +1005,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })()
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
-        const problems = docsRedirectProblems(manifest, redirects)
+        // A target that a server route of the app answers, such as Auth's `/api/auth/**`, is no missing page.
+        const serverRoutes = docsServerRoutes(nitro.routing?.routes.routes ?? [], resolver.resolve("./runtime"))
+        const problems = docsRedirectProblems(manifest, redirects, serverRoutes)
         if (problems.length) throw docsRedirectError(problems)
         let sourceLinks: Promise<void> | undefined
         const checkLinks = () => sourceLinks ??= (async () => {
@@ -1034,9 +1046,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
             withSourceLocation: candidates.length ? docsContentSeoLocation(await checkContent(), new Map(candidates.map(page => [page.path, page])), config.appBase) : undefined,
           })
           if (!problems.length) return
-          const error = docsSeoError(problems)
-          if (seoAudit === "error" || seoAudit === true) throw error
-          useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
+          if (seoAudit === "error" || seoAudit === true) throw docsSeoError(problems)
+          if (buildingHints()) for (const hint of docsSeoHints(problems)) reportViteHubHint(hintsConfig(), hint)
         })
       }
     }])
