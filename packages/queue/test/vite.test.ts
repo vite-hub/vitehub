@@ -8,7 +8,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
-import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
 import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
@@ -141,6 +141,26 @@ describe("hubQueue", () => {
       expect(await readdir(join(root, ".vitehub", "nitro", "queue", "vercel"))).toHaveLength(1)
       expect(existsSync(join(viteRoot, ".vitehub", "nitro", "queue", "vercel"))).toBe(false)
     }
+  })
+
+  it.each(["before", "after"])("writes Queue files only under the Nuxt project root when Nitro resolves %s Vite", async (order) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-root-"))
+    roots.push(root)
+    const viteRoot = join(root, "app")
+    await mkdir(viteRoot)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ driver: "cloudflare" })
+    const nitro = { preset: "cloudflare_module" }
+    // The Nuxt module configures Nitro in the project root. Nuxt's own Vite config has the source directory as its root.
+    const configureNitro = () => createQueueNitroConfig(plugin, { development: true, nitro, projectRoot: root, root })
+    if (order === "before") await configureNitro()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "serve", nitro, plugins: [], root: viteRoot, [VITEHUB_PROJECT_ROOT]: root })
+    if (order === "after") await configureNitro()
+
+    expect(existsSync(join(viteRoot, ".vitehub"))).toBe(false)
+    expect(await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).toContain("sync.ts")
+    expect(await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")).toContain("sync")
   })
 
   it("registers absolute generated paths when Nitro owns the Vite config", async () => {
