@@ -27,7 +27,7 @@ type Rewrite = (call: CliCall) => string
 
 /** Recognizes only simple commands with literal shell words. */
 function commands(source: string, posix: boolean): Word[][] | undefined {
-  const token = /[ \t]+|\r?\n|&&|\|\||;|#[^\r\n]*|[\w./:@=+,-]*"[\w ./:'@=+,-]*"|[\w./:@=+,-]*'[\w ./:"@=+,-]*'|[\w./:@=+,-]+/gy
+  const token = /[ \t]+|\r?\n|&&|\|\||;|#[^\r\n]*|[\w./:@=+,-]*"[\w ./:'@=+,!-]*"|[\w./:@=+,-]*'[\w ./:"@=+,!-]*'|[\w./:@=+,-]+/gy
   const result: Word[][] = []
   let words: Word[] = []
   let offset = 0
@@ -50,17 +50,28 @@ function commands(source: string, posix: boolean): Word[][] | undefined {
   return result
 }
 
-function rewriteShell(source: string, posix: boolean, rewrite: Rewrite): string {
+export function findCliCalls(source: string, posix: boolean) {
   const parsed = commands(source, posix)
-  if (!parsed) return source
-  let after = ""
-  let offset = 0
-  for (const words of parsed) {
-    const cli = ["pnpm", "npx"].includes(words[0]?.text ?? "") ? 1 : 0
+  if (!parsed) return
+  return parsed.flatMap((words) => {
+    const [first, second, third] = words.map(word => word.text)
+    const cli = first === "vitehub" ? 0
+      : (first === "pnpm" || first === "npx" || first === "bunx") && second === "vitehub" ? 1
+        : (first === "pnpm" || first === "npm" || first === "yarn") && second === "exec" && third === "vitehub" ? 2
+          : -1
     const start = words[0]?.start
     const end = words.at(-1)?.end
-    if (start === undefined || end === undefined || words[cli]?.text !== "vitehub") continue
-    after += source.slice(offset, start) + rewrite({ command: source.slice(start, end), words: words.slice(cli + 1).map(word => ({ ...word, start: word.start - start, end: word.end - start })), posix })
+    if (cli < 0 || start === undefined || end === undefined) return []
+    const call: CliCall = { command: source.slice(start, end), words: words.slice(cli + 1).map(word => ({ ...word, start: word.start - start, end: word.end - start })), posix }
+    return [{ start, end, call }]
+  })
+}
+
+function rewriteShell(source: string, posix: boolean, rewrite: Rewrite): string {
+  let after = ""
+  let offset = 0
+  for (const { start, end, call } of findCliCalls(source, posix) ?? []) {
+    after += source.slice(offset, start) + rewrite(call)
     offset = end
   }
   return after + source.slice(offset)

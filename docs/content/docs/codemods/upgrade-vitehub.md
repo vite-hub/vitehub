@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-yes-flag`, and `cms-roles`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, and `cms-roles`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -503,6 +503,21 @@ npx @vite-hub/codemods cli-yes-flag [dir] [--dry-run]
 For simple commands, it changes `database drop` and `database reset` from `--force` to `--yes`. It changes `connections revoke` from `--confirm <name>` to `--yes` only when the target and confirmation are the same literal name. For simple shell scripts, it replaces `database generate --non-interactive` with `CI=1 vitehub database generate` (keeping other arguments).
 
 The report lists commands it cannot safely change. If it lists a `database generate` command, set `CI=1` in the command's environment before you remove `--non-interactive` so it still cannot prompt.
+
+## cli-url-flag
+
+`cli-url-flag` changes `--server <url>` to `--url <url>` in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `--url` is the app URL in every command:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-url-flag [dir] [--dry-run]
+```
+
+```diff [package.json]
+-    "cancel": "vitehub agent invocations cancel --server http://localhost:3000"
++    "cancel": "vitehub agent invocations cancel --url http://localhost:3000"
+```
+
+A `--url` that names the Console, such as `http://localhost:3000/_vitehub`, now fails with the app URL to pass. A command without `--url` uses the dev server of the project instead of guessing `localhost:5173`.
 
 ## cms-roles
 

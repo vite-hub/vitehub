@@ -5,7 +5,7 @@ import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenera
 import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
-import { createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -1083,6 +1083,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       },
     },
     async configureServer(devServer) {
+      publishViteHubDevServer(devServer)
       server = devServer
       installHostedWorkspaceRuntime()
       installHostedVercelBlobWorkspaceRuntime()
