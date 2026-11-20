@@ -31,6 +31,10 @@ import {
   messageAwareness,
   messageRealtimeControl,
   messageWorkspaceChange,
+  realtimeInvalidDocumentCode,
+  realtimeReadOnlyCode,
+  realtimeSourceChangedCode,
+  realtimeSyncPendingCode,
   workspaceRoomId,
 } from "./protocol.ts"
 import { realtimeErrorDiagnostics, type RealtimeRequestAction } from "./error-diagnostics.ts"
@@ -41,6 +45,16 @@ export { RealtimeCaret } from "./caret.ts"
 export type { RealtimeCaretOptions, RealtimeCaretUser } from "./caret.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
+
+/** The error for a code that the server put in `data.code` of a refused request, so the app can tell the reasons apart. */
+function serverRequestError(code: string | undefined, action: RealtimeRequestAction) {
+  switch (code) {
+    case realtimeInvalidDocumentCode: return realtimeErrorDiagnostics.REALTIME_INVALID_DOCUMENT({ action })
+    case realtimeReadOnlyCode: return realtimeErrorDiagnostics.REALTIME_READ_ONLY({ action })
+    case realtimeSourceChangedCode: return realtimeErrorDiagnostics.REALTIME_SOURCE_CHANGED({ action })
+    case realtimeSyncPendingCode: return realtimeErrorDiagnostics.REALTIME_SYNC_PENDING({ action })
+  }
+}
 
 export interface RealtimeResetEvent {
   /** Room seed the client reconnects to. */
@@ -356,11 +370,12 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         const message = isString(errorData?.statusMessage) && errorData.statusMessage
           ? errorData.statusMessage
           : isString(errorData?.message) ? errorData.message : undefined
-        if (response.status === 409 && isRetryableRealtimeRequestCode(isString(nestedData?.code) ? nestedData.code : undefined) && attempt < 20) {
+        const serverCode = isString(nestedData?.code) ? nestedData.code : undefined
+        if (response.status === 409 && isRetryableRealtimeRequestCode(serverCode) && attempt < 20) {
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
-        return [realtimeErrorDiagnostics.REALTIME_REQUEST_FAILED({ action, message, status: response.status }), undefined]
+        return [serverRequestError(serverCode, action) ?? realtimeErrorDiagnostics.REALTIME_REQUEST_FAILED({ action, message, status: response.status }), undefined]
       }
     }
     finally {

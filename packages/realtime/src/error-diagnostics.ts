@@ -23,6 +23,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ action }: { action: RealtimeRequestAction }) => `The realtime document disconnected or changed during \`${action}()\`.`,
       fix: "Call the method again after the new document connects. Read `synced` to know when it is ready.",
     },
+    REALTIME_INVALID_DOCUMENT: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room body does not fit the editor schema, so \`${action}()\` did not write it. Writing it would lose content.`,
+      fix: "Keep editing until the document fits the editor extensions of the Realtime Definition, then call the method again. The room keeps the edits.",
+    },
     REALTIME_INVALID_RESPONSE: {
       why: ({ action }: { action: RealtimeRequestAction }) => `The realtime server answered \`${action}()\` with a response that the client cannot use.`,
       fix: "Use the same `@vite-hub/realtime` version on the client and the server, and build again.",
@@ -31,11 +35,23 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ action }: { action: RealtimeRequestAction }) => `\`${action}()\` needs a document, and \`documentId\` is empty.`,
       fix: "Pass a document path to `useRealtimeTiptap(definition, documentId)` before you call the method.",
     },
+    REALTIME_READ_ONLY: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room is read-only, so \`${action}()\` cannot write the document.`,
+      fix: "Read `readOnlyReason` of `useRealtimeTiptap()` for the reason. Do not offer save or publish while it is set.",
+    },
     REALTIME_REQUEST_FAILED: {
       why: ({ action, message, status }: { action: RealtimeRequestAction, message?: string, status?: number }) =>
         `The realtime \`${action}()\` request failed${status === undefined ? "" : ` with HTTP ${status}`}${message ? `: ${message}` : "."}`,
       fix: "Read `error.why` for the server message, `error.data.status` for the HTTP status, and `error.cause` for a network error. Retry when the server is available again.",
       data: ({ status }: { action: RealtimeRequestAction, message?: string, status?: number }): RealtimeRequestFailure => ({ status }),
+    },
+    REALTIME_SOURCE_CHANGED: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The stored document changed outside the room during \`${action}()\`. The room re-seeded, and every editor now shows the stored version.`,
+      fix: "Tell the person that someone else changed the document. Their unsaved edits are the `previous` document of the `onReset()` event.",
+    },
+    REALTIME_SYNC_PENDING: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room did not receive every edit of this client in time, so \`${action}()\` did not run. The composable tried 20 times.`,
+      fix: "Call the method again when `synced` is true. When it keeps failing, check that the WebSocket stays connected.",
     },
 
     // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
