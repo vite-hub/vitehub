@@ -232,7 +232,6 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       return row
     }),
     recordOnce: send => guarded("store a delivery", async () => {
-      // A delivery that goes dead between the insert and the read leaves no row. Try once more.
       for (let attempt = 0; attempt < 2; attempt++) {
         const inserted = await db().all(sql`
           INSERT INTO vitehub_webhook_deliveries (id, webhook, key, event, body, revision, count, state, attempts, due_at, created_at, updated_at)
@@ -376,7 +375,6 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
       return row
     }),
     disable: (id, now) => guarded("disable a member endpoint", async () => {
-      // Disabling twice keeps the first time.
       const [row] = await db().update(t).set({ disabledAt: sql`coalesce(${t.disabledAt}, ${now})`, updatedAt: now }).where(eq(t.id, id)).returning()
       return row
     }),

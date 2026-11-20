@@ -76,7 +76,6 @@ async function startEmulator(config: EmulatedModelSeed) {
   }
 }
 
-/** Returns `error.message` of an upstream OpenAI error envelope, or the body as it is. */
 function upstreamMessage(body: string): string {
   try {
     const message = (JSON.parse(body) as { error?: { message?: unknown } }).error?.message

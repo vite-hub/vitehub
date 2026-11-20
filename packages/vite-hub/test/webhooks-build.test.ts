@@ -50,11 +50,8 @@ async function build(root: string, options: ViteHubOptions, plugins: unknown[] =
   await builder.buildApp()
 }
 
-// Stands for an owner package, such as Comments with `send: true`, that turns on member endpoints.
 const sendPlugin = { name: "fixture-send", vitehub: { webhooks: { memberEndpoints: true, reason: "Sends waiting comments to each member's agent." } } }
 
-// 203.0.113.10 is a public address in TEST-NET-3, so the guard takes it without DNS. The route sends its requests
-// to the local receiver, because a test cannot get a certificate for it.
 const memberFiles = {
   "index.html": "<!doctype html><title>Member endpoints</title>\n",
   "package.json": JSON.stringify({ name: "webhooks-members", private: true, type: "module" }),
@@ -93,7 +90,6 @@ const memberFiles = {
 
 const queueHex = Buffer.from("vitehub-webhooks").toString("hex")
 
-// Own file: it chdirs into the fixture, because the default libSQL file and the local Queue are relative to the working directory.
 describe("Webhooks in a built Nitro 3 app", () => {
   it("fails the build when Queue is off", async () => {
     const root = await createProject(files)
@@ -168,7 +164,6 @@ describe("Webhooks in a built Nitro 3 app", () => {
   it("contributes the vitehub-webhooks Queue to the Cloudflare output", async () => {
     const root = await createProject({
       ...files,
-      // D1 output needs the database id at build time.
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ cloudflare: { binding: 'DB', databaseId: 'database-id', databaseName: 'app' }, schema: {} })\n",
     })
     await build(root, { database: { driver: "cloudflare" }, host: "cloudflare", queue: true })
@@ -196,7 +191,6 @@ describe("Webhooks in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     const port = await freePort()
-    // `console: true` takes signed operation calls, such as `vitehub webhooks --url` with a CI key.
     const options: ViteHubOptions = { console: true, database: true, host: "node", publicUrl: `http://127.0.0.1:${port}`, queue: true }
     const ci = await consoleTestKey("CI")
 
@@ -237,7 +231,6 @@ describe("Webhooks in a built Nitro 3 app", () => {
       }
       await vi.waitFor(async () => expect(await (await server.fetch("/deliveries")).json()).toEqual([expect.objectContaining({ id: ids[0], state: "sent", count: 3, attempts: 1 })]), { interval: 100, timeout: 5_000 })
 
-      // `vitehub webhooks` reads and operates the same deliveries through the signed operation RPC of the built app.
       vi.stubEnv(`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`, ci.key.privateKey)
       onTestFinished(() => {
         vi.unstubAllEnvs()
@@ -266,8 +259,6 @@ describe("Webhooks in a built Nitro 3 app", () => {
       await new Promise(done => receiver.close(done))
     }
   }, 300_000)
-  // The registry also holds a placeholder `default` that throws. Webhooks and Forms must use the Database that
-  // `vitehub database generate` adds their tables to, here the only one, `content`.
   it("uses the only Database when it is not named default", async () => {
     const received: string[] = []
     const receiver = createServer((request, response) => {
@@ -318,8 +309,6 @@ describe("Webhooks in a built Nitro 3 app", () => {
       await new Promise(done => receiver.close(done))
     }
   }, 300_000)
-  // The registry also holds a placeholder `default` that throws. Webhooks and Forms must use the Database that
-  // `vitehub database generate` adds their tables to, here the only one, `content`.
   it("uses the only Database when it is not named default", async () => {
     const received: string[] = []
     const receiver = createServer((request, response) => {

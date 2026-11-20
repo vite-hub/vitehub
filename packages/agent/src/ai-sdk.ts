@@ -1360,12 +1360,6 @@ function isHostedTool(tool: unknown): boolean {
   return typeof tool === "object" && tool !== null && Reflect.get(tool, "type") === "provider"
 }
 
-/**
- * Keeps hosted provider tools away from the AI emulator, which rejects them. It filters the tools and tool choice
- * of every call and step, because tools arrive from Capabilities, `runAgent(..., { tools })`, and `prepareCall`.
- * A tool choice that only a dropped tool can satisfy becomes `"auto"`, so the run continues as it does without the
- * tool. Each drop records a coded `agent.diagnostic.warning` observation on the Invocation.
- */
 function createEmulatorToolFilter(context: AgentAdapterRunContext, source: EmulationSource) {
   const traced = new Set<string>()
   const dropped = new Set<string>()
@@ -1554,7 +1548,6 @@ async function createAgent(
   const commonSettings = emulatorTools
     ? { ...modelSettings, prepareCall: emulatorTools.prepareCall(modelSettings.prepareCall) }
     : modelSettings
-  // Repair calls send no tools, so they keep the settings without the emulator filter.
   const repairSettings = withoutToolCallSettings(modelSettings)
   const prepareCall = modelSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"

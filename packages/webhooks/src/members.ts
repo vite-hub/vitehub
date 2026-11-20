@@ -50,7 +50,6 @@ export interface SendToMemberEndpointResult {
   status: "sent" | "inbox" | "pending" | "failed"
 }
 
-/** How long the Queue waits before it tries a failed member delivery again. */
 const memberRetryDelayMs = webhookTimeoutMs
 
 const limits = { owner: 256, name: 120, agent: 64, secret: 1024, url: 2048 }
@@ -98,7 +97,6 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
   const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
   if (problem) return invalid(problem)
-  // The options can come from a request body, so check the kind at runtime too.
   const kind: unknown = options.kind
   if (kind !== "url" && kind !== "inbox") return invalid(`\`kind\` must be "url" or "inbox", not ${JSON.stringify(kind)}`)
   const now = Date.now()
@@ -213,9 +211,7 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     const recorded = await store.recordOnce({ id: createDeliveryId(), webhook: `${memberWebhookPrefix}${endpoint.id}`, key: options.key, event: options.event, body: json, dueAt: now, now })
     const done = target ? "sent" : "inbox"
     if (!recorded.created) return [undefined, { id: recorded.id, status: recorded.state === "sent" ? done : "pending" }]
-    // `0` claims only a pending delivery, never one that another server is sending.
     const claim = await store.claim(recorded.id, recorded.revision, now, 0)
-    // Another server, such as a Queue flush, claimed it first.
     if (!claim) return [undefined, { id: recorded.id, status: "pending" }]
     if (!target) {
       await store.sent(claim, { status: null, error: null }, Date.now())
