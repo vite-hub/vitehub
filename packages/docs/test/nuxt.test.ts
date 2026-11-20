@@ -534,6 +534,20 @@ describe("docs Nuxt setup", () => {
     await expect(compiled[0]!()).rejects.toThrow(/_vitehub, which has no page or file/)
   })
 
+  it("stops when docs.sources keeps the default /docs base but no page is below it", async () => {
+    // A site that moves from `dir` to `sources` without a `docs/` folder: `dir` gave it the base `/`.
+    const app = appWithDocs({ "guide/index.md": "Guide", "guide/start.md": "Start" })
+    await expect(setupDocs({ sources: [app.dir] })).rejects.toThrow(expect.objectContaining({
+      code: "DOCS_BASE_EMPTY",
+      why: expect.stringContaining("/guide"),
+      fix: expect.stringContaining("base: '/'"),
+    }))
+    const options = await setupDocs({ base: "/", sources: [app.dir] })
+    expect(options.runtimeConfig.public.docs.base).toBe("/")
+    const mounted = await setupDocs({ sources: [{ source: app.dir, mount: "/docs" }] })
+    expect(mounted.runtimeConfig.public.docs.base).toBe("/docs")
+  })
+
   it("reads source files in development through Vite, writes raw copies from the right directory and loads configured components", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
     roots.push(dir);

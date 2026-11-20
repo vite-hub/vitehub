@@ -13,6 +13,10 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ path }: { path: string }) => `[@vite-hub/docs] The docs assistant's Workspace has no page at ${path}. The pages changed after the Workspace listed them.`,
       fix: "Ask the question again. The next Invocation lists the current pages.",
     },
+    DOCS_BASE_EMPTY: {
+      why: ({ base, path }: { base: string, path: string }) => `[@vite-hub/docs] With docs.sources, the docs base defaults to ${base}, but no page is at or below it, so the docs have no sections. The pages start at ${path}. docs.dir uses / when the folder has no docs/ folder, and docs.sources does not.`,
+      fix: "Set `docs: { base: '/' }` in nuxt.config.ts to make the top folders of the pages the sections, or mount the pages at `/docs`.",
+    },
     DOCS_COMMENTS_DATABASE_OFF: {
       why: "[@vite-hub/docs] Docs sites on vite-hub/nuxt have Comments on, which keeps threads in the Database, but vitehub sets database: false.",
       fix: "Remove `database: false` from the `vitehub` options in nuxt.config.ts, or set `docs: { comments: false }`.",

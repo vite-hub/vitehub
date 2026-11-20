@@ -40,6 +40,7 @@ import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPag
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsSeoError, docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
@@ -95,7 +96,8 @@ export interface DocsModuleOptions {
   components?: string
   /**
    * URL prefix whose folders are sections in the rail. Defaults to `/docs` when the content folder has a `docs/` folder,
-   * and to `/` when it has none, so the docs are the whole site. Mapped sources default to `/docs`.
+   * and to `/` when it has none, so the docs are the whole site. Mapped sources default to `/docs`, and setup stops with
+   * `DOCS_BASE_EMPTY` when no page is at or below it.
    */
   base?: string
   site?: DocsSiteOptions
@@ -438,6 +440,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     let read = await readDocsContent(manifestOptions)
     let manifest = read.manifest
+    if (sources && options.base === undefined) {
+      // `sources` defaults to `/docs`. A site that moves from `dir` to `sources` without a `docs/` folder would move from
+      // `/` to `/docs` and lose its rail.
+      const paths = docsManifestPages(manifest).map(page => page.path)
+      if (paths.length && !paths.some(path => isDocsPath(path, base))) throw docsErrorDiagnostics.DOCS_BASE_EMPTY({ base, path: paths.sort()[0]! })
+    }
     /**
      * Resolves when development has read the content after a change. Nuxt generates the app again when a file is added
      * or removed, and the manifest templates wait for this read, so that run does not write the old pages.
