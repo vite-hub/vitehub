@@ -155,6 +155,20 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
           if (existing.result) outbox.put({ ...write, store: id } satisfies OutboxRecord)
         }
       }
+      if (change.claim) {
+        const { from, to, seqs } = change.claim
+        const claimed: number[] = []
+        result.claimed = claimed
+        for (const seq of seqs) {
+          const existing = outbox.get(seq)
+          existing.onsuccess = () => {
+            const write = existing.result as OutboxRecord | undefined
+            if (write?.account !== from || write.store !== id) return
+            outbox.put({ ...write, account: to })
+            claimed.push(seq)
+          }
+        }
+      }
       for (const [index, write] of (change.add ?? []).entries()) {
         const added = outbox.add({ ...write, store: id })
         added.onsuccess = () => {

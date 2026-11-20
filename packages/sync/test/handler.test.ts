@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { describe, expect, it } from "vitest"
 
 import { syncChanges, syncMutations, syncState } from "../src/database.ts"
+import { accountOf } from "../src/canonical.ts"
 import { defineSync } from "../src/define.ts"
 import { createHarness, day } from "./handler-harness.ts"
 
@@ -37,6 +38,19 @@ const remove = (id: string, key: string): SyncMutation => ({ id, op: "delete", k
 const as = (held: { scope: string, version: string, account: string }) => ({ scope: held.scope, version: held.version, account: held.account })
 
 describe("pull", () => {
+  it("identifies the Auth user separately when a custom definition claims early writes", async () => {
+    for (const customId of ["tenant-ada", null]) {
+      const app = await setup({ identify: () => customId ? { id: customId } : null, where: () => ({}), write: true })
+      const response = await app.call(new Request("https://app.test/_vitehub/sync/todos?claim=1", { headers: { "x-user": "ada" } }))
+      expect(response.status).toBe(200)
+      const body: unknown = await response.json()
+      expect(body).toMatchObject({ authAccount: accountOf("ada") })
+      if (customId) expect(body).toMatchObject({ account: accountOf(customId) })
+      else expect(body).not.toMatchObject({ account: accountOf("ada") })
+      expect((await app.pull("ada")).body).not.toHaveProperty("authAccount")
+    }
+  })
+
   it("returns only the caller's rows and a cursor on a reset pull", async () => {
     const app = await setup()
     const alice = await app.start("alice")

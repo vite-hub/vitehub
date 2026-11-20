@@ -4,16 +4,17 @@ import { createRequire, isBuiltin } from "node:module"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import type { Rolldown } from "vite"
+import type { ESTree, Rolldown } from "vite"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
-import type { Node } from "./scan-module.ts"
+import { moduleLanguage, walk } from "./ast-walk.ts"
 
 type Plugin = Rolldown.Plugin
 type PluginContext = Rolldown.PluginContext
 type ResolvedId = Rolldown.ResolvedId
 type ImportKind = Rolldown.ImportKind
+type Node = ESTree.Node
 
 export interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -38,6 +39,13 @@ export interface BundleEsmEntryOptions {
   /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
   resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
+  /**
+   * By default, each module uses the `paths` and compiler options of its nearest tsconfig.json. Pass `false` for a
+   * generated entry that imports no app module through tsconfig `paths`, so the bundle does not depend on the app's
+   * tsconfig files. A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which do not exist before
+   * `nuxt prepare` writes them.
+   */
+  tsconfig?: false
   workingDir?: string
 }
 
@@ -532,8 +540,9 @@ function createOptionalImportPlugin(): Plugin {
       order: "post",
       filter: { code: /\bimport\s*(?:\(|\/)/ },
       async handler(code, id) {
-        const { scanModule, walk } = await import("./scan-module.ts")
-        const module = scanModule(code, id)
+        // A dynamic import, so a package whose `vite` peer is optional can bundle this file and still load without Vite.
+        const { parseSync } = await import("vite")
+        const module = parseSync(id, code, { lang: moduleLanguage(id), preserveParens: false, sourceType: "module" })
         if (module.errors.length) return
         const parents = new WeakMap<Node, Node>()
         const handled: { source: string, start: number, end: number }[] = []
@@ -637,6 +646,7 @@ export async function bundleEsmEntry(
       symlinks: !options.preserveSymlinks,
     },
     transform: { define: options.define, target: "es2022" },
+    tsconfig: options.tsconfig ?? true,
   })
   let output: Rolldown.RolldownOutput["output"]
   try {

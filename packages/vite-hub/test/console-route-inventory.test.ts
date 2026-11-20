@@ -63,7 +63,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
     "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
     "server/connections-actor.ts": "export default () => ({ id: 'owner' })\n",
     "server/console-authorize.ts": "export default () => true\n",
-    "server/schedules/daily.ts": "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 0 * * *', run: () => {} })\n",
+    "server/schedules/daily.ts": "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n",
   })
   const resolved = await resolveConfig({
     configFile: false,
@@ -136,6 +136,7 @@ const plugins = [
   "app/.vitehub/nitro/error-log.mjs",
   // `security` headers, on by default in built output.
   "app/.vitehub/nitro/request-policy.mjs",
+  "app/.vitehub/nitro/schedule/plugin.ts",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
 ]
