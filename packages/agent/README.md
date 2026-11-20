@@ -129,14 +129,14 @@ Trusted code can scope extra tools and Agent Capabilities to one Invocation with
 
 ## Run on the AI emulator
 
-`VITEHUB_MODELS=emulate` sends the model requests of every model Driver Agent to the AI emulator (`@emulators/ai`), with no AI key. Use it in dev and tests. `VITEHUB_EMULATE_URL` sets the emulator URL; the default is `http://localhost:4014`. The switch is read from the Cloudflare bindings of the run, else from `process.env`, and the URL from Server Env.
+`VITEHUB_MODELS=emulate` sends the model requests of every model Driver Agent to the AI emulator (`@emulators/ai`), with no AI key. Use it in dev and tests. `VITEHUB_EMULATE_URL` sets the emulator URL; the default is `http://localhost:4014`. The switch and the URL are read from the Cloudflare bindings of the run, else from `process.env`. They read no other Server Env value.
 
 `materializeAgentModel()` in `src/internal/agent-model.ts` is the one place that applies the switch, and every model entry point calls it: the Driver model, `chatgpt()` models, Capability models such as `title()`, and the workspace fallback. Under the switch:
 
 - A model ID or `{ id, apiKey }` keeps its ID and goes to the API of its prefix: `openai/*` to OpenAI Responses, `anthropic/*` to Anthropic Messages, others to Chat Completions. ViteHub does not read `apiKey` or `AI_GATEWAY_API_KEY`.
 - A `languageModel(gateway, id, { api })` model keeps its model API, and a `chatgpt()` model uses Responses. ViteHub reads the route from the `aiGatewayLanguageModel` symbol of the model and resolves no gateway credential and no ChatGPT grant.
 - Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
-- `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
 
 Codex and Claude Code Drivers do not read the switch yet. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).

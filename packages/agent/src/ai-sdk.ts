@@ -20,8 +20,8 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
-import { emulatedGateway, languageModelRoute } from "./internal/agent-emulation.ts"
-import { materializeAgentModel } from "./internal/agent-model.ts"
+import { emulatedGateway, languageModelRoute, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { emulatedModelOverride, materializeAgentModel } from "./internal/agent-model.ts"
 import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
@@ -1332,6 +1332,25 @@ function openAgentSteering(context: AgentAdapterRunContext): ModelSteering | und
   return steering
 }
 
+/**
+ * Call settings whose `prepareCall` and `prepareStep` send a model that they return to the AI emulator. The AI SDK
+ * calls the returned model instead of the Agent model, so `VITEHUB_MODELS=emulate` must apply to it too.
+ */
+function withEmulatedModelOverrides(settings: Record<string, unknown>, context: AgentModelResolverContext): Record<string, unknown> {
+  const wrap = (prepare: unknown) => typeof prepare === "function"
+    ? async (...args: unknown[]) => {
+        const prepared: unknown = await Reflect.apply(prepare, undefined, args)
+        if (typeof prepared !== "object" || prepared === null || !("model" in prepared) || prepared.model === undefined) return prepared
+        return { ...prepared, model: await emulatedModelOverride(prepared.model, context) }
+      }
+    : prepare
+  return {
+    ...settings,
+    ...(settings.prepareCall === undefined ? {} : { prepareCall: wrap(settings.prepareCall) }),
+    ...(settings.prepareStep === undefined ? {} : { prepareStep: wrap(settings.prepareStep) }),
+  }
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1360,10 +1379,13 @@ async function createAgent(
   const model = await materializeAgentModel(options.gateway
     ? chatgptLanguageModel(options.gateway, String(options.model), { ...modelContext, abortSignal: context.input.abortSignal })
     : await resolveValue(options.model as never, modelContext), modelContext)
+  const emulated = resolveModelEmulation(modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
-  const observedModel = instrumentations.length
+  const instrumentedDriverModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  // A Capability can replace the model. With VITEHUB_MODELS=emulate, the replacement goes to the emulator too.
+  const observedModel = emulated ? await emulatedModelOverride(instrumentedDriverModel, modelContext) : instrumentedDriverModel
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
     throw agentDiagnostics.AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED()
@@ -1437,7 +1459,8 @@ async function createAgent(
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
-  const commonSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
+  const runtimeSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
+  const commonSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext) : runtimeSettings
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"

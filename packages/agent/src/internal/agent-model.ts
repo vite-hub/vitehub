@@ -6,7 +6,7 @@ import type {
 } from "../types.ts"
 import type { LanguageModel } from "ai"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { emulatedLanguageModel, emulatedModelApi, emulatedModelObject, resolveModelEmulation } from "./agent-emulation.ts"
+import { emulatedLanguageModel, emulatedModelApi, emulatedModelObject, isEmulatedModel, resolveModelEmulation } from "./agent-emulation.ts"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -74,4 +74,18 @@ export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeC
   const { createGateway } = await import("ai")
   const apiKey = gatewayApiKey(descriptor.apiKey, context)
   return (apiKey ? createGateway({ apiKey }) : createGateway())(id)
+}
+
+/**
+ * The model that a run calls after `prepareCall`, `prepareStep`, or a Capability replaces the Driver model. With
+ * `VITEHUB_MODELS=emulate`, a model that does not call the emulator yet goes through `materializeAgentModel()`, so it
+ * goes to the emulator or fails before provider I/O. Call it only when the switch is on.
+ */
+export async function emulatedModelOverride<TRuntimeConfig extends AgentRuntimeConfig>(
+  model: unknown,
+  context: Pick<AgentAdapterMetadataContext<TRuntimeConfig>, "cloudflare">,
+): Promise<unknown> {
+  if (model === undefined || isEmulatedModel(model)) return model
+  // SAFETY: AI SDK settings accept the same model inputs as an Agent model: a model ID or a model object.
+  return await materializeAgentModel(model as AgentModelInput, context)
 }

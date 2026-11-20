@@ -83,7 +83,7 @@ VITEHUB_MODELS=emulate vite dev
 - Capability models, such as the `title()` model, go to the emulator too.
 - ViteHub reads no key and no ChatGPT grant while the switch is on.
 - A model from an AI SDK provider, such as `createOpenAI()`, fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`. An ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. ViteHub does not send them to the real provider.
-- When `NODE_ENV` is `production`, the switch fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`. A value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- In a production build, or when `NODE_ENV` is `production`, the switch fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`. A value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Agent inspection and Invocation records show `gateway: "emulate"` for the model.
 - Codex and Claude Code Drivers do not use the switch yet.
 

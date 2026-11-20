@@ -3,6 +3,11 @@ import { ask, chatgpt, defineAiGateway } from "@vite-hub/gateways"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { createEmulator } from "emulate"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
+
+import { env } from "../../env/src/core/declarations.ts"
+import { createRuntimeRegistry } from "../../env/src/core/resolve.ts"
+import { resolveServerEnv } from "../../env/src/server.ts"
 
 import { title } from "../src/capabilities.ts"
 import { defineAgent, defineCapability, runAgent, streamAgent } from "../src/index.ts"
@@ -15,6 +20,12 @@ import type { Emulator } from "emulate"
 import type { AgentTelemetry } from "../src/index.ts"
 
 type Rule = NonNullable<AiSeedConfig["rules"]>[number]
+
+// Server Env as hubEnv() generates it, with a required provider key that the app has not set.
+const serverEnv = vi.hoisted(() => ({ registry: undefined as object | undefined }))
+vi.mock("#vitehub/env/server", () => ({
+  useServerEnv: () => serverEnv.registry ? resolveServerEnv(serverEnv.registry as never) : {},
+}))
 
 const formats: Record<"chat" | "messages" | "responses", AiFormat> = { chat: "openai-chat", messages: "anthropic-messages", responses: "openai-responses" }
 const rules: Rule[] = [
@@ -52,6 +63,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllEnvs()
   process.env = originalEnv
+  serverEnv.registry = undefined
 })
 
 interface Call { format: string, model: string, matched: { id?: string } | null }
@@ -165,6 +177,60 @@ describe("VITEHUB_MODELS=emulate", () => {
     const spans = "spans" in exported ? exported.spans : []
     const configured = spans[0]?.events?.find(event => event.name === "vitehub.agent.configured")
     expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({ driver: { kind: "model", model: { gateway: "emulate", id: "openai/gpt-5.1", provider: "emulate.responses" } } })
+  })
+
+  it("reads the emulator URL without resolving unrelated Server Env", async () => {
+    serverEnv.registry = createRuntimeRegistry({
+      emulate: { url: env({ source: env.source("VITEHUB_EMULATE_URL"), optional: true }) },
+      openai: { token: env({ source: env.source("VITEHUB_TEST_PROVIDER_TOKEN"), secret: true }) },
+    }, { path: "env.server" })
+    const [error, result] = await runAgent(defineAgent({ runtime: false, driver: { instructions: "Answer briefly.", model: "openai/gpt-5.1" } }), { prompt: "Hello" })
+    expect(error).toBeUndefined()
+    expect(result?.text).toBe("Hello from responses.")
+  })
+
+  it("sends the output schema on Chat Completions to an unseeded emulator", async () => {
+    const unseeded = await createEmulator({ service: "ai", port: 0 })
+    try {
+      vi.stubEnv("VITEHUB_EMULATE_URL", unseeded.url)
+      // Strict: the emulator, like OpenAI, rejects a strict JSON schema without `additionalProperties: false`.
+      const schema = z.strictObject({ city: z.string() })
+      const agent = defineAgent({ runtime: false, driver: { instructions: "Answer briefly.", model: "google/gemini-3-flash", output: { schema } } })
+      const [error, result] = await runAgent(agent, { prompt: "Where?" })
+      expect(error).toBeUndefined()
+      expect(result?.output).toEqual({ city: expect.any(String) })
+      expect(await (await fetch(`${unseeded.url}/_ai/calls`)).json()).toMatchObject([{ format: "openai-chat", outputSchema: "response", matched: { default: "json_schema" } }])
+    }
+    finally {
+      await unseeded.close()
+    }
+  })
+
+  describe("a model that replaces the Driver model", () => {
+    const rawModel = () => {
+      const fetch = vi.fn<typeof globalThis.fetch>()
+      return { fetch, model: createOpenAI({ apiKey: "real", baseURL: "https://real.invalid/v1", fetch }).responses("gpt-5.1") }
+    }
+    const overrides = {
+      prepareCall: (model: unknown) => ({ callSettings: { prepareCall: (input: object) => ({ ...input, model }) } }),
+      prepareStep: (model: unknown) => ({ callSettings: { prepareStep: () => ({ model }) } }),
+      instrumentation: (model: unknown) => ({ instrumentation: { model: () => model } }),
+    }
+
+    it.each(Object.keys(overrides) as (keyof typeof overrides)[])("from %s goes to the emulator", async (name) => {
+      const execution = overrides[name](languageModel(realGateway, "override-model", { api: "chat" }))
+      const [error, result] = await runAgent(defineAgent({ runtime: false, driver: { instructions: "Answer briefly.", model: "anthropic/claude-sonnet-4.5", execution } as never }), { prompt: "Hello" })
+      expect(error).toBeUndefined()
+      expect(result?.text).toBe("Hello from chat.")
+      expect(await calls()).toMatchObject([{ format: "openai-chat", model: "override-model" }])
+    })
+
+    it.each(Object.keys(overrides) as (keyof typeof overrides)[])("from %s fails before provider I/O when it cannot go to the emulator", async (name) => {
+      const { fetch, model } = rawModel()
+      const [error] = await runAgent(defineAgent({ runtime: false, driver: { instructions: "Answer briefly.", model: "openai/gpt-5.1", execution: overrides[name](model) } as never }), { prompt: "Hello" })
+      expect(codes(error)).toContain("AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED")
+      expect(fetch).not.toHaveBeenCalled()
+    })
   })
 
   it("fails in production with a coded diagnostic", async () => {

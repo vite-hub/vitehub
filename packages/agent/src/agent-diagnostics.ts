@@ -4544,7 +4544,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
     },
     AGENT_MODELS_EMULATE_IN_PRODUCTION: {
-      why: "[vitehub] VITEHUB_MODELS=emulate is set while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
+      why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
       fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
     },
     AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
