@@ -223,7 +223,7 @@ If a third-party dependency version falls outside the range supported by your `v
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
-| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
