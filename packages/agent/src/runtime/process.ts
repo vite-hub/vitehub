@@ -16,7 +16,8 @@ export interface ProcessAgentCapacityOptions {
     pausePressure?: number
     /**
      * Resume when CPU pressure falls to this much above the lowest pressure of the last 10 minutes, the host's idle
-     * pressure, and no higher than `pausePressure`. Defaults to 0.1.
+     * pressure, and no higher than `pausePressure`. Use this value alone until sampling covers 10 minutes, including
+     * after a sampling gap of 10 minutes or more. Defaults to 0.1.
      */
     resumePressure?: number
   }
@@ -33,7 +34,8 @@ export interface ProcessAgentCapacityOptions {
     serviceReserveBytes?: number
     /**
      * Resume when memory pressure falls to this much above the lowest pressure of the last 10 minutes, the host's idle
-     * pressure, and no higher than `pausePressure`. Defaults to 0.01.
+     * pressure, and no higher than `pausePressure`. Use this value alone until sampling covers 10 minutes, including
+     * after a sampling gap of 10 minutes or more. Defaults to 0.01.
      */
     resumePressure?: number
   }
@@ -192,14 +194,19 @@ function createIdlePressure(windowMs: number): { record(cpu: number, memory: num
   return {
     record(cpu, memory) {
       const now = performance.now()
+      const cutoff = now - windowMs
+      const previous = samples.at(-1)
+      if (previous && previous.at <= cutoff) samples.length = 0
       samples.push({ at: now, cpu, memory })
       // Keep one sample at or before the start of the window, so the samples show when they cover all of it.
-      while (samples.length > 1 && samples[1]!.at <= now - windowMs) samples.shift()
-      if (samples[0]!.at > now - windowMs) return { cpu: 0, memory: 0 }
-      return {
-        cpu: Math.min(...samples.map(entry => entry.cpu)),
-        memory: Math.min(...samples.map(entry => entry.memory)),
+      while (samples.length > 1 && samples[1]!.at <= cutoff) samples.shift()
+      if (samples[0]!.at > cutoff) return { cpu: 0, memory: 0 }
+      for (const entry of samples) {
+        if (entry.at < cutoff) continue
+        cpu = Math.min(cpu, entry.cpu)
+        memory = Math.min(memory, entry.memory)
       }
+      return { cpu, memory }
     },
   }
 }
