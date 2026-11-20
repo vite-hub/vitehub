@@ -38,6 +38,13 @@ export interface BundleEsmEntryOptions {
   /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
   resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
+  /**
+   * By default, each module uses the `paths` and compiler options of its nearest tsconfig.json. Pass `false` for a
+   * generated entry that imports no app module through tsconfig `paths`, so the bundle does not depend on the app's
+   * tsconfig files. A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which do not exist before
+   * `nuxt prepare` writes them.
+   */
+  tsconfig?: false
   workingDir?: string
 }
 
@@ -64,27 +71,6 @@ export async function importRolldown(): Promise<typeof Rolldown> {
     entry = createRequire(import.meta.url).resolve("vite/rolldown")
   }
   return await import(pathToFileURL(entry).href)
-}
-
-/**
- * Runs a Rolldown build that reads the nearest tsconfig.json of each module, and runs it again without tsconfig files
- * when one of them extends or references a file that does not exist. A Nuxt app's tsconfig.json references
- * `.nuxt/tsconfig.*.json`, which `nuxt prepare` writes only after ViteHub bundles during the same install. esbuild
- * ignored such a tsconfig file, and Rolldown fails the build.
- */
-export async function withTsconfigFallback<T>(build: (tsconfig: boolean) => Promise<T>): Promise<T> {
-  try {
-    return await build(true)
-  }
-  catch (error) {
-    if (!isTsconfigError(error)) throw error
-    return await build(false)
-  }
-}
-
-function isTsconfigError(error: unknown): boolean {
-  if (!(error instanceof Error) || !("errors" in error) || !Array.isArray(error.errors)) return false
-  return error.errors.some(cause => isPlainObject(cause) && cause.code === "TSCONFIG_ERROR")
 }
 
 function normalizePathSeparators(path: string): string {
@@ -633,46 +619,45 @@ export async function bundleEsmEntry(
     ] : []),
   ].filter(Boolean).join("\n")
 
-  const output = await withTsconfigFallback(async (tsconfig) => {
-    const bundle = await rolldown({
-      cwd: workingDir,
-      external: isExternal ? id => isExternal(id) : undefined,
-      input: entryFile,
-      // Rolldown keeps an import that it cannot resolve as an import and only warns. The bundle would fail when it runs,
-      // so stop the build, as esbuild did. Other warnings stay silent.
-      onLog(level, log) {
-        if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
-      },
-      // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
-      moduleTypes: platform === "node" ? { ".wasm": "binary" } : undefined,
-      platform,
-      plugins,
-      resolve: {
-        conditionNames: options.conditions ?? (platform === "node" ? ["node"] : undefined),
-        extensions: options.extensions,
-        mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
-        symlinks: !options.preserveSymlinks,
-      },
-      transform: { define: options.define, target: "es2022" },
-      tsconfig,
-    })
-    try {
-      return (await bundle.generate({
-        banner: banner || undefined,
-        codeSplitting: false,
-        format,
-        // Syntax and identifier minification can change function and class names.
-        keepNames: options.keepNames ?? Boolean(options.minifySyntax || options.minifyIdentifiers),
-        minify,
-        // The banner defines `require` for Node.js, as esbuild did, so the bundle needs no `createRequire` import.
-        polyfillRequire: !(format === "esm" && platform === "node"),
-        sourcemap: false,
-      })).output
-    }
-    finally {
-      await bundle.close()
-    }
+  const bundle = await rolldown({
+    cwd: workingDir,
+    external: isExternal ? id => isExternal(id) : undefined,
+    input: entryFile,
+    // Rolldown keeps an import that it cannot resolve as an import and only warns. The bundle would fail when it runs,
+    // so stop the build, as esbuild did. Other warnings stay silent.
+    onLog(level, log) {
+      if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
+    },
+    // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
+    moduleTypes: platform === "node" ? { ".wasm": "binary" } : undefined,
+    platform,
+    plugins,
+    resolve: {
+      conditionNames: options.conditions ?? (platform === "node" ? ["node"] : undefined),
+      extensions: options.extensions,
+      mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
+      symlinks: !options.preserveSymlinks,
+    },
+    transform: { define: options.define, target: "es2022" },
+    tsconfig: options.tsconfig ?? true,
   })
+  let output: Rolldown.RolldownOutput["output"]
+  try {
+    output = (await bundle.generate({
+      banner: banner || undefined,
+      codeSplitting: false,
+      format,
+      // Syntax and identifier minification can change function and class names.
+      keepNames: options.keepNames ?? Boolean(options.minifySyntax || options.minifyIdentifiers),
+      minify,
+      // The banner defines `require` for Node.js, as esbuild did, so the bundle needs no `createRequire` import.
+      polyfillRequire: !(format === "esm" && platform === "node"),
+      sourcemap: false,
+    })).output
+  }
+  finally {
+    await bundle.close()
+  }
   options.signal?.throwIfAborted()
   // Code splitting is off, so the entry is the only chunk.
   const chunk = output.find(file => file.type === "chunk")!

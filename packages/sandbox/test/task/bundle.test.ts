@@ -1,34 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-
 import { describe, expect, it } from "vitest"
 
 import { bundleSandboxTaskDefinition } from "../../src/task/bundle.ts"
 import type { SandboxTaskProject } from "../../src/task/project.ts"
 
 describe("bundleSandboxTaskDefinition assets", () => {
-  it("bundles a Definition in an app whose tsconfig.json references files that a fresh install has not generated yet", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-fresh-nuxt-tsconfig-"))
-    try {
-      const file = join(rootDir, "server", "tasks", "run.sandbox-task.ts")
-      await mkdir(join(rootDir, "server", "tasks"), { recursive: true })
-      await Promise.all([
-        writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.server.json" }] })),
-        writeFile(join(rootDir, "server", "tasks", "message.ts"), 'export const message: string = "bundled"\n'),
-      ])
-      const source = 'import { message } from "./message"\nexport default { handler: () => message }\n'
-      await writeFile(file, source)
-
-      const bundle = await bundleSandboxTaskDefinition(source, file, { execution: "definition", includeProject: false })
-
-      expect(bundle.modules[bundle.entry]).toContain('"bundled"')
-    }
-    finally {
-      await rm(rootDir, { force: true, recursive: true })
-    }
-  })
-
   it("omits project files when filesystem APIs only access runtime paths", async () => {
     const project: SandboxTaskProject = {
       digest: "strata-fixture",

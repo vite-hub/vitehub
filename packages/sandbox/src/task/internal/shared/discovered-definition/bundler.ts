@@ -1,4 +1,3 @@
-import { withTsconfigFallback } from '@vite-hub/internal/build/rolldown'
 import { invariantError } from '@vite-hub/internal/invariant'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
@@ -55,45 +54,43 @@ export async function bundleDiscoveredDefinitionModuleGraph(
 ): Promise<DiscoveredDefinitionModuleGraph> {
   const { rolldown } = await importRolldown()
   const aliases = Object.keys(options.alias || {})
-  const output = await withTsconfigFallback(async (tsconfig) => {
-    const bundle = await rolldown({
-      input: { definition: options.filename },
-      platform: 'node',
-      logLevel: 'silent',
-      resolve: { alias: options.alias },
-      transform: {
-        target: 'es2022',
-        jsx: isJsxDefinition(options.filename) ? { runtime: 'automatic', importSource: 'react' } : undefined,
-      },
-      tsconfig,
-      plugins: [
-        ...(options.plugins || []),
-        {
-          name: 'vitehub-sandbox-task-definition-source',
-          resolveId(id) {
-            if (id === options.filename) return id
-            if (options.packages === 'external' && isBareSpecifier(id) && !isBuiltin(id)
-              && !aliases.some(alias => id === alias || id.startsWith(`${alias}/`))) {
-              return { id, external: true }
-            }
-          },
-          load(id) {
-            if (id === options.filename) return options.source
-          },
+  const bundle = await rolldown({
+    input: { definition: options.filename },
+    platform: 'node',
+    logLevel: 'silent',
+    resolve: { alias: options.alias },
+    transform: {
+      target: 'es2022',
+      jsx: isJsxDefinition(options.filename) ? { runtime: 'automatic', importSource: 'react' } : undefined,
+    },
+    plugins: [
+      ...(options.plugins || []),
+      {
+        name: 'vitehub-sandbox-task-definition-source',
+        resolveId(id) {
+          if (id === options.filename) return id
+          if (options.packages === 'external' && isBareSpecifier(id) && !isBuiltin(id)
+            && !aliases.some(alias => id === alias || id.startsWith(`${alias}/`))) {
+            return { id, external: true }
+          }
         },
-      ],
-    })
-    try {
-      return (await bundle.generate({
-        format: 'esm',
-        entryFileNames: '[name].js',
-        chunkFileNames: 'chunks/[name]-[hash].js',
-      })).output
-    }
-    finally {
-      await bundle.close()
-    }
+        load(id) {
+          if (id === options.filename) return options.source
+        },
+      },
+    ],
   })
+  let output: Rolldown.RolldownOutput['output']
+  try {
+    output = (await bundle.generate({
+      format: 'esm',
+      entryFileNames: '[name].js',
+      chunkFileNames: 'chunks/[name]-[hash].js',
+    })).output
+  }
+  finally {
+    await bundle.close()
+  }
 
   const chunks = output.filter(file => file.type === 'chunk')
   const modules = Object.fromEntries(chunks.map(chunk => [chunk.fileName, chunk.code]))
