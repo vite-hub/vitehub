@@ -21,6 +21,8 @@ That is all the app writes. You need a ViteHub app with `database` on, as in [Wi
 
 Send shows for people who are signed in and whom `authorize` lets write on the page. Guests never see it.
 
+Send needs https. Its routes answer with a setup code and a signing secret, and its deliveries carry read tokens, so over plain `http` they answer `403` with [`COMMENTS_SEND_INSECURE`](/docs/comments/diagnostics/comments_send_insecure). In development, `http` works on `localhost`, `*.localhost`, and `127.0.0.1`. With `wrangler dev`, pass `--infer-origin-from-routes=false`: without it, Wrangler reports the production host over `http`, and Send refuses.
+
 ## Set it up
 
 1. Run `vitehub database generate` and `vitehub database migrate`. They add the `vitehub_comment_sends` and `vitehub_comment_send_codes` tables, and the endpoint table of Webhooks. `vite dev` applies the migration for you.
@@ -52,7 +54,7 @@ curl -sS -X POST https://joyandmaxi.com/_vitehub/comments/send/pair \
 
 `thread` is optional. The server keeps it only when it has exactly that form, and drops anything else, because the pill links to it.
 
-A code that is too old answers `410` with `"reason": "expired"`, a used code `409` with `"used"`, and a URL that is not safe `422` with `"refused"`. Then press **Copy again** in the pill for a new code.
+A code that is too old answers `410` with `"reason": "expired"`, a used code `409` with `"used"`, and a URL that is not safe `422` with `"refused"`. A post over plain `http` answers `403` with `"insecure"` and refuses the code, because anyone on the way could read it. Then press **Copy again** in the pill for a new code.
 
 For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Code" }` or `"Codex"` in place of `url`. Your site then posts nothing, and the agent reads the send with the `comments_get_send` MCP tool.
 
@@ -104,7 +106,9 @@ export const comments = defineComments({
 
 - **The code is the only key of the pair route.** `POST /send/pair` takes any origin, because the agent posts from its own machine. Every other Send route takes requests from the site's own pages only.
 - **Allow binds the agent to you.** Only the person who copied the code can allow it. Nothing is saved before Allow. When Auth verified your email, the endpoint keeps it, so your ViteHub Console account with that email can Redeliver its sends.
+- **https only.** Start, Allow, and Send refuse a plain `http` origin outside `localhost`, and a pair post over plain `http` refuses its code. Behind a proxy that ends TLS, Send reads the scheme from `X-Forwarded-Proto`.
 - **The URL guard** refuses a URL that is not `https`, that is not on `relay.t3.codes` (or `hosts`), or that names a private or cloud metadata address. See [The URL guard](/docs/webhooks/member-endpoints#the-url-guard).
+- **`hosts` applies to each send.** When you remove a host from `hosts`, agents paired on it get nothing: the pill shows **Not delivered** with the reason.
 - **Sealed at rest.** The URL and secret of your agent, and the secret of a setup code, are sealed with `VITEHUB_WEBHOOKS_KEY`. A read token is kept as its hash.
 - **Limits.** Each person sends at most 30 times an hour. The pill shows **Limit reached, try at 15:10** until then.
 

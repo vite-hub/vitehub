@@ -70,13 +70,15 @@ async function setup(send: DefineCommentsOptions["send"] = true) {
   })
   installComments(comments, { database, webhooks: () => import("../../webhooks/src/index.ts") })
   const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-  const call = async (path: string, init: { method?: string, as?: keyof typeof people, json?: unknown, origin?: string | null, headers?: Record<string, string> } = {}) => {
+  /** `base` is the origin that the server sees in the request URL. The `origin` header defaults to it. */
+  const call = async (path: string, init: { method?: string, as?: keyof typeof people, json?: unknown, origin?: string | null, base?: string, headers?: Record<string, string> } = {}) => {
+    const base = init.base ?? origin
     const headers = new Headers(init.headers)
     if (init.as) headers.set("x-test-user", init.as)
     if (init.json !== undefined) headers.set("content-type", "application/json")
     const method = init.method ?? (init.json === undefined ? "GET" : "POST")
-    if (method !== "GET" && init.origin !== null) headers.set("origin", init.origin ?? origin)
-    const response = await app.fetch(new Request(`${origin}/_vitehub/comments${path}`, { method, headers, ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }) }))
+    if (method !== "GET" && init.origin !== null) headers.set("origin", init.origin ?? base)
+    const response = await app.fetch(new Request(`${base}/_vitehub/comments${path}`, { method, headers, ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }) }))
     return { status: response.status, body: await response.json() as { data?: any, error?: { code: string, why: string }, reason?: string } }
   }
   const page = "/notes/azores"
@@ -240,6 +242,53 @@ describe("pairing", () => {
       expect(cross.body.error?.why).toContain("site's own pages")
     }
     expect((await call(`/send/pair/${body.data.code}`, { method: "DELETE", as: "ana", origin: "https://evil.example" })).status).toBe(403)
+  })
+})
+
+describe("origin", () => {
+  it("refuses Start, Allow, and Send over plain http, and names the origin", async () => {
+    const { call, comment, page } = await setup()
+    await comment("ana", "The rental desk paragraph is too long")
+    const base = "http://notes.test"
+    for (const [path, json] of [[`/send/start?page=${page}`, {}], [`/send/allow?page=${page}`, { code: "K7QM-4XPA-9RTC" }], [`/send?page=${page}`, {}]] as const) {
+      const refused = await call(path, { json, as: "ana", base })
+      expect(refused.status, path).toBe(403)
+      expect(refused.body.error?.code, path).toBe("COMMENTS_SEND_INSECURE")
+      expect(refused.body.error?.why, path).toContain(base)
+      expect(JSON.stringify(refused.body), path).not.toMatch(/whsec_|vhs_/)
+    }
+    expect(deliveries).toHaveLength(0)
+  })
+
+  it("refuses a pair post over plain http, and refuses its code for good", async () => {
+    const { call, page } = await setup()
+    const { body } = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const code = body.data.code
+    const insecure = await call("/send/pair", { json: { code, url: relay }, origin: null, base: "http://notes.test" })
+    expect(insecure).toMatchObject({ status: 403, body: { reason: "insecure", error: { code: "COMMENTS_SEND_INSECURE" } } })
+    expect((await call(`/send/pair/${code}`, { as: "ana" })).body.data).toEqual({ status: "refused" })
+    expect((await call("/send/pair", { json: { code, url: relay }, origin: null })).status).toBe(409)
+    expect(await getMemberEndpoint("ana")).toEqual([undefined, null])
+  })
+
+  it.each(["http://localhost:3000", "http://127.0.0.1:8787", "http://app.localhost"])("pairs and sends over %s", async (base) => {
+    const { call, comment, page } = await setup()
+    await comment("ana", "The rental desk paragraph is too long")
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana", base })
+    expect(started.status).toBe(200)
+    expect(started.body.data.prompt).toContain(`${base}/_vitehub/comments/send/pair`)
+    const code = started.body.data.code
+    expect((await call("/send/pair", { json: { code, url: relay }, origin: null, base })).status).toBe(200)
+    expect((await call(`/send/allow?page=${page}`, { json: { code }, as: "ana", base })).body.data).toMatchObject({ status: "sent" })
+    expect(deliveries[0]!.body.read!.url.startsWith(`${base}/_vitehub/comments/send/`)).toBe(true)
+  })
+
+  it("takes https from x-forwarded-proto behind a proxy", async () => {
+    const { call, page } = await setup()
+    const proxied = { base: "http://notes.test", origin: "https://notes.test", headers: { "x-forwarded-proto": "https" } }
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana", ...proxied })
+    expect(started.status).toBe(200)
+    expect(started.body.data.prompt).toContain("https://notes.test/_vitehub/comments/send/pair")
   })
 })
 

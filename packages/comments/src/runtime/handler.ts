@@ -114,6 +114,7 @@ function status(code: string): number {
     case "COMMENTS_SEND_CODE_REFUSED":
       return 422
     case "COMMENTS_FORBIDDEN":
+    case "COMMENTS_SEND_INSECURE":
     case "COMMENTS_POLICY_MISSING":
     case "COMMENTS_FIELD_FORBIDDEN":
       return 403
@@ -516,8 +517,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     const method = request.method
     const [, action, code] = parts
     if (method === "POST" && action === "pair" && !code) {
-      const [error, paired] = await service.pair(await readJson(request))
-      return error ? json({ error, reason: error.code === "COMMENTS_SEND_CODE_EXPIRED" ? "expired" : error.code === "COMMENTS_SEND_CODE_USED" ? "used" : error.code === "COMMENTS_SEND_CODE_REFUSED" ? "refused" : "invalid" }, { status: status(error.code) }) : json({ data: paired })
+      const [error, paired] = await service.pair(await readJson(request), forwardedRequestOrigin(request))
+      const reasons: Partial<Record<string, string>> = { COMMENTS_SEND_CODE_EXPIRED: "expired", COMMENTS_SEND_CODE_USED: "used", COMMENTS_SEND_CODE_REFUSED: "refused", COMMENTS_SEND_INSECURE: "insecure" }
+      return error ? json({ error, reason: reasons[error.code] ?? "invalid" }, { status: status(error.code) }) : json({ data: paired })
     }
     if (method === "GET" && action && action.startsWith("send_") && !code) {
       const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]

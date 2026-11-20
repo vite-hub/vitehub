@@ -1,4 +1,5 @@
 import { invariant } from "@vite-hub/internal/invariant"
+import { isSecureOrigin } from "@vite-hub/internal/runtime/request-origin"
 
 import { commentsErrors } from "../errors.ts"
 import { createCommentSendStore } from "./store.ts"
@@ -67,17 +68,18 @@ export interface CommentSendBody {
   data: CommentSendData
 }
 
-/** Why a pairing did not take: the code is too old or unknown, used, or the URL is not safe. */
-export type CommentSendPairFailure = ResultError<"COMMENTS_SEND_CODE_EXPIRED" | "COMMENTS_SEND_CODE_USED" | "COMMENTS_SEND_CODE_REFUSED" | "COMMENTS_INVALID_INPUT">
+/** Why a pairing did not take: the code is too old or unknown, used, the URL is not safe, or the post came over plain http. */
+export type CommentSendPairFailure = ResultError<"COMMENTS_SEND_CODE_EXPIRED" | "COMMENTS_SEND_CODE_USED" | "COMMENTS_SEND_CODE_REFUSED" | "COMMENTS_SEND_INSECURE" | "COMMENTS_INVALID_INPUT">
 
 export interface CommentSendService {
   status: (caller: CommentSendCaller) => Promise<CommentSendStatus>
-  start: (caller: CommentSendCaller) => Promise<Result<CommentSendPairing, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_OFF">>
-  pair: (input: unknown) => Promise<Result<{ status: "paired", agent: CommentSendAgent }, CommentSendPairFailure["code"]>>
+  start: (caller: CommentSendCaller) => Promise<Result<CommentSendPairing, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_INSECURE" | "COMMENTS_SEND_OFF">>
+  /** Pairs the agent that posted `input` to `origin`. A post over plain http refuses the code, which it may have leaked. */
+  pair: (input: unknown, origin: string) => Promise<Result<{ status: "paired", agent: CommentSendAgent }, CommentSendPairFailure["code"]>>
   check: (caller: CommentSendCaller, code: string) => Promise<CommentSendPairingCheck>
   cancel: (caller: CommentSendCaller, code: string) => Promise<void>
-  allow: (caller: CommentSendCaller, code: string) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_CODE_EXPIRED" | "COMMENTS_SEND_OFF">>
-  send: (caller: CommentSendCaller) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_OFF">>
+  allow: (caller: CommentSendCaller, code: string) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_CODE_EXPIRED" | "COMMENTS_SEND_INSECURE" | "COMMENTS_SEND_OFF">>
+  send: (caller: CommentSendCaller) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_INSECURE" | "COMMENTS_SEND_OFF">>
   /** Opens a send with its read token. */
   read: (id: string, token: string) => Promise<Result<CommentSendView, "COMMENTS_SEND_GRANT_INVALID">>
   /** Opens a send of `user`, or their latest one that the agent has not read, for the MCP tool. */
@@ -232,6 +234,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return await comments.can({ user, action: "write", subject: caller.subject }, caller.gate) ? user : undefined
   }
   const forbidden = (): [ResultError<"COMMENTS_FORBIDDEN">, undefined] => [commentsErrors.COMMENTS_FORBIDDEN({ action: "send" }), undefined]
+  /** Start answers with the code and the secret, and Allow and Send build `read.url`, so plain http would leak them. */
+  const insecure = (origin: string): [ResultError<"COMMENTS_SEND_INSECURE">, undefined] | undefined => isSecureOrigin(origin) ? undefined : [commentsErrors.COMMENTS_SEND_INSECURE({ origin }), undefined]
 
   /** The open threads of the subject that `user` may read. */
   async function readable(caller: CommentSendCaller, user: CommentsUser): Promise<CommentThread[]> {
@@ -378,6 +382,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     },
 
     async start(caller) {
+      const plain = insecure(caller.origin)
+      if (plain) return plain
       const user = await maySend(caller)
       if (!user) return forbidden()
       const now = Date.now()
@@ -393,7 +399,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       return [undefined, { code, prompt, expiresAt, agent: t3() }]
     },
 
-    async pair(input) {
+    async pair(input, origin) {
       const code: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "code") : undefined
       const url: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "url") : undefined
       const inbox: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "inbox") : undefined
@@ -402,6 +408,11 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if ((typeof url === "string") === (typeof inbox === "string")) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Send `url`, the webhookUrl of the T3 task, or `inbox`, \"Claude Code\" or \"Codex\"." }), undefined]
       const now = Date.now()
       const id = await codeKey(code)
+      const plain = insecure(origin)
+      if (plain) {
+        await store.moveCode(id, "waiting", "refused", now)
+        return plain
+      }
       const row = await store.code(id)
       if (!row || row.expiresAt < now) return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       if (row.state !== "waiting") return [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
@@ -441,6 +452,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     },
 
     async allow(caller, code) {
+      const plain = insecure(caller.origin)
+      if (plain) return plain
       const user = await maySend(caller)
       if (!user) return forbidden()
       const id = await codeKey(code)
@@ -469,6 +482,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     },
 
     async send(caller) {
+      const plain = insecure(caller.origin)
+      if (plain) return plain
       const user = await maySend(caller)
       if (!user) return forbidden()
       return [undefined, await deliver(caller, user)]
