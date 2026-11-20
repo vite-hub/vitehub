@@ -64,6 +64,7 @@ import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
 import { writeDockerfile, type DockerfileBuild } from "./dockerfile.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
+import { assertCloudflareResources } from "./cloudflare-resources.ts"
 import { addCloudflareVars, cloudflareServerEnvVars } from "./cloudflare-vars.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -911,6 +912,7 @@ function deploymentNitroModule(
   envDir: () => string | false | undefined,
   deploy: DeploymentDeployManifest | undefined,
   cloudflareVars: () => ReturnType<typeof cloudflareServerEnvVars>,
+  resolvedPlugins: () => readonly unknown[] | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -949,6 +951,7 @@ function deploymentNitroModule(
       if (plan.host === "cloudflare") {
         await addCloudflareVars(nitro.options.output.serverDir, cloudflareVars())
         await collapseWranglerConfigFile(nitro.options.output.serverDir)
+        await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [])
       }
       if (plan.output.packaging === "deno-node-modules") {
         invariant(serverPackages, "denoServerPackagesPlugin() sets the runtime packages when it writes the Deno server bundle")
@@ -1292,7 +1295,7 @@ function deploymentPlugins(
               const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
               nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars, () => resolvedPlugins)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,

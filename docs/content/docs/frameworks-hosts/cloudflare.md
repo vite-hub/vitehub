@@ -172,6 +172,10 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bind
 
 Container duplicates must agree on `scheduling_policy`, which defaults to `default`. ViteHub rejects a policy change or conflicting image settings. It does not combine the default policy's `image` with Durable Object-managed `images`.
 
+### Resource check
+
+After it writes `wrangler.json`, the build checks that the file still has every resource that ViteHub generates for the app: D1, KV, R2, Queue, Workflow, and Durable Object bindings, and the Schedule cron triggers. A Worker without a binding fails only when code first reads it, so a missing entry fails the build with `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`. The error names each missing entry and its Definition. Look for a project Wrangler config, Nitro hook, or module that removes or renames it. `vitehub inspect resources` lists the resources that the check expects.
+
 ### Node.js compatibility in Nuxt
 
 With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, Nitro adds `nodejs_compat` to the generated `wrangler.json` for compatibility dates before 2026-08-04. From that date, Workers turn it on by default. ViteHub leaves the flags as the app wrote them in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config.
