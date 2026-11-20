@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { Plugin } from "vite"
+import type { Plugin, Rollup } from "vite"
 
 const pluginName = "vite-hub/cloudflare-entry-exports"
 const chunkFileName = "app-cloudflare-exports.mjs"
@@ -19,29 +19,29 @@ export function findCloudflareEntryExportsFile(serverDirs: readonly string[]): s
   }
 }
 
-interface ExportNode {
-  type: string
-  declaration?: { type: string, id?: { name: string } | null, declarations?: { id: { type: string, name?: string } }[] } | null
-  exported?: { type: string, name?: string, value?: unknown } | null
-  specifiers?: { exported: { type: string, name?: string, value?: unknown } }[]
-}
+type Program = ReturnType<Rollup.PluginContext["parse"]>
+type ModuleExportName = Extract<Program["body"][number], { type: "ExportAllDeclaration" }>["exported"] & object
 
-function exportName(node: { type: string, name?: string, value?: unknown }): string {
-  return node.type === "Identifier" ? node.name! : String(node.value)
+function exportName(node: ModuleExportName): string {
+  return node.type === "Literal" ? String(node.value) : node.name
 }
 
 /** Every name that the final entry code exports, including the exports that other plugins append as text. */
-function entryExportNames(program: { body: ExportNode[] }): Set<string> {
+function entryExportNames(program: Program): Set<string> {
   const names = new Set<string>()
   for (const node of program.body) {
     if (node.type === "ExportDefaultDeclaration") names.add("default")
     if (node.type === "ExportAllDeclaration" && node.exported) names.add(exportName(node.exported))
     if (node.type !== "ExportNamedDeclaration") continue
-    for (const specifier of node.specifiers ?? []) names.add(exportName(specifier.exported))
-    if (node.declaration?.id) names.add(node.declaration.id.name)
-    for (const declarator of node.declaration?.declarations ?? []) {
-      if (declarator.id.type === "Identifier" && declarator.id.name) names.add(declarator.id.name)
+    for (const specifier of node.specifiers) names.add(exportName(specifier.exported))
+    const declaration = node.declaration
+    if (!declaration) continue
+    if (declaration.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations) {
+        if (declarator.id.type === "Identifier") names.add(declarator.id.name)
+      }
     }
+    else if ("id" in declaration && declaration.id && declaration.id.type === "Identifier") names.add(declaration.id.name)
   }
   return names
 }
@@ -71,7 +71,7 @@ function cloudflareEntryExportsPlugin(serverDirs: () => readonly string[]): Plug
       const entry = Object.values(bundle).find(output => output.type === "chunk" && output.isEntry && /^index\.m?js$/.test(output.fileName))
       if (!file || exportsChunk?.type !== "chunk" || entry?.type !== "chunk") return
       const names = exportsChunk.exports
-      const taken = entryExportNames(this.parse(entry.code) as unknown as { body: ExportNode[] })
+      const taken = entryExportNames(this.parse(entry.code))
       const conflicts = names.filter(name => name === "default" || taken.has(name))
       if (conflicts.length) throw viteHubErrorDiagnostics.VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT({ file, names: conflicts.join(", ") })
       if (!names.length) return
