@@ -20,9 +20,10 @@ async function projectRoot(): Promise<string> {
   return root
 }
 
-async function generatedPlugin(plugins: unknown[]): Promise<string> {
+async function generatedPlugin(plugins: unknown[], internal: { requireKVPluginForProcessStores?: boolean } = {}): Promise<string> {
   const root = await projectRoot()
-  const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process", leaseTtlMs: 30_000, prefix: "app:schedule" } })
+  // SAFETY: `requireKVPluginForProcessStores` is an internal option that vitehub() passes.
+  const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process", leaseTtlMs: 30_000, prefix: "app:schedule" }, ...internal } as Parameters<typeof hubSchedule>[0])
   await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>)(
     { plugins, root },
     { command: "build", mode: "production" },
@@ -39,6 +40,26 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
     expect(generated).toContain("...(leases ? { leases } : {}),")
     expect(generated).toContain("\"leaseTtlMs\": 30000")
     expect(generated).toMatch(/const processRuntimeOptions = \{[^}]*"prefix": "app:schedule"/s)
+  })
+
+  // vitehub() lists the Database and KV plugins of its `cms` variant with an `apply` that drops them when the app does
+  // not use that variant. The `config` hook still sees them, and Vite can load the file this hook writes before
+  // `configResolved` rewrites it.
+  it("ignores Database and KV plugins that Vite does not apply", async () => {
+    const generated = await generatedPlugin([[
+      { name: "@vite-hub/database/vite", apply: () => false },
+      { name: "@vite-hub/kv/vite", apply: "serve" },
+    ]], { requireKVPluginForProcessStores: true })
+
+    expect(generated).not.toContain("useLeases")
+    expect(generated).toContain("createMemoryScheduleRunStore")
+    expect(generated).not.toContain("scheduleKVStorage")
+  })
+
+  it("claims occurrences in the Default Database when the Database plugin applies to the command", async () => {
+    const generated = await generatedPlugin([{ name: "@vite-hub/database/vite", apply: (_config: unknown, env: { command: string }) => env.command === "build" }])
+
+    expect(generated).toContain("import { useLeases } from \"@vite-hub/database\"")
   })
 
   it("keeps leases in memory without the Database plugin", async () => {
