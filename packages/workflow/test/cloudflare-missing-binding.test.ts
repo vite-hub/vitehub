@@ -34,3 +34,22 @@ it("runs the Workflow inline without the binding on a development server", async
 
   await expect(unwrap(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" }))).resolves.toMatchObject({ provider: "cloudflare", status: "queued" })
 })
+
+it("reports a failed dev run as failed after the inline run state expires", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  try {
+    enableWorkflowDevRuns()
+    cloudflareWorkerWithoutBinding(vi.fn(async () => {
+      throw new Error("boom")
+    }))
+    await unwrap(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" }))
+    await vi.waitFor(async () => expect((await unwrap(getWorkflowRun("welcome", "run-1"))).status).toBe("failed"))
+
+    // The dev server keeps its run history longer than the five minutes of the inline run state.
+    vi.setSystemTime(Date.now() + 6 * 60 * 1000)
+    await expect(unwrap(getWorkflowRun("welcome", "run-1"))).resolves.toMatchObject({ error: { message: "boom" }, provider: "cloudflare", status: "failed" })
+  }
+  finally {
+    vi.useRealTimers()
+  }
+})

@@ -394,6 +394,17 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           status: run.status,
         }
       }
+      // The inline run state forgets a finished run after five minutes. `vite dev` keeps its run history longer.
+      const record = getWorkflowDevRecorder()?.get(name, id)
+      if (record?.status === "completed" || record?.status === "failed") {
+        return {
+          ...(record.status === "failed" ? { error: toWorkflowRunError(record.error) } : {}),
+          id,
+          provider: config.driver,
+          result: isSerializedResponse(record.result) ? deserializeResponse(record.result) : record.result,
+          status: record.status,
+        }
+      }
       return {
         id,
         provider: config.driver,
