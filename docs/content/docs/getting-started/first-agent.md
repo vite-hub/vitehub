@@ -9,14 +9,11 @@ navigation.group: Get started
 icon: i-lucide-bot
 ---
 
-Add an Agent that greets a name and returns JSON. An Agent Definition declares
-the work, and its Driver runs it. Here the Driver is a function, so it runs
-offline and needs no model account or credentials.
+Add an Agent that greets a name and returns JSON. An Agent Definition declares the work and its Driver runs it. Here the Driver is a plain function, so it runs offline with no model account or credentials.
 
 ## Before you start
 
-Complete [Installation](/docs/getting-started/installation), check
-`/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
+Complete [Installation](/docs/getting-started/installation), check `/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-agent"}
 ::
@@ -73,9 +70,7 @@ export default defineConfig({
 ::tutorial-step{title="Define the greeting Agent"}
 ## Define the greeting Agent
 
-Create `server/agents/greeting.ts`. ViteHub names the Agent `greeting` from
-its file path. `runtime: false` runs it inline. The function Driver gets the
-name as its prompt and returns text.
+Create `server/agents/greeting.ts`. ViteHub names the Agent `greeting` from its file path. `runtime: false` runs it inline. The function Driver gets the name as `prompt` and returns text.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
@@ -99,8 +94,7 @@ export default defineAgent({
 ::tutorial-step{title="Call the Agent from a route"}
 ## Call the Agent from a route
 
-Create `server/api/greet.post.ts`. Nitro and Nuxt serve it at
-`POST /api/greet`. The explicit H3 imports remove the need for auto-imports.
+Create `server/api/greet.post.ts`. Nitro and Nuxt serve it at `POST /api/greet`. The explicit H3 imports work without auto-imports.
 
 ```ts [server/api/greet.post.ts]
 import { defineEventHandler, readBody } from "h3"
@@ -118,14 +112,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`runAgent()` creates a memo cache and waits for the background work of the
-run. It returns `[undefined, result]` on success or `[error, undefined]` on
-failure. Check the error before you read `result.text`.
+`runAgent()` creates a memo cache, waits for background work to finish, and returns `[undefined, result]` on success or `[error, undefined]` on failure. Check `error` before reading `result.text`.
 
-For request metadata or host bindings, pass the public
-[`getRuntimeContext(event)` adapter](/docs/runtime/context) as
-`runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. The
-greeting needs only its prompt.
+When a run needs request metadata or host bindings, pass the public [`getRuntimeContext(event)` adapter](/docs/runtime/context) as `runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. This greeting needs only `prompt`.
 
 ::
 
@@ -146,8 +135,7 @@ curl -X POST http://localhost:3000/api/greet \
   -d '{"name":"Ada"}'
 ```
 
-You should receive this JSON. It proves the route called the function Driver
-without a model request.
+The route returns this JSON. It proves that the route called the function Driver without a model request:
 
 ```json [output/response.json]
 {"text":"Hello, Ada. This result came from an Agent Invocation."}
@@ -155,8 +143,7 @@ without a model request.
 
 Sending `{}` greets `friend`.
 
-To check the Vite app's production server, stop development, run the
-Installation scripts, and repeat the request:
+To check the production server of the Vite app, stop `pnpm dev`, build and start the server, and repeat the request:
 
 ```bash [commands/build]
 pnpm build
@@ -169,24 +156,12 @@ In Nuxt, run `pnpm build` and `node .output/server/index.mjs` instead.
 
 ## Continue with a model
 
-A model Driver needs network access and a billed provider account. To use a
-model string through Vercel AI Gateway, install `ai` and set
-`AI_GATEWAY_API_KEY` in your server environment. Keep the key out of client
-code and version control. Each request can cost money.
+A model Driver needs network access and a billed provider account. To use a model string through Vercel AI Gateway, install `ai` and set `AI_GATEWAY_API_KEY` in your server environment. Keep the key out of client code and version control. Each request can cost money.
 
-For model output, replace `driver.run` with `driver.model` and
-`driver.instructions`. [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver)
-shows the supported forms. Model replies vary, so the exact greeting above is
-only the offline check.
+For model output, replace `driver.run` with `driver.model` and `driver.instructions`. [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) shows the supported forms. Model replies vary, so the exact greeting above works only as the offline check.
 
-[Build a chat app](/docs/agents/build-a-chat-app) adds a chat UI with
-streaming, an offline Driver, and an optional model Driver. Read
-[Capabilities](/docs/agents/capabilities) when the Agent needs a tool or
-stored data.
+[Build a chat app](/docs/agents/build-a-chat-app) adds a streaming chat UI with an offline Driver and an optional model Driver. Read [Capabilities](/docs/agents/capabilities) when your Agent needs tools or stored data.
 
 ## Related guides
 
-[Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel)
-checks the same inline Agent on two hosts.
-[Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks)
-compares execution and state models.
+[Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) checks the same inline Agent on two hosts. [Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks) compares execution and state models.

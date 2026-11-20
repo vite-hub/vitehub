@@ -8,17 +8,17 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-A Source tells your server where to find data that it only reads, such as a folder of Markdown files. You write the Source once. Your server code then reads each file by its name.
+A Source points your server at read-only data, such as a folder of Markdown files. You define the Source once. Your server code then reads each file by its name.
 
-In this tutorial, you make a Source for a `docs` folder and read the file `docs/intro.md` from an API route. The route returns the file as it is. It does not turn the Markdown into HTML.
+In this tutorial, you define a Source for a `docs` folder and read `docs/intro.md` from an API route. The route returns the raw Markdown without converting it to HTML.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. All files stay on your computer. If your app must also write files, use [Workspace](/docs/workspace) instead.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. Everything stays on your computer, with no account needed. If your app also needs to write files, use [Workspace](/docs/workspace) instead.
 
 ::tutorial-step{title="Configure"}
 ## Configure
 
-Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub. Keep the other plugins of your app. You do not need a `source` option: ViteHub finds each file in `server/sources/`.
+Source ships with `vite-hub`, so you install nothing extra. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub alongside your other plugins. You need no `source` option: ViteHub discovers Sources in `server/sources/`.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -59,7 +59,7 @@ export default defineConfig({
 ::tutorial-step{title="Define a Source"}
 ## Define a Source
 
-Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern. The file name is the name of the Source, so this Source is `docs`.
+Create `server/sources/docs.ts`. A `glob()` Source reads every file in a folder that matches a pattern. ViteHub names the Source after the file, so this Source is `docs`.
 
 ```ts [server/sources/docs.ts]
 import { glob } from 'vite-hub/source'
@@ -67,11 +67,11 @@ import { glob } from 'vite-hub/source'
 export default glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
-- `export default` makes the Source. Each file in `server/sources/` has one Source as its default export.
-- `cwd: 'docs'` reads from the `docs` folder. The name of each file is relative to that folder, so `docs/intro.md` is `intro.md`.
-- `include: '**/*.md'` takes every Markdown file in the folder and its subfolders.
+- Each file in `server/sources/` must default-export a Source.
+- `cwd: 'docs'` reads from the `docs` folder. Each file name is relative to that folder, so `docs/intro.md` is `intro.md`.
+- `include: '**/*.md'` matches every Markdown file in `docs` and its subfolders.
 
-Create `docs/intro.md`, so the route has a file to read:
+Create `docs/intro.md` so the route has a file to read:
 
 ```md [docs/intro.md]
 # Hello from Source
@@ -79,7 +79,7 @@ Create `docs/intro.md`, so the route has a file to read:
 This file is loaded by the glob Source.
 ```
 
-Create `server/api/docs.get.ts`. This route reads `intro.md` through the Source.
+Create `server/api/docs.get.ts` to read `intro.md` through the Source.
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
@@ -91,11 +91,11 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- `useSource('docs')` opens a reader for `server/sources/docs.ts`. ViteHub generates the types, so your editor knows the name `docs` and the file names of the Source.
+- `useSource('docs')` opens a reader for `server/sources/docs.ts`. ViteHub generates the types, so your editor knows the Source name `docs` and its file names.
 - `reader.read('intro.md')` reads one file by its name.
 - In Nuxt, `useSource` is auto-imported in server code, so you can remove its import.
 
-Use the reader only in server code. It reads files on the server, not in the browser. [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system) explains what happens to the files when you build and deploy.
+Use the reader only in server code, never in the browser. [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system) explains what happens to the files when you build and deploy.
 
 ::
 
@@ -108,13 +108,13 @@ Start the dev server:
 pnpm dev
 ```
 
-Open a second terminal, and call the route:
+From a second terminal, call the route:
 
 ```bash [commands/request]
 curl http://localhost:3000/api/docs
 ```
 
-The response has the `intro.md` file that you created, with the text `Hello from Source`.
+The response returns your `intro.md` file with the `# Hello from Source` heading.
 
 ::
 
@@ -126,6 +126,6 @@ Load data from GitHub, collections, or your own data store.
 :::
 
 :::card{title="Server API" icon="i-lucide-code" to="/docs/source/server-api"}
-Read items, combine Sources, and expose a typed Collection.
+Read items, combine Sources, and serve a typed Collection.
 :::
 ::

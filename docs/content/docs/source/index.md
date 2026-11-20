@@ -97,11 +97,11 @@ const { items, hasMore, loadMore } =
 
 ::product-features
   :::product-feature-item{title="Ready-made readers" icon="i-lucide-files" to="/docs/source/configure#source-loader-options"}
-  Read a file, a folder, or a GitHub repository. Your files do not change.
+  Load a file, a folder, or a GitHub repository through a read-only reader.
   :::
 
   :::product-feature-item{title="Read from any route" icon="i-lucide-code-2" to="/docs/source/server-api#source-reader-api"}
-  `useSource('docs')` opens the Source in `server/sources/docs.ts`. `keys()`, `read()`, and `list()` get files.
+  `useSource('docs')` opens a reader for `server/sources/docs.ts`. `keys()`, `read()`, and `list()` fetch files.
   :::
 
   :::product-feature-item{title="Bring your own data" icon="i-lucide-blocks" to="/docs/source/configure#source-object-contract"}
@@ -114,11 +114,11 @@ const { items, hasMore, loadMore } =
 
 
   :::product-feature-item{title="Filter and search a list" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
-  `array()` adds filters, search, and counts to a list that fits in memory.
+  `array()` adds filters, search, and counts to an in-memory list.
   :::
 
   :::product-feature-item{title="Keep a list private" icon="i-lucide-shield-check" to="/docs/source/server-api#protect-a-collection"}
-  `authorize` allows only signed-in users. Others get `401` or `403`.
+  `authorize` allows only signed-in users and returns `401` or `403` to others.
   :::
 ::
 

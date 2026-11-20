@@ -3089,7 +3089,7 @@ async function* runProvider<
     }
     if (options.toolchain !== undefined && !options.sandbox && !auxiliary) {
       // SAFETY: The split specifier keeps @vite-hub/sandbox optional for bundlers. It resolves to the toolchain module.
-      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/_internal/toolchain") as typeof import("@vite-hub/sandbox/_internal/toolchain")
+      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/internal/toolchain") as typeof import("@vite-hub/sandbox/internal/toolchain")
       const toolchain = await waitForProviderOperation(
         prepareHostToolchain(options.toolchain, preparedWorkspace?.projectRoot ?? root, { abortSignal: effectiveSignal }),
         effectiveSignal,
