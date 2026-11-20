@@ -8,12 +8,12 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-KV is a key-value store. You save a value under a name, called a key, and you read it back later by that key. Use it for small data such as settings, flags, or a cache.
+KV is a key-value store. You save a value under a name, called a key, and read it back later by that key. Use it for small data, such as settings, flags, or a cache.
 
-In this tutorial, you save a theme setting under the key `settings` with one API route, and you read it with a second route.
+In this tutorial, you save a theme setting under the key `settings` in one API route and read it back in a second route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. On your computer, KV saves values in the `.vitehub/data/kv` folder.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need no account and no API key. On your computer, KV saves values in the `.vitehub/data/kv` folder.
 
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
@@ -24,7 +24,7 @@ Install the KV package in the app:
 pnpm add @vite-hub/kv
 ```
 
-Add `kv: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
+Add `kv: true` to your ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep your other plugins and options. The port settings below match the development script from Installation.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -67,7 +67,7 @@ export default defineConfig({
 ::tutorial-step{title="Write one key"}
 ## Write one key
 
-Create `server/api/settings.put.ts`. This file is the route `PUT /api/settings`. It saves the theme that you send.
+Create `server/api/settings.put.ts` for `PUT /api/settings`. It saves the theme that you send:
 
 ```ts [server/api/settings.put.ts]
 import { defineEventHandler, HTTPError, readBody } from 'h3'
@@ -95,7 +95,7 @@ export default defineEventHandler(async (event) => {
 ::tutorial-step{title="Read the stored value"}
 ## Read the stored value
 
-Create `server/api/settings.get.ts`. This route only reads the value.
+Create `server/api/settings.get.ts` for `GET /api/settings`. This route only reads the value:
 
 ```ts [server/api/settings.get.ts]
 import { defineEventHandler, HTTPError } from 'h3'

@@ -186,6 +186,14 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    SOURCE_FILE_DEFAULT_EXPORT_MISSING: {
+      why: ({ path }: { path: string }) => `[vitehub] ${path} has no default export. Each file in server/sources/ defines one Source as its default export.`,
+      fix: "Write `export default glob({ ... })`, or another Source such as `github({ ... })`, in the file. Move helper code that is not a Source out of server/sources/.",
+    },
+    SOURCE_FILE_NAME_DUPLICATE: {
+      why: ({ name, files }: { name: string, files: string }) => `[vitehub] The Source name ${JSON.stringify(name)} comes from two files: ${files}.`,
+      fix: "Keep each Source name in one server directory. Rename or remove one of the two files, such as the one in a Nuxt layer.",
+    },
     SOURCE_GITHUB_ARCHIVE_INVALID: {
       why: "[vitehub] The archive of the github() Source has an entry with an invalid size.",
       fix: "Load the Source again: GitHub or `git archive` sent a cut or broken archive. If it fails again, check the network and that the ref of the `github()` Source exists.",
