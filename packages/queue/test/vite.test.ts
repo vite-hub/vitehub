@@ -150,6 +150,8 @@ describe("hubQueue", () => {
     await mkdir(viteRoot)
     await mkdir(join(root, "server", "queues"), { recursive: true })
     await writeFile(join(root, "server", "queues", "sync.ts"), "export default { handler: async () => undefined }\n")
+    // The Nitro config names this file `app/sync` from the project root, so it does not collide with `sync`.
+    await writeFile(join(viteRoot, "sync.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "cloudflare" })
     const nitro = { preset: "cloudflare_module" }
     // The Nuxt module configures Nitro in the project root. Nuxt's own Vite config has the source directory as its root.
@@ -159,8 +161,10 @@ describe("hubQueue", () => {
     if (order === "after") await configureNitro()
 
     expect(existsSync(join(viteRoot, ".vitehub"))).toBe(false)
-    expect(await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).toContain("sync.ts")
-    expect(await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")).toContain("sync")
+    const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
+    expect(registry).toContain('"sync"')
+    expect(registry).toContain('"app/sync"')
+    expect(await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")).toContain("app/sync")
   })
 
   it("registers absolute generated paths when Nitro owns the Vite config", async () => {

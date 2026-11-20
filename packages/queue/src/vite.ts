@@ -131,10 +131,10 @@ function normalizeQueueForHosting(queue: QueueOptions | undefined, hosting: stri
   return normalizeQueueOptions(queue, { hosting })
 }
 
-/** Nuxt builds with Vite in its source directory. Generated Queue files go to the project root that Nitro reads. */
-function queueProjectRoot(config: { root?: string }): string {
+/** The project root that a framework such as Nuxt records when it runs Vite in its source directory. */
+function frameworkProjectRoot(config: object): string | undefined {
   const configured: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
-  return typeof configured === "string" && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
+  return typeof configured === "string" && configured ? resolve(configured) : undefined
 }
 
 /**
@@ -292,6 +292,15 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
   async function collectPluginQueueContributions(plugins: readonly unknown[] | undefined, root: string, projectRoot = resolveViteHubProjectRoot(root), dirs = serverDirs) {
     return await collectQueueContributions(plugins, { projectRoot, root, serverDirs: dirs })
   }
+  /**
+   * A plain Vite app finds its Queues from the Vite root. When a framework runs Vite in a subfolder, Queues are found and
+   * named from the project root, as the framework's Nitro config finds them, so both passes give the same names.
+   */
+  function discoverViteQueueDefinitions(viteRoot: string, outputRoot: string, found: CollectedQueueContribution[]): DiscoveredQueueDefinition[] {
+    return resolve(viteRoot) === outputRoot
+      ? discoverQueueDefinitions({ contributions: found, rootDir: viteRoot })
+      : discoverQueueDefinitions({ contributions: found, rootDir: outputRoot, serverDirs })
+  }
   let databasePlugin: DatabaseVitePlugin | undefined
   // The Default Database is on Postgres. Read when the Nitro config is made, and again at `buildStart`.
   let postgresDatabase = false
@@ -399,36 +408,36 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       // SAFETY: Vite preserves this ViteHub server directory field on config, while UserConfig omits framework extensions.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = config.root || process.cwd()
-      const projectRoot = queueProjectRoot(config)
-      contributions = await collectPluginQueueContributions(config.plugins, root, projectRoot)
+      const configuredRoot = frameworkProjectRoot(config)
+      const outputRoot = configuredRoot ?? resolve(root)
+      contributions = await collectPluginQueueContributions(config.plugins, root, configuredRoot)
       const nitro = (config as { nitro?: unknown }).nitro
-      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, projectRoot, discoverQueueDefinitions({ contributions, rootDir: root, serverDirs, serverRootDirs: [projectRoot, resolve(root)] }))
+      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, outputRoot, discoverViteQueueDefinitions(root, outputRoot, contributions))
       // Vitest does not boot Nitro. Install only config and Definitions, without starting providers.
       if (process.env.VITEST) {
         const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
-          test: { setupFiles: [resolve(projectRoot, generatedQueueTestSetup)] },
+          test: { setupFiles: [resolve(outputRoot, generatedQueueTestSetup)] },
         }
         return testConfig
       }
     },
     async configResolved(config) {
       resolved = config
-      const projectRoot = queueProjectRoot(config)
-      const nuxtState = nuxtStates.get(config.root) ?? nuxtStates.get(projectRoot)
+      const configuredRoot = frameworkProjectRoot(config)
+      const nuxtState = nuxtStates.get(config.root) ?? (configuredRoot ? nuxtStates.get(configuredRoot) : undefined)
       nuxtConfiguredDefinitions = nuxtState?.nuxtConfiguredDefinitions
       nuxtProjectRoot = nuxtState?.nuxtProjectRoot
       resolveNuxtDefinitions = nuxtState?.resolveNuxtDefinitions
-      const outputRoot = nuxtProjectRoot ?? projectRoot
+      const outputRoot = nuxtProjectRoot ?? configuredRoot ?? resolve(config.root)
       // The Nuxt module configures Nitro with the project root, so it finds this state by either root.
       for (const root of new Set([config.root, outputRoot])) resolvedConfigs.set(root, config)
       queue = getResolvedFeatureOptions<QueueOptions>(config, "queue") ?? options
       for (const root of new Set([config.root, outputRoot])) queueOptions.set(root, queue)
       const configuredNitro = (config as { nitro?: unknown }).nitro
       // The resolved list includes plugins that other plugins add after the `config` hook.
-      contributions = await collectPluginQueueContributions(config.plugins, config.root, outputRoot)
+      contributions = await collectPluginQueueContributions(config.plugins, config.root, nuxtProjectRoot ?? configuredRoot)
       const resolveContributions = contributions
-      const resolveDefinitions = resolveNuxtDefinitions
-        ?? (() => discoverQueueDefinitions({ contributions: resolveContributions, rootDir: config.root, serverDirs, serverRootDirs: [outputRoot, config.root] }))
+      const resolveDefinitions = resolveNuxtDefinitions ?? (() => discoverViteQueueDefinitions(config.root, outputRoot, resolveContributions))
       configuredDefinitions = resolveDefinitions()
       const nitro = mergeNitroConfig(config, configuredNitro, queue, outputRoot, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
@@ -469,8 +478,8 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         && (/\/server\/queues\//.test(file) || nuxtServerQueueDirs.some(dir => file.startsWith(dir)))
       if (!/\.queue\.(?:c|m)?[jt]s$/i.test(file) && !isDirectoryDefinition) return
       resolved = context.server.config
-      const outputRoot = nuxtProjectRoot || queueProjectRoot(resolved)
-      const definitions = resolveNuxtDefinitions?.() ?? discoverQueueDefinitions({ contributions, rootDir: resolved.root, serverDirs, serverRootDirs: [outputRoot, resolved.root] })
+      const outputRoot = nuxtProjectRoot || frameworkProjectRoot(resolved) || resolve(resolved.root)
+      const definitions = resolveNuxtDefinitions?.() ?? discoverViteQueueDefinitions(resolved.root, outputRoot, contributions)
       writtenQueue = await writeQueueNitroIntegration(outputRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase, database())
     },
     async buildStart() {
