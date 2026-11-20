@@ -7,17 +7,17 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Env gives your app its settings, such as its name, URLs, and API keys. You declare each value once in your config. Then you read it in your code, with the correct type.
+Env gives your app its settings, such as its name, URLs, and API keys. Declare each value once in your config. Then read it in your code with the correct type.
 
 In this tutorial, you declare an app name, `Acme`, and return it from a server route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key.
+> Start with the app from [Installation](/docs/getting-started/installation) and run every command from the app root. You do not need an account or an API key.
 
 ::tutorial-step{title="Declare the value"}
 ## Declare the value
 
-Add an `env` block to your config. In Vite, it goes in `vitehub({ env })`. In Nuxt, it goes in `vitehub.env`. Keep the other options of your app.
+Add an `env` block to your config, under `vitehub({ env })` in Vite or `vitehub.env` in Nuxt. Keep your existing options.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -75,8 +75,8 @@ export default defineConfig({
 :::
 ::
 
-- `public` holds values that browser code can read. Every visitor can see them, so never put a password or an API key here. Put secrets in `env.server`, and read them only in server code.
-- `default: 'Acme'` is the value when no environment variable sets it. So you need no environment variable for this tutorial.
+- `public` holds values that browser code can read. Any visitor can see them, so never put a password or an API key here. Put secrets in `env.server`, and read them only in server code.
+- `default: 'Acme'` is the value when no environment variable sets it. So this tutorial needs no environment variable.
 - `mode: 'build'` reads the value once, when you build the app. The value is then part of the build output.
 
 ::
@@ -84,7 +84,7 @@ export default defineConfig({
 ::tutorial-step{title="Read the value"}
 ## Read the value
 
-Create `server/api/app-name.get.ts`. This file is the route `GET /api/app-name`. It reads `appName` and returns it:
+Create `server/api/app-name.get.ts` to handle `GET /api/app-name`. It reads `appName` and returns it as JSON:
 
 ```ts [server/api/app-name.get.ts]
 import { defineEventHandler } from 'h3'
@@ -96,7 +96,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-`usePublicEnv()` reads the Env values generated from your config, so `appName` has a type. Run this route through the dev server or built server output. Outside a ViteHub build it throws `ENV_NOT_GENERATED`.
+`usePublicEnv()` returns the typed Env values generated from your config. Run this route through the dev server or the built server output. Outside a ViteHub build, it throws `ENV_NOT_GENERATED`.
 
 ::
 
@@ -121,7 +121,7 @@ The route returns:
 {"appName":"Acme"}
 ```
 
-Your code read the value that you declared in your config.
+Your code read the default value that you declared in your config.
 
 ::
 

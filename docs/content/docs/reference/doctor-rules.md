@@ -99,7 +99,8 @@ Some rules read the whole project:
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
 - `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
-- `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
+- `@vite-hub/*/_internal/*` paths no longer resolve.
+- `@vite-hub/internal/*` and `@vite-hub/*/internal/*` are package implementation paths.
 - `.vitehub/**` and `.nuxt/vitehub/**` files are build output. ViteHub writes them again on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub runtime code, for example `#vitehub/agent/registry`.
 
@@ -972,10 +973,10 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `preset` was renamed to `host`.
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
-- `logs` moved into `observability`, as `observability: { logs }`.
+- `observability.logs` moved to the top-level `logs` key.
 - `contentImportBase` was removed.
 
-A build that sets `preset`, `sandbox`, `devtools`, `logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
+A build that sets `preset`, `sandbox`, `devtools`, `observability.logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
 The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.

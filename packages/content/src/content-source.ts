@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { comarkContent, memory } from "comark-content"
 import type { ContentGetOptions, ContentOptions, JsonSchema, ParsedSource, Source as ComarkContentSource } from "comark-content"
-import { createSource, useSource } from "@vite-hub/source"
+import { useSource } from "@vite-hub/source"
 import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -265,7 +265,7 @@ function createContentSourceFactory(
             const currentReader = () => isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
-                ? createSource(sourceInput)
+                ? useSource(sourceInput)
                 : isRuntimeFunction(sourceInput)
                   ? sourceInput()
                   : sourceInput
@@ -292,7 +292,7 @@ function createContentSourceFactory(
         const known = state.latestItems?.get(path)
         if (!known || itemsPromise || options.commits) return
         // One reader per load keeps every read of a load on one revision.
-        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? createSource(sourceInput) : undefined
+        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? useSource(sourceInput) : undefined
         if (!knownReader) return
         // A failed read, such as a deleted file, falls back to the full load, which reports real errors.
         try {
@@ -381,7 +381,7 @@ export function contentSourceKind(input: ContentSourceInput): string | undefined
  */
 export async function contentSourceKeys(input: ContentSourceInput): Promise<string[]> {
   const definition = contentSourceDefinition(input)
-  return definition ? await createSource(definition).keys() : []
+  return definition ? await useSource(definition).keys() : []
 }
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */

@@ -152,6 +152,7 @@ export interface BlobDriverStream {
 }
 
 export interface BlobDriverAdapter<TOptions> {
+  checkHealth?(): Promise<void>
   /** Canonical identity for drivers that resolve pathname aliases. */
   canonicalPathname?(pathname: string): string
   name: string

@@ -360,7 +360,7 @@ describe("docs import contracts", () => {
     const documented = new Set([...reference.matchAll(/`(vite-hub(?:\/[^`]+)?)`/g)].map(match => match[1]))
 
     for (const subpath of Object.keys(manifest.exports || {})) {
-      if (subpath === "./package.json" || subpath.startsWith("./_internal/")) continue
+      if (subpath === "./package.json") continue
       const specifier = subpath === "." ? "vite-hub" : `vite-hub/${subpath.slice(2)}`
       expect(documented, `Missing framework import reference: ${specifier}`).toContain(specifier)
     }

@@ -1,25 +1,25 @@
 ---
 title: Send your first webhook
-description: Send a signed webhook from a ViteHub app to a receiver route, add a debounce, and read the deliveries from server code.
+description: Send a signed webhook from a ViteHub app to a receiver route, add a debounce, and read deliveries from server code.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-You need a ViteHub app from [Installation](/docs/getting-started/installation). Run the commands from its root. The app sends webhooks to a route of its own, so you can see both sides.
+Start with a ViteHub app from [Installation](/docs/getting-started/installation) and run commands from its root. The app sends webhooks to its own route so you can see both sides.
 
 ::tutorial-step{title="Install Webhooks"}
 ## Install Webhooks
 
-Install Webhooks, and the Queue and Database packages that it uses:
+Install Webhooks and the Queue and Database packages it uses:
 
 ```bash [commands/install]
 pnpm add @vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5
 pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
-Turn on `queue` and `database`. In development, the Queue runs jobs in the dev server and the Default Database is a SQLite file.
+Turn on `queue` and `database`. In dev, Queue runs jobs in the dev server and the Default Database is a SQLite file.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -77,7 +77,7 @@ export default defineWebhook({
 })
 ```
 
-Set the variables in `.env`. Here the URL points to a route of the same app:
+Set those variables in `.env`. Here the URL points to a route of the same app:
 
 ```bash [.env]
 TEAM_WEBHOOK_URL=http://localhost:3000/api/hooks/team
@@ -96,7 +96,7 @@ vitehub database migrate
 ::tutorial-step{title="Receive it"}
 ## Receive it
 
-Add the receiver. [`verifyWebhook()`](/docs/env/webhooks) checks the `x-hub-signature-256` header with the same secret:
+Add the receiver route. [`verifyWebhook()`](/docs/env/webhooks) checks the `x-hub-signature-256` header with the same secret, `TEAM_WEBHOOK_SECRET`:
 
 ```ts [server/api/hooks/team.post.ts]
 import { defineEventHandler, HTTPError } from 'h3'
@@ -116,7 +116,7 @@ export default defineEventHandler(async (event) => {
 ::tutorial-step{title="Send it"}
 ## Send it
 
-Call `sendWebhook()` from server code. The name `team` is typed from the files of `server/webhooks/`:
+Call `sendWebhook()` from server code. ViteHub types the `'team'` name from the files in `server/webhooks/`:
 
 ```ts [server/api/ping.post.ts]
 import { defineEventHandler } from 'h3'
@@ -129,26 +129,26 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Start the dev server with `pnpm dev`, then send from a second terminal:
+Start the dev server with `pnpm dev`, then call the route from a second terminal:
 
 ```bash [commands/send]
 curl -X POST http://localhost:3000/api/ping
 ```
 
-The answer has the delivery id. The delivery is stored first, so it is `pending`:
+The answer has the delivery ID. `sendWebhook()` stores the delivery first, so it returns at once with `status: "pending"`:
 
 ```json [output/send.json]
 { "id": "whd_5f0c2c1e-8a4b-4d7e-9f1a-2b3c4d5e6f70", "status": "pending" }
 ```
 
-The Queue job runs a moment later. The dev server logs `app.ping`, the delivery id, and `{ text: 'Hello' }`.
+The Queue job runs a moment later. The dev server logs `app.ping`, the delivery ID, and `{ text: 'Hello' }`.
 
 ::
 
 ::tutorial-step{title="Add a debounce"}
 ## Add a debounce
 
-Add `debounce`. Now each send restarts a 10 second wait, and the receiver gets the last body once:
+Add `debounce: '10s'`. Each send restarts a 10-second wait, and the receiver gets the last body once:
 
 ```ts [debounce/server/webhooks/team.ts]
 import { defineWebhook } from 'vite-hub/webhooks'
@@ -160,14 +160,14 @@ export default defineWebhook({
 })
 ```
 
-Send three times in a row. All three answers have the same delivery id. After 10 seconds, the receiver gets one request with `x-vitehub-events: 3`.
+Send three times in a row. All three return the same delivery ID. After 10 seconds, the receiver gets one request with `x-vitehub-events: 3`.
 
 ::
 
 ::tutorial-step{title="Read the deliveries"}
 ## Read the deliveries
 
-`vite-hub/webhooks/runtime` reads the deliveries in server code. Do not return them from a public route, because the body can hold private data:
+`vite-hub/webhooks/runtime` reads deliveries in server code. Do not return them from a public route because the body can hold private data:
 
 ```ts [server/utils/webhook-report.ts]
 import { listWebhookDeliveries } from 'vite-hub/webhooks/runtime'
