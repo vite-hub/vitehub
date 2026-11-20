@@ -568,6 +568,23 @@ describe("blob config", () => {
     })
   })
 
+  it("gives each named fs store without base its own folder", () => {
+    const stores = { avatars: { driver: "fs" as const }, default: { driver: "fs" as const }, exports: { driver: "fs" as const } }
+
+    expect(normalizeBlobOptions({ stores }, { env: {} })?.stores).toEqual({
+      avatars: { base: ".vitehub/data/blob-avatars", driver: "fs" },
+      default: { base: ".vitehub/data/blob", driver: "fs" },
+      exports: { base: ".vitehub/data/blob-exports", driver: "fs" },
+    })
+    // BLOB_FS_BASE moves every store, and named stores still get their own folder next to it.
+    expect(normalizeBlobOptions({ stores }, { env: { BLOB_FS_BASE: "/var/lib/app/blob" } })?.stores).toEqual({
+      avatars: { base: "/var/lib/app/blob-avatars", driver: "fs" },
+      default: { base: "/var/lib/app/blob", driver: "fs" },
+      exports: { base: "/var/lib/app/blob-exports", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ stores: { ...stores, avatars: { base: ".data/avatars", driver: "fs" } } }, { env: {} })?.stores?.avatars).toEqual({ base: ".data/avatars", driver: "fs" })
+  })
+
   it("normalizes serving from a configured named Blob store", () => {
     expect(normalizeBlobOptions({
       serve: {
