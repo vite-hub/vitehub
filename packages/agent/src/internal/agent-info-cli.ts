@@ -173,7 +173,8 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
     `Agent: ${metadata.name || "unknown"}`,
     "Metadata: ready",
     `Driver: ${agentInfoDriver(metadata.config)}`,
-    ...(emulator ? [`Models: emulated by the AI emulator at ${emulator.url} (VITEHUB_MODELS=emulate)`] : []),
+    // The dev server reports the emulator for the whole project. Provider status tells if this Driver runs on it.
+    ...(emulator ? [`AI emulator: ${emulator.url} (the dev server sets VITEHUB_MODELS=emulate)`] : []),
     `Capacity: ${agentInfoCapacity(metadata.config)}`,
     ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
     `Capabilities: ${plural(metadata.capabilities?.length || 0, "Capability", "Capabilities")} (${agentInfoNames(metadata.capabilities || [], "none")})`,

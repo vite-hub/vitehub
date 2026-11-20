@@ -10,9 +10,12 @@ import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
 // `agent invocations` talks to a server or a journal database, so a broken or slow project config cannot block it.
 // Its entry does not import `vite`, so it also runs on a server that installed only production dependencies. It reads
-// only literal config values.
+// only literal config values. `agent emulator` only reads the AI emulator, so it needs no project or Agent config.
 const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   features: [{
+    name: "emulator",
+    run: async (args, context) => requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-emulator-cli")), "agent").runAgentEmulatorCli(args, context),
+  }, {
     name: "invocations",
     run: async (args, context) => {
       const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-invocations-cli")), "agent")

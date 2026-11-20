@@ -59,7 +59,7 @@ export function createAgentHealth(options: AgentHealthOptions): () => Promise<Ag
       label: 'Provider',
       status: status.readiness === 'ready' && !status.stale ? 'ok' : status.readiness === 'unsupported' ? 'neutral' : 'warning',
       value: status.readiness === 'ready' && !status.stale ? 'Ready' : status.stale ? 'Status unavailable' : status.readiness,
-      detail: status.checkedAt ? `Checked ${status.checkedAt}` : undefined,
+      detail: status.code ?? (status.checkedAt ? `Checked ${status.checkedAt}` : undefined),
     })
     diagnostics.push({ label: 'Agent', status: 'ok', value: agent.name ?? options.name })
     const model = driver?.provider?.model ?? driver?.model?.id

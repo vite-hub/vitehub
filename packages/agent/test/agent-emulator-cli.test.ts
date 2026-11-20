@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
-import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent, defineCapability } from "../src/index.ts"
 import { runAgentEmulatorCli } from "../src/internal/agent-emulator-cli.ts"
 import { runAgentInfoCli } from "../src/internal/agent-info-cli.ts"
 import { createAgentHealth } from "../src/server/health.ts"
@@ -116,6 +116,41 @@ describe("vitehub agent emulator", () => {
     expect(await runAgentEmulatorCli([], { env: { VITEHUB_EMULATE_URL: "http://127.0.0.1:9" }, rootDir, stderr: closed, stdout: stream() })).toBe(1)
     expect(closed.output).toContain("AGENT_EMULATOR_NOT_RUNNING")
   })
+
+  it("fails with a coded diagnostic when the server is not an AI emulator", async () => {
+    // An ordinary app answers every path with 200 JSON. Neither output mode may print that as emulator data.
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ service: "ordinary app" }))
+    for (const args of [[], ["--json"]]) {
+      const stdout = stream()
+      const stderr = stream()
+      expect(await runAgentEmulatorCli(args, { env: { VITEHUB_EMULATE_URL: "http://127.0.0.1:4799" }, rootDir, stderr, stdout }, { fetch: fetchImpl })).toBe(1)
+      expect(stdout.output).toBe("")
+      expect(stderr.output).toContain("AGENT_EMULATOR_NOT_RUNNING")
+      expect(stderr.output).toContain("did not return the rules of an AI emulator")
+    }
+
+    const calls = stream()
+    const rulesOnly = vi.fn<typeof fetch>(async input => String(input).endsWith("/_ai/rules") ? Response.json({ rules: [], strict: false }) : Response.json({ calls: [] }))
+    expect(await runAgentEmulatorCli(["--json"], { env: { VITEHUB_EMULATE_URL: "http://127.0.0.1:4799" }, rootDir, stderr: calls, stdout: stream() }, { fetch: rulesOnly })).toBe(1)
+    expect(calls.output).toContain("did not return the call record of an AI emulator")
+  })
+
+  it("shows none, not a strict rejection, for a call that no rule answered while strict mode is off", async () => {
+    const response = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "openai/gpt-5.1", messages: "not a list" }),
+    })
+    expect(response.status).toBe(400)
+    const recorded = await (await fetch(`${url}/_ai/calls`)).json() as Array<{ matched: unknown, status: number }>
+    expect(recorded.at(-1)).toMatchObject({ matched: null, status: 400 })
+
+    const stdout = stream()
+    expect(await runAgentEmulatorCli([], { env: { VITEHUB_EMULATE_URL: url }, rootDir, stderr: stream(), stdout })).toBe(0)
+    expect(stdout.output).toContain("Strict: no")
+    expect(stdout.output).not.toContain("strict)")
+    expect(stdout.output.split("\n").find(line => line.trim().startsWith("3 "))).toMatch(/400\s+none$/)
+  })
 })
 
 describe("inspection under VITEHUB_MODELS=emulate", () => {
@@ -153,31 +188,60 @@ describe("inspection under VITEHUB_MODELS=emulate", () => {
     const model = defineAgent({ name: "support", runtime: false, driver: { instructions: "Answer briefly.", model: "openai/gpt-5.1" } })
     await expect(readStatus(model, "support")).resolves.toMatchObject({ emulated: { url }, readiness: "ready" })
 
-    const claude = defineAgent({ name: "reviewer", runtime: false, driver: claudeCodeDriver({ env: () => { throw credentialRead("driver.env") } }) })
-    await expect(readStatus(claude, "reviewer")).resolves.toMatchObject({ emulated: { url }, provider: "claude-code", readiness: "unavailable" })
-
     const health = await createAgentHealth({ name: "coder", agent: () => agent })()
     expect(health.diagnostics).toContainEqual({ label: "Provider", status: "ok", value: "Emulated", detail: `AI emulator at ${url}` })
+  })
+
+  // A raw AI SDK model calls its own provider, so a run rejects it. It has the model fields that the AI SDK checks.
+  const rawModel = { doGenerate: async () => { throw new Error("called the provider") }, doStream: async () => { throw new Error("called the provider") }, modelId: "gpt-5.1", provider: "openai.responses", specificationVersion: "v3", supportedUrls: {} }
+  const releaseTool = defineCapability({ id: "release", tools: { "release:check": { description: "Check the release.", execute: async () => "ok", inputSchema: { type: "object" } } } })
+
+  it.each([
+    ["an Ask Driver", () => defineAgent({ name: "asker", runtime: false, driver: { ask: { label: { kind: "text", prompt: "Name?" } } } as never }), "AGENT_MODELS_EMULATE_ASK_UNSUPPORTED"],
+    ["Claude Code", () => defineAgent({ name: "reviewer", runtime: false, driver: claudeCodeDriver({ env: () => { throw credentialRead("driver.env") } }) }), "AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED"],
+    ["Codex with Capability tools", () => defineAgent({ name: "coder", runtime: false, capabilities: [releaseTool], driver: codexDriver({ credentials }) } as never), "AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED"],
+    ["Codex in a Sandbox", () => defineAgent({ name: "coder", runtime: false, sandbox: { runtime: "trusted-host" }, driver: codexDriver() } as never), "AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED"],
+    ["a raw AI SDK model", () => defineAgent({ name: "raw", runtime: false, driver: { model: rawModel } } as never), "AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED"],
+  ])("reports %s as unavailable with the code that its run fails with", async (_name, create, code) => {
+    const agent = create()
+    const status = vi.spyOn(agent, "status")
+    const result = await createAgentStatusReader()(agent, "agent")
+    expect(result).toMatchObject({ code, readiness: "unavailable" })
+    expect(result.emulated).toBeUndefined()
+    expect(status).not.toHaveBeenCalled()
+    const health = await createAgentHealth({ name: "agent", agent: () => agent })()
+    expect(health.diagnostics).toContainEqual(expect.objectContaining({ label: "Provider", status: "warning", value: "unavailable", detail: code }))
+  })
+
+  it("reports unknown, not ready, for a Driver that inspection cannot judge", async () => {
+    const run = defineAgent({ name: "custom", runtime: false, driver: { run: () => "ok" } })
+    await expect(createAgentStatusReader()(run, "custom")).resolves.toMatchObject({ readiness: "unknown" })
+    const external = defineAgent({ name: "remote", runtime: false, driver: "external" })
+    await expect(createAgentStatusReader()(external, "remote")).resolves.toMatchObject({ readiness: "unknown", reason: expect.stringContaining("external Driver") })
+    const resolver = defineAgent({ name: "dynamic", runtime: false, driver: { model: () => "openai/gpt-5.1" } } as never)
+    const result = await createAgentStatusReader()(resolver, "dynamic")
+    expect(result).toMatchObject({ readiness: "unknown" })
+    expect(result.emulated).toBeUndefined()
   })
 
   it("reports an emulated status as unavailable in production", async () => {
     vi.stubEnv("NODE_ENV", "production")
     const agent = defineAgent({ name: "coder", runtime: false, driver: codexDriver({ credentials }) })
-    await expect(createAgentStatusReader()(agent, "coder")).resolves.toMatchObject({ emulated: { url }, readiness: "unavailable", reason: expect.stringContaining("production") })
+    await expect(createAgentStatusReader()(agent, "coder")).resolves.toMatchObject({ code: "AGENT_MODELS_EMULATE_IN_PRODUCTION", readiness: "unavailable", reason: expect.stringContaining("production") })
   })
 
-  it("shows emulated models with the URL in agent info", async () => {
+  it("shows emulated models with the URL in agent get", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({
       emulator: { url },
       inspection: { name: "support", config: { driver: { kind: "model", model: { gateway: "emulate", id: "openai/gpt-5.1", provider: "emulate.responses" } } } },
       root: rootDir,
     }))
     const stdout = stream()
-    expect(await runAgentInfoCli(["--url", "http://127.0.0.1:4799"], { env: {}, rootDir, stderr: stream(), stdout }, { fetch: fetchImpl })).toBe(0)
-    expect(stdout.output).toContain(`Models: emulated by the AI emulator at ${url} (VITEHUB_MODELS=emulate)`)
+    expect(await runAgentInfoCli(["--dev", "--url", "http://127.0.0.1:4799"], { env: {}, rootDir, stderr: stream(), stdout }, { fetch: fetchImpl })).toBe(0)
+    expect(stdout.output).toContain(`AI emulator: ${url} (the dev server sets VITEHUB_MODELS=emulate)`)
 
     const json = stream()
-    expect(await runAgentInfoCli(["--url", "http://127.0.0.1:4799", "--json"], { env: {}, rootDir, stderr: stream(), stdout: json }, { fetch: fetchImpl })).toBe(0)
+    expect(await runAgentInfoCli(["--dev", "--url", "http://127.0.0.1:4799", "--json"], { env: {}, rootDir, stderr: stream(), stdout: json }, { fetch: fetchImpl })).toBe(0)
     expect(JSON.parse(json.output)).toMatchObject({ emulator: { url } })
   })
 })

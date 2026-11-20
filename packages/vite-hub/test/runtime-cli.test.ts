@@ -42,6 +42,32 @@ it("runs connections commands against the running app without loading the projec
   expect(requests).toEqual(["POST /_vitehub/connections"])
 })
 
+// Inspection of the AI emulator must not need an app: an explicit target is enough, also in an empty directory.
+it("runs agent emulator against VITEHUB_EMULATE_URL from an empty directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-emulator-cli-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  const requests: string[] = []
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`)
+    const body = request.url === "/_ai/rules" ? { rules: [], strict: false } : []
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise(resolve => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("The test server has no port.")
+  const url = `http://127.0.0.1:${address.port}`
+
+  const { stdout } = await execFileAsync(process.execPath, [bin, "agent", "emulator", "--json"], {
+    cwd: root,
+    env: { ...process.env, NO_COLOR: "1", VITEHUB_EMULATE_URL: url },
+    timeout: 10_000,
+  })
+
+  expect(JSON.parse(stdout)).toEqual({ calls: [], rules: { rules: [], strict: false }, url })
+  expect(requests.sort()).toEqual(["GET /_ai/calls", "GET /_ai/rules"])
+})
+
 it("runs kv commands against the running app without loading the project", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-kv-cli-"))
   cleanup.push(() => rm(root, { force: true, recursive: true }))

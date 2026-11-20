@@ -35,7 +35,7 @@ interface EmulatorRule {
   error?: unknown
 }
 
-/** One call of upstream `GET /_ai/calls`. `matched` is a rule, a default, or `null` when strict mode rejected it. */
+/** One call of upstream `GET /_ai/calls`. `matched` is a rule, a default, or `null` when no rule or default answered. */
 interface EmulatorCall {
   seq?: number
   time?: string
@@ -118,6 +118,12 @@ async function findEmulatorUrl(parsed: ParsedEmulatorArgs, context: AgentEmulato
   return url
 }
 
+/** The body of upstream `GET /_ai/rules`: `{ rules, strict, ... }`. */
+interface EmulatorRules {
+  rules: EmulatorRule[]
+  strict: boolean
+}
+
 async function readControl(url: string, path: "/_ai/calls" | "/_ai/rules", fetchImpl: typeof fetch, signal: AbortSignal): Promise<unknown> {
   let response: Response
   try {
@@ -132,15 +138,22 @@ async function readControl(url: string, path: "/_ai/calls" | "/_ai/rules", fetch
   return body
 }
 
-function rulesOf(value: unknown): EmulatorRule[] {
-  if (!isRuntimeRecord(value) || !Array.isArray(value.rules)) return []
-  // SAFETY: Upstream `GET /_ai/rules` returns the rules in the shape that `PUT /_ai/rules` accepts, each with an `id`.
-  return value.rules.filter(isRuntimeRecord) as unknown as EmulatorRule[]
+/** The upstream rules response, or a coded failure when the server at `url` answers with another shape. */
+function rulesOf(url: string, value: unknown): EmulatorRules {
+  if (!isRuntimeRecord(value) || !Array.isArray(value.rules) || typeof value.strict !== "boolean" || !value.rules.every(rule => isRuntimeRecord(rule) && typeof rule.id === "string")) {
+    throw agentDiagnostics.AGENT_EMULATOR_NOT_RUNNING({ where: `at ${url} (GET /_ai/rules did not return the rules of an AI emulator)` })
+  }
+  // SAFETY: Each rule is a record with a string `id`. The table reads the other fields as optional.
+  return { rules: value.rules as unknown as EmulatorRule[], strict: value.strict }
 }
 
-function callsOf(value: unknown): EmulatorCall[] {
+/** The upstream call record, or a coded failure when the server at `url` answers with another shape. */
+function callsOf(url: string, value: unknown): EmulatorCall[] {
+  if (!Array.isArray(value) || !value.every(isRuntimeRecord)) {
+    throw agentDiagnostics.AGENT_EMULATOR_NOT_RUNNING({ where: `at ${url} (GET /_ai/calls did not return the call record of an AI emulator)` })
+  }
   // SAFETY: Upstream `GET /_ai/calls` returns a bare array of call records. The table reads only optional fields.
-  return Array.isArray(value) ? value.filter(isRuntimeRecord) as unknown as EmulatorCall[] : []
+  return value as unknown as EmulatorCall[]
 }
 
 function table(rows: string[][]): string[] {
@@ -159,8 +172,12 @@ function ruleBudget(rule: EmulatorRule): string {
   return typeof rule.times === "number" ? `${rule.remaining} of ${rule.times}` : String(rule.remaining)
 }
 
+/**
+ * The rule that answered a call. A call record does not say why no rule answered: `matched` is `null` for a strict-mode
+ * rejection and also for a request that failed before rule matching, such as a malformed body. So it shows `none`.
+ */
 function callRule(call: EmulatorCall): string {
-  if (call.matched === null) return "none (strict)"
+  if (call.matched === null) return "none"
   if (call.matched?.id) return call.matched.id
   if (call.matched?.default) return `default (${call.matched.default})`
   return "unknown"
@@ -170,10 +187,7 @@ function callTime(call: EmulatorCall): string {
   return call.time?.match(/T(\d\d:\d\d:\d\d)/)?.[1] ?? ""
 }
 
-function writeSummary(context: AgentEmulatorCliContext, url: string, rulesBody: unknown, callsBody: unknown): void {
-  const rules = rulesOf(rulesBody)
-  const calls = callsOf(callsBody)
-  const strict = isRuntimeRecord(rulesBody) && rulesBody.strict === true
+function writeSummary(context: AgentEmulatorCliContext, url: string, { rules, strict }: EmulatorRules, calls: EmulatorCall[]): void {
   const shown = calls.slice(-recentCalls)
   context.stdout.write([
     `AI emulator: ${url}`,
@@ -210,11 +224,14 @@ export async function runAgentEmulatorCli(args: string[], context: AgentEmulator
   const signal = AbortSignal.timeout(timeout)
   try {
     const url = await findEmulatorUrl(parsed, context, fetchImpl, signal)
-    const [rules, calls] = await Promise.all([
+    const [rulesBody, callsBody] = await Promise.all([
       readControl(url, "/_ai/rules", fetchImpl, signal),
       readControl(url, "/_ai/calls", fetchImpl, signal),
     ])
-    if (parsed.json) context.stdout.write(`${JSON.stringify({ url, rules, calls }, null, 2)}\n`)
+    // Both output modes check the upstream shapes, so another server that answers JSON never passes as the emulator.
+    const rules = rulesOf(url, rulesBody)
+    const calls = callsOf(url, callsBody)
+    if (parsed.json) context.stdout.write(`${JSON.stringify({ url, rules: rulesBody, calls: callsBody }, null, 2)}\n`)
     else writeSummary(context, url, rules, calls)
     return 0
   }
