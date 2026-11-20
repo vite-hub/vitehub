@@ -424,8 +424,10 @@ It starts with the server. A development server starts it only with `VITEHUB_AGE
 
 | Route | Purpose |
 | --- | --- |
-| `GET /_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked` (parked by a budget, with the reason). |
+| `GET /_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked` (parked by a budget, with the reason). `scheduler` shows the reconcile that runs and the step it waits on. |
 | `GET /_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
+
+The host runs one reconcile at a time. A reconcile that waits longer than 15 minutes stops, logs `babysitter.reconcile.stalled` with the step it waited on, and the next reconcile starts. Until a reconcile finishes again, health reports `degraded` with a `Scheduler` diagnostic and `scheduler.status: "stalled"`. When no reconcile finishes for 16 minutes while the host accepts work, health also reports `degraded`, with `scheduler.status: "silent"`.
 
 To replace the process, send SIGUSR2, wait for the drain route to report `drained`, then restart. Running passes finish first.
 

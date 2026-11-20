@@ -231,6 +231,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
   });
   const inbox = runtime.inbox;
+  const schedulerHealth = runtime.scheduler;
   // No pass runs yet, so workspaces from an earlier process are garbage.
   const swept = await sweepBabysitterWorkspaces();
   const workspaceStatus = async (repository: string, number: number): Promise<PullRequestWorkspaceStatus> => {
@@ -305,7 +306,19 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
       }
       const guard = await admission.health();
       const lastSkip = await inbox.meta("admission-skipped");
-      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories: repositories.known(), repositorySource: repositories.source, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
+      // A drained host runs no reconcile, so only a running or starting host can be silent.
+      const hostStatus = host.status();
+      const scheduler = schedulerHealth(hostStatus === "accepting" || hostStatus === "starting");
+      const stall = scheduler.status === "stalled" ? scheduler.lastStall : undefined;
+      const schedulerDiagnostics = scheduler.status === "ok" ? [] : [{
+        label: "Scheduler",
+        status: "warning" as const,
+        value: stall ? `Stalled at ${stall.step}` : "No reconcile finished",
+        detail: stall
+          ? `${stall.count} reconcile(s) in a row waited too long and were stopped${stall.subject ? `, the last on ${stall.subject}` : ""}.`
+          : `The last reconcile finished at ${scheduler.lastFinishedAt ?? "never"}.`,
+      }];
+      return { ...health, status: prerequisites.pause || schedulerDiagnostics.length ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics, ...schedulerDiagnostics], scheduler, release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories: repositories.known(), repositorySource: repositories.source, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,
         reason: guard.reason,
