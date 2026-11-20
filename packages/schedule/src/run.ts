@@ -15,14 +15,10 @@ export type { RunScheduleOptions } from "./runtime/execute.ts"
 // plugin, a bundler keeps the variable import as it is, so a build without Schedule still succeeds.
 const registryModule = "#vitehub/schedule/registry"
 
-/** Imports the registry that the Schedule Vite plugin generates. It loads on the first call, so importing the root stays cheap. */
-export async function importScheduleRegistry(): Promise<ScheduleDefinitionRegistry> {
-  return (await import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule) as { default: ScheduleDefinitionRegistry }).default
-}
-
+/** The registry that the Schedule Vite plugin generates. It loads on the first run, so importing the root stays cheap. */
 async function loadRegistry(): Promise<ScheduleDefinitionRegistry> {
   try {
-    return await importScheduleRegistry()
+    return (await import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule) as { default: ScheduleDefinitionRegistry }).default
   }
   catch (cause) {
     // Without the Schedule Vite plugin, such as in plain Node, there is no generated registry.

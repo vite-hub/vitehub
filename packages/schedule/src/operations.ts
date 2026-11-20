@@ -73,7 +73,10 @@ function timingOf(schedule: StartedScheduleSummary): string {
   return schedule.timeZone && schedule.timeZone !== "UTC" ? `${schedule.cron} (${schedule.timeZone})` : schedule.cron ?? "-"
 }
 
-function formatSchedules({ definitions, schedules }: ScheduleListResult): string {
+function formatSchedules({ definitions = [], schedules }: {
+  definitions?: ScheduleListResult["definitions"]
+  schedules: ScheduleListResult["schedules"]
+}): string {
   if (definitions.length === 0 && schedules.length === 0) return "No Schedules.\n"
   const parts: string[] = []
   if (definitions.length > 0) {

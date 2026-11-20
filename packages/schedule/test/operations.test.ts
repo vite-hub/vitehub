@@ -6,7 +6,7 @@ import { defineSchedule } from "../src/index.ts"
 import { scheduleOperations } from "../src/operations.ts"
 import { executeStaticSchedule } from "../src/runtime/execute.ts"
 import { summarizeScheduleRun } from "../src/runtime/operations.ts"
-import { resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { registerProcessScheduleDefinitions, resetScheduleRuntime, setHostScheduleInventory, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import { createMemoryStartedScheduleStore, installStartedSchedules } from "../src/runtime/started.ts"
 import { scheduleErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
@@ -208,10 +208,16 @@ describe("schedule operations", () => {
   })
 
   it("list the cron Schedules of an app that starts none, without a store", async () => {
+    const unrelated = vi.fn(() => { throw new Error("do not load this Schedule") })
     setScheduleRuntimeRegistry({
-      "digest": async () => ({ default: defineSchedule({ cron: "0 9 * * 1-5", timeZone: "Europe/Copenhagen", handler: () => {} }) }),
-      "pr-upkeep": async () => defineSchedule({ cron: "*/15 * * * *", handler: () => {} }),
+      digest: unrelated,
+      "pr-upkeep": unrelated,
     })
+    registerProcessScheduleDefinitions(new Map([
+      ["digest", { cron: "0 9 * * 1-5", timeZone: "Europe/Copenhagen" }],
+      ["pr-upkeep", { cron: "*/15 * * * *" }],
+      ["vitehub/started-schedules", { cron: "* * * * *" }],
+    ]))
     // SAFETY: The operation formats its own output, which the call below returned.
     const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
 
@@ -225,6 +231,7 @@ describe("schedule operations", () => {
     })
     expect(listed.ok && format(listed.value)).toBe("SCHEDULE   CRON\ndigest     0 9 * * 1-5 (Europe/Copenhagen)\npr-upkeep  */15 * * * *\n")
     expect(await call("list", { name: "pr-upkeep" })).toMatchObject({ ok: true, value: { definitions: [{ name: "pr-upkeep" }], schedules: [] } })
+    expect(unrelated).not.toHaveBeenCalled()
   })
 
   it("say that an app without Schedules has none", async () => {
@@ -233,6 +240,19 @@ describe("schedule operations", () => {
     const listed = await call("list", {})
     expect(listed).toEqual({ ok: true, value: { definitions: [], schedules: [] } })
     expect(listed.ok && format(listed.value)).toBe("No Schedules.\n")
+  })
+
+  it("only loads the requested Schedule when the host has no static timing for it", async () => {
+    const unrelated = vi.fn(() => { throw new Error("do not load this Schedule") })
+    setHostScheduleInventory({
+      registry: { digest: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {} }), report: unrelated },
+      timings: {},
+    })
+    expect(await call("list", { name: "digest" })).toEqual({
+      ok: true,
+      value: { definitions: [{ cron: "0 9 * * *", name: "digest" }], schedules: [] },
+    })
+    expect(unrelated).not.toHaveBeenCalled()
   })
 
   it("start, list, and cancel the Schedules that code starts", async () => {
@@ -245,6 +265,8 @@ describe("schedule operations", () => {
     // SAFETY: The operation formats its own output, which the call above returned.
     const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
     expect(listed.ok && format(listed.value)).toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
+    expect(format({ schedules: [{ at: "2026-11-08T09:00:00.000Z", createdAt: "2026-11-07T00:00:00.000Z", id, name: "reminder" }] }))
+      .toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
 
     expect(await call("cancel", { id })).toMatchObject({ ok: true, value: { schedule: { id } } })
     expect(await call("list", { name: "reminder" })).toEqual({ ok: true, value: { definitions: [], schedules: [] } })
