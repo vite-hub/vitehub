@@ -616,6 +616,8 @@ describe("docs Nuxt setup", () => {
     }
     else {
       const files = await devFiles(nitro, options.buildDir);
+      expect(files.has("docs-0", "guide/start.md")).toBe(true);
+      expect(files.has("docs-0", "draft.md")).toBe(false);
       expect(await files.read("docs-0", "guide/start.md")).toBe("---\ntitle: Start\n---\nFrom a Source");
       expect(await files.read("docs-0", "draft.md")).toBeNull();
       expect(await files.read("docs-agent", "docs_0/guide/start.md")).toContain("Rewritten.");
@@ -1246,6 +1248,17 @@ describe("docs search checks", () => {
       ...pages,
       { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
     ], appBase)).resolves.toBeInstanceOf(Map)
+  })
+})
+
+it("uses the module-owned Takumi renderer in dev and prerender without shipping a runtime renderer", async () => {
+  const dependencies = await moduleDependencies({ options: { modules: [], alias: {}, docs: { comments: false } } })
+  const renderer = Object.entries(dependencies).find(([name]) => name.includes("nuxt-og-image"))?.[1]
+  expect(renderer).toMatchObject({
+    defaults: {
+      zeroRuntime: true,
+      compatibility: { dev: { takumi: "node" }, prerender: { takumi: "node" } },
+    },
   })
 })
 

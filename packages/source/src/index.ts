@@ -41,13 +41,7 @@ export type {
 export { splitSource } from "./core/split-source.ts"
 export type { SplitSource, SplitSourceItem, SplitSourceKey, SplitSourceOptions, SplitSourcePart } from "./core/split-source.ts"
 export { defineSource } from "./core/define.ts"
-export { createSource } from "./core/reader.ts"
-export {
-  clearSources,
-  registerSource,
-  registerSources,
-  useSource,
-} from "./core/registry.ts"
+export { useSource } from "./core/registry.ts"
 export type * from "./core/types.ts"
 export type { SourceErrorCode } from "./core/errors.ts"
 export { sourceIgnores } from "./ignores.ts"

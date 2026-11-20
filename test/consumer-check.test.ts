@@ -243,7 +243,7 @@ process.exit(result.status ?? 2)`,
     commitAll(app, "current branch config")
     const environment: Record<string, string> = backend === "git" ? { PATH: searchPath("hidden-without-rg") } : {}
 
-    const result = check({ ...roots(app), ...environment }, "--name", "REMOVED_TOKEN")
+    const result = check({ ...roots(app), ...environment }, "--head", base, "--name", "REMOVED_TOKEN")
 
     expect(result.status).toBe(1)
     expect(result.stdout).toContain(`${app}:.github/workflows/build.yml:1 (working tree)`)

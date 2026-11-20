@@ -16,9 +16,9 @@ icon: i-lucide-logs
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { observability: { logs: { source: './server/logs.ts' } } },
+  vitehub: { logs: { source: './server/logs.ts' } },
   $development: {
-    vitehub: { observability: { logs: true } },
+    vitehub: { logs: true },
   },
 })
 ```
@@ -32,7 +32,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig(({ command }) => ({
   plugins: [
     vitehub({
-      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+      logs: command === 'serve' ? true : { source: './server/logs.ts' },
     }),
     nitro(),
   ],
@@ -47,7 +47,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig(({ command }) => ({
   plugins: [
     vitehub({
-      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+      logs: command === 'serve' ? true : { source: './server/logs.ts' },
     }),
   ],
 }))
@@ -57,7 +57,7 @@ export default defineConfig(({ command }) => ({
 
 ViteHub Logs uses Evlog for structured request events. Keep Evlog's logger API, framework adapters, options, and drains. ViteHub adds a read contract, Console inspection, and CLI access.
 
-`logs: true` keeps events in memory while the dev server runs. A production build needs `source`: a server file that reads the log service you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
+`logs: true` keeps events in memory while the dev server runs. A production build needs `source`, a server file that reads the log service you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
 ::product-features
   :::product-feature-item{title="Start locally" icon="i-lucide-terminal" to="/docs/logs/get-started"}
