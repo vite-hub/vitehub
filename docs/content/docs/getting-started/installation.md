@@ -190,10 +190,16 @@ Every feature except Env, Source, and Logs lives in its own package. If you enab
 
 If an installed `@vite-hub/*` package version does not match `vite-hub`, the build stops with [`VITE_HUB_PACKAGE_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_package_version_unsupported). Keep all ViteHub packages on the same release, and change pnpm `overrides` that pin them too.
 
-If a third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:
+If `drizzle-orm` is outside the range of `vite-hub`, such as a Drizzle 0.x, the build stops with [`VITE_HUB_PEER_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_peer_version_unsupported). ViteHub imports Drizzle 1.0 modules, so no other version can work. The Database feature and the Agent Invocation journal check it. pnpm keeps a version that the lockfile or another dependency already has, such as the 0.44 that `@nuxt/ui` brings in, and only warns. Add `drizzle-orm` to your app in the supported range:
+
+```text [output/unsupported-drizzle.txt]
+[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
+```
+
+If another third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:
 
 ```text [output/unsupported-package.txt]
-[vitehub] drizzle-orm 0.45.4 is installed, but vite-hub 0.2.0 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'
+[vitehub] @libsql/client 0.14.0 is installed, but vite-hub 0.3.1 supports @libsql/client@^0.18.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add '@libsql/client@^0.18.0'
 ```
 
 ::details{summary="Which features need their own package?"}
