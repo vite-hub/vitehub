@@ -16,9 +16,9 @@ icon: i-lucide-logs
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { observability: { logs: { source: './server/logs.ts' } } },
+  vitehub: { logs: { source: './server/logs.ts' } },
   $development: {
-    vitehub: { observability: { logs: true } },
+    vitehub: { logs: true },
   },
 })
 ```
@@ -32,7 +32,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig(({ command }) => ({
   plugins: [
     vitehub({
-      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+      logs: command === 'serve' ? true : { source: './server/logs.ts' },
     }),
     nitro(),
   ],
@@ -47,7 +47,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig(({ command }) => ({
   plugins: [
     vitehub({
-      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+      logs: command === 'serve' ? true : { source: './server/logs.ts' },
     }),
   ],
 }))

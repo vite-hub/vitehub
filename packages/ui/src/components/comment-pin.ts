@@ -26,7 +26,8 @@ export const CommentPin = defineComponent({
       if (props.draft) return "New comment";
       const by = props.author ? ` by ${displayName(props.author)}` : "";
       const text = props.excerpt ? `: ${props.excerpt}` : "";
-      return `Comment ${props.n}${by}${text}${props.status === "resolved" ? ", resolved" : ""}`;
+      const number = props.n === undefined ? "" : ` ${props.n}`;
+      return `Comment${number}${by}${text}${props.status === "resolved" ? ", resolved" : ""}`;
     };
     // The pin is left only when neither the pointer nor the focus is on it.
     let pointed = false;

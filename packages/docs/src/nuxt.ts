@@ -85,8 +85,8 @@ export interface DocsModuleOptions {
   dir?: string
   /**
    * Pages from folders and Content Sources, replacing `dir`: a folder relative to the app root, a Source such as
-   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The app-owned
-   * docsAssistant Workspace is configured separately.
+   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The docs assistant
+   * reads the same pages.
    */
   sources?: DocsSourceInput[]
   /** Section metadata overrides, keyed by section id. */
@@ -345,7 +345,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Images render while the build prerenders, so the server bundle carries no renderer and a Worker stays small.
       // Disabled setup still registers the no-op composable imported by useDocsSeo.
       // No runtime cache: its default `lru-cache` storage makes Nitro install `lru-cache` into the app on the first `nuxt dev`.
-      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, runtimeCacheStorage: false, defaults: { width: 1200, height: 630 } } },
+      // The default Takumi worker in dev and prerender loads `@takumi-rs/core` from the app, which may not have it.
+      // The in-process renderer imports it from nuxt-og-image, which gets this package's copy.
+      [dependency("nuxt-og-image")]: {
+        defaults: {
+          enabled: docs.ogImage !== false,
+          zeroRuntime: true,
+          runtimeCacheStorage: false,
+          compatibility: { dev: { takumi: "node" }, prerender: { takumi: "node" } },
+          defaults: { width: 1200, height: 630 },
+        },
+      },
       [dependency("nuxt-schema-org")]: {},
       // Installed after the app's modules and just before the link checker, so links to their redirect rules pass.
       ...docs.linkChecker === false ? {} : {

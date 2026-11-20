@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createSource, defineSource, splitSource, file } from "../src/index.ts"
+import { useSource, defineSource, splitSource, file } from "../src/index.ts"
 
 import type { SourceContext } from "../src/index.ts"
 
@@ -41,11 +41,11 @@ describe("splitSource()", () => {
     })
     const split = vi.fn((item: { content: string }) => [{ key: item.content, content: item.content }])
     const definition = splitSource({ source, split })
-    const oldReader = createSource(definition)
+    const oldReader = useSource(definition)
     await expect(oldReader.keys()).resolves.toEqual(["entry#old"])
 
     revision = "new"
-    const newReader = createSource(definition)
+    const newReader = useSource(definition)
     await expect(newReader.meta("entry#new")).resolves.toEqual({ revision: "new" })
     await expect(newReader.items()).resolves.toEqual([{ key: "entry#new", content: "new" }])
     await expect(newReader.get("entry#new")).resolves.toEqual({ key: "entry#new", content: "new" })
@@ -60,13 +60,13 @@ describe("splitSource()", () => {
       .mockResolvedValue([{ key: "part", content: "recovered" }])
     const definition = splitSource({ source: docs, split })
 
-    await expect(createSource(definition).get("bars.md#part")).rejects.toThrow("split failed")
-    await expect(createSource(definition).get("bars.md#part")).resolves.toMatchObject({ content: "recovered" })
+    await expect(useSource(definition).get("bars.md#part")).rejects.toThrow("split failed")
+    await expect(useSource(definition).get("bars.md#part")).resolves.toMatchObject({ content: "recovered" })
     expect(split).toHaveBeenCalledTimes(2)
   })
 
   it("lists one item per part, keyed by the parent key and the part key", async () => {
-    const reader = createSource(splitSource({
+    const reader = useSource(splitSource({
       source: docs,
       split: item => sections(String(item.content)),
     }))
@@ -85,7 +85,7 @@ describe("splitSource()", () => {
 
   it("reads only the parent item for one part", async () => {
     const getItem = vi.fn(docs.getItem)
-    const reader = createSource(splitSource({
+    const reader = useSource(splitSource({
       source: { ...docs, getItem },
       split: item => sections(String(item.content)),
     }))
@@ -105,7 +105,7 @@ describe("splitSource()", () => {
       },
       getMeta,
     })
-    const reader = createSource(splitSource({
+    const reader = useSource(splitSource({
       source,
       split: () => [{ key: "part", metadata: { shared: "part" } }],
     }))
@@ -123,7 +123,7 @@ describe("splitSource()", () => {
   it("does not split parent content for an uncached metadata lookup", async () => {
     const split = vi.fn(() => [{ key: "part" }])
     const getMeta = vi.fn(async () => ({ digest: "parent" }))
-    const reader = createSource(splitSource({
+    const reader = useSource(splitSource({
       source: defineSource({
         name: "metadata-only",
         async getKeys() { return ["entry"] },
@@ -139,7 +139,7 @@ describe("splitSource()", () => {
   })
 
   it("keeps file methods when every part has content", async () => {
-    const reader = createSource(splitSource({
+    const reader = useSource(splitSource({
       source: file({ workspacePath: "guide.md", content: "## Start\nHi\n## End\nBye" }),
       split: item => sections(String(item.content)).map(part => ({ key: part.key, content: part.data.body })),
     }))
@@ -149,7 +149,7 @@ describe("splitSource()", () => {
   })
 
   it("rejects part keys that are empty, contain #, or repeat", async () => {
-    const reader = (keys: string[]) => createSource(splitSource({
+    const reader = (keys: string[]) => useSource(splitSource({
       source: docs,
       split: item => item.key === "bars.md" ? keys.map(key => ({ key })) : [],
     }))
@@ -160,7 +160,7 @@ describe("splitSource()", () => {
   })
 
   it("names a missing part", async () => {
-    const reader = createSource(splitSource({ source: docs, split: () => [] }))
+    const reader = useSource(splitSource({ source: docs, split: () => [] }))
 
     await expect(reader.get("bars.md#area")).rejects.toThrow("could not find \"bars.md#area\"")
   })

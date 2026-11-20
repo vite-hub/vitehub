@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, and `workspace-repo`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, and `cli-yes-flag`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -56,7 +56,7 @@ The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBO
 
 ## vitehub-options
 
-`vitehub()` is the only place for config, and `logs` is part of `observability`. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
 
 ```bash [Terminal]
 npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
@@ -66,15 +66,18 @@ npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
 | --- | --- |
 | `vitehub({ preset })`, `vitehub: { preset }` in `nuxt.config.ts` | `host` |
 | `sandbox: true` | `sandboxTask: true` |
-| `vitehub({ logs: true })` | `vitehub({ observability: { logs: true } })` |
-| `logs: { evlog, source }` | `observability: { evlog, logs: { source } }` |
+| `vitehub({ observability: { logs: true } })` | `vitehub({ logs: true })` |
+| `vitehub({ observability: { logs: false } })` | `vitehub({ observability: true, logs: false })` |
+| `logs: { evlog, source }` | `observability: { evlog }, logs: { source }` |
 | `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
 | `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
 | `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
 | A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKV()` |
 | `devtools`, `contentImportBase` | removed |
 
-The report lists what the codemod cannot move: `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+The codemod also moves Logs options in literal Nuxt environment overrides. It keeps Evlog enabled when local capture was conditional or disabled. If it cannot preserve whether Evlog starts, such as when a read-only source is set next to Evlog options without a `service`, it reports a manual follow-up instead of changing the config.
+
+The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
 
 Sandbox Task option objects move like the other keys: into `vitehub({ sandboxTask })`, the `vite-hub/nuxt` options, or an existing `hubSandboxTask()` call without arguments.
 
@@ -459,3 +462,31 @@ npx @vite-hub/codemods workspace-repo [dir] [--dry-run]
 ```
 
 The codemod changes inline GitHub Stores in `defineWorkspace()` and `vitehub()` calls. If a Store sets both keys or uses spreads or computed keys, the report asks you to move the previously effective repository to `repo` by hand. Migrate separately declared Store options by hand as well. The Workspace `fetch()` Source is now `url()`; `renamed-apis` updates imports while keeping their local names.
+
+## kv-list-prefix
+
+`kv-list-prefix` moves the KV listing and clearing calls to one prefix option. `kv.keys()` is gone, and `kv.list()` reads every key when you set no `limit`. `{ prefix }` matches text, so the codemod adds a `:` to a literal base to keep the keys below it:
+
+```bash [Terminal]
+npx @vite-hub/codemods kv-list-prefix [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `const [error, keys] = await kv.keys('drafts')` | `const [error, { keys } = { keys: [] }] = await kv.list({ prefix: 'drafts:' })` |
+| `kv.clear('drafts')` | `kv.clear({ prefix: 'drafts:' })` |
+| `kv.store('sessions').clear('users:')` | `kv.store('sessions').clear({ prefix: 'users:' })` |
+
+The report lists a `keys()` call in another form, and a `keys()` or `clear()` call whose base is not a literal.
+
+## cli-yes-flag
+
+`cli-yes-flag` checks `package.json` scripts, `.github/workflows/*.{yml,yaml}`, and `*.sh` files for old ViteHub CLI prompt flags.
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-yes-flag [dir] [--dry-run]
+```
+
+For simple commands, it changes `database drop` and `database reset` from `--force` to `--yes`. It changes `connections revoke` from `--confirm <name>` to `--yes` only when the target and confirmation are the same literal name. For simple shell scripts, it replaces `database generate --non-interactive` with `CI=1 vitehub database generate` (keeping other arguments).
+
+The report lists commands it cannot safely change. If it lists a `database generate` command, set `CI=1` in the command's environment before you remove `--non-interactive` so it still cannot prompt.
