@@ -18,6 +18,12 @@ export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
  */
 export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
 
+/**
+ * Marks a gateway whose Chat Completions endpoint accepts a JSON schema in `response_format`. A symbol key, so key
+ * checks and copies skip it. `languageModel()` then sends the output schema on `api: "chat"`, not plain `json_object`.
+ */
+export const aiGatewayStructuredOutputs: unique symbol = Symbol.for("vitehub.aiGateway.structuredOutputs")
+
 /** Resolves model credentials together with headers that depend on their source. */
 export const aiGatewayModelCredentials: unique symbol = Symbol.for("vitehub.aiGateway.modelCredentials")
 

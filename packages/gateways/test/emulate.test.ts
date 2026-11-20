@@ -1,4 +1,4 @@
-import { generateObject, generateText, jsonSchema, stepCountIs, streamText, tool } from "ai"
+import { Output, generateObject, generateText, jsonSchema, stepCountIs, streamText, tool } from "ai"
 import { createEmulator } from "emulate"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import { resolveAiGatewayRoute } from "../src/internal.ts"
 
 import type { AiFormat, AiSeedConfig } from "@emulators/ai"
 import type { Emulator } from "emulate"
+import type { AiGateway } from "../src/index.ts"
 
 // `languageModel()` returns a LanguageModelV4, which only `ai` 7 calls. `ai` 6 accepts V2 and V3 models only,
 // so these runs use the catalog `ai` 7. The `ai` 6 peer range serves `askWithModel()`, which takes any model.
@@ -83,12 +84,32 @@ describe("emulate()", () => {
     expect(await matchedRules()).toEqual([`${api}-text`, `${api}-stream`, `${api}-tool-call`, `${api}-tool-result`, `${api}-object`])
   })
 
-  it("routes Codex, Claude Code, and OpenAI-compatible requests without a key", async () => {
-    expect(emulate({ url: "http://127.0.0.1:4100/v1/" }).baseURL).toEqual({ "codex": "http://127.0.0.1:4100/v1", "claude-code": "http://127.0.0.1:4100", "openai-compatible": "http://127.0.0.1:4100/v1" })
+  it.each(apis)("sends the output schema on $api, so an object without a rule passes the schema", async ({ api, model: id }) => {
+    const unseeded = await createEmulator({ service: "ai", port: 0 })
+    try {
+      const { output } = await generateText({
+        model: languageModel(emulate({ url: unseeded.url }), id, { api }),
+        prompt: "Give the city.",
+        output: Output.object({ schema: jsonSchema<{ city: string, celsius: number }>({ type: "object", properties: { city: { type: "string" }, celsius: { type: "number" } }, required: ["city", "celsius"], additionalProperties: false }) }),
+      })
+      expect(output).toEqual({ city: expect.any(String), celsius: expect.any(Number) })
+      const calls = await (await fetch(`${unseeded.url}/_ai/calls`)).json() as { matched: unknown }[]
+      expect(calls).toMatchObject([{ matched: { default: "json_schema" } }])
+    }
+    finally {
+      await unseeded.close()
+    }
+  })
+
+  it("routes AI SDK requests without a key and has no Codex URL", async () => {
+    expect(emulate({ url: "http://127.0.0.1:4100/v1/" }).baseURL).toEqual({ "claude-code": "http://127.0.0.1:4100", "openai-compatible": "http://127.0.0.1:4100/v1" })
     vi.stubEnv("VITEHUB_EMULATE_URL", undefined)
     vi.stubEnv("OPENAI_API_KEY", "must-not-be-read")
-    expect(await resolveAiGatewayRoute(emulate(), "codex", {})).toEqual({ apiKey: "emulate", auth: "bearer", baseURL: "http://localhost:4014/v1", headers: [] })
+    expect(await resolveAiGatewayRoute(emulate(), "openai-compatible", {})).toEqual({ apiKey: "emulate", auth: "bearer", baseURL: "http://localhost:4014/v1", headers: [] })
     expect(await resolveAiGatewayRoute(emulate(), "claude-code", {})).toMatchObject({ apiKey: "emulate", baseURL: "http://localhost:4014" })
+    // @ts-expect-error The emulator rejects the tools that the Codex CLI sends, so the Codex Driver cannot take emulate().
+    const codexGateway: AiGateway<{ routes: "codex" }> = emulate()
+    expect(codexGateway.baseURL).not.toHaveProperty("codex")
   })
 
   it("reads VITEHUB_EMULATE_URL, and url overrides it", async () => {

@@ -1,4 +1,4 @@
-import { aiGatewaySupports, resolveAiGatewayModelRoute } from "./definition.ts"
+import { aiGatewayStructuredOutputs, aiGatewaySupports, resolveAiGatewayModelRoute } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { LanguageModelV4 } from "@ai-sdk/provider"
@@ -62,7 +62,7 @@ function headerRecord(route: AiGatewayModelRoute): Record<string, string> {
   return Object.fromEntries([...route.headers, ...(route.auth === "x-api-key" && route.apiKey ? [["x-api-key", route.apiKey]] : [])])
 }
 
-async function createModel(name: string, modelId: string, api: AiGatewayModelApi, route: AiGatewayModelRoute, fetch?: typeof globalThis.fetch): Promise<LanguageModelV4> {
+async function createModel(name: string, modelId: string, api: AiGatewayModelApi, route: AiGatewayModelRoute, fetch?: typeof globalThis.fetch, structuredOutputs = false): Promise<LanguageModelV4> {
   const headers = headerRecord(route)
   const shared = { headers, name, ...(fetch ? { fetch } : {}) }
   if (api === "chat") {
@@ -72,6 +72,8 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
       baseURL: route.baseURL,
       // Without it, streamed responses carry no token counts.
       includeUsage: true,
+      // Without it, the provider sends `json_object` without the output schema.
+      ...(structuredOutputs ? { supportsStructuredOutputs: true } : {}),
       ...(route.apiKey && route.auth === "bearer" ? { apiKey: route.apiKey } : {}),
     }).chatModel(modelId)
   }
@@ -132,9 +134,10 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${api}" model API. Set baseURL["${route}"] or choose another api.` })
   }
   const id = modelId.trim()
+  const structuredOutputs = Reflect.get(gateway, aiGatewayStructuredOutputs) === true
   const model = async (abortSignal?: AbortSignal) => {
     const resolved = await resolveAiGatewayModelRoute(gateway, route, abortSignal ? { abortSignal } : {})
-    return await createModel(gateway.name, id, api, resolved, options.fetch)
+    return await createModel(gateway.name, id, api, resolved, options.fetch, structuredOutputs)
   }
   return {
     specificationVersion: "v4",

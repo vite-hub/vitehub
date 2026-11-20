@@ -18,7 +18,7 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 | `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
 | `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
 | `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `emulate()` | `<url>/v1` | `<url>` | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
+| `emulate()` | | `<url>` (AI SDK `messages` only) | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
 | `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
@@ -85,12 +85,14 @@ const model = languageModel(emulate(), 'gpt-5.1', { api: 'responses' })
 const { text } = await generateText({ model, prompt: 'Hello' })
 ```
 
-- `emulate()` serves `api: 'chat'`, `'responses'`, and `'messages'`. The emulator accepts any model ID.
-- It reads no credentials. It sends the key `emulate`, because the CLIs and the AI SDK providers need a key.
+- `emulate()` serves AI SDK models with `api: 'chat'`, `'responses'`, and `'messages'`. The emulator accepts any model ID.
+- Without a matching rule, the emulator returns a default reply. For `Output.object()` and `generateObject()`, that reply follows your schema on all three APIs.
+- It reads no credentials. It sends the key `emulate`, because the AI SDK providers need a key.
 - `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
 - In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
-- The emulator rejects hosted tools, such as web search. Claude Code cannot use it yet, because the emulator rejects the `system` turns that Claude Code sends.
+- The emulator rejects hosted tools, such as web search.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. A later ViteHub release runs Codex Agents on the emulator through the Codex Driver. Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 
