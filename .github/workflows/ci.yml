@@ -850,7 +850,6 @@ jobs:
       - name: Select the check
         id: changed
         env:
-          BASE_REF: origin/${{ github.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" != "pull_request" ]; then
@@ -858,7 +857,9 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          base_sha="$(git rev-parse HEAD^1)"
+          echo "base-sha=$base_sha" >> "$GITHUB_OUTPUT"
+          files="$(git diff --name-only "$base_sha" HEAD)"
           if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
@@ -883,13 +884,13 @@ jobs:
       - name: Capture the base
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
-          BASE_REF: origin/${{ github.base_ref }}
+          BASE_SHA: ${{ steps.changed.outputs.base-sha }}
         run: |
           oracle=packages/vite-hub/test/console-pixels.browser.mjs
           cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
           install=false
-          git diff --quiet HEAD "$BASE_REF" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
-          git checkout --quiet --detach "$BASE_REF"
+          git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_SHA"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
           if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
           for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done

@@ -169,6 +169,9 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const namedChannelHosts = () => ({})",
     "export const resolvePublicUrl = () => undefined",
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
+    "export const installChannelsConsoleHost = () => {}",
+    "export const setAgentWorkflowCapabilityLoaders = () => {}",
+    "export const setAgentHostCapabilities = () => {}",
   ].join("\n"), "utf8")
   return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
@@ -2288,13 +2291,11 @@ describe("agent Vite plugin", () => {
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
             vitehub: { host: "netlify" },
             resolve: {
-              alias: agentProviderOutputAliases([
-                // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
-                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
-                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
-                // Since #2493 the Netlify function also imports the host database capability.
-                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/src/runtime/registry.ts") },
-              ]),
+              alias: [
+                ...await stubNetlifyAgentRuntime(root),
+                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/dist/index.js") },
+                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/dist/runtime/registry.js") },
+              ],
             },
             root,
           } as never,
