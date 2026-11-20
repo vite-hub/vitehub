@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { github, clearSources, registerSources, useSource } from "../../src/index.ts"
+import { github, useSource } from "../../src/index.ts"
+import { clearSources, registerSources } from "../../src/internal/registry.ts"
 import { createGitHubCacheKey, githubAuthenticationScope } from "../../src/sources/github/cache.ts"
 import { createTarGz, isArchiveRequest, jsonResponse, repositoryResponse, requestAuthorization, stubGitHubSource } from "./fixtures/github.ts"
 

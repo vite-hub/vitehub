@@ -72,10 +72,10 @@ Each function returns `[error, data]` and does not throw. A one-time Schedule le
 
 ### How started Schedules run
 
-When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from KV and runs the due ones. So started Schedules need `kv`, and on Node they need `schedule: { runtime: { driver: 'process' } }`.
+When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from the store and runs the due ones. On Node with KV off, the Process Runtime keeps started Schedules in memory, so they are lost on restart. Host cron needs `kv`.
 
-- The store is KV, one key for each Schedule under `vitehub:schedule/started-schedules/`, or under the `runtime.prefix` that you set. It survives restarts and deploys.
-- With the Process Runtime, the first wake after a restart runs the cron minutes that no process checked, within `catchUpMs` (one hour by default). A one-time Schedule whose `at` passed while the process was down runs at the first wake.
+- With KV, the store uses one key for each Schedule under `vitehub:schedule/started-schedules/`, or under the `runtime.prefix` that you set. Use persistent KV to keep these keys across restarts and deploys.
+- With the Process Runtime and persistent KV, the first wake after a restart runs the cron minutes that no process checked, within `catchUpMs` (one hour by default). A one-time Schedule whose `at` passed while the process was down runs at the first wake.
 - On Cloudflare, each wake checks its own minute only, because the run history is in memory there. A Cron Trigger that does not fire skips that minute for cron Schedules.
 - Each occurrence has the run id `srun_started_<id>_<time>`. The same Process Runtime does not run an occurrence twice. On Cloudflare, KV is eventually consistent, so a one-time Schedule can run twice when two wakes see it. Use `context.runId` as an idempotency key for side effects that must happen once.
 - The `vitehub/started-schedules` wake records no run of its own. It sets `manual: true`, so `vitehub schedule run vitehub/started-schedules` and the Console run action check for due Schedules now.

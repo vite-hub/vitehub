@@ -20,13 +20,15 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
-import { materializeAgentModel } from "./internal/agent-model.ts"
+import { emulatedGateway, languageModelRoute, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { emulatedModelOverride, materializeAgentModel } from "./internal/agent-model.ts"
 import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { openModelSteering, type ModelSteering } from "./internal/model-steering.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
@@ -174,16 +176,8 @@ function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefine
   return content.length ? content : undefined
 }
 
-function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): boolean {
-  return part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-}
-
-/** Chat context parts may carry the exact text for the model in `data.modelText`. */
 function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
-  const data = part.data
-  return isChatModelTextPart(part) && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-    ? data.modelText
-    : JSON.stringify(data)
+  return chatContextModelText(part) ?? JSON.stringify(part.data)
 }
 
 function toTextModelMessageContent(parts: MessagePart[]): string {
@@ -240,7 +234,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { text: part.text, type: "text" as const }
   }
-  if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
+  if (isDataMessagePart(part) && isChatReplyPartType(part.type)) {
     const text = dataPartModelText(part)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return text ? { text, type: "text" as const } : undefined
@@ -1338,6 +1332,27 @@ function openAgentSteering(context: AgentAdapterRunContext): ModelSteering | und
   return steering
 }
 
+/**
+ * Call settings whose `prepareCall` and `prepareStep` send a model that they return to the AI emulator. The AI SDK
+ * calls the returned model instead of the Agent model, so `VITEHUB_MODELS=emulate` must apply to it too.
+ */
+function withEmulatedModelOverrides(settings: Record<string, unknown>, context: AgentModelResolverContext, emulatedModels: readonly unknown[]): Record<string, unknown> {
+  const wrap = (prepare: unknown) => typeof prepare === "function"
+    ? async (...args: unknown[]) => {
+        const prepared: unknown = await Reflect.apply(prepare, undefined, args)
+        if (typeof prepared !== "object" || prepared === null || !("model" in prepared)) return prepared
+        const model = prepared.model
+        if (model === undefined || emulatedModels.includes(model)) return prepared
+        return { ...prepared, model: await emulatedModelOverride(model, context) }
+      }
+    : prepare
+  return {
+    ...settings,
+    ...(settings.prepareCall === undefined ? {} : { prepareCall: wrap(settings.prepareCall) }),
+    ...(settings.prepareStep === undefined ? {} : { prepareStep: wrap(settings.prepareStep) }),
+  }
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -1363,13 +1378,18 @@ async function createAgent(
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const model = options.gateway
+  const model = await materializeAgentModel(options.gateway
     ? chatgptLanguageModel(options.gateway, String(options.model), { ...modelContext, abortSignal: context.input.abortSignal })
-    : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
+    : await resolveValue(options.model as never, modelContext), modelContext)
+  const emulated = resolveModelEmulation(modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
-  const observedModel = instrumentations.length
+  const instrumentedDriverModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  // A Capability can replace the model. With VITEHUB_MODELS=emulate, the replacement goes to the emulator too.
+  const observedModel = emulated && instrumentedDriverModel !== model
+    ? await emulatedModelOverride(instrumentedDriverModel, modelContext)
+    : instrumentedDriverModel
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
     throw agentDiagnostics.AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED()
@@ -1383,7 +1403,7 @@ async function createAgent(
     ),
     metadataContext,
     context.workspaceInstructionBindings,
-  )
+  ) || undefined
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
   const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence((await applyCapabilityToolTransforms({
     ...context.tools,
@@ -1393,7 +1413,7 @@ async function createAgent(
     args: tool.args || {},
     id: tool.id,
     name: tool.name,
-    type: "provider-defined",
+    type: "provider",
   }]))
   const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
@@ -1403,6 +1423,7 @@ async function createAgent(
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
         model: {
+          ...(languageModelRoute(model)?.gateway === emulatedGateway ? { gateway: emulatedGateway } : {}),
           ...(typeof telemetryModel?.modelId === "string" ? { id: telemetryModel.modelId } : {}),
           ...(typeof telemetryModel?.provider === "string" ? { provider: telemetryModel.provider } : {}),
         },
@@ -1442,7 +1463,8 @@ async function createAgent(
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
-  const commonSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
+  const runtimeSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
+  const commonSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext, [model, observedModel, instrumentedModel]) : runtimeSettings
   const repairSettings = withoutToolCallSettings(commonSettings)
   const prepareCall = commonSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"

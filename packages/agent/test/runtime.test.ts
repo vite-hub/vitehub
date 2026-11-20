@@ -3064,7 +3064,7 @@ describe("agent message protocol", () => {
             webhook: defineChannelTrigger({
               input: inputSchema,
               invoke: (_context, input) => ({ input: { prompt: input.payload.text } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: () => "secret" }],
             }),
           },
         }),
@@ -3106,7 +3106,7 @@ describe("agent message protocol", () => {
           triggers: {
             webhook: defineChannelTrigger({
               invoke: () => ({ input: { prompt: "accepted" } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: secretToken as never }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: secretToken as never }],
             }),
           },
         }),
@@ -3138,7 +3138,7 @@ describe("agent message protocol", () => {
           triggers: {
             webhook: defineChannelTrigger({
               invoke: () => ({ input: { prompt: "accepted" } }),
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: new SecretResolver() as never }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: new SecretResolver() as never }],
             }),
           },
         }),
@@ -3235,7 +3235,7 @@ describe("agent message protocol", () => {
                 },
               },
               invoke,
-              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secret: () => "secret" }],
             }),
           },
         }),
@@ -4727,7 +4727,7 @@ describe("agent message protocol", () => {
           webhooks: {
             telegram: {
               path: "/api/webhooks/telegram",
-              secretToken: "secret-token",
+              secret: "WEBHOOK_SECRET",
             },
             slack: {
               path: "/api/webhooks/slack",
@@ -4748,7 +4748,7 @@ describe("agent message protocol", () => {
           path: "/api/webhooks/telegram",
           provider: "telegram",
           secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
+          secret: "WEBHOOK_SECRET",
         }, {
           id: "slack",
           method: "POST",
@@ -4822,7 +4822,7 @@ describe("agent message protocol", () => {
           adapter,
           webhooks: {
             path: "/api/telegram/support",
-            secretToken: "secret-token",
+            secret: "WEBHOOK_SECRET",
           },
         }),
       },
@@ -4839,7 +4839,7 @@ describe("agent message protocol", () => {
           path: "/api/telegram/support",
           provider: "telegram",
           secretHeader: "x-telegram-bot-api-secret-token",
-          secretToken: "secret-token",
+          secret: "WEBHOOK_SECRET",
         }],
       },
     })
@@ -4876,8 +4876,9 @@ describe("agent message protocol", () => {
           path: "/api/github/webhook",
           provider: "github",
           secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
+          // A static GitHub App secret is a value, so it goes in a function: a string names a variable.
+          secret: expect.any(Function),
+          signature: "github",
         }],
       },
     })
@@ -4910,8 +4911,9 @@ describe("agent message protocol", () => {
           path: "/api/github/webhook",
           provider: "github",
           secretHeader: "x-hub-signature-256",
-          secretToken: "secret-token",
-          signature: "github-sha256",
+          // A static GitHub App secret is a value, so it goes in a function: a string names a variable.
+          secret: expect.any(Function),
+          signature: "github",
         }],
       },
     })
@@ -5616,11 +5618,11 @@ describe("agent message protocol", () => {
 
   it("keeps generated webhook ids unique for channel webhook arrays", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => ({}) as never,
           webhooks: [
@@ -5671,20 +5673,13 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("rejects unwired HTTP channel paths", async () => {
-    const { http } = await import("../src/channels.ts")
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
-  })
-
   it("rejects channel webhooks without an adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
 
     expect(() => defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           webhooks: { path: "/api/support/chat" },
         }),
       },
@@ -6051,7 +6046,7 @@ describe("agent message protocol", () => {
     const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
-    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const request = () => new Request("https://example.com/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
       }),
@@ -16006,7 +16001,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        support: async () => ({ handler: async (_payload, context) => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
       })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16052,7 +16047,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
-          handler: async (_payload, context) => ({ marker: "registry", payload: context.payload }),
+          handler: async context => ({ marker: "registry", payload: context.payload }),
         }),
       })
 

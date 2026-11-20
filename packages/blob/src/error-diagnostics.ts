@@ -62,6 +62,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ pathname, store }: { pathname: string, store: string }) => `Blob ${pathname} already exists in store ${store}.`,
       fix: "Pass `overwrite: true` to `blob.put` to replace it, or use another pathname.",
     },
+    BLOB_FS_DEFAULT_FOLDER_INVALID: withFix("Use letters, digits, underscores, or hyphens in the store name, with dots only between groups of those characters. Set BLOB_FS_BASE to a folder with a name, or set base directly on the fs store."),
     BLOB_FS_WRITE_STALLED: {
       why: "Multipart output write made no progress.",
       fix: "Check that the disk of the `fs` store folder, `.vitehub/data/blob` by default, has free space and accepts writes. Then complete the multipart upload again.",

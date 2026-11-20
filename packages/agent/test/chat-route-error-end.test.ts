@@ -44,7 +44,7 @@ describe("Agent chat route errors", () => {
     )
     const body = JSON.stringify({ id: "chat-1", messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
     // The body ends with [DONE] after the error frame, so the client reads a complete stream.
     const text = await response.text()
@@ -60,7 +60,7 @@ describe("Agent chat route errors", () => {
       defineAgent({ capabilities: [defineChatCapability()], driver: { model } }) as never,
     )
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
     expect(await response.text()).toContain('"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."')
   })
 
@@ -73,7 +73,7 @@ describe("Agent chat route errors", () => {
     )
     const body = JSON.stringify({ id: "chat-1", messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
@@ -89,7 +89,7 @@ describe("Agent chat route errors", () => {
       defineAgent({ capabilities: [defineChatCapability()], driver: { run: () => failingSseResponse() } }) as never,
     )
     // SAFETY: agentName is the only route option this test needs.
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", { body: chatBody, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
 
     const text = await response.text()
     expect(text).toContain('"type":"tool-output-available"')

@@ -195,3 +195,29 @@ describe("Block menu", () => {
     }
   })
 })
+
+describe("Section links", () => {
+  // The test tsconfig has no DOM library. happy-dom provides `location`.
+  const setHash = (hash: string) => Reflect.set(Reflect.get(globalThis, "location"), "hash", hash)
+  afterEach(() => setHash(""))
+
+  it("does not scroll to the linked section after the editor unmounts", async () => {
+    setHash("#intro")
+    const wrapper = shallowMount(ConsoleMarkdownEditor, {
+      props: { active: true, collection: "posts", modelValue: "# Intro\n\nBody\n" },
+      global: {
+        stubs: {
+          UButton: true, UDropdownMenu: true, UEditorDragHandle: true, UEditorSuggestionMenu: true,
+          UEditorToolbar: true, UIcon: true, UInput: true, UPopover: true,
+        },
+      },
+    })
+    await flushPromises()
+    const editor = wrapper.getComponent(EditorContent).props("editor")
+    if (!editor) throw new Error("Rich editor did not initialize")
+    const chain = vi.spyOn(editor, "chain")
+    wrapper.unmount()
+    await new Promise(resolve => setTimeout(resolve, 350))
+    expect(chain).not.toHaveBeenCalled()
+  })
+})

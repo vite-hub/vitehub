@@ -30,7 +30,7 @@ describe("Server Env providers", () => {
     await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback" })
     expect(() => resolveServerEnv(registry, cloudflareRequest({ PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" })).token).toThrow(expect.objectContaining({
       code: "ENV_REQUIRED_MISSING",
-      details: { path: "env.server.token", source: "env" },
+      details: { names: ["VITEHUB_TOKEN", "PRIMARY_TOKEN", "FALLBACK_TOKEN"], path: "env.server.token", source: "env" },
     }))
   })
 
@@ -44,7 +44,7 @@ describe("Server Env providers", () => {
     expect(shadowed.apiKey.unseal()).toBe("vendor-secret")
     expect(() => resolveServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "", REGION: "eu" })).apiKey).toThrow(expect.objectContaining({
       code: "ENV_REQUIRED_MISSING",
-      details: { path: "env.server.apiKey", source: "env" },
+      details: { names: ["VITEHUB_API_KEY", "VENDOR_API_KEY"], path: "env.server.apiKey", source: "env" },
     }))
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "", VITEHUB_REGION: "" }))
     expect(inspection.entries.map(entry => entry.status)).toEqual(["missing", "missing"])
@@ -334,7 +334,7 @@ describe("Server Env providers", () => {
     expect(missingRequired).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
       details: { path: "env.server.token", source: "provider" },
-      message: "[vitehub] Required Env value is missing.",
+      message: "[vitehub] Required Env value env.server.token is missing.",
     })
 
     const hostile = createRuntimeRegistry({

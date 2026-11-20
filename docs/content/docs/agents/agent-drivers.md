@@ -68,6 +68,29 @@ export default defineAgent({
 | `execution.instrumentation` | Wraps the model or overrides call settings per Invocation. |
 | `execution.workspaceFallback` | Writes an answer from Workspace evidence when a run has tool results but no text. |
 
+### Run on the AI emulator
+
+Set `VITEHUB_MODELS=emulate` to run model-backed Agents with no AI key in dev and tests. ViteHub then sends each model request to the [AI emulator](/docs/gateways/configure#ai-emulator), which answers from rules that you write. The Agent files do not change.
+
+```sh
+npx emulate@0.14.0 start --service ai --port 4014
+VITEHUB_MODELS=emulate vite dev
+```
+
+- `VITEHUB_EMULATE_URL` sets the emulator URL. The default is `http://localhost:4014`.
+- A model ID keeps its ID. Its prefix selects the model API: `openai/*` uses OpenAI Responses, `anthropic/*` uses Anthropic Messages, and other IDs use Chat Completions. `anthropic/*` IDs need `@ai-sdk/anthropic`, and other IDs need `@ai-sdk/openai-compatible`.
+- A `languageModel(gateway, id, { api })` model keeps its model API. A `chatgpt()` model uses OpenAI Responses.
+- Capability models, such as the `title()` model, go to the emulator too.
+- ViteHub reads no key and no ChatGPT grant while the switch is on.
+- A model from an AI SDK provider, such as `createOpenAI()`, fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`. An ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. ViteHub does not send them to the real provider.
+- In a production build, or when `NODE_ENV` is `production`, the switch fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`. A value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- Agent inspection and Invocation records show `gateway: "emulate"` for the model.
+- A Codex Driver without Capability tools runs Codex against the emulator. ViteHub reads no `driver.credentials`, no gateway key, and no ChatGPT grant. Codex gets a new Codex Home for each Invocation, also through a `driver.launch` wrapper, so the next Invocation replays the conversation. Web search, multi-agent, goals, apps, plugins, and MCP servers are off. Your launch arguments, from `providerSettings.launchArgs` or `T3CODE_CODEX_LAUNCH_ARGS` in `driver.env`, still apply, but the emulator settings come last and win, so `--enable multi_agent` stays off. Provider status reports no sign-in check, so a signed-out Codex or ChatGPT Connection does not stop the run.
+- Codex keeps its model ID, such as `gpt-5.5`. For a model in its own catalog, Codex sends a freeform `apply_patch` tool, which the emulator rejects. ViteHub gives Codex a model catalog that does not list the model, so Codex sends only function tools. On the emulator, Codex has no `apply_patch` tool and edits files with shell commands.
+- A Codex Driver with Capability tools fails with `AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED`, because Codex sends the tools as one `namespace` tool, which the emulator rejects. A Codex Driver with a `sandbox` fails with `AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED`, because the Sandbox cannot reach the emulator on your machine.
+- A Claude Code Driver fails with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, because the emulator rejects the `system` turns that Claude Code sends.
+- In these failures, ViteHub fails before it reads a credential, and it does not start the provider.
+
 ## Use a provider-backed Driver
 
 To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: codexDriver({ gateway: chatgpt() })`, with `chatgpt` from `vite-hub/gateways`. The CLI handles sign-in. Connections handles registration and refresh. This flow never falls back to an API key. Codex needs a POSIX Node.js host. A model-backed Driver uses the same grant on every host, including Cloudflare Workers: `driver: { model: 'gpt-5.5', gateway: chatgpt() }`.
@@ -218,6 +241,8 @@ export default defineAgent({
 ViteHub resolves `env` once, then calls `launch` with the environment, `command` (the executable to start), `providerCommand` (the original provider executable), the temporary working directory, and an abort signal. Build wrapper arguments from `command` and pick a provider runner from `providerCommand`. They are equal during Invocations. The wrapper gets its own arguments, then the provider arguments. ViteHub writes an owner-only temporary launcher outside the Workspace and removes it when the provider stops.
 
 With `launch`, a set `PATH` in `env`, a `toolchain`, or the managed browser, Codex runs its shell commands without a login shell (`allow_login_shell=false`). A login profile, such as Debian's `/etc/profile`, sets `PATH` again and hides commands such as `apply_patch`.
+
+When Codex runs unattended with Agent tools, it calls them through the `vitehub-invocation` MCP server. This is separate from the Console's `vitehub` MCP server. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN` for each Invocation and lists it in `requiredEnvironment`. Do not set it in `env`. If `env` sets only the old `T3_MCP_BEARER_TOKEN` key, ViteHub reports `AGENT_MCP_BEARER_TOKEN_RENAMED`. Remove the old key and update any wrapper that forwards it by name. Wrappers that forward `requiredEnvironment` need no change.
 
 Launch wrappers need a POSIX host. They change only process startup. Your app owns authorization, remote isolation, and wrapper credentials. Agent inspection shows whether `env` and `launch` are static or dynamic, without resolving them.
 

@@ -1,7 +1,7 @@
 export { custom } from "./custom.ts"
 export { file } from "./file.ts"
 export type { FileSourceOptions } from "./file.ts"
-export { fetch } from "./fetch.ts"
+export { url } from "./fetch.ts"
 export type { FetchSourceInput, FetchSourceOptions, FetchSourceRequest, FetchSourceRequestOptions, FetchSourceResolver } from "./fetch.ts"
 export { github } from "./github.ts"
 export type { GitHubSourceInput, GitHubSourceOptions, GitHubSourceResolver } from "./github.ts"

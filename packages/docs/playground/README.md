@@ -28,7 +28,7 @@ The docs assistant: the **Ask** button on every page opens a chat that answers f
 | `.claude/skills/illustration-isometric-mono/` | The illustration skill from [skills.sh](https://skills.sh/mengto/skills/illustration-isometric-mono), copied by hand, see below |
 | `server/auth.ts` | Better Auth in the `users` Database through `authDatabase("users")`: email and password, GitHub when its secrets exist, the admin plugin with the CMS roles, and the CMS roles |
 | `server/databases/users/`, `server/databases/content/` | Two D1 Database Definitions and their migrations. `users`: the Better Auth and OAuth tables. `content`: the CMS history and editor sessions, and the Comments tables |
-| `server/content.ts` | The CMS with `access: 'roles'` and `database: 'content'`: `docsCollection()`, and the `blog`, `changelog`, and `authors` collections. Today on the Blob + Database store (R2 and D1). With a GitHub token it moves to the GitHub store of this repository with `publish: 'commit'`, see the comment in the file |
+| `server/content.ts` | The CMS with `roles: true` and `database: 'content'`: `docsCollection()`, and the `blog`, `changelog`, and `authors` collections. Today on the Blob + Database store (R2 and D1). With a GitHub token it moves to the GitHub store of this repository with `publish: 'commit'`, see the comment in the file |
 | `server/comments.ts`, `server/console-authorize.ts` | Comments in the `content` Database (`database: "content"`), and Console access with the CMS roles |
 | `server/api/blog/`, `server/api/changelog/`, `server/routes/*/rss.xml.get.ts` | The published posts and releases, parsed with the docs parser, and the feeds |
 
@@ -70,7 +70,7 @@ Workarounds in the app, with the finding behind each:
 - `nitro.cloudflare.wrangler.assets.run_worker_first` for the docs pages and `/api/_docs/*`: without it the static prerendered pages answer first, so the Console preview pane stays blank and `Accept: text/markdown` gets HTML.
 - `linkChecker.excludeLinks`: the Worker renders `/blog`, `/changelog`, `/_vitehub`, and `/media/` at request time, so the build output has no file for them.
 - `h3` in `dependencies`: the Workflow Worker bundle of the Agent resolves `h3` from the generated `.nuxt` folder, where pnpm does not hoist it.
-- `workspace: {}` in `server/agents/docs/agent.ts`: it says that the Agent owns the pages Workspace of `docsAssistant`, so the build bundles the pages for the Worker.
+- `workspace: {}` in `server/agents/docs/agent.ts`: it says that the Agent owns the pages Workspace of `docsAssistant`. The Worker reads the pages from the files that the docs build packed.
 - `agents`, `@vite-hub/schedule`, `@vite-hub/shell`, and `@vite-hub/workflow` in `dependencies`: the Worker bundle imports them on paths that this app does not use (the docs MCP server on Workers, the Console Schedule route, the Workspace shell), and `wrangler deploy` fails when they are missing.
 - `NODE_OPTIONS=--max-old-space-size=6144` in the build script: the Nitro bundle runs out of the default heap.
 

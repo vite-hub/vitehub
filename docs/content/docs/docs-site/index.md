@@ -39,7 +39,7 @@ icon: i-lucide-library
   :::
 ::
 
-`@vite-hub/docs` is a Nuxt module. Each folder in `content/docs/` is a section, and each Markdown file in it is a page. The module adds a shell, search, and a Markdown copy for coding agents. [vitehub.dev](https://vitehub.dev) uses it.
+`@vite-hub/docs` is a Nuxt module. Each folder in `content/docs/` is a section, and each Markdown file in it is a page. The module adds a shell, search, and a Markdown copy of each page for coding agents. [vitehub.dev](https://vitehub.dev) uses it.
 
 ::product-features
   :::product-feature-item{title="Markdown in, site out" icon="i-lucide-file-text" to="/docs/docs-site/get-started"}
@@ -63,7 +63,7 @@ icon: i-lucide-library
   :::
 
   :::product-feature-item{title="Pages for coding agents" icon="i-lucide-bot" to="/docs/docs-site/configure#agent-resources"}
-  Each page has a Markdown copy at `/raw`. llms.txt, a sitemap, and an MCP server need no setup.
+  Each page has a Markdown copy at `/raw`. `llms.txt`, a sitemap, and an MCP server need no setup.
   :::
 
   :::product-feature-item{title="Edit pages in the Console" icon="i-lucide-pencil" to="/docs/docs-site/configure#edit-in-the-console"}

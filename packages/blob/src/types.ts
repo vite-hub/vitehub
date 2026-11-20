@@ -152,6 +152,7 @@ export interface BlobDriverStream {
 }
 
 export interface BlobDriverAdapter<TOptions> {
+  checkHealth?(): Promise<void>
   /** Canonical identity for drivers that resolve pathname aliases. */
   canonicalPathname?(pathname: string): string
   name: string
@@ -513,7 +514,7 @@ export interface FsBlobStoreConfig {
   remote?: boolean
   /**
    * Origin of the links that `sign()` returns, such as `https://app.example`. Add the base URL of the app when it has
-   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`.
+   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`.
    */
   urlBaseUrl?: string
 }

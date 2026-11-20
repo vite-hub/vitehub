@@ -26,14 +26,14 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
       "import other from '../agents/other'",
       "export default defineChannel({",
-      "  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
+      "  adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
       "  on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId, other: other.description }) }) },",
       "})",
     ].join("\n"))
     await writeFile(join(root, "server/channels/custom.ts"), [
       "import { defineChannel } from '@vite-hub/channels'",
       "import { channelAdapter as customAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "const registration = { path: '/custom', aliases: ['/old-custom'], secretToken: 'secret', secretHeader: 'authorization', signature: 'bearer' }",
+      "const registration = { path: '/custom', aliases: ['/old-custom'], secret: () => 'secret', secretHeader: 'authorization', signature: 'bearer' }",
       "export default defineChannel({ adapter: customAdapter('custom', {",
       "  messages: false, webhooks: [registration, { ...registration, path: '/custom-two', aliases: [] }],",
       "  triggers: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },",
@@ -47,7 +47,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
     await writeFile(join(root, "server/channels/tasks.ts"), [
       "import { defineChannel, webhook } from '@vite-hub/channels'",
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
+      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
       "  tasks: { reply: { agent: () => import('../agents/support'), prepare: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) } },",
       "  invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }),",
       "}) } })",
@@ -73,7 +73,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
       output = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
       const source = await readFile(output, "utf8")
-      for (const path of ["/api/_vitehub/channels/hooks", "/hooks", "/old-hooks", "/custom", "/old-custom", "/custom-two", "/chat", "/old-chat"]) expect(source).toContain(JSON.stringify(path))
+      for (const path of ["/_vitehub/channels/hooks", "/hooks", "/old-hooks", "/custom", "/old-custom", "/custom-two", "/chat", "/old-chat"]) expect(source).toContain(JSON.stringify(path))
     }
     else {
       await rm(join(root, "server"), { recursive: true })
@@ -91,8 +91,8 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "globalThis.Deno = { args: [], serve: callback => { handler = callback; return { finished: Promise.resolve() } } }",
       "const module = await import(process.argv[1])",
       "handler ||= module.default",
-      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
-      "  const context = { params: path.startsWith('/api/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
+      "for (const path of ['/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
+      "  const context = { params: path.startsWith('/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
       "  const denied = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}' }), context)",
       "  if (denied.status !== 401) throw new Error('Expected signature verification for ' + path + ', received ' + denied.status)",
       "  const response = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } }), context)",

@@ -49,7 +49,7 @@ it("records why a trigger result made the webhook route answer with a 5xx", asyn
             },
           }),
         },
-        webhooks: { path: "/hook", provider: "hook", secretToken: false },
+        webhooks: { path: "/hook", provider: "hook", secret: false },
       }),
     },
     driver: { run: () => "unused" },

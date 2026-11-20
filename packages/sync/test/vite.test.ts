@@ -2,11 +2,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { loadConfigFromFile } from "vite"
+import { describe, expect, it, vi } from "vitest"
 
 import { discoverSync, hubSync, renderSyncHandler, renderSyncTypes } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
+
+vi.mock("vite", async importOriginal => {
+  const vite = await importOriginal<typeof import("vite")>()
+  return { ...vite, loadConfigFromFile: vi.fn(vite.loadConfigFromFile) }
+})
 
 function app(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "vitehub-sync-"))
@@ -63,7 +69,7 @@ describe("hubSync", () => {
     const root = app({ "server/sync/todos.ts": "export default {}\n" })
     const { plugin, config } = await configure(root)
     const nitro: unknown = Reflect.get(config, "nitro")
-    expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, route: "/api/_vitehub/sync/**" }]))
+    expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, route: "/_vitehub/sync/**" }]))
     expect(readFileSync(join(root, ".vitehub/types/sync.d.ts"), "utf8")).toContain("interface ViteHubSyncMap")
     expect(await plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncColumns: "vitehub_sync_columns", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
   })
@@ -93,6 +99,13 @@ it("contributes SQLite tables to every selected named Database", async () => {
     expect.objectContaining({ database: "other", dialect: "sqlite" }),
     expect.objectContaining({ database: "second", dialect: "sqlite" }),
   ])
+})
+
+it("loads each definition with Vite's log level at error, since a definition is not a Vite config", async () => {
+  const root = app({ "server/sync/todos.ts": "export default { options: {} }" })
+  vi.mocked(loadConfigFromFile).mockClear()
+  await hubSync().vitehub.databases({ projectRoot: root })
+  expect(vi.mocked(loadConfigFromFile).mock.calls.map(call => [call[1], call[3]])).toEqual([[join(root, "server/sync/todos.ts"), "error"]])
 })
 
 it("keeps the default contribution alongside a named Database", async () => {

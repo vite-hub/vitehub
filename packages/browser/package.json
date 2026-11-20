@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/browser",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Browser Definitions and provider-backed sessions for ViteHub.",
   "keywords": [
     "browser",
@@ -88,7 +88,6 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
@@ -118,6 +117,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -52,6 +52,7 @@ try {
       "src/client.ts",
       "src/drizzle.ts",
       "src/index.ts",
+      "src/internal/registry.ts",
       "src/mcp.ts",
       "src/server.ts",
       "src/vite.ts",

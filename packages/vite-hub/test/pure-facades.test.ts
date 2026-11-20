@@ -14,7 +14,7 @@ const ownerPackages = new Set(Object.keys({ ...manifest.dependencies, ...manifes
  */
 const facades = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
   const path = subpath.replace(/^\.\/?/, "")
-  if (!path || path.startsWith("_internal/") || !ownerPackages.has(`@vite-hub/${path.split("/")[0]}`)) return []
+  if (!path || !ownerPackages.has(`@vite-hub/${path.split("/")[0]}`)) return []
   return distributionEntriesFromManifest(target).map(source => ({ owner: `@vite-hub/${path}`, source, subpath: `vite-hub/${path}` }))
 })
 

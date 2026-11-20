@@ -331,6 +331,20 @@ describe("kv runtime", () => {
     expect(upstashEval).not.toHaveBeenCalled()
   })
 
+  it("rejects a legacy clear argument without deleting any keys", async () => {
+    process.env.VITEHUB_HOST = "local"
+    fsLiteDriver = createDriverWithoutOptionalMethods()
+    const { kv } = await import("../src/runtime/storage.ts")
+    expectKVSuccess(await kv.set("drafts:1", true))
+    expectKVSuccess(await kv.set("settings:1", true))
+
+    // @ts-expect-error Exercise a legacy JavaScript caller.
+    const [error] = await kv.clear("drafts")
+    expect(error).toMatchObject({ code: "KV_INVALID_CLEAR_OPTIONS" })
+    expect(expectKVSuccess(await kv.get("drafts:1"))).toBe(true)
+    expect(expectKVSuccess(await kv.get("settings:1"))).toBe(true)
+  })
+
   it("accepts only a positive ttl as a set() option", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"

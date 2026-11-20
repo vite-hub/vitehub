@@ -118,7 +118,7 @@ it("reports the error of a failed native Vercel run", async () => {
     start: async () => run,
   }, { getWorld: async () => ({ steps: { list: async () => ({ data: [], hasMore: false }) } }) })
 
-  const inspected = await inspectVercelWorkflowRun("checkout", { handler: native, options: { native } }, "run-1")
+  const inspected = await inspectVercelWorkflowRun("checkout", { handler: native, native }, "run-1")
 
   expect(inspected).toMatchObject({ status: "failed" })
   expect(inspected.error).toEqual({ message: "payment API returned 503" })

@@ -520,6 +520,30 @@ describe("Blob Nitro runtime module", () => {
     expect(archived?.url).toBeUndefined()
   })
 
+  it("checks the filesystem roots of generated stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-health-")
+    const broken = join(rootDir, "archive")
+    const resolved = normalizeBlobOptions({
+      stores: {
+        archive: { base: broken, driver: "fs" },
+        default: { base: join(rootDir, "default"), driver: "fs" },
+      },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const runtime = join(rootDir, "runtime.mjs")
+    await writeFile(runtime, renderBlobRuntimeModule(runtime, resolved))
+    await writeFile(broken, "not a directory")
+
+    const state = new URL("../dist/runtime/state.js", import.meta.url).href
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import ${JSON.stringify(pathToFileURL(runtime).href)}
+      import { rejects } from 'node:assert/strict'
+      import { checkBlobStoreHealth } from ${JSON.stringify(state)}
+      await checkBlobStoreHealth('default')
+      await rejects(() => checkBlobStoreHealth('archive'), { code: 'ENOTDIR' })
+    `])
+  })
+
   it("generates Netlify Blobs driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-netlify-runtime-")
 

@@ -291,7 +291,12 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     const head = commits.get(String(variables.sha))
     if (!head) return json({ data: { repository: { object: null } } })
     const changed = ancestors(head.sha).map(commit => ({ commit, paths: [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree).keys()] }))
-    const object: Record<string, unknown> = {}
+    const object: Record<string, unknown> = {
+      recent: { nodes: changed.slice(0, 100).map(({ commit }) => ({
+        oid: commit.sha,
+        parents: { nodes: commit.parents.slice(0, 2).map(oid => ({ oid })) },
+      })) },
+    }
     for (const [alias, path] of Object.entries(variables)) {
       if (!/^p\d+$/.test(alias)) continue
       const latest = changed.find(entry => entry.paths.some(name => name === path || name.startsWith(`${String(path)}/`)))?.commit
@@ -659,14 +664,27 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
      * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
      * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
      */
-    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+    /**
+     * A signed webhook delivery of the branch head. `commits` are the push payload's commits with their `added`,
+     * `modified`, and `removed` paths; `before` and `forced` override the payload fields.
+     */
+    webhook(url: string, secret: string, input: { before?: string, branch?: string, commits?: Array<{ added?: string[], modified?: string[], removed?: string[] }>, event?: "ping" | "push" | (string & {}), forced?: boolean, repo?: string, signature?: string } = {}) {
       const branch = input.branch ?? "main"
       const after = branches.get(branch) ?? null
       const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
       const event = input.event ?? "push"
       const body = JSON.stringify(event === "ping"
         ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
-        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+        : {
+            ref: `refs/heads/${branch}`,
+            before: input.before ?? commits.get(after ?? "")?.parents[0] ?? "0".repeat(40),
+            after,
+            created: false,
+            deleted: false,
+            forced: input.forced ?? false,
+            repository,
+            commits: (input.commits ?? []).map(commit => ({ added: commit.added ?? [], modified: commit.modified ?? [], removed: commit.removed ?? [] })),
+          })
       const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
       return new Request(url, {
         method: "POST",

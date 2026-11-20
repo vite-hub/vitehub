@@ -212,7 +212,6 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
     },
   }
   return {
-    auth: true,
     identify: options.identify,
     document,
     editor: (context) => {
@@ -225,7 +224,8 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
       return editor
     },
     async authorize(context) {
-      if (content.live === false) return false
+      // Only an identified person edits Content live: the Console person from `identify`, or the Auth session user.
+      if (content.live === false || !context.user) return false
       if (options.authorize && (await options.authorize(context)) !== true) return false
       // The Workspace event channel carries no document. Content rooms do not use it, so any identified person may listen.
       if (context.documentId === null) return context.mode === "read"

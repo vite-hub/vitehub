@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, resolveRegisteredWorkspaceDefinition, url as urlSource, useWorkspace } from "../src/index.ts"
 import type { FetchSourceOptions } from "../src/sources/fetch.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"
@@ -35,7 +35,7 @@ describe("fetch sources", () => {
     const url = `https://status.example.com/query?__proto__=${query}`
     const view = createWorkspaceSourceView({
       name: "fetch-prototype-query",
-      sources: { status: fetch({ url, workspacePath: "status.json" }) },
+      sources: { status: urlSource({ url, workspacePath: "status.json" }) },
     }, createMemoryWorkspaceStore())
 
     await expect(view.readFile("status.json")).resolves.toContain("ok")
@@ -47,8 +47,8 @@ describe("fetch sources", () => {
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-prototype-request-match",
       sources: {
-        first: fetch({ url: "https://status.example.com/query?__proto__=first" }),
-        second: fetch({ url: "https://status.example.com/query?__proto__=second" }),
+        first: urlSource({ url: "https://status.example.com/query?__proto__=first" }),
+        second: urlSource({ url: "https://status.example.com/query?__proto__=second" }),
       },
     })!
 
@@ -63,7 +63,7 @@ describe("fetch sources", () => {
     const validate = vi.fn((input: unknown) => ({ value: input as Record<string, unknown> }))
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-prototype-query-schema",
-      sources: { status: fetch({
+      sources: { status: urlSource({
         querySchema: { "~standard": {
           validate,
           jsonSchema: { input: () => ({ type: "object" }) },
@@ -83,7 +83,7 @@ describe("fetch sources", () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ status: "ok" }))
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-query-order",
-      sources: { status: fetch({ url: "https://status.example.com/query?region=eu&tag=first&tag=second" }) },
+      sources: { status: urlSource({ url: "https://status.example.com/query?region=eu&tag=first&tag=second" }) },
     })!
 
     await expect(execution.executeSourceRequest({
@@ -103,7 +103,7 @@ describe("fetch sources", () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ status: "ok" }))
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-body-order",
-      sources: { status: fetch({
+      sources: { status: urlSource({
         body: { filter: { region: "eu", enabled: true }, tags: ["first", "second"] },
         method: "POST",
         url: "https://status.example.com/query",
@@ -129,7 +129,7 @@ describe("fetch sources", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ status: "ok" }))
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-unicode-query-order",
-      sources: { status: fetch({
+      sources: { status: urlSource({
         query: { "\u00e9": "first", "e\u0301": "second" },
         url: "https://status.example.com/query",
       }) },
@@ -146,7 +146,7 @@ describe("fetch sources", () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ status: "ok" }))
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-serialized-body",
-      sources: { status: fetch({ body, method: "POST", url: "https://status.example.com/query" }) },
+      sources: { status: urlSource({ body, method: "POST", url: "https://status.example.com/query" }) },
     })!
 
     await expect(execution.executeSourceRequest({
@@ -165,10 +165,10 @@ describe("fetch sources", () => {
   })
 
   it("identifies explicit and resolved fetch Sources by provider", async () => {
-    expect(fetch({ url: "https://status.example.com/health" })).toMatchObject({ name: "fetch" })
+    expect(urlSource({ url: "https://status.example.com/health" })).toMatchObject({ name: "fetch" })
     expect(normalizeWorkspaceSources({ status: { url: "https://status.example.com/health" } })[0]?.source).toMatchObject({ name: "fetch" })
 
-    const source = fetch(() => ({ url: "https://status.example.com/health" }))
+    const source = urlSource(() => ({ url: "https://status.example.com/health" }))
     expect(source).toMatchObject({ name: "fetch" })
     // SAFETY: This provider's resolver does not inspect the Source context.
     await expect(source.resolve?.({} as never)).resolves.toMatchObject({ name: "fetch" })
@@ -182,7 +182,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           workspacePath: "api/summary.json",
           transform: (data: { ignored: boolean, status: string }) => ({ status: data.status }),
           url: "https://status.example.com/api/summary",
@@ -218,7 +218,7 @@ describe("fetch sources", () => {
       },
     })
 
-    const source = fetch(options)
+    const source = urlSource(options)
     const view = createWorkspaceSourceView({ name: "fetch-accessor-receiver", sources: { status: source } }, createMemoryWorkspaceStore())
 
     await expect(view.readFile("status")).resolves.toBe('"original:ok"')
@@ -251,7 +251,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-cross-realm-bytes", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        payload: fetch({
+        payload: urlSource({
           responseType: "text",
           transform: () => bytes,
           url: "https://status.example.com/bytes",
@@ -270,7 +270,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-text", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           body: { scope: "all" },
           headers: { authorization: "Bearer secret" },
           method: "POST",
@@ -303,7 +303,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-bounded", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           maxResponseBytes: 100,
           request: { maxResponseBytes: 4 },
           responseType: "text",
@@ -321,7 +321,7 @@ describe("fetch sources", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
     registerWorkspace("fetch-request-bounded", defineWorkspace({
       sources: {
-        status: fetch({
+        status: urlSource({
           maxResponseBytes: 4,
           responseType: "text",
           url: "https://status.example.com/large",
@@ -344,7 +344,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json-string", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/string",
           workspacePath: "external/status/string.json",
         }),
@@ -361,7 +361,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-head", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        ping: fetch({
+        ping: urlSource({
           method: "HEAD",
           responseType: "text",
           url: "https://status.example.com/ping",
@@ -374,14 +374,14 @@ describe("fetch sources", () => {
 
     await expect(workspace.fs.readFile("external/status/ping.txt")).resolves.toBe("")
     expect(request).toHaveBeenCalledWith("https://status.example.com/ping", expect.objectContaining({ method: "HEAD" }))
-    expect(() => fetch({
+    expect(() => urlSource({
       responseType: "arrayBuffer" as never,
       url: "https://status.example.com/image",
     })).toThrow("responseType")
   })
 
   it.each([42, null, {}, [], Object.create(null)])("rejects non-string methods with the fetch method diagnostic: %s", (method) => {
-    expect(() => fetch({
+    expect(() => urlSource({
       method: method as never,
       url: "https://status.example.com/image",
     })).toThrow("not supported")
@@ -392,7 +392,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-readonly", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/api/summary?region=eu",
           workspacePath: "status/eu.json",
         }),
@@ -409,7 +409,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-materialize", defineWorkspace({
       store: { driver: "memory" },
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/api/summary",
           workspacePath: "status/summary.json",
         }),
@@ -435,7 +435,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-stale-listing",
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/new",
           workspacePath: "status/new.json",
         }),
@@ -456,7 +456,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-search",
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/search",
           workspacePath: "status/search.json",
         }),
@@ -480,7 +480,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-root-listing",
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/summary",
           workspacePath: "summary.json",
         }),
@@ -503,7 +503,7 @@ describe("fetch sources", () => {
     const firstView = createWorkspaceSourceView({
       name: "fetch-root-refresh",
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/old",
           workspacePath: "old.json",
         }),
@@ -514,7 +514,7 @@ describe("fetch sources", () => {
     const nextView = createWorkspaceSourceView({
       name: "fetch-root-refresh",
       sources: {
-        status: fetch({
+        status: urlSource({
           url: "https://status.example.com/new",
           workspacePath: "new.json",
         }),
@@ -546,7 +546,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-request-only",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           cookies: { auth_token: "secret" },
           querySchema,
           url: "https://portal.example.com/runtime/inventory-health",
@@ -584,7 +584,7 @@ describe("fetch sources", () => {
     expect(() => createWorkspaceSourceView({
       name: "fetch-unsafe-nested-source-key",
       sources: {
-        "nested/status": fetch({
+        "nested/status": urlSource({
           url: "https://status.example.com/health",
         }),
       },
@@ -593,7 +593,7 @@ describe("fetch sources", () => {
     expect(() => createWorkspaceSourceView({
       name: "fetch-unsafe-json-source-key",
       sources: {
-        "status.json": fetch({
+        "status.json": urlSource({
           url: "https://status.example.com/health",
         }),
       },
@@ -622,7 +622,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-schema-default",
       sources: {
-        status: fetch({
+        status: urlSource({
           querySchema,
           url: "https://status.example.com/api/summary",
           workspacePath: "status/summary.json",
@@ -642,18 +642,18 @@ describe("fetch sources", () => {
       },
     } as const
 
-    expect(() => fetch({
+    expect(() => urlSource({
       query: { region: "eu" },
       querySchema: schema,
       url: "https://status.example.com/query",
     })).toThrow("either query or querySchema")
-    expect(() => fetch({
+    expect(() => urlSource({
       body: { scope: "all" },
       bodySchema: schema,
       method: "POST",
       url: "https://status.example.com/query",
     })).toThrow("either body or bodySchema")
-    expect(() => fetch({
+    expect(() => urlSource({
       body: { scope: "all" },
       method: "GET",
       url: "https://status.example.com/query",
@@ -672,7 +672,7 @@ describe("fetch sources", () => {
     } as const
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-null-body-schema",
-      sources: { status: fetch({ bodySchema, method: "POST", url: "https://status.example.com/query" }) },
+      sources: { status: urlSource({ bodySchema, method: "POST", url: "https://status.example.com/query" }) },
     })!
 
     await expect(execution.executeSourceRequest({
@@ -696,7 +696,7 @@ describe("fetch sources", () => {
     } as const
     const execution = createWorkspaceSourceRequestExecution({
       name: "fetch-required-query-schema",
-      sources: { status: fetch({ querySchema, url: "https://status.example.com/query" }) },
+      sources: { status: urlSource({ querySchema, url: "https://status.example.com/query" }) },
     })!
 
     await expect(execution.executeSourceRequest({

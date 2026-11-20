@@ -28,10 +28,9 @@ import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
 import type { ResolvedWorkflowOptions, WorkflowOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, Rolldown, UserConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
@@ -58,7 +57,7 @@ export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironment
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
       prepareScheduleRuntime?: (artifactDir?: string, config?: ResolvedConfig) => Promise<{
         bundleAlias: Record<string, string>
-        bundlePlugins?: EsbuildPlugin[]
+        bundlePlugins?: Rolldown.Plugin[]
         native: boolean
         registryFile: string
         runtimeModules: { state: string, vercelVite: string }
@@ -112,7 +111,6 @@ interface InternalWorkflowModuleOptions {
   /** The module that exports `getPostgresConnectionUrl()`. Default `@vite-hub/database`. */
   databaseImport?: string
   hosting?: string
-  implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
   /**
@@ -159,19 +157,14 @@ function readPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): bo
   return config ? config.databases.default?.dialect === "postgresql" : undefined
 }
 
-export function hubWorkflow(options?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
+export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/workflow/vite")
   let resolved: ResolvedConfig | undefined
-  const workflow: WorkflowOptions | undefined = internalOptions.implicitlyEnabled
-    && normalizeHosting(internalOptions.hosting).includes("netlify")
-    ? false
-    : options
   let startupBuild = false
-  // `vite dev` and the Workflow that only the Agent turns on run inline when the host has no inferable provider.
-  // A build that turns Workflow on itself must name its provider there.
-  const allowsInline = () => !startupBuild || internalOptions.implicitlyEnabled === true
+  // `vite dev` runs Workflows inline when the host has no inferable provider. A build must name its provider there.
+  const allowsInline = () => !startupBuild
   const resolveWorkflow = (workflowOptions: WorkflowOptions | undefined) => normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions.hosting, inline: allowsInline() })
   const resolveOutputs = (workflowOptions: WorkflowOptions | undefined, hosting = internalOptions.hosting) => resolveWorkflowProviderOutputs(workflowOptions, hosting, allowsInline())
   const scheduleBuildConfigs = new WeakMap<ResolvedConfig, {
@@ -310,7 +303,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       bundlePlugins: [
         createOptionalPackagesPlugin(rootDir),
         ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
-      ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
+      ].filter((plugin): plugin is Rolldown.Plugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,
       runtimeModules: { state: workflowRuntimeModule("state"), vercelVite: workflowRuntimeModule("vercel-vite") },

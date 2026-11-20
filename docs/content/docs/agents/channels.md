@@ -52,12 +52,11 @@ export default defineAgent({
 
 The Agent answers the messages of each Channel that it lists. A Channel sends its messages to one Agent, so two Agents cannot list the same name. ViteHub reads the names from the Agent file, so write them as string literals. A Channel that adds an Agent Workspace, such as `github({ pullRequest: { workspace: true } })`, goes inline instead: `channels: { github: github({ pullRequest: { workspace: true } }) }`. Code that builds an Agent outside `server/agents`, such as a test, also passes its Channels inline, by name.
 
-The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/api/_vitehub/channels/<name>`.
+The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/_vitehub/channels/<name>`.
 
-Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
+Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
 
 - `webChat()` adds a generated AI SDK chat route by default.
-- `http()` is a generic HTTP Channel. Its route stays off until `http({ route: true })`.
 - `teams()` tells the Agent to cite sources as descriptive Markdown links to verified URLs. A native web citation that the Chat SDK cannot resolve shows `[source link unavailable]`, also while streaming. Codex app-server gives no citation-ID-to-URL map, so those links cannot be recovered. Ordinary links stay as they are.
 
 ## Try Channels without credentials
@@ -101,12 +100,12 @@ export default defineConfig({
 Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
 
 ```sh
-curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
+curl -N http://localhost:3000/_vitehub/agents/support/webhooks/discord \
   -H 'content-type: application/json' \
   -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
 ```
 
-Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
+Open the Channel's webhook URL in a browser, such as `http://localhost:3000/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
 
 `pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`. The Console Channels page marks them too, and shows the chat page of the selected one with an **Open chat** button.
 
@@ -149,7 +148,21 @@ teams({
 })
 ```
 
-An ignored bot message is recorded as a `rejected` delivery and never reaches `messages.filter`.
+An ignored bot message is recorded as a `rejected` delivery with the reason `bot-author` and never reaches `messages.filter`.
+
+### Why a message started no work
+
+Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` and the Console's Channels page list them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
+
+| Reason | Message |
+| --- | --- |
+| `not-addressed` | A group message that does not mention the Agent, in a thread it does not follow |
+| `bot-author` | Another bot wrote it, and `messages.allowBots` is not set |
+| `unauthorized` | `access()` refused its author |
+| `empty` | It has no text or attachment |
+| `filtered` | `messages.filter` returned `false` |
+| `edit-without-mention`, `edit-already-mentioned`, `edit-in-direct-message` | An edit that does not add the first mention |
+| `unhandled` | Chat called no message handler, such as for an activity that is not a message |
 
 ## Steer with other participants
 
@@ -170,7 +183,9 @@ teams({
 - The message must pass admission: groups still need a mention, and `messages.filter` and `access()` apply.
 - Only human authors in the same thread can steer, even when `lockScope` covers several threads.
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
-- If the Driver (the part that runs the Agent) cannot steer live, the message runs as its own Invocation afterwards, as for one invoker.
+- The Driver (the part that runs the Agent) adds the message to the active run as text: the header and reply lines, then the message. A reply line quotes the message it answers. Drivers steer with text only, so a message with an image, or with a file that stays an attachment, cannot steer. A text file that ViteHub reads into the message steers as text.
+- If the message cannot steer, it runs as its own Invocation afterwards, as for one invoker. Its Channel delivery record shows one `steer.deferred` event with the active run's `runId` and a `reason`, such as `attachments` (the message has an image or a file attachment) or `not-invoker` (only the invoker can steer).
+- Each attempt to submit input to the running Invocation adds an `agent.input.steer` observation with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason` when available, `channel.delivery.id`, and `input.steer.messageId`. The Console shows it as a step of the run.
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks
@@ -249,7 +264,7 @@ The Console shows the call, such as `label(["Receipts"])`. This text is Invocati
 
 ## Webhook paths
 
-Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next to `/api/_vitehub/agents/:agent/webhooks/:webhook` with the same handler, authentication, HEAD probe, and history export. Other routes keep their request body.
+Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next to `/_vitehub/agents/:agent/webhooks/:webhook` with the same handler, authentication, HEAD probe, and history export. Other routes keep their request body.
 
 - When Agents share a path, each Agent's `publicUrl` host selects by request host.
 - `agent.routes.aliases[path]` set to `{ agent, webhook }` picks the owner yourself.
@@ -258,7 +273,7 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 ### Give a Channel its own route
 
-A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/api/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
 import { defineChannelTrigger } from 'vite-hub/agent/channels'
@@ -285,7 +300,7 @@ export default defineChannel({
 
 - The Channel name comes from the file, or from the folder of an `index` module. In a folder with an `index` module, the other files, such as `events.ts`, are helpers.
 - ViteHub reads `path` and `aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
-- When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
+- When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Channels that receive webhooks without an Agent need a Nitro host. Restart the development server after you add or remove one.
 
 A task's `agent` can be a definition or a resolver that returns a definition or its default-export module. Use a lazy import as above when the target Agent lists this Channel. ViteHub resolves it before binding the task callbacks and stores the resolved Agent name with queued deliveries. Keep static imports of the owning Agent out of the Channel and its helpers. ViteHub reports cycles through local imports at build time.
@@ -306,8 +321,8 @@ export default defineChannel({
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
     header: 'x-airtable-content-mac',
-    secret: () => process.env.AIRTABLE_MAC_SECRET,
-    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+    secret: 'AIRTABLE_MAC_SECRET',
+    signature: { type: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -318,9 +333,9 @@ export default defineChannel({
 
 ### Verify a webhook signature
 
-Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()` or `defineChannelTrigger()`, set `secretHeader`, `secret`, and `signature`. In both, a string `secret` is the name of the server variable that holds the secret, as in Webhooks, and a function returns the secret. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
 
-Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secretToken`, `secretHeader`, or `signature`, or set `secretToken: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
+Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secret`, `secretHeader`, or `signature`, or set `secret: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
 
 `webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
 
@@ -338,12 +353,12 @@ export default defineChannel({
 | --- | --- |
 | `'token'` on `webhook()`, not set on a registration | The secret itself, compared in constant time. Set `header`, such as `'x-gitlab-token'`. |
 | `'bearer'` | `Bearer <secret>`. The header defaults to `'authorization'`. |
-| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
-| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
-| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `'github'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe'` or `{ type: 'stripe', tolerance? }` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`, at most `tolerance` old (default `'5m'`). |
+| `{ type: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
 | `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
 
-`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
+`github` is the HMAC signature with `prefix: 'sha256='`. The names are the ones of [Webhooks](/docs/webhooks). Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
 
 `bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When the secret function gives no secret, the webhook does not run the trigger: `bearer` answers `500` naming the Channel, and the other signatures answer `401`. A missing secret never leaves the route open. Return `false` from the secret function to turn verification off for that request.
 
@@ -428,8 +443,8 @@ export default defineChannel({
     kind: 'airtable',
     path: '/api/airtable/webhook',
     header: 'x-airtable-content-mac',
-    secret: () => process.env.AIRTABLE_MAC_SECRET,
-    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+    secret: 'AIRTABLE_MAC_SECRET',
+    signature: { type: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -444,7 +459,7 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - If admission finishes in time, the provider gets the trigger's answer.
 - Otherwise it gets `202 { accepted: true, deferred: true, ok: true }` and admission continues in the background. The provider never sees the trigger's own answer, such as `ignored()` or a returned `Response`.
 - The stored request is removed when admission ends. If the process stops first, or admission ends in a 5xx, the next process replays it through the route at startup.
-- Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
+- Replays check the signature again. A timestamped signature such as `stripe` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
 - A second delivery of a request that is still being admitted gets `202` once the first delivery's copy is stored. If that copy is not stored within `ackTimeoutMs` of arrival, it gets a `503` with `retry-after`.
 
@@ -503,7 +518,7 @@ export default defineAgent({
 
 Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404) for a thread with no Invocation of this Channel and no transcript. The check runs before the provider is asked, so nobody can use the bot token to read another chat. A group thread with a transcript but no Invocation is not found. Admitted-Invocation evidence is kept in State, so group transcripts stay readable without the journal. Rejected messages do not make a group known.
 
-On the Console, the CLI, and the [ViteHub MCP](/docs/development/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
+On the Console, the CLI, and the [ViteHub MCP](/docs/console/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
 ```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
@@ -520,6 +535,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
 | `channels.status` | `agent`, `channel` | Sync health of a cursor-reading Channel such as [Gmail](/docs/agents/gmail#failed-messages): `status`, `failures`, `error`, `syncedAt`, and `retrying` and `skipped` messages. Others answer `CHANNELS_NO_STATUS`. An Agent needs `conversations: 'all'`. |
+| `channels.deliveries` | `agent`, `channel`, `limit?` | The newest messages that the Channel received, each with `status`, `reason` or `error`, `events`, and the `invocationId` it started or steered. An Agent needs `conversations: 'all'`. |
 
 A `cursor` names the previous page's last item by id and time, so pages stay stable when messages arrive or the window moves.
 
@@ -528,11 +544,12 @@ pnpm vitehub channels list
 pnpm vitehub channels threads support telegram
 pnpm vitehub channels conversation support telegram telegram:456
 pnpm vitehub channels status labeller gmail
+pnpm vitehub channels deliveries support teams
 pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
 ```
 
-Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/development/cli#export-a-channel-conversation).
+Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/cli/agents#export-a-channel-conversation).
 
 The Markdown export is safe to open: each message sits in a fence longer than any backtick run in it, names in headings and links are escaped, and only `http(s)` URLs and export files become links.
 
@@ -629,7 +646,7 @@ export default defineAgent({
 })
 ```
 
-Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/development/cli#download-channel-history):
+Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/cli/agents#download-channel-history):
 
 ```sh
 pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive --dry-run
@@ -666,7 +683,7 @@ An authenticated replay uses the saved item, so it needs no provider signature. 
 
 ### How replay avoids duplicate runs
 
-Each item gets the run ID `channel:<channel>:<key>`, with percent signs and colons escaped. A live message [dispatched](#start-several-invocations-from-one-webhook) with the same key gets the same ID. This needs an Invocation journal: configure `invocations` or turn on the [Console](/docs/development/console).
+Each item gets the run ID `channel:<channel>:<key>`, with percent signs and colons escaped. A live message [dispatched](#start-several-invocations-from-one-webhook) with the same key gets the same ID. This needs an Invocation journal: configure `invocations` or turn on the [Console](/docs/console).
 
 - Replay skips terminal and running Invocations and confirmed Workflow dispatches.
 - An active claim stops one item from running twice at once.
@@ -1026,7 +1043,7 @@ export default defineAgent({
 
 ## Connect a web chat
 
-`webChat()` adds a chat route at `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep the Agent off this shared route. Turn on Agents in the config:
+`webChat()` adds a chat route at `/_vitehub/agents/[agent]/chat`. Set `route: false` to keep the Agent off this shared route. Turn on Agents in the config:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -1078,7 +1095,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/development/console#links-to-the-console).
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/console/site-access#link-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 
@@ -1204,7 +1221,7 @@ pnpm vitehub channels sync \
   --json
 ```
 
-The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
+The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
 
 ## Control admission and delivery
 
@@ -1229,7 +1246,7 @@ export default defineAgent({
 })
 ```
 
-Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never published.
+Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never posted as a message.
 
 Use `messages.delivery: 'manual'` when finish hooks send replies. A generated Workflow can carry it across a durable boundary when the Channel and host support it. An explicit `messages.timeout` limits inline execution and the handoff's typing indicator, not the durable Workflow. `steer` queues overlapping messages and keeps the handoff. `serial`, `drop`, `queue`, and `reject` stay inline and cannot combine with required durable delivery.
 
@@ -1239,7 +1256,7 @@ With native reply support in the adapter (Telegram among the built-ins), a non-s
 
 - `text` (required): a string, rotating strings, a callback, or `null`.
 - `intervalMs`: minimum time between updates.
-- `updates: 'commentary'`: shows explicit commentary, each part replacing the last, so the current step is visible.
+- `updates: 'commentary'`: shows explicit commentary and the reasoning summaries of a provider Driver such as Codex ("Inspecting the config"), each part replacing the last, so the current step is visible. Text that a custom Driver marks as `phase: 'reasoning'` stays hidden.
 - It selects manual delivery, so it excludes `messages.stream` and `messages.commentary`.
 - `messages.final.delivery: 'new-message'` posts the answer separately, then removes the placeholder.
 
@@ -1326,7 +1343,7 @@ They are trusted text from code, read when the Invocation runs, so queued delive
 
 ## Handle attachments
 
-Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. To resend recent history photos, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
+Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. Codex and Claude Code Drivers get the 4 newest history photos again. To change that number, or to resend history photos to another Driver, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
 
 Every Channel that gives normalized `replyTo.attachments` gets this. Thread ids, link previews, and URLs in text are not reply content and are never resolved. If a provider does not normalize its native reply into `replyTo`, fix its adapter instead of guessing a thread root in the Agent.
 

@@ -61,6 +61,7 @@ const blobDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const blobCommands: readonly BlobCommand[] = [

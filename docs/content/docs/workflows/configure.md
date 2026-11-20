@@ -8,45 +8,11 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workflow: true },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true }), nitro()],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true })],
-})
-```
-:::
-::
-
-`workflow` takes `true` or an object with these options:
+A file or folder in `server/workflows/` turns on Workflows, so you do not add a `workflow` option. Set `workflow` to an object only to change these options, or `workflow: false` to keep Workflows off:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off | `true` or an object turns on Workflow discovery and host output. Discovered Agents use the configured driver: OpenWorkflow and Cloudflare Workflows are durable; Vercel runs Agent turns inline. |
 | `driver` | `WorkflowDriver` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |
@@ -65,16 +31,18 @@ Without `driver`, ViteHub picks Cloudflare on Cloudflare, OpenWorkflow on Node o
 
 ## Define a workflow
 
-A Workflow Definition is a file that names long-running work.
+A Workflow Definition is a file that names long-running work. The file path is the Workflow name: `server/workflows/onboard-user.ts` defines `onboard-user`.
 
 ```ts [server/workflows/onboard-user.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
-  const user = await createUser(payload.email)
-  await sendWelcomeEmail(user.email)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload }) => {
+    const user = await createUser(payload.email)
+    await sendWelcomeEmail(user.email)
 
-  return { userId: user.id }
+    return { userId: user.id }
+  },
 })
 ```
 
@@ -82,14 +50,14 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 
 ## Workflow Definition options
 
-`defineWorkflow(name, handler, options?)` takes these options. `name` is the discovered file or folder name; another name fails with `WORKFLOW_C0019` when the Workflow loads.
+`defineWorkflow({ handler, ...options })` takes one object with `handler` and these options. It has no `name` option.
 
 | Option | Type | Description |
 | --- | --- | --- |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps). |
 
-The handler gets `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
+The handler gets one object, a `WorkflowExecutionContext`, with `payload`, `name`, `provider`, an optional run `id`, the provider `step` when there is one, `sleep`, and a `steps` runner. Pass the payload type as the type argument: `defineWorkflow<{ email: string }>({ handler })`. It also types `startWorkflow()` for this Workflow. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 
 ### Add a durable Vercel entry
 
@@ -126,13 +94,14 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id }
 }
 
-async function inlineOnboard(payload: OnboardPayload) {
-  const user = await createUser(payload.email)
-  await sendWelcomeEmail(user.email)
-  return { userId: user.id }
-}
-
-export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
+export default defineWorkflow<OnboardPayload>({
+  handler: async ({ payload }) => {
+    const user = await createUser(payload.email)
+    await sendWelcomeEmail(user.email)
+    return { userId: user.id }
+  },
+  native: durableOnboard,
+})
 ```
 
 ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

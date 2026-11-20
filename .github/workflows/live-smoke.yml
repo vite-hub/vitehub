@@ -392,9 +392,12 @@ jobs:
         timeout-minutes: 10
         run: vp run rate-limit:e2e --mode live --provider cloudflare --url "$LIVE_SMOKE_URL"
 
+      # For a new Cloudflare Worker, allow 15 minutes for Cron Trigger propagation plus the first tick and KV visibility.
       - name: Schedule Live E2E (${{ matrix.provider }})
-        timeout-minutes: 7
-        run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout 270000
+        timeout-minutes: ${{ matrix.provider == 'cloudflare' && 22 || 7 }}
+        env:
+          SCHEDULE_TIMEOUT_MS: ${{ matrix.provider == 'cloudflare' && '1080000' || '270000' }}
+        run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout "$SCHEDULE_TIMEOUT_MS"
 
       - name: Sandbox Task Live E2E (${{ matrix.provider }})
         timeout-minutes: 10

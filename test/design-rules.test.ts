@@ -136,7 +136,7 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "packages/internal/src/runtime/page-tools-window.ts": { count: 1, wave: "W5" },
   "packages/ui/comment-marks.css": { count: 7, wave: "W5" },
   "packages/ui/icon-swap.css": { count: 1, wave: "W5" },
-  "packages/ui/styles.css": { count: 28, wave: "W5" },
+  "packages/ui/styles.css": { count: 32, wave: "W5" },
 }
 
 const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path|grid-template-(?:rows|columns)|flex-basis)$/

@@ -57,6 +57,7 @@ const kvDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const kvCommands: readonly KVCommand[] = [
