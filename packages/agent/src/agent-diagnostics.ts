@@ -4539,6 +4539,22 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
       fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
     },
+    AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent asks Jev questions. The AI emulator does not answer Jev questions, and ViteHub does not send them to a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_IN_PRODUCTION: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
+      fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
+    },
+    AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
+      fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
+    },
+    AGENT_MODELS_INVALID: {
+      why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
+      fix: "Set `VITEHUB_MODELS=emulate` to send model requests to the AI emulator, or unset it to call the real providers.",
+    },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,
       fix: "Rename one of the Agent files so that each Agent has its own name, such as `server/agents/<name>/agent.ts`.",

@@ -68,6 +68,25 @@ export default defineAgent({
 | `execution.instrumentation` | Wraps the model or overrides call settings per Invocation. |
 | `execution.workspaceFallback` | Writes an answer from Workspace evidence when a run has tool results but no text. |
 
+### Run on the AI emulator
+
+Set `VITEHUB_MODELS=emulate` to run model-backed Agents with no AI key in dev and tests. ViteHub then sends each model request to the [AI emulator](/docs/gateways/configure#ai-emulator), which answers from rules that you write. The Agent files do not change.
+
+```sh
+npx emulate@0.14.0 start --service ai --port 4014
+VITEHUB_MODELS=emulate vite dev
+```
+
+- `VITEHUB_EMULATE_URL` sets the emulator URL. The default is `http://localhost:4014`.
+- A model ID keeps its ID. Its prefix selects the model API: `openai/*` uses OpenAI Responses, `anthropic/*` uses Anthropic Messages, and other IDs use Chat Completions. `anthropic/*` IDs need `@ai-sdk/anthropic`, and other IDs need `@ai-sdk/openai-compatible`.
+- A `languageModel(gateway, id, { api })` model keeps its model API. A `chatgpt()` model uses OpenAI Responses.
+- Capability models, such as the `title()` model, go to the emulator too.
+- ViteHub reads no key and no ChatGPT grant while the switch is on.
+- A model from an AI SDK provider, such as `createOpenAI()`, fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`. An ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. ViteHub does not send them to the real provider.
+- In a production build, or when `NODE_ENV` is `production`, the switch fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`. A value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- Agent inspection and Invocation records show `gateway: "emulate"` for the model.
+- Codex and Claude Code Drivers do not use the switch yet.
+
 ## Use a provider-backed Driver
 
 To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: codexDriver({ gateway: chatgpt() })`, with `chatgpt` from `vite-hub/gateways`. The CLI handles sign-in. Connections handles registration and refresh. This flow never falls back to an API key. Codex needs a POSIX Node.js host. A model-backed Driver uses the same grant on every host, including Cloudflare Workers: `driver: { model: 'gpt-5.5', gateway: chatgpt() }`.

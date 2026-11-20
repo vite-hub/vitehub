@@ -89,6 +89,7 @@ const { text } = await generateText({ model, prompt: 'Hello' })
 - Without a matching rule, the emulator returns a default reply. For `Output.object()` and `generateObject()`, that reply follows your schema on all three APIs.
 - It reads no credentials. It sends the key `emulate`, because the AI SDK providers need a key.
 - `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
+- To send the models of all Agents to the emulator without a change to the Agent files, set `VITEHUB_MODELS=emulate`. Read [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
 - In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
 - The emulator rejects hosted tools, such as web search.

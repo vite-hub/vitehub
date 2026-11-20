@@ -24,6 +24,19 @@ export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.a
  */
 export const aiGatewayStructuredOutputs: unique symbol = Symbol.for("vitehub.aiGateway.structuredOutputs")
 
+/**
+ * The route of a model that `languageModel()` returns: its gateway name, model API, and model ID. A symbol key, so key
+ * checks and copies skip it. ViteHub Agents read it to send the same model to the AI emulator.
+ */
+export const aiGatewayLanguageModel: unique symbol = Symbol.for("vitehub.aiGateway.languageModel")
+
+/** The value of `aiGatewayLanguageModel`. */
+export interface AiGatewayLanguageModelRoute {
+  api: "chat" | "messages" | "responses"
+  gateway: string
+  modelId: string
+}
+
 /** Resolves model credentials together with headers that depend on their source. */
 export const aiGatewayModelCredentials: unique symbol = Symbol.for("vitehub.aiGateway.modelCredentials")
 
