@@ -31,6 +31,7 @@ import {
   resolveChatSessionId,
   resolveChatTriggerHistory,
   uiMessagesToAgentMessages,
+  withDriverTriggerHistoryDefaults,
 } from "../chat-message-input.ts"
 import { channelDeliveryFinishEffectsContextKey, normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -613,6 +614,9 @@ function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   return normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
 }
 
+// The Driver kind that defineAgent() stores on each Agent Definition.
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   if (!isRecord(agent)) return undefined
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -622,12 +626,16 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
 }
 
 function getChannelChatOptions(agent: unknown, channelId: string | undefined, options: AgentChatOptions | undefined): AgentChatOptions | undefined {
-  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
+  const driverKind = isRecord(agent) ? Reflect.get(agent, baseAgentDriverKind) : undefined
+  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const channel = agent.channels[channelId]
-  if (!isRecord(channel)) return options
+  if (!isRecord(channel)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const merged = isRecord(channel.messages) ? { ...options, ...channel.messages } : options
   // `channels.<name>.transcripts` sets the transcripts of this Channel only.
-  return channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] }
+  return withDriverTriggerHistoryDefaults(
+    channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] },
+    driverKind,
+  )
 }
 
 /**

@@ -103,8 +103,10 @@ that only looks similar, or a header later in the answer, stays.
 
 ## Send recent history photos
 
-History messages keep their text, but their attachments are not sent by
-default. Set `maxImages` to send the newest history photos again:
+History messages keep their text. Codex and Claude Code Drivers also get the
+4 newest history photos again, because they read images. Other Drivers get no
+history photos, because ViteHub cannot tell whether their model reads images.
+Set `maxImages` to change the number, or `0` to send none:
 
 ```ts [server/utils/meal-chat.ts]
 import { chat } from 'vite-hub/agent/capabilities'
