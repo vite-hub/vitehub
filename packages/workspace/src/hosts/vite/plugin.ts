@@ -871,6 +871,8 @@ const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHo
 type WorkspacePluginHosting = string | (() => string | undefined)
 
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & {
+  /** Nitro module that reads the app's dev runner. Typed here because a program without Nitro's Vite types has no `nitro` on `Plugin`. */
+  nitro?: ReturnType<typeof createNativePackageLoading>["nitro"]
   [setWorkspacePluginHosting]?: (hosting: WorkspacePluginHosting) => void
   api: WorkspaceVitePluginAPI
 }
