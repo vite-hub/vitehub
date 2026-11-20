@@ -192,7 +192,7 @@ PR's head. When it is missing, the host pushes the head to that branch, once per
 head. A push runs the workflow files of the pushed commit with the repository's
 permissions, so the host first rereads GitHub and pushes only when a reviewer with
 write access approved that exact head, no change request stands, and the head's
-head carries no local action and no workflow that a push or a branch creation
+head carries no local action and no workflow that a push to that branch or its creation
 starts unless the base branch has the same file now, so a retired workflow never
 runs again. It moves and deletes only a
 branch it created, and deletes it once the PR closes.

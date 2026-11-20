@@ -654,7 +654,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * pushes to the repository report on it. A push runs the workflow files of the pushed commit with the
    * repository's permissions, so the host pushes only a head that GitHub reports, now, as:
    * - approved at that exact SHA by a reviewer with write access, with no change request standing;
-   * - carrying no local action and no workflow that a push starts, unless the base branch has the same file now.
+   * - carrying no local action and no workflow that a push to that branch starts, unless the base branch has
+   *   the same file now.
    * It moves only a branch it created itself. Once per head; a refused or failed push is tried again after an hour.
    */
   async function pushForkHead(snapshot: Snapshot, owner: Record<string, unknown>, missing: string[], signal: AbortSignal): Promise<boolean> {
@@ -674,7 +675,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     try {
       const { provider } = await forge(repository, signal);
       const read = async (path: string) => (await retryTransient(() => provider.request<unknown>("GET", path, { signal }), signal)).data;
-      const refusal = await forkHeadRefusal(repository, number, head, baseRef, read);
+      const refusal = await forkHeadRefusal(repository, number, head, baseRef, branch, read);
       if (refusal) {
         await settle(false, {});
         schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, branch, reason: refusal });
@@ -708,7 +709,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /** Why GitHub's current state does not allow pushing a fork head, or undefined when it does. */
-  async function forkHeadRefusal(repository: string, number: number, head: string, baseRef: string, read: (path: string) => Promise<unknown>): Promise<string | undefined> {
+  async function forkHeadRefusal(repository: string, number: number, head: string, baseRef: string, branch: string, read: (path: string) => Promise<unknown>): Promise<string | undefined> {
     const pr = await read(`/repos/${repository}/pulls/${number}`);
     if (!isRuntimeRecord(pr) || pr.state !== "open" || !isRuntimeRecord(pr.head) || pr.head.sha !== head) return "head changed";
     const latest = new Map<string, { state: string; commit: unknown }>();
@@ -748,7 +749,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (baseFlows?.entries.get(name)?.sha === entry.sha) continue;
       const blob = await read(`/repos/${repository}/git/blobs/${entry.sha}`);
       const text = isRuntimeRecord(blob) && hasRuntimeType(blob.content, "string") ? Buffer.from(blob.content, "base64").toString("utf8") : undefined;
-      if (text === undefined || runsOnPush(text)) return `.github/workflows/${name} runs on push and differs from ${baseRef}`;
+      if (text === undefined || runsOnPush(text, branch)) return `.github/workflows/${name} runs on push and differs from ${baseRef}`;
     }
     return undefined;
   }

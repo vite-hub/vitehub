@@ -2536,8 +2536,8 @@ describe("Babysitter preset runtime", () => {
 
   describe("merge.forkHeadBranches", () => {
     /**
-     * Git trees by SHA. "changed": the PR edits a push workflow. "base-moved": the base edited a pull_request
-     * workflow after the PR branched. "retired": the base deleted a push workflow that the PR still has.
+     * Git trees by SHA. "changed": the PR edits a push workflow. "base-moved": the base edited a workflow
+     * that runs only on pull requests and pushes to main after the PR branched. "retired": the base deleted a push workflow that the PR still has.
      */
     const gitTrees = (github: string): Record<string, Record<string, ["tree" | "blob", string]>> => {
       const headGithub = { same: "g-base", changed: "g-changed", "base-moved": "g-old", retired: "g-retired" }[github] ?? "g-base";
@@ -2551,7 +2551,7 @@ describe("Babysitter preset runtime", () => {
         "g-retired": { workflows: ["tree", "w-retired"] },
         "w-base": { "preview.yml": ["blob", "preview"] },
         "w-changed": { "preview.yml": ["blob", "preview-edited"] },
-        "w-old": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "pull-only"] },
+        "w-old": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "main-only"] },
         "w-moved": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "ci-new"] },
         "w-retired": { "preview.yml": ["blob", "preview"], "deploy.yml": ["blob", "deploy"] },
       };
@@ -2584,7 +2584,7 @@ describe("Babysitter preset runtime", () => {
           return { stdout: JSON.stringify({ tree: Object.entries(tree).map(([name, [type, sha]]) => ({ path: name, type, sha })) }), stderr: "" };
         }
         if (path.startsWith("repos/acme/app/git/blobs/")) {
-          const workflow = path.endsWith("/pull-only") ? "on: pull_request\n" : "on:\n  push:\n    branches: ['**']\n";
+          const workflow = path.endsWith("/main-only") ? "on:\n  push:\n    branches: [main]\n  pull_request:\n" : "on:\n  push:\n    branches: ['**']\n";
           return { stdout: JSON.stringify({ content: Buffer.from(workflow).toString("base64"), encoding: "base64" }), stderr: "" };
         }
         if (path === "repos/acme/app/git/ref/heads/preview/pr-12") {

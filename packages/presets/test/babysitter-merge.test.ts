@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
 import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
-import { directMergeBranchSafety, foldMethod, foldParent, stackRetargetBase } from "../src/babysitter/stack.ts";
+import { directMergeBranchSafety, foldMethod, foldParent, runsOnPush, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
 function snapshot(): Snapshot {
@@ -452,5 +452,28 @@ describe("Babysitter approved-if-outside merge gate", () => {
     const callback = () => true as const;
     expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback, foldStacks: true });
     expect(() => resolveBabysitterMerge({ strategy: "direct", ready: "approved" })).toThrow('Babysitter merge.ready must be a function or "approved-if-outside".');
+  });
+});
+
+describe("runsOnPush", () => {
+  it.each([
+    ["on: push", true],
+    ["on: [pull_request, create]", true],
+    ["on: pull_request", false],
+    ["on:\n  schedule:\n    - cron: '0 0 * * *'", false],
+    ["on:\n  push:\n", true],
+    ["on:\n  push:\n    branches: [main]", false],
+    ["on:\n  push:\n    branches: ['**']\n    tags: ['!**']", true],
+    ["on:\n  push:\n    branches: ['preview/*']", true],
+    ["on:\n  push:\n    branches: ['*']", false],
+    ["on:\n  push:\n    branches: ['**', '!preview/**']", false],
+    ["on:\n  push:\n    branches-ignore: [main]", true],
+    ["on:\n  push:\n    branches-ignore: ['preview/**']", false],
+    ["on:\n  push:\n    tags: ['v*']", false],
+    ["on:\n  push:\n    branches: ['pre[v]iew/**']", true],
+    ["on:\n  pull_request:\n  create:", true],
+    ["on: [", true],
+  ] as const)("%j starts on a push of preview/pr-12: %s", (workflow, expected) => {
+    expect(runsOnPush(workflow, "preview/pr-12")).toBe(expected);
   });
 });
