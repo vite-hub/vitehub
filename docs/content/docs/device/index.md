@@ -44,8 +44,8 @@ icon: i-lucide-hard-drive
 | No account, no disk | The device stores only the answers of loader calls that start after the page names an account, and the answer of the session read that names it. An app that names no account stores nothing. |
 | Caps | A copy older than `maxAge` (7 days by default) does not show. The device keeps at most 5 MB, and deletes the oldest copies first. |
 | Versions | `openDevice({ version })` deletes the copies of another version, so a new build does not show data of an old shape. |
-| Fallback | In a private window or a sandboxed frame without IndexedDB, the copies stay in memory. |
-| Inspection | `inspectDevice()` gives the account, the storage, and each copy with its key, time, and size. |
+| Fallback | In a private window or sandboxed frame without IndexedDB, copies stay in memory. |
+| Inspection | `inspectDevice()` returns the account, the storage, and each copy with its key, time, and size. |
 
 A stored copy only changes what the screen shows first. The server still checks every request.
 

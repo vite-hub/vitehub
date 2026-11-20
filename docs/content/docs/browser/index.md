@@ -111,23 +111,23 @@ export default defineConfig({
 
 ::product-features
   :::product-feature-item{title="One file per task" icon="i-lucide-file-code-2" to="/docs/browser/server-api#definition-api"}
-  Add a file to `server/browsers`. Run it by its name with `runBrowser()`.
+  Add a file to `server/browsers` and run it by name with `runBrowser()`.
   :::
 
   :::product-feature-item{title="Several steps on one page" icon="i-lucide-mouse-pointer-click" to="/docs/browser/server-api#keep-a-page-session-open"}
-  `browser.open()` keeps a page open to follow links, click, and fill in forms. ViteHub closes it.
+  `browser.open()` keeps a page open to follow links, click, and fill forms, then closes it.
   :::
 
   :::product-feature-item{title="Quick calls without a file" icon="i-lucide-zap" to="/docs/browser/server-api#browser-actions"}
-  Get HTML, Markdown, links, a screenshot, or a PDF with one function call.
+  Get HTML, Markdown, links, a screenshot, or a PDF in one function call.
   :::
 
   :::product-feature-item{title="No browser setup in your app" icon="i-lucide-cloud-cog" to="/docs/browser/configure#configuration"}
-  `browser: true` adds the Cloudflare binding at build time. Routes import no Cloudflare code.
+  `browser: true` adds the Cloudflare binding at build time, so routes import no Cloudflare code.
   :::
 
   :::product-feature-item{title="Full control when you need it" icon="i-lucide-sliders-horizontal" to="/docs/browser/server-api#low-level-sessions"}
-  Use Playwright, or a local Chromium on a Node server that you trust.
+  Use Playwright, or run local Chromium on a trusted Node server.
   :::
 
   :::product-feature-item{title="Check the URLs you open" icon="i-lucide-shield-check" to="/docs/browser/limits-and-errors#production-checks"}
