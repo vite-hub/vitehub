@@ -119,7 +119,7 @@ function githubSignature(secret: string, body: string) {
 function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"], options: NonNullable<Parameters<typeof telegram>[0]>) {
   return telegram({
     ...options,
-    ...(options.webhooks === undefined && options.webhookSecret === undefined ? { webhooks: { secretToken: false } } : {}),
+    ...(options.webhooks === undefined && options.webhookSecret === undefined ? { webhooks: { secret: false } } : {}),
   })
 }
 
@@ -2295,7 +2295,7 @@ describe("agent Vite plugin", () => {
           "export default defineAgent({",
           "  driver: { async run() { return 'ok' } },",
           "  workspace: {",
-          "    store: { driver: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
+          "    store: { driver: 'github', repo: 'onmax/bitacora-de-vida', root: '/' },",
           "  },",
           "})",
           "",
@@ -2731,7 +2731,7 @@ export default defineAgent({
         concurrency: "parallel",
         stream: true,
       },
-      webhooks: { id: "telegram", secretToken: false },
+      webhooks: { id: "telegram", secret: false },
     }),
   },
   workspace: {},
@@ -3114,7 +3114,7 @@ export default defineAgent({
           "    store: {",
           "      branch: 'main',",
           "      driver: 'github',",
-          "      repository: 'onmax/bitacora-de-vida',",
+          "      repo: 'onmax/bitacora-de-vida',",
           "      root: '/',",
           "    },",
           "  },",
@@ -5924,7 +5924,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => response } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: () => "unexpected" },
@@ -8682,7 +8682,7 @@ describe("server helpers", () => {
           webhooks: {
             id: "custom-support",
             secretHeader: "x-test-secret",
-            secretToken: "secret-token",
+            secret: () => "secret-token",
           },
         }),
       },
@@ -8727,7 +8727,7 @@ describe("server helpers", () => {
           webhooks: {
             id: "custom-support",
             secretHeader: "x-test-secret",
-            secretToken: secretToken as never,
+            secret: secretToken as never,
           },
         }),
       },
@@ -8763,7 +8763,7 @@ describe("server helpers", () => {
       channels: {
         support: channelAdapter("http", {
           adapter: () => adapter as never,
-          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: new SecretResolver() as never },
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secret: new SecretResolver() as never },
         }),
       },
       driver: { run: vi.fn() },
@@ -8788,7 +8788,7 @@ describe("server helpers", () => {
         support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
-          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secret: () => "" },
         }),
       },
       driver: {
@@ -8809,7 +8809,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({
       error:
-        '[vitehub] Webhook registration "custom-support" declares secretHeader "x-test-secret" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.',
+        '[vitehub] Webhook registration "custom-support" declares secretHeader "x-test-secret" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.',
     })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
@@ -8826,7 +8826,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9034,7 +9034,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({
       error:
-        '[vitehub] Webhook registration "github" declares secretHeader "x-hub-signature-256" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.',
+        '[vitehub] Webhook registration "github" declares secretHeader "x-hub-signature-256" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.',
     })
     expect(run).not.toHaveBeenCalled()
   })
@@ -9101,7 +9101,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+          webhooks: { path: "/api/github/webhook", secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9208,7 +9208,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9265,7 +9265,7 @@ describe("server helpers", () => {
         channels: {
           github: github({
             triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-            webhooks: { secretToken: "secret-token" },
+            webhooks: { secret: () => "secret-token" },
           }),
         },
         driver: { run: () => "accepted" },
@@ -9314,7 +9314,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -9376,7 +9376,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9435,7 +9435,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9503,7 +9503,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+          webhooks: { path: "/api/github/webhook", secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9595,7 +9595,7 @@ describe("server helpers", () => {
               invoke,
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9692,7 +9692,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9754,7 +9754,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -9832,7 +9832,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9887,7 +9887,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9962,7 +9962,7 @@ describe("server helpers", () => {
               : { comments: filterLocation === "comments" ? { filter: { draft: { allow: ["true"] } } } : true },
             reply: false,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10056,7 +10056,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10129,7 +10129,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10215,7 +10215,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10295,7 +10295,7 @@ describe("server helpers", () => {
     const failed = vi.fn()
     const run = vi.fn()
     const agent = defineAgent({
-      channels: { github: github({ triggers: { webhook: { failed, invoke: () => new Response(null, { status: 204 }) } }, webhooks: { secretToken: false } }) },
+      channels: { github: github({ triggers: { webhook: { failed, invoke: () => new Response(null, { status: 204 }) } }, webhooks: { secret: false } }) },
       driver: { run },
     })
     await state.connect()
@@ -10406,7 +10406,7 @@ describe("server helpers", () => {
           run: { runId: "journal-webhook-invocation" },
           webhook: { concurrencyLimit: 1, deliveryId: "delivery-journal-cancel" },
         }) } },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }) },
       driver: { run },
     })
@@ -10463,7 +10463,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10587,7 +10587,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10800,7 +10800,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10893,7 +10893,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11012,7 +11012,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11074,7 +11074,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11175,7 +11175,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11274,7 +11274,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11346,7 +11346,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11435,7 +11435,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11546,7 +11546,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: options.run },
@@ -11790,7 +11790,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11860,7 +11860,7 @@ describe("server helpers", () => {
                 // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
                 webhook: { invoke: () => ({ input: { prompt: "ignored" }, webhook }) as never },
               },
-              webhooks: { secretToken: false },
+              webhooks: { secret: false },
             }),
           },
           driver: { run: vi.fn() },
@@ -11912,7 +11912,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: { run },
@@ -12041,7 +12041,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12105,7 +12105,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12152,7 +12152,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12194,7 +12194,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12264,7 +12264,7 @@ describe("server helpers", () => {
             channels: {
               github: github({
                 triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-                webhooks: { secretToken: false },
+                webhooks: { secret: false },
               }),
             },
           }
@@ -12423,7 +12423,7 @@ describe("server helpers", () => {
                 : replay(),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12554,7 +12554,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => new Response(null, { status: 204 }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12645,7 +12645,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12721,7 +12721,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12817,8 +12817,8 @@ describe("server helpers", () => {
             },
           },
           webhooks: [
-            { id: "primary:one", path: "/api/support/primary", secretToken: false },
-            { id: "fallback:two", path: "/api/support/fallback", secretToken: false },
+            { id: "primary:one", path: "/api/support/primary", secret: false },
+            { id: "fallback:two", path: "/api/support/fallback", secret: false },
           ],
         }),
       },
@@ -12898,11 +12898,11 @@ describe("server helpers", () => {
       channels: {
         primary: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "primary" } }) } },
-          webhooks: { id: "primary", path: "/api/github/webhook", secretToken: false },
+          webhooks: { id: "primary", path: "/api/github/webhook", secret: false },
         }),
         fallback: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "fallback" } }) } },
-          webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
+          webhooks: { id: "fallback", path: "/api/github/webhook", secret: false },
         }),
       },
       driver: {
@@ -22620,7 +22620,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22707,14 +22707,19 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const driverStarted = deferred<void>()
+    const streamStarted = deferred<void>()
+    const driverDelay = 10_000
     let invocationTimeout = 28_000
     const run = vi.fn(async ({ input }) => {
       invocationTimeout = input.timeout
       expect(invocationTimeout).toBeGreaterThan(0)
       expect(invocationTimeout).toBeLessThanOrEqual(28_000)
-      await new Promise((resolve) => setTimeout(resolve, 10_000))
+      driverStarted.resolve()
+      await new Promise((resolve) => setTimeout(resolve, driverDelay))
       return {
         stream: (async function* () {
+          streamStarted.resolve()
           await new Promise(() => undefined)
           yield* []
         })(),
@@ -22731,7 +22736,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22740,14 +22745,16 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = handler(chatWebhookRequest(91_021), "telegram", {
+      const responseError = handler(chatWebhookRequest(98_121), "telegram", {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
-      })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
-      const responseError = response.catch((error) => error)
+      }).catch((error) => error)
+      await driverStarted.promise
+      await vi.advanceTimersByTimeAsync(driverDelay)
+      await streamStarted.promise
+      expect(run).toHaveBeenCalledOnce()
 
-      await vi.advanceTimersByTimeAsync(28_000)
+      await vi.advanceTimersByTimeAsync(invocationTimeout - driverDelay)
 
       await expect(responseError).resolves.toMatchObject({
         message: `Chat invocation timed out after ${invocationTimeout}ms.`,
@@ -22782,7 +22789,7 @@ describe("server helpers", () => {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -22854,7 +22861,7 @@ describe("server helpers", () => {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22909,7 +22916,7 @@ describe("server helpers", () => {
             stream: false,
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22982,7 +22989,7 @@ describe("server helpers", () => {
             stream: false,
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: () => ({ text: "" }) },
@@ -23034,7 +23041,7 @@ describe("server helpers", () => {
               await thread.post("Tailored fallback.")
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -23079,7 +23086,7 @@ describe("server helpers", () => {
                 resolveFallback = resolve
               }),
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -23134,7 +23141,7 @@ describe("server helpers", () => {
               await thread.post("Tailored fallback.")
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -23593,7 +23600,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         // SAFETY: createTestChatAdapter implements the Channel adapter contract.
-        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secretToken: "history-secret" } }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secret: () => "history-secret" } }),
       },
       driver: { run: () => "saved" },
       messages: { stream: false },
@@ -23646,7 +23653,7 @@ describe("server helpers", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           platforms: { telegram: () => adapter as never },
           stream: false,
-          webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
+          webhooks: { telegram: { secretHeader: "x-test-secret", secret: () => "history-secret" } },
         }),
       ],
       driver: { run: () => "saved" },

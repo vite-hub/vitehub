@@ -39,7 +39,7 @@ describe("Collection history Invocation joins", () => {
       history: { collection: { parseQuery: async query => query, page: async () => ({ items: [item("m1"), item("m2")], nextCursor: null }) },
         key: entry => entry.data.message.id, thread: entry => entry.data.thread.id, invocationItem },
       triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "unused" } }) }) },
-      webhooks: { secretHeader: "x-test-secret", secretToken: "secret" },
+      webhooks: { secretHeader: "x-test-secret", secret: () => "secret" },
     })
     const agent = defineAgent({ name: "bot-dev", channels: { productlane: channel }, driver: { run: () => "unused" }, invocations, runtime: false })
     const handler = createChannelWebhookRouteHandler(agent)
