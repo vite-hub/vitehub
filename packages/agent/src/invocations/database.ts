@@ -145,8 +145,7 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
 function postgresClient(value: unknown): AgentInvocationPostgresClient | undefined {
   if (typeof value !== "function" || typeof Reflect.get(value, "begin") !== "function" || typeof Reflect.get(value, "unsafe") !== "function") return
   // SAFETY: The runtime shape check verifies the postgres.js begin and unsafe methods used by the Postgres store.
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
-  return value as unknown as AgentInvocationPostgresClient
+  return value as AgentInvocationPostgresClient
 }
 
 /**
