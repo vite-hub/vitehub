@@ -1386,7 +1386,7 @@ async function createAgent(
     args: tool.args || {},
     id: tool.id,
     name: tool.name,
-    type: "provider-defined",
+    type: "provider",
   }]))
   const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
