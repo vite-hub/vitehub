@@ -388,20 +388,20 @@ describe("Agent Channel delivery journal", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
     const first = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-0" })
-    let secondId: string | undefined
-    for (let index = 1; index < 10_000; index++) {
+    let oldestKeptId: string | undefined
+    for (let index = 1; index < 10_049; index++) {
       const delivery = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: `delivery-${index}` })
-      if (index === 1) secondId = delivery.delivery.id
+      if (index === 50) oldestKeptId = delivery.delivery.id
     }
 
     await first.event({ type: "accepted" })
-    const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10000" })
+    const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10049" })
     const ids = await state.getList<string>("deliveries:index")
 
     expect(ids).toHaveLength(10_000)
     expect(new Set(ids)).toHaveLength(10_000)
     expect(ids).not.toContain(first.delivery.id)
-    expect(ids?.at(0)).toBe(secondId)
+    expect(ids?.at(0)).toBe(oldestKeptId)
     expect(ids?.at(-1)).toBe(newest.delivery.id)
     info.mockRestore()
   }, 10_000)
@@ -412,21 +412,38 @@ describe("Agent Channel delivery journal", () => {
     const input = { agentName: "support", provider: "github", scope: "webhook:support" }
     const first = await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })
     await first.event({ type: "completed" })
-    let second: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
-    for (let index = 1; index <= 10_000; index++) {
+    let oldestKept: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    for (let index = 1; index < 10_050; index++) {
       const delivery = await openAgentChannelDelivery(state, { ...input, sourceId: `delivery-${index}` })
-      if (index === 1) second = delivery
+      if (index === 50) oldestKept = delivery
     }
 
     expect(await state.getList("deliveries:index")).not.toContain(first.delivery.id)
     expect(await state.get(`deliveries:${first.delivery.id}`)).toBeNull()
     expect(await state.getList(`deliveries:${first.delivery.id}:events`)).toEqual([])
     expect(await resumeAgentChannelDelivery(state, first.delivery.id)).toBeUndefined()
-    expect(await state.get(`deliveries:${second!.delivery.id}`)).toMatchObject({ id: second!.delivery.id })
+    expect(await state.get(`deliveries:${oldestKept!.delivery.id}`)).toMatchObject({ id: oldestKept!.delivery.id })
     // The source is free again, so a new admission of the same event is not a duplicate.
     expect((await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })).duplicate).toBe(false)
     info.mockRestore()
   }, 20_000)
+
+  it("reads the full inspection index once per trim, not on every admission", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    for (let index = 0; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const getList = vi.spyOn(state, "getList")
+    for (let index = 0; index < 100; index++) {
+      await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: `delivery-${index}` })
+    }
+
+    // Two trims, each reading the index before and after its append and once more to recheck its candidates under their locks.
+    expect(getList.mock.calls.filter(([key]) => key === "deliveries:index")).toHaveLength(6)
+    expect(await state.getList("deliveries:index")).toHaveLength(10_000)
+    info.mockRestore()
+  })
 
   it("preserves a delivery re-admitted during overflow cleanup", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
@@ -435,6 +452,9 @@ describe("Agent Channel delivery journal", () => {
     const oldest = await openAgentChannelDelivery(state, input)
     for (let index = 1; index < 10_000; index++) {
       await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    for (let index = 2; index < 50; index++) {
+      await openAgentChannelDelivery(state, { ...input, sourceId: `between-${index}` })
     }
     const getList = state.getList.bind(state)
     let retry: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
@@ -487,7 +507,9 @@ describe("Agent Channel delivery journal", () => {
     }
 
     await openAgentChannelDelivery(state, input)
-    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow-10000" })
+    for (let index = 10_000; index < 10_049; index++) {
+      await openAgentChannelDelivery(state, { ...input, sourceId: `overflow-${index}` })
+    }
 
     await expect(readAgentChannelDeliveries(state, 10_000)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: oldest.delivery.id })]),
