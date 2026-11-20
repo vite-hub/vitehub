@@ -2778,7 +2778,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       else env[channelSimulationEnv] = channelSimulationPreviousValue
     }
   }
-  let nitroInstance: { options: { dev?: boolean, devServer?: { runner?: string }, cloudflare?: { wrangler?: { vars?: Record<string, unknown> } } } } | undefined
+  type WranglerVars = { vars?: Record<string, unknown> }
+  let nitroInstance: { options: { dev?: boolean, devServer?: { runner?: string }, cloudflare?: { wranglerEnv?: string, wrangler?: WranglerVars & { env?: Record<string, WranglerVars | undefined> } } } } | undefined
   /**
    * Ties the AI emulator of `agent.models.emulate` to each dev server that Vite creates from this config. Vite calls
    * `createEnvironment` only for a dev server, so a config-only load, a build, or a preview starts nothing, and the
@@ -2803,7 +2804,11 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       if (url && nitro?.options.dev && (nitro.options.devServer?.runner || process.env.NITRO_DEV_RUNNER) === "miniflare") {
         const cloudflare = nitro.options.cloudflare ??= {}
         const wrangler = cloudflare.wrangler ??= {}
-        wrangler.vars = { ...wrangler.vars, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: url }
+        // The runner reads the selected named environment of the inline config, and a named environment does not
+        // inherit the top-level vars. When the inline config does not define that environment, the runner reads its top level.
+        const environment = cloudflare.wranglerEnv ?? process.env.CLOUDFLARE_ENV
+        const scope = (environment && wrangler.env?.[environment]) || wrangler
+        scope.vars = { ...scope.vars, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: url }
       }
       return url
     }

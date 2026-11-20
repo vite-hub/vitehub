@@ -31,6 +31,13 @@ function setEnv(values: Record<string, string | undefined>): void {
   }
 }
 
+/** Sorts object keys at every depth, so two equal seeds give one key. Arrays keep their order, because rule order selects the reply. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.keys(value).sort().map(name => [name, canonical((value as Record<string, unknown>)[name])]))
+}
+
 /** Runs one change of the shared state at a time, so a start, a reseed, and a stop never overlap. */
 function serialized<T>(task: () => Promise<T>): Promise<T> {
   const run = queue.then(task, task)
@@ -78,7 +85,7 @@ async function sync(logger?: DevModelEmulatorLogger): Promise<string | undefined
 export function acquireDevModelEmulator(owner: object, root: string, emulate: boolean | AgentModelsEmulateSeed | undefined, logger: DevModelEmulatorLogger): Promise<string | undefined> {
   return serialized(async () => {
     const seed = emulate === true ? {} : emulate || undefined
-    const key = seed && JSON.stringify(seed)
+    const key = seed && JSON.stringify(canonical(seed))
     for (const [other, app] of apps) {
       if (other !== root && app.key !== key) throw agentDiagnostics.AGENT_EMULATOR_DEV_APPS_CONFLICT({ root, other })
     }

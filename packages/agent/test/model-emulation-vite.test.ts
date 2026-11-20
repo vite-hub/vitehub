@@ -1,6 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { createServer, createServerHotChannel, resolveConfig } from "vite"
 import { afterEach, beforeEach, expect, expectTypeOf, it, vi } from "vitest"
@@ -30,7 +32,34 @@ afterEach(async () => {
   vi.resetModules()
 })
 
-type Nitro = { options: { dev: boolean, devServer: { runner?: string }, cloudflare?: { wrangler?: { vars?: Record<string, unknown> } } } }
+type WranglerVars = { vars?: Record<string, unknown> }
+type Wrangler = WranglerVars & { env?: Record<string, WranglerVars> }
+type Nitro = { options: { dev: boolean, devServer: { runner?: string }, cloudflare?: { wranglerEnv?: string, wrangler?: Wrangler } } }
+
+/** The runner that Nitro's miniflare dev server uses, from Nitro's own dependencies. */
+interface MiniflareRunner {
+  waitForReady: (timeout?: number) => Promise<void>
+  fetch: (input: string) => Promise<Response>
+  close: () => Promise<void>
+}
+type MiniflareRunnerClass = new (options: { name: string, data: { entry: string }, miniflare: unknown, wrangler: Wrangler, wranglerEnv?: string, wranglerModule: string }) => MiniflareRunner
+
+/** Runs a Worker in Miniflare with the inline Wrangler config, as Nitro's miniflare dev runner does, and returns its env values. */
+async function workerEnv(root: string, wrangler: Wrangler, wranglerEnv?: string): Promise<Record<string, unknown>> {
+  const nitroRequire = createRequire(createRequire(import.meta.url).resolve("nitro/package.json"))
+  // SAFETY: env-runner is a dependency of Nitro, not of this package, so its types are not in scope here.
+  const { MiniflareEnvRunner } = await import(pathToFileURL(nitroRequire.resolve("env-runner/runners/miniflare")).href) as { MiniflareEnvRunner: MiniflareRunnerClass }
+  const entry = join(root, "worker.mjs")
+  await writeFile(entry, "export default { fetch: (request, env) => Response.json({ VITEHUB_MODELS: env.VITEHUB_MODELS, VITEHUB_EMULATE_URL: env.VITEHUB_EMULATE_URL, TOP: env.TOP, LOCAL: env.LOCAL }) }\n")
+  const runner = new MiniflareEnvRunner({ name: "model-emulation", data: { entry }, miniflare: await import("miniflare"), wrangler, wranglerEnv, wranglerModule: "wrangler" })
+  try {
+    await runner.waitForReady(30_000)
+    return await (await runner.fetch("http://localhost/")).json() as Record<string, unknown>
+  }
+  finally {
+    await runner.close()
+  }
+}
 
 async function app(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-model-emulation-vite-"))
@@ -160,6 +189,15 @@ it("shares one emulator between apps with the same setting until the last one cl
   expect(process.env.VITEHUB_MODELS).toBeUndefined()
 }, 30_000)
 
+it("shares one emulator between apps whose seeds differ only in key order", async () => {
+  const rules = [{ id: "hello", match: { textContains: "hello" }, reply: [{ type: "text", text: "Hi from the rule." }] }]
+  await devServer({ rules, strict: true })
+  const url = process.env.VITEHUB_EMULATE_URL!
+  await devServer({ strict: true, rules: [{ reply: [{ text: "Hi from the rule.", type: "text" }], match: { textContains: "hello" }, id: "hello" }] })
+  expect(process.env.VITEHUB_EMULATE_URL).toBe(url)
+  expect(await invoke("hello")).toBe("Hi from the rule.")
+}, 30_000)
+
 it.each([
   { name: "an app without emulate after an emulating app", first: hello, second: undefined },
   { name: "an emulating app after an app without emulate", first: undefined, second: hello },
@@ -173,13 +211,21 @@ it.each([
   else expect(process.env.VITEHUB_MODELS).toBeUndefined()
 }, 30_000)
 
-it("gives the miniflare dev runner the switch as Wrangler vars", async () => {
+it.each([
+  { name: "the default Wrangler environment", wranglerEnv: undefined, shell: undefined, kept: { TOP: "1" } },
+  { name: "the named environment of Nitro's wranglerEnv", wranglerEnv: "local", shell: undefined, kept: { LOCAL: "1" } },
+  { name: "the named environment of CLOUDFLARE_ENV", wranglerEnv: undefined, shell: "local", kept: { LOCAL: "1" } },
+])("gives the switch to a miniflare dev Worker in $name", async ({ wranglerEnv, shell, kept }) => {
+  vi.stubEnv("CLOUDFLARE_ENV", shell)
   const plugin = hubAgent({ models: { emulate: true } })
-  const nitro: Nitro = { options: { dev: true, devServer: { runner: "miniflare" }, cloudflare: { wrangler: { vars: { OTHER: "1" } } } } }
+  const wrangler: Wrangler = { vars: { TOP: "1" }, env: { local: { vars: { LOCAL: "1" } } } }
+  const nitro: Nitro = { options: { dev: true, devServer: { runner: "miniflare" }, cloudflare: { wranglerEnv, wrangler } } }
   plugin.nitro!.setup(nitro as never)
-  servers.push(await createServer(inline(await app(), plugin)))
-  expect(nitro.options.cloudflare?.wrangler?.vars).toEqual({ OTHER: "1", VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: process.env.VITEHUB_EMULATE_URL })
-}, 30_000)
+  const root = await app()
+  servers.push(await createServer(inline(root, plugin)))
+  const env = await workerEnv(root, wrangler, wranglerEnv)
+  expect(env).toMatchObject({ ...kept, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: process.env.VITEHUB_EMULATE_URL })
+}, 60_000)
 
 it.each(["serve", "build"] as const)("does not start or validate the emulator when only a %s config resolves", async (command) => {
   // SAFETY: The rule is invalid on purpose, so a start or a validation would throw.
