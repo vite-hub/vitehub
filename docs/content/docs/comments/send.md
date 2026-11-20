@@ -37,17 +37,20 @@ You pair once, in the pill:
 The setup code works once, for 10 minutes, and only for the person who copied it. The agent follows these steps from the prompt:
 
 - It calls the T3 tool `schedule_task` with a webhook schedule. The signature is `x-hub-signature-256`, hex, after `sha256=`, with a secret that your server made for this code. The replay key is `{{headers.x-vitehub-delivery}}`, so T3 runs each delivery once. `bindToCurrentThread: true` posts each run in the same thread, and `freshSession: true` starts each run with a fresh session.
-- It posts the `webhookUrl` that `schedule_task` returns:
+- It reads its own thread with the T3 tool `t3_thread_read` and the `T3CODE_THREAD_ID` environment variable. The `link` it returns holds the thread URL, `t3-thread://v2/<environmentId>/<threadId>`.
+- It posts the `webhookUrl` that `schedule_task` returns, and the thread URL as `thread`:
 
 ```bash [Terminal]
 curl -sS -X POST https://joyandmaxi.com/_vitehub/comments/send/pair \
   -H 'content-type: application/json' \
-  -d '{"code":"K7QM-4XPA-9RTC","url":"https://relay.t3.codes/hooks/..."}'
+  -d '{"code":"K7QM-4XPA-9RTC","url":"https://relay.t3.codes/hooks/...","thread":"t3-thread://v2/<environmentId>/<threadId>"}'
 ```
 
 ```json [Response]
 { "data": { "status": "paired", "agent": { "name": "T3 Code", "logo": "t3", "host": "relay.t3.codes" } } }
 ```
+
+`thread` is optional. The server keeps it only when it has exactly that form, and drops anything else, because the pill links to it.
 
 A code that is too old answers `410` with `"reason": "expired"`, a used code `409` with `"used"`, and a URL that is not safe `422` with `"refused"`. Then press **Copy again** in the pill for a new code.
 
@@ -55,7 +58,7 @@ For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Cod
 
 ## Send
 
-After the pairing, **Send N** sends at once. The pill shows **Sending**, **Sent**, then **Working** until the agent answers. When the delivery fails, it shows **Not delivered** and **Retry**.
+After the pairing, **Send N** sends at once. The pill shows **Sending**, **Sent**, then **Working** until the agent answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When the delivery fails, it shows **Not delivered** and **Retry**.
 
 **N** counts the open threads on the page that you may read, whose last message is not an agent's, and that have a message newer than their last send. Threads of other people count too. A thread that was sent and has no new message does not count.
 
@@ -98,7 +101,7 @@ export const comments = defineComments({
 ## Security
 
 - **The code is the only key of the pair route.** `POST /send/pair` takes any origin, because the agent posts from its own machine. Every other Send route takes requests from the site's own pages only.
-- **Allow binds the agent to you.** Only the person who copied the code can allow it. Nothing is saved before Allow.
+- **Allow binds the agent to you.** Only the person who copied the code can allow it. Nothing is saved before Allow. When Auth verified your email, the endpoint keeps it, so your ViteHub Console account with that email can Redeliver its sends.
 - **The URL guard** refuses a URL that is not `https`, that is not on `relay.t3.codes` (or `hosts`), or that names a private or cloud metadata address. See [The URL guard](/docs/webhooks/member-endpoints#the-url-guard).
 - **Sealed at rest.** The URL and secret of your agent, and the secret of a setup code, are sealed with `VITEHUB_WEBHOOKS_KEY`. A read token is kept as its hash.
 - **Limits.** Each person sends at most 30 times an hour. The pill shows **Limit reached, try at 15:10** until then.
@@ -108,7 +111,7 @@ export const comments = defineComments({
 | --- | --- | --- |
 | `GET /_vitehub/comments/send/status?page=` | The person | Count, agent, and the send the agent works on |
 | `POST /send/start?page=` | The person | A setup code and its prompt |
-| `POST /send/pair` | The agent, any origin | Pairs with `{ code, url }` or `{ code, inbox }` |
+| `POST /send/pair` | The agent, any origin | Pairs with `{ code, url, thread? }` or `{ code, inbox }` |
 | `GET /send/pair/<code>` | The person | `waiting`, `paired`, `expired`, or `refused` |
 | `DELETE /send/pair/<code>` | The person | Drops the code |
 | `POST /send/allow?page=` | The person who copied the code | Saves the agent and sends |

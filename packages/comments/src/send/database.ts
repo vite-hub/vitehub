@@ -23,6 +23,10 @@ export const commentSends = sqliteTable("vitehub_comment_sends", {
   state: text("state", { enum: ["sent", "working", "done", "failed"] }).notNull(),
   /** The id of the Webhooks delivery. */
   delivery: text("delivery"),
+  /** The member endpoint that the send went to. Later sends to the same endpoint keep its `thread`. */
+  endpoint: text("endpoint"),
+  /** The link of the agent's thread, such as `t3-thread://v2/<environmentId>/<threadId>`, when the agent gave one. */
+  thread: text("thread"),
   error: text("error"),
   sender: text("sender").notNull(),
   tokenHash: text("token_hash"),
@@ -45,6 +49,8 @@ export const commentSendCodes = sqliteTable("vitehub_comment_send_codes", {
   /** `t3`, `claude-code`, or `codex`, once an agent used the code. */
   agent: text("agent"),
   host: text("host"),
+  /** The link of the agent's thread that the pair post gave, checked. */
+  thread: text("thread"),
   sealed: text("sealed").notNull(),
   expiresAt: integer("expires_at").notNull(),
   createdAt: integer("created_at").notNull(),
@@ -57,9 +63,9 @@ export const commentSendsSchema = { commentSends, commentSendCodes }
 
 /** `commentSendsSchema` as SQLite statements that are safe to run on every start. */
 export const commentSendsTables: readonly string[] = [
-  "CREATE TABLE IF NOT EXISTS `vitehub_comment_sends` (`id` text PRIMARY KEY NOT NULL, `member` text NOT NULL, `subject_kind` text NOT NULL, `subject_id` text NOT NULL, `page` text NOT NULL, `threads` text NOT NULL, `key` text NOT NULL, `state` text NOT NULL, `delivery` text, `error` text, `sender` text NOT NULL, `token_hash` text, `token_expires_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_comment_sends` (`id` text PRIMARY KEY NOT NULL, `member` text NOT NULL, `subject_kind` text NOT NULL, `subject_id` text NOT NULL, `page` text NOT NULL, `threads` text NOT NULL, `key` text NOT NULL, `state` text NOT NULL, `delivery` text, `endpoint` text, `thread` text, `error` text, `sender` text NOT NULL, `token_hash` text, `token_expires_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
   "CREATE INDEX IF NOT EXISTS `vitehub_comment_sends_member` ON `vitehub_comment_sends` (`member`,`created_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_comment_sends_subject` ON `vitehub_comment_sends` (`subject_kind`,`subject_id`,`created_at`)",
-  "CREATE TABLE IF NOT EXISTS `vitehub_comment_send_codes` (`id` text PRIMARY KEY NOT NULL, `member` text NOT NULL, `state` text NOT NULL, `agent` text, `host` text, `sealed` text NOT NULL, `expires_at` integer NOT NULL, `created_at` integer NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_comment_send_codes` (`id` text PRIMARY KEY NOT NULL, `member` text NOT NULL, `state` text NOT NULL, `agent` text, `host` text, `thread` text, `sealed` text NOT NULL, `expires_at` integer NOT NULL, `created_at` integer NOT NULL)",
   "CREATE INDEX IF NOT EXISTS `vitehub_comment_send_codes_member` ON `vitehub_comment_send_codes` (`member`)",
 ]

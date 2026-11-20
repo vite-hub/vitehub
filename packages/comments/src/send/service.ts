@@ -23,7 +23,7 @@ interface EndpointLike {
  * receiver's secret. The generated plugin imports the package only when `send` is on.
  */
 export interface CommentSendWebhooks {
-  createMemberEndpoint: (options: { owner: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
+  createMemberEndpoint: (options: { owner: string, ownerEmail?: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
   getMemberEndpoint: (owner: string) => Promise<Result<EndpointLike | null, string>>
   sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
   checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
@@ -119,6 +119,20 @@ function agentOf(endpoint: { agent: string | null, host: string | null } | undef
 
 const lastOf = (thread: CommentThread) => thread.messages.at(-1)
 
+/** A T3 thread link as `t3_thread_read` gives it: `t3-thread://v2/<environmentId>/<threadId>`. */
+const t3ThreadLink = /^t3-thread:\/\/v2\/[\w.~-]{1,128}\/[\w.~:-]{1,256}$/
+
+/** The thread link of a pair post, or `null`. It becomes an `href`, so anything but a T3 thread link is dropped. */
+export function commentSendThread(value: unknown): string | null {
+  return typeof value === "string" && t3ThreadLink.test(value) ? value : null
+}
+
+/** The member's email when Auth verified it, so a ViteHub Console account with that email acts as the endpoint's owner. */
+function verifiedEmail(user: CommentsUser): string | undefined {
+  const email = user.email
+  return user.emailVerified === true && typeof email === "string" && email.trim() ? email : undefined
+}
+
 /** The string fields of JSON that Send wrote itself, such as a sealed secret or the sender snapshot. */
 function readFields(text: string): Record<string, unknown> {
   const value: unknown = JSON.parse(text)
@@ -181,7 +195,8 @@ export function commentSendPrompt(input: { origin: string, pairUrl: string, code
   return [
     `Connect the comments of ${host} to this T3 thread, so the comments that I send from the site come here.`,
     `First call the T3 tool schedule_task with the title ${JSON.stringify(`Comments from ${host}`)}, the prompt ${JSON.stringify(taskPrompt(input.origin, input.grant))}, the schedule ${JSON.stringify(schedule)}, bindToCurrentThread set to true, and freshSession set to true.`,
-    `Then post the webhookUrl that schedule_task returns, with this command: curl -sS -X POST ${input.pairUrl} -H 'content-type: application/json' -d '{"code":"${input.code}","url":"<webhookUrl>"}'`,
+    "Then call the T3 tool t3_thread_read with the threadId in the T3CODE_THREAD_ID environment variable. Its link holds the URL of this thread, of the form t3-thread://v2/<environmentId>/<threadId>.",
+    `Post the webhookUrl that schedule_task returns and that thread URL, with this command: curl -sS -X POST ${input.pairUrl} -H 'content-type: application/json' -d '{"code":"${input.code}","url":"<webhookUrl>","thread":"<thread URL>"}'`,
     "The code works once, for 10 minutes. Tell me when the site answers with paired, and do nothing else.",
   ].join("\n\n")
 }
@@ -266,7 +281,11 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     }
   }
 
-  async function deliver(caller: CommentSendCaller, user: CommentsUser): Promise<CommentSendResult> {
+  /**
+   * Sends the waiting threads to the member's endpoint. `thread` is the thread link of a pairing that Allow just used;
+   * else the send keeps the link of the last send to the same endpoint.
+   */
+  async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { thread: string | null }): Promise<CommentSendResult> {
     const now = Date.now()
     const limitedUntil = await retryAt(user.id, now)
     if (limitedUntil !== undefined) return { status: "limited", retryAt: limitedUntil }
@@ -277,7 +296,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     const entries: SentThread[] = threads.map(thread => ({ id: thread.id, message: lastOf(thread)!.id, role: roleOf(thread, user.id) }))
     const key = await sha256(JSON.stringify([user.id, entries.map(entry => [entry.id, entry.message])]))
     const earlier = await store.sendByKey(user.id, key, ["sent", "working"])
-    if (earlier) return { status: "sent", id: earlier.id }
+    if (earlier) return { status: "sent", id: earlier.id, ...(earlier.thread ? { thread: earlier.thread } : {}) }
+    const thread = paired ? paired.thread : await store.endpointThread(user.id, endpoint.id)
 
     const id = `send_${crypto.randomUUID()}`
     const token = grant ? `vhs_${random(32)}` : undefined
@@ -294,6 +314,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       key,
       state: "sent",
       delivery: null,
+      endpoint: endpoint.id,
+      thread,
       error: null,
       // The sender as Comments knew them, so the read token reads as them, with the roles they had.
       sender: JSON.stringify(user),
@@ -320,7 +342,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       return { status: "failed", reason }
     }
     await store.setSendState(id, ["sent"], "sent", Date.now(), { delivery: delivered.id })
-    return { status: "sent", id }
+    return { status: "sent", id, ...(thread ? { thread } : {}) }
   }
 
   return {
@@ -346,7 +368,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
           const thread = byId.get(entry.id)
           return thread !== undefined && commentThreadWaits(thread)
         })
-        if (pending) working = { id: latest.id }
+        if (pending) working = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
       return { count: ready.length, ...(agent ? { agent } : {}), ...(working ? { working } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
@@ -363,7 +385,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if (keyError) throw keyError
       await store.pruneCodes(user.id, now)
       const expiresAt = now + codeLifetime
-      await store.insertCode({ id, member: user.id, state: "waiting", agent: null, host: null, sealed, expiresAt, createdAt: now })
+      await store.insertCode({ id, member: user.id, state: "waiting", agent: null, host: null, thread: null, sealed, expiresAt, createdAt: now })
       const prompt = commentSendPrompt({ origin: caller.origin, pairUrl: `${caller.origin}${caller.route}/send/pair`, code, secret, grant })
       return [undefined, { code, prompt, expiresAt, agent: t3() }]
     },
@@ -372,6 +394,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const code: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "code") : undefined
       const url: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "url") : undefined
       const inbox: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "inbox") : undefined
+      const thread: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "thread") : undefined
       if (typeof code !== "string" || !code || code.length > 64) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the code of the setup prompt." }), undefined]
       if ((typeof url === "string") === (typeof inbox === "string")) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Send `url`, the webhookUrl of the T3 task, or `inbox`, \"Claude Code\" or \"Codex\"." }), undefined]
       const now = Date.now()
@@ -397,7 +420,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const secret = stringField(readFields(opened), "secret")
       const [sealError, sealed] = await tools.sealWebhooksText(label, JSON.stringify({ secret, url: checked.href }))
       if (sealError) throw sealError
-      const moved = await store.moveCode(id, "waiting", "paired", now, { agent: "t3", host: checked.host, sealed })
+      const moved = await store.moveCode(id, "waiting", "paired", now, { agent: "t3", host: checked.host, thread: commentSendThread(thread), sealed })
       return moved ? [undefined, { status: "paired", agent: agentOf(moved)! }] : [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
     },
 
@@ -425,18 +448,20 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if (!used) return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       const tools = await webhooks()
       const agent = agentOf(used)!
+      const email = verifiedEmail(user)
+      const owner = email ? { ownerEmail: email } : {}
       let created: Awaited<ReturnType<CommentSendWebhooks["createMemberEndpoint"]>>
       if (used.host) {
         const [openError, opened] = await tools.unsealWebhooksText(`comments-send-code:${id}`, used.sealed)
         if (openError) throw openError
         const target = readFields(opened)
-        created = await tools.createMemberEndpoint({ owner: user.id, name: `${agent.name} thread`, agent: used.agent ?? "t3", kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
+        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} thread`, agent: used.agent ?? "t3", kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
       }
       else {
-        created = await tools.createMemberEndpoint({ owner: user.id, name: `${agent.name} inbox`, agent: used.agent ?? "claude-code", kind: "inbox" })
+        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} inbox`, agent: used.agent ?? "claude-code", kind: "inbox" })
       }
       if (created[0]) return [undefined, { status: "failed", reason: created[0].why }]
-      return [undefined, await deliver(caller, user)]
+      return [undefined, await deliver(caller, user, { thread: used.thread })]
     },
 
     async send(caller) {

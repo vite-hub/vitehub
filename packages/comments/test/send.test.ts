@@ -32,7 +32,10 @@ const relay = "https://relay.t3.codes/hooks/wh_7c1d?token=t3-relay-token"
 const people: Record<string, CommentsUser> = {
   ana: { id: "ana", name: "Ana", role: "editor" },
   bob: { id: "bob", name: "Bob", role: "editor" },
+  cora: { id: "cora", name: "Cora", role: "editor", email: "Cora@Example.com", emailVerified: true },
+  dan: { id: "dan", name: "Dan", role: "editor", email: "dan@example.com", emailVerified: false },
 }
+const threadLink = "t3-thread://v2/6f5c40a4-eb77-4249-a83a-c0d4f680b208/mcp:launch:b1810c72539f5d7c88d14a5e"
 
 interface Delivery {
   url: string
@@ -87,10 +90,10 @@ async function setup(send: DefineCommentsOptions["send"] = true) {
     if (error) throw error
   }
   /** Start, pair with `url`, and Allow, as the pill and the agent do. Returns the result of Allow. */
-  const connect = async (as: keyof typeof people = "ana", url = relay) => {
+  const connect = async (as: keyof typeof people = "ana", url = relay, thread?: unknown) => {
     const started = await call(`/send/start?page=${page}`, { method: "POST", as })
     const code: string = started.body.data.code
-    const paired = await call("/send/pair", { json: { code, url }, origin: null })
+    const paired = await call("/send/pair", { json: { code, url, ...(thread === undefined ? {} : { thread }) }, origin: null })
     expect(paired.status).toBe(200)
     return { code, allowed: await call(`/send/allow?page=${page}`, { json: { code }, as }) }
   }
@@ -124,10 +127,49 @@ describe("pairing", () => {
     expect(body.data.code).toMatch(/^[2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4}$/)
     expect(body.data.agent).toEqual({ name: "T3 Code", logo: "t3", host: "relay.t3.codes" })
     const prompt: string = body.data.prompt
-    for (const part of ["schedule_task", "\"x-hub-signature-256\"", "\"encoding\":\"hex\"", "\"prefix\":\"sha256=\"", "{{headers.x-vitehub-delivery}}", "bindToCurrentThread set to true", "freshSession set to true", `${origin}/_vitehub/comments/send/pair`, body.data.code]) {
+    for (const part of ["t3_thread_read", "T3CODE_THREAD_ID", "t3-thread://v2/<environmentId>/<threadId>", "\"thread\":\"<thread URL>\"", "schedule_task", "\"x-hub-signature-256\"", "\"encoding\":\"hex\"", "\"prefix\":\"sha256=\"", "{{headers.x-vitehub-delivery}}", "bindToCurrentThread set to true", "freshSession set to true", `${origin}/_vitehub/comments/send/pair`, body.data.code]) {
       expect(prompt).toContain(part)
     }
     expect(prompt).toMatch(/"secret":"whsec_[0-9a-f]{64}"/)
+  })
+
+  it("keeps the thread link of the pair post, and links Working and later sends to it", async () => {
+    const { call, comment, connect, page } = await setup()
+    await comment("ana", "The rental desk paragraph is too long")
+    const { allowed } = await connect("ana", relay, threadLink)
+    expect(allowed.body.data).toMatchObject({ status: "sent", thread: threadLink })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.working).toMatchObject({ thread: threadLink })
+    await comment("ana", "And the photo credits")
+    expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: threadLink })
+  })
+
+  it.each([
+    ["a javascript: link", "javascript:alert(document.cookie)"],
+    ["a web link", "https://app.t3.codes/threads/abc"],
+    ["another version", "t3-thread://v1/env/thread"],
+    ["an extra segment", "t3-thread://v2/env/thread/extra"],
+    ["a query", "t3-thread://v2/env/thread?x=1"],
+    ["an object", { href: threadLink }],
+  ])("drops %s as the thread link, and still pairs", async (_, thread) => {
+    const { call, comment, connect, page } = await setup()
+    await comment("ana", "The rental desk paragraph is too long")
+    const { allowed } = await connect("ana", relay, thread)
+    expect(allowed.body.data.status).toBe("sent")
+    expect(allowed.body.data).not.toHaveProperty("thread")
+    const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    expect(status.working).toBeDefined()
+    expect(status.working).not.toHaveProperty("thread")
+  })
+
+  it("gives the endpoint the member's email only when it is verified", async () => {
+    const { comment, connect } = await setup()
+    await comment("cora", "Swap the photos")
+    await comment("dan", "Fix the map")
+    await connect("cora")
+    await connect("dan")
+    expect((await getMemberEndpoint("cora"))[1]).toMatchObject({ ownerEmail: "cora@example.com" })
+    expect((await getMemberEndpoint("dan"))[1]).toMatchObject({ ownerEmail: null })
+    expect((await getMemberEndpoint("ana"))[1]).toBeNull()
   })
 
   it("refuses signed-out people", async () => {

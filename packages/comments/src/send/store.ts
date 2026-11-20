@@ -21,7 +21,7 @@ export interface CommentSendStore {
   insertCode: (row: CodeRow) => Promise<void>
   code: (id: string) => Promise<CodeRow | undefined>
   /** Moves a code from `from` to `to` and writes `set`, when it is still in `from` and not expired. */
-  moveCode: (id: string, from: CommentSendCodeState, to: CommentSendCodeState, now: number, set?: Partial<Pick<CodeRow, "agent" | "host" | "sealed">>) => Promise<CodeRow | undefined>
+  moveCode: (id: string, from: CommentSendCodeState, to: CommentSendCodeState, now: number, set?: Partial<Pick<CodeRow, "agent" | "host" | "thread" | "sealed">>) => Promise<CodeRow | undefined>
   removeCode: (id: string, member: string) => Promise<void>
   /** Deletes the codes that expired, and the other codes of `member`. */
   pruneCodes: (member: string, now: number) => Promise<void>
@@ -33,6 +33,8 @@ export interface CommentSendStore {
   subjectSends: (subject: { kind: string, id: string }, limit: number) => Promise<SendRow[]>
   /** The latest send of a member on a subject, newest first. */
   latestSend: (member: string, subject?: { kind: string, id: string }, states?: readonly CommentSendState[]) => Promise<SendRow | undefined>
+  /** The thread link of the latest send of a member to `endpoint`, or `null`. */
+  endpointThread: (member: string, endpoint: string) => Promise<string | null>
   /** The times of the sends of a member since `since`, oldest first. */
   sendTimes: (member: string, since: number) => Promise<number[]>
   setSendState: (id: string, from: readonly CommentSendState[], to: CommentSendState, now: number, set?: Partial<Pick<SendRow, "delivery" | "error">>) => Promise<boolean>
@@ -113,6 +115,10 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
         ...states ? [inArray(sends.state, [...states])] : [],
       )).orderBy(desc(sends.createdAt)).limit(1)
       return row
+    }),
+    endpointThread: run(async (member, endpoint) => {
+      const [row] = await db.select({ thread: sends.thread }).from(sends).where(and(eq(sends.member, member), eq(sends.endpoint, endpoint))).orderBy(desc(sends.createdAt)).limit(1)
+      return row?.thread ?? null
     }),
     sendTimes: run(async (member, since) => {
       const rows = await db.select({ createdAt: sends.createdAt }).from(sends).where(and(eq(sends.member, member), gte(sends.createdAt, since))).orderBy(sends.createdAt)
