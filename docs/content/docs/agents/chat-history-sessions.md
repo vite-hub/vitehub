@@ -213,7 +213,7 @@ order, retention, and deletion.
 | Host output | Default Agent State |
 | --- | --- |
 | Cloudflare | The generated Durable Object binding, also for Channel handlers that generated Workflows call. An explicit state provider wins. A state configuration with only `url` keeps automatic libSQL selection. |
-| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. |
+| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. A Vercel or Netlify build without either one warns, because the first State call then fails with `AGENT_R0893`. |
 
 Cloudflare, Vercel, and Netlify production output reject `file:` URLs, because
 their filesystems are temporary.

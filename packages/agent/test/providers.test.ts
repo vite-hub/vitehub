@@ -2889,6 +2889,37 @@ export default defineAgent({
     }
   })
 
+  it("warns when a Vercel or Netlify build has no Agent State URL", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const build = async (host: string, env: string | undefined) => {
+      vi.stubEnv("VITEHUB_AGENT_STATE_URL", env)
+      const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${host}-state-warning-`))
+      const warn = vi.fn()
+      try {
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const plugin = hubAgent()
+        if (typeof plugin.configResolved === "function") {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          await plugin.configResolved.call({} as never, { command: "build", logger: { info: vi.fn(), warn }, vitehub: { host }, root } as never)
+        }
+        return warn.mock.calls.map(call => String(call[0])).filter(message => message.includes("VITEHUB_AGENT_STATE_URL"))
+      }
+      finally {
+        vi.unstubAllEnvs()
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+
+    const [vercel] = await build("vercel", undefined)
+    expect(vercel).toContain("This Vercel build has no VITEHUB_AGENT_STATE_URL")
+    expect(vercel).toContain("AGENT_R0893")
+    expect(await build("netlify", "")).toEqual([expect.stringContaining("This Netlify build has no VITEHUB_AGENT_STATE_URL")])
+    expect(await build("vercel", "libsql://state.example.turso.io")).toEqual([])
+    // A Node server reads its variables when it starts, not when it builds.
+    expect(await build("node", undefined)).toEqual([])
+  })
+
   it("requires durable automatic state on deployed Vercel output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-vercel-state-routes-"))
