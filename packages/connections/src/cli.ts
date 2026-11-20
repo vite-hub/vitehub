@@ -9,7 +9,7 @@ import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 import * as v from "valibot"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { askOnTerminal, defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
@@ -22,6 +22,8 @@ import type { ConnectionApproval, ConnectionInspection } from "./types.ts"
 type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout"> & Partial<Pick<ViteHubCliContext, "rootDir">>
 
 export interface ConnectionsCliOptions {
+  /** Asks a yes or no question. Defaults to the terminal, and to no answer without one. */
+  confirm?: (question: string) => Promise<boolean>
   fetch?: typeof fetch
   /** Browser opener. Pass false for non-interactive callers. */
   openBrowser?: false | ((url: string) => Promise<void>)
@@ -34,7 +36,6 @@ export interface ConnectionsCliOptions {
 }
 
 interface ParsedArgs {
-  confirm?: string
   /** The app session cookie of `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. */
   credentials: Headers
   flags: Map<string, string | true>
@@ -45,7 +46,7 @@ interface ParsedArgs {
 
 const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
 
-const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
+const valueFlags = new Set(["--before", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
 function parse(args: string[], context: CliContext): ParsedArgs {
   const env = context.env
@@ -60,10 +61,12 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     const separator = argument.indexOf("=")
     const flag = separator < 0 ? argument : argument.slice(0, separator)
     const inline = separator < 0 ? undefined : argument.slice(separator + 1)
-    if (flag === "-h" || flag === "--help" || flag === "--json") {
-      flags.set(flag === "-h" ? "--help" : flag, true)
+    if ((flag === "--yes" || flag === "-y") && inline !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `${flag} does not take a value.` })
+    if (flag === "-h" || flag === "--help" || flag === "--json" || flag === "--yes" || flag === "-y") {
+      flags.set(flag === "-h" ? "--help" : flag === "-y" ? "--yes" : flag, true)
       continue
     }
+    if (flag === "--confirm") throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "--confirm <name> is now --yes. Run the command again with --yes, or without it in a terminal to answer the question." })
     if (!valueFlags.has(flag)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Unknown option: ${flag}.` })
     const value = inline ?? args[index + 1]
     if (!value || (inline === undefined && value.startsWith("-"))) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Missing value for ${flag}.` })
@@ -76,7 +79,6 @@ function parse(args: string[], context: CliContext): ParsedArgs {
   const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
   if (cookie) credentials.set("cookie", cookie)
   return {
-    confirm: stringFlag(flags.get("--confirm")),
     credentials,
     flags,
     json: flags.has("--json"),
@@ -502,10 +504,14 @@ const commands: Record<string, { description: string, run: Command, usage: strin
   },
   revoke: {
     description: "Revoke the provider grant and delete the stored token.",
-    usage: "vitehub connections revoke <name> --confirm <name> [--url <app>] [--json]",
+    usage: "vitehub connections revoke <name> [--yes] [--url <app>] [--json]",
     async run(parsed, context, options) {
       const name = requireName(parsed, "revoke")
-      if (parsed.confirm !== name) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Pass --confirm ${name} to revoke this Connection.` })
+      if (!parsed.flags.has("--yes")) {
+        const question = `Revoke the Connection "${name}" at ${parsed.url}? The provider grant and the stored token are deleted. [y/N] `
+        const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+        if (!confirmed) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `connections revoke deletes the token of "${name}" and was not confirmed. Answer y in a terminal, or run it again with --yes.` })
+      }
       const { connection } = await request(parsed, options, { action: "revoke", name }, connectionResponse)
       write(context, parsed, connection, () => `Revoked. ${describeConnection(connection)}`)
     },

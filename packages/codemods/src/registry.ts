@@ -3,6 +3,7 @@ import { agentSurface } from "./agent-surface/index.ts"
 import { authAccessors } from "./auth-accessors/index.ts"
 import { authSignIn } from "./auth-sign-in/index.ts"
 import { channels } from "./channels/index.ts"
+import { cliYesFlag } from "./cli-yes-flag/index.ts"
 import { cliGetList } from "./cli-get-list/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { docus } from "./docus/index.ts"
@@ -59,6 +60,7 @@ export const codemods: readonly Codemod[] = [
   authAccessors,
   workspaceRepo,
   kvListPrefix,
+  cliYesFlag,
   cliGetList,
 ]
 
@@ -91,5 +93,6 @@ export const upgradeCodemods: readonly Codemod[] = [
   authAccessors,
   workspaceRepo,
   kvListPrefix,
+  cliYesFlag,
   cliGetList,
 ]

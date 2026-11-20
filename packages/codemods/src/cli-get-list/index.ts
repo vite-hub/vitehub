@@ -1,6 +1,6 @@
-import { rewriteCliCalls } from "../shared/cli-calls.ts"
+import { rewriteCliCalls } from "./cli-calls.ts"
 
-import type { ShellWord } from "../shared/cli-calls.ts"
+import type { ShellWord } from "./cli-calls.ts"
 import type { Codemod, CodemodContext, CodemodResult } from "../types.ts"
 
 /** `get` reads one record and `list` reads many. Each entry rewrites the start of the arguments after `vitehub `. */

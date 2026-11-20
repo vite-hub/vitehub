@@ -326,11 +326,11 @@ Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource, glob } from "@vite-hub/source"
+import { glob, useSource } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
-const reader = createSource(docs)
+const reader = useSource(docs)
 await reader.read("intro.md")
 
 export default defineWorkspace({

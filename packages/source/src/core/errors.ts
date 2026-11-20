@@ -7,7 +7,7 @@ export function sourceError(message: string, options?: ErrorOptions): ViteHubErr
 }
 
 export function sourceNotFoundError(name: string): ViteHubError {
-  return new ViteHubError("SOURCE_NOT_FOUND", `[vitehub] Source "${name}" is not registered.`, {
+  return new ViteHubError("SOURCE_NOT_FOUND", `[vitehub] Source "${name}" is not registered. Create server/sources/${name}.ts with the Source as its default export.`, {
     details: { name },
   })
 }
