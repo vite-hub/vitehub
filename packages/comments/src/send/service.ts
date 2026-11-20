@@ -26,10 +26,10 @@ interface EndpointLike {
  * receiver's secret. The generated plugin imports the package only when `send` is on.
  */
 export interface CommentSendWebhooks {
-  createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
-  getMemberEndpoint: (owner: string) => Promise<Result<EndpointLike | null, string>>
+  createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string, address?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
+  getMemberEndpoint: (owner: string, options?: { address?: string }) => Promise<Result<EndpointLike | null, string>>
   getMemberDeliveryState: (id: string) => Promise<"pending" | "sending" | "sent" | "dead" | "cancelled" | undefined>
-  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, deliveryId: string, sealBody: boolean, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
+  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, endpointId: string, deliveryId: string, sealBody: boolean, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
   checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
   sealWebhooksText: (label: string, text: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
   unsealWebhooksText: (label: string, sealed: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
@@ -280,8 +280,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return times.length >= commentSendLimit ? times[times.length - commentSendLimit]! + window : undefined
   }
 
-  async function endpointOf(member: string): Promise<EndpointLike | undefined> {
-    const [error, endpoint] = await (await webhooks()).getMemberEndpoint(member)
+  /** The address of the agent that should get a send from the caller's page, from `send.address`. */
+  async function addressOf(caller: CommentSendCaller, user: CommentsUser): Promise<string | undefined> {
+    return (await config.address?.({ user, subject: caller.subject })) || undefined
+  }
+
+  async function endpointOf(member: string, address: string | undefined): Promise<EndpointLike | undefined> {
+    const [error, endpoint] = await (await webhooks()).getMemberEndpoint(member, { address })
     if (error) throw error
     return endpoint && endpoint.disabledAt === null ? endpoint : undefined
   }
@@ -301,12 +306,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   }
 
   /**
-   * Sends the waiting threads to the member's endpoint. `thread` is the thread link of a pairing that Allow just used;
-   * else the send keeps the link of the last send to the same endpoint.
+   * Sends the waiting threads to the member's endpoint: the one paired from `send.address`, else their newest. `thread`
+   * is the thread link of a pairing that Allow just used, and the send goes to that endpoint; else the send keeps the
+   * link of the last send to the same endpoint.
    */
-  async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { thread: string | null }): Promise<CommentSendResult> {
+  async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, thread: string | null }): Promise<CommentSendResult> {
     const now = Date.now()
-    const endpoint = await endpointOf(user.id)
+    const endpoint = paired ?? await endpointOf(user.id, await addressOf(caller, user))
     if (!endpoint) return { status: "failed", reason: "No agent is paired. Press Send to pair one." }
     const resultOf = (row: SendRow): CommentSendResult => row.state === "failed" ? { status: "failed", reason: row.error ?? deliveryFailed }
       : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}) }
@@ -320,7 +326,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       return { status: "failed", reason: "No comment waits for an answer." }
     }
     const entries: SentThread[] = threads.map(thread => ({ id: thread.id, message: lastOf(thread)!.id, role: roleOf(thread, user.id) }))
-    const key = await sha256(JSON.stringify([user.id, entries.map(entry => [entry.id, entry.message])]))
+    const key = await sha256(JSON.stringify([user.id, endpoint.id, entries.map(entry => [entry.id, entry.message])]))
     const earlier = await store.sendByKey(user.id, key, live)
     if (earlier) return resultOf(earlier)
     const limitedUntil = await retryAt(user.id, now)
@@ -379,7 +385,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       data,
     }
     // The current `hosts`, so an endpoint that an older, wider list allowed gets nothing.
-    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, deliveryId: delivery, sealBody: true, hosts })
+    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, endpointId: endpoint.id, deliveryId: delivery, sealBody: true, hosts })
     if (error || delivered.status === "failed") return fail(error?.why ?? deliveryFailed)
     const status = delivered.status === "pending" ? "pending" : "sent"
     await store.setSendState(id, ["pending"], status, Date.now(), { delivery: delivered.id })
@@ -393,7 +399,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const now = Date.now()
       const [{ open, waiting: ready }, endpoint, candidate, limitedUntil] = await Promise.all([
         waiting(caller, user),
-        endpointOf(user.id),
+        addressOf(caller, user).then(address => endpointOf(user.id, address)),
         store.latestSend(user.id, caller.subject, ["pending", "sent", "working"]),
         retryAt(user.id, now),
       ])
@@ -507,13 +513,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         const [openError, opened] = await tools.unsealWebhooksText(`comments-send-code:${id}`, used.sealed)
         if (openError) throw openError
         const target = readFields(opened)
-        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} thread`, agent: used.agent ?? "t3", kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
+        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} thread`, agent: used.agent ?? "t3", ...(used.thread ? { address: used.thread } : {}), kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
       }
       else {
         created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} inbox`, agent: used.agent ?? "claude-code", kind: "inbox" })
       }
       if (created[0]) return [undefined, { status: "failed", reason: created[0].why }]
-      return [undefined, await deliver(caller, user, { thread: used.thread })]
+      return [undefined, await deliver(caller, user, { id: created[1].id, thread: used.thread })]
     },
 
     async send(caller) {

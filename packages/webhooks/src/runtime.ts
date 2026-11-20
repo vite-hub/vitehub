@@ -476,7 +476,7 @@ export function listWebhooks(): WebhookInfo[] {
 
 /** Deliveries, newest first. */
 export function listWebhookDeliveries(options?: ListWebhookDeliveriesOptions): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(async installed => (await installed.store.list(options)).map(inspectDelivery))
+  return attempt(async installed => (await (options?.owner === undefined ? installed : requireMemberEndpoints()).store.list(options)).map(inspectDelivery))
 }
 
 /** Pending deliveries, the soonest due first: the debounce timers that run now. */
@@ -500,7 +500,7 @@ function sealedMemberBody(delivery: WebhookDelivery): string | undefined {
   }
 }
 
-function inspectDelivery(delivery: WebhookDelivery): WebhookDelivery {
+export function inspectDelivery(delivery: WebhookDelivery): WebhookDelivery {
   return sealedMemberBody(delivery) === undefined ? delivery : { ...delivery, body: null }
 }
 

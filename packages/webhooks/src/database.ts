@@ -57,6 +57,8 @@ export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
   /** The verified email of the owner. A ViteHub Console account with this email acts as the owner. */
   ownerEmail: text("owner_email"),
   name: text("name").notNull(),
+  /** Where the agent can be reached, such as a T3 thread link. `""` for none. A member has one endpoint per address. */
+  address: text("address").notNull().default(""),
   kind: text("kind", { enum: endpointKinds }).notNull(),
   agent: text("agent"),
   host: text("host"),
@@ -67,7 +69,7 @@ export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, table => [
-  uniqueIndex("vitehub_webhook_endpoints_owner").on(table.owner),
+  uniqueIndex("vitehub_webhook_endpoints_owner").on(table.owner, table.address),
 ])
 
 /** The table of Webhooks, for `defineDatabase({ schema })` or a Database contribution. */
@@ -84,8 +86,8 @@ export const webhooksTables: readonly string[] = [
   "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_pending` ON `vitehub_webhook_deliveries` (`webhook`,`key`) WHERE state = 'pending'",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_webhook` ON `vitehub_webhook_deliveries` (`webhook`,`created_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_state` ON `vitehub_webhook_deliveries` (`state`,`due_at`)",
-  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
-  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `address` text DEFAULT '' NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`,`address`)",
 ]
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
@@ -116,6 +118,8 @@ export interface WebhookDelivery {
 /** Which deliveries `list()` returns, newest first. */
 export interface ListWebhookDeliveriesOptions {
   webhook?: string
+  /** Only deliveries to current endpoints of this member. */
+  owner?: string
   state?: WebhookDeliveryState
   /** At most this many, from 1 to 500. Default: 100. */
   limit?: number
@@ -283,6 +287,7 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       const { before } = options
       const where = and(
         options.webhook ? eq(t.webhook, options.webhook) : undefined,
+        options.owner === undefined ? undefined : inArray(t.webhook, db().select({ webhook: sql`'@' || ${webhookEndpoints.id}` }).from(webhookEndpoints).where(eq(webhookEndpoints.owner, options.owner))),
         options.state ? eq(t.state, options.state) : undefined,
         before ? or(lt(t.createdAt, before.createdAt), and(eq(t.createdAt, before.createdAt), lt(t.id, before.id))) : undefined,
       )
@@ -355,6 +360,8 @@ export interface MemberEndpoint {
   /** The verified email of the owner. A ViteHub Console account with this email acts as the owner. */
   ownerEmail: string | null
   name: string
+  /** Where the agent can be reached, such as a T3 thread link, or `null` for none. */
+  address: string | null
   kind: MemberEndpointKind
   /** The agent that receives, such as `"t3"`, `"claude-code"`, or `"codex"`. */
   agent: string | null
@@ -368,17 +375,19 @@ export interface MemberEndpoint {
   updatedAt: number
 }
 
-/** A member endpoint with its sealed URL and secret. Only the Webhooks runtime reads it. */
-export interface StoredMemberEndpoint extends MemberEndpoint {
+/** A member endpoint with its sealed URL and secret, as the table holds it. Only the Webhooks runtime reads it. */
+export interface StoredMemberEndpoint extends Omit<MemberEndpoint, "address"> {
+  /** `""` for none. */
+  address: string
   sealed: string | null
 }
 
 /** The storage of member endpoints. */
 export interface WebhookEndpointStore {
-  /** Stores the endpoint of its owner. It replaces the owner's endpoint when one exists. */
+  /** Stores the endpoint of its owner. It replaces the owner's endpoint with the same address when one exists. */
   put: (endpoint: StoredMemberEndpoint) => Promise<void>
-  /** The endpoint of an owner. */
-  get: (owner: string) => Promise<StoredMemberEndpoint | undefined>
+  /** The endpoint of an owner with `address`, else the owner's newest one. */
+  get: (owner: string, address?: string) => Promise<StoredMemberEndpoint | undefined>
   /** The endpoint with this id. */
   find: (id: string) => Promise<StoredMemberEndpoint | undefined>
   /** Removes the endpoint when the owner has it. Returns the removed endpoint. */
@@ -398,7 +407,7 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
   return {
     put: endpoint => guarded("store a member endpoint", async () => {
       await db().insert(t).values(endpoint).onConflictDoUpdate({
-        target: t.owner,
+        target: [t.owner, t.address],
         set: {
           id: endpoint.id,
           ownerName: endpoint.ownerName,
@@ -415,8 +424,11 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
         },
       })
     }),
-    get: owner => guarded("read a member endpoint", async () => {
-      const [row] = await db().select().from(t).where(eq(t.owner, owner)).limit(1)
+    get: (owner, address) => guarded("read a member endpoint", async () => {
+      const normalized = address?.trim()
+      const [row] = await db().select().from(t).where(eq(t.owner, owner))
+        .orderBy(...normalized === undefined ? [] : [desc(sql`${t.address} = ${normalized}`)], desc(t.createdAt), desc(t.id))
+        .limit(1)
       return row
     }),
     find: id => guarded("read a member endpoint", async () => {

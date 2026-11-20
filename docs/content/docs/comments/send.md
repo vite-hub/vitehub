@@ -66,6 +66,25 @@ After the pairing, **Send N** sends at once. The pill shows **Sending** while We
 
 A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last.
 
+### Send to the thread that wrote the page
+
+You can pair several T3 threads. When comments are waiting, use **Pair another agent** to copy a fresh setup prompt, paste it in the new thread, then choose **Allow and send**. Each pairing that gave its thread URL is kept apart, and pairing the same thread again replaces only that one. A regular send goes to the agent you paired last, unless `send.address` names another: return the thread URL that wrote the page, and a member who paired from that thread sends there.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+/** The T3 thread URL that your app stored when an agent published the document. */
+declare function publishingThread(documentId: string): Promise<string | null>
+
+export const comments = defineComments({
+  send: {
+    address: ({ subject }) => publishingThread(subject.id),
+  },
+})
+```
+
+When the member never paired that thread, the send goes to the agent they paired last.
+
 ## What your agent gets
 
 Each send is one signed `POST`, with this body:

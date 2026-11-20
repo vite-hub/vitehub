@@ -4,7 +4,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../webhooks/src/database.ts"
-import { getMemberEndpoint } from "../../webhooks/src/index.ts"
+import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries } from "../../webhooks/src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries, redeliverWebhookDelivery } from "../../webhooks/src/runtime.ts"
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
@@ -397,6 +397,47 @@ describe("sends", () => {
     expect(deliveries[0]!.body.text).toContain("comments_get_send")
   })
 
+  it("sends to the agent paired from `send.address`, and else to the one paired last", async () => {
+    const otherThread = "t3-thread://v2/6f5c40a4-eb77-4249-a83a-c0d4f680b208/mcp:other:0c9f"
+    let address: string | null = threadLink
+    const { call, comment, connect, page } = await setup({ hosts: ["relay.t3.codes", "hooks.example.com"], address: () => address })
+    const sentTo = () => new URL(deliveries.at(-1)!.url).pathname
+    await comment("ana", "First")
+    await connect("ana", "https://hooks.example.com/a", threadLink)
+    expect(sentTo()).toBe("/a")
+    await comment("ana", "Second")
+    await connect("ana", "https://hooks.example.com/b", otherThread)
+    // Allow sends to the agent it just paired, whatever `send.address` says.
+    expect(sentTo()).toBe("/b")
+
+    await comment("ana", "Third")
+    expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: threadLink })
+    expect(sentTo()).toBe("/a")
+
+    address = "t3-thread://v2/6f5c40a4-eb77-4249-a83a-c0d4f680b208/mcp:gone:1a2b"
+    await comment("ana", "Fourth")
+    expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: otherThread })
+    expect(sentTo()).toBe("/b")
+    expect(deliveries).toHaveLength(4)
+  })
+
+  it("keeps Allow on the newly paired endpoint when another pairing arrives during payload", async () => {
+    const { comment, connect } = await setup({
+      payload: async () => {
+        vi.setSystemTime(Date.now() + 1)
+        const [error] = await createMemberEndpoint({ owner: "ana", name: "Another inbox", address: threadLink, kind: "inbox" })
+        if (error) throw error
+        return null
+      },
+    })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    await comment("ana", "Send this to the paired URL")
+    const { allowed } = await connect()
+    expect(allowed.body.data).toMatchObject({ status: "sent" })
+    expect(deliveries).toHaveLength(1)
+    expect((await listMemberDeliveries("ana", { address: threadLink }))[1]?.deliveries).toEqual([])
+  })
+
   it("sends nothing to an endpoint whose host left `hosts`", async () => {
     const hosts = ["relay.t3.codes", "hooks.example.com"]
     const { call, comment, connect, page } = await setup({ hosts })
@@ -433,6 +474,8 @@ describe("sends", () => {
     expect(JSON.stringify(await store.get(id))).not.toContain(token)
     expect((await getWebhookDelivery(id))[1]?.body).toBeNull()
     expect((await listWebhookDeliveries())[1]?.[0]?.body).toBeNull()
+    expect((await listWebhookDeliveries({ owner: "ana" }))[1]?.[0]).toMatchObject({ id, body: null })
+    expect((await listMemberDeliveries("ana"))[1]?.deliveries[0]).toMatchObject({ id, body: null })
     expect((await redeliverWebhookDelivery(id, { caller: { id: "ana" } }))[0]).toBeUndefined()
     expect(deliveries[1]!.body.read!.token).toBe(token)
   })

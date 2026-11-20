@@ -1,10 +1,10 @@
 import { webhooksErrors } from "./errors.ts"
 import { memberBodyLabel, sealedMemberBodyPrefix, sealEndpoint, sealWebhooksText, unsealEndpoint } from "./sealing.ts"
 import { checkWebhookUrl, outsideHosts } from "./url-guard.ts"
-import { createDeliveryId, deliverMemberClaim, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
+import { createDeliveryId, deliverMemberClaim, inspectDelivery, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDeliveryState } from "./database.ts"
+import type { ListWebhookDeliveriesOptions, MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDelivery, WebhookDeliveryState } from "./database.ts"
 import type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode } from "./errors.ts"
 
 /** The hosts that a member endpoint URL may use when `createMemberEndpoint()` gets no `hosts`: the T3 Code relay. */
@@ -12,8 +12,13 @@ export const memberEndpointHosts: readonly string[] = ["relay.t3.codes"]
 
 /** What `createMemberEndpoint()` accepts. */
 export type CreateMemberEndpointOptions = {
-  /** The member, such as the Auth user id. A member has one endpoint: a new one replaces the old one. */
+  /** The member, such as the Auth user id. A member has one endpoint per `address`: a new one replaces the old one. */
   owner: string
+  /**
+   * Where the agent can be reached, such as the T3 thread link `t3-thread://v2/<environment>/<thread>` it paired from.
+   * A send with this `address` reaches this endpoint. Without it, the endpoint has none.
+   */
+  address?: string
   /** The name of the member that admins read in the Console, such as `"Ana Ruiz"`. */
   ownerName?: string
   /**
@@ -47,6 +52,13 @@ export interface SendToMemberEndpointOptions {
    */
   key: string
   /**
+   * The address of the agent that should get the send, such as the T3 thread that wrote what the comments are on. The
+   * member's endpoint with this address gets it; without one, their newest endpoint does.
+   */
+  address?: string
+  /** Send only to this endpoint of the member, with no address or newest-endpoint fallback. */
+  endpointId?: string
+  /**
    * The hosts that the endpoint's URL may use now, such as the current `hosts` of the app. A URL endpoint on another
    * host gets `WEBHOOKS_URL_REFUSED` and no delivery, so narrowing the list also stops endpoints that it allowed before.
    */
@@ -66,10 +78,10 @@ export interface SendToMemberEndpointResult {
   status: "sent" | "inbox" | "pending" | "failed"
 }
 
-const limits = { owner: 256, name: 120, agent: 64, email: 320, secret: 1024, url: 2048 }
+const limits = { owner: 256, name: 120, agent: 64, email: 320, secret: 1024, url: 2048, address: 512 }
 
-function toMemberEndpoint({ sealed: _sealed, ...endpoint }: StoredMemberEndpoint): MemberEndpoint {
-  return endpoint
+function toMemberEndpoint({ sealed: _sealed, address, ...endpoint }: StoredMemberEndpoint): MemberEndpoint {
+  return { ...endpoint, address: address || null }
 }
 
 function storeError(error: unknown): ResultError<"WEBHOOKS_DATABASE_MISSING" | "WEBHOOKS_STORE_FAILED"> {
@@ -91,7 +103,7 @@ function invalid(problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, un
  * Creates the endpoint of a member, so `sendToMemberEndpoint(owner, ...)` reaches their own agent, and returns
  * `[error, endpoint]`. A `"url"` endpoint must pass `checkWebhookUrl()` with `hosts`, which defaults to the T3 Code
  * relay. Webhooks seals the URL and secret with `VITEHUB_WEBHOOKS_KEY` before it stores them, and returns only the host.
- * A member has one endpoint: a new one replaces the old one, and its id changes.
+ * A member has one endpoint per `address`: a new one replaces the one with the same address, and its id changes.
  *
  * ```ts
  * import { createMemberEndpoint } from "@vite-hub/webhooks"
@@ -112,6 +124,7 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
     ?? (options.ownerName === undefined ? undefined : text(options.ownerName, "ownerName", limits.name))
     ?? (options.ownerEmail === undefined ? undefined : text(options.ownerEmail, "ownerEmail", limits.email))
+    ?? (options.address === undefined ? undefined : text(options.address, "address", limits.address))
   if (problem) return invalid(problem)
   // The options can come from a request body, so check the kind at runtime too.
   const kind: unknown = options.kind
@@ -123,6 +136,7 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
     ownerName: options.ownerName?.trim() ?? null,
     ownerEmail: options.ownerEmail?.trim().toLowerCase() ?? null,
     name: options.name.trim(),
+    address: options.address?.trim() ?? "",
     kind: options.kind,
     agent: options.agent?.trim() ?? null,
     host: null,
@@ -151,11 +165,14 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
   return [undefined, toMemberEndpoint(endpoint)]
 }
 
-/** The endpoint of a member, or `null` when they have none, as `[error, endpoint]`. It never holds the URL or the secret. */
-export async function getMemberEndpoint(owner: string): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
+/**
+ * The endpoint that a send to a member reaches, or `null` when they have none, as `[error, endpoint]`: the one with
+ * `address`, else their newest. It never holds the URL or the secret.
+ */
+export async function getMemberEndpoint(owner: string, options: { address?: string } = {}): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
   const { endpoints } = requireMemberEndpoints()
   try {
-    const endpoint = await endpoints.get(owner)
+    const endpoint = await endpoints.get(owner, options.address)
     return [undefined, endpoint ? toMemberEndpoint(endpoint) : null]
   }
   catch (error) {
@@ -252,8 +269,8 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
   }
   if (json === undefined) return [webhooksErrors.WEBHOOKS_BODY_INVALID({ webhook: `of the member ${JSON.stringify(owner)}` }), undefined]
   try {
-    const endpoint = await installed.endpoints.get(owner)
-    if (!endpoint) return [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the owner ${JSON.stringify(owner)}` }), undefined]
+    const endpoint = await selectEndpoint(installed.endpoints, owner, options)
+    if (!endpoint) return [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: options.endpointId === undefined ? `the owner ${JSON.stringify(owner)}` : JSON.stringify(options.endpointId) }), undefined]
     if (endpoint.disabledAt !== null) return [webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id }), undefined]
     let target: { url: string, secret: string } | undefined
     if (endpoint.sealed !== null) {
@@ -278,6 +295,44 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     // Another server, such as a Queue flush, claimed it first.
     if (!claim) return [undefined, { id: recorded.id, status: "pending" }]
     return await deliverMemberClaim(installed, claim, target)
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/** What `listMemberDeliveries()` returns: the endpoint it read, and its deliveries, the newest first. */
+export interface MemberDeliveries {
+  endpoint: MemberEndpoint
+  deliveries: WebhookDelivery[]
+}
+
+async function selectEndpoint(endpoints: ReturnType<typeof requireMemberEndpoints>["endpoints"], owner: string, options: { address?: string, endpointId?: string }): Promise<StoredMemberEndpoint | undefined> {
+  if (options.endpointId === undefined) return endpoints.get(owner, options.address)
+  const endpoint = await endpoints.find(options.endpointId)
+  return endpoint?.owner === owner ? endpoint : undefined
+}
+
+/**
+ * The deliveries to the endpoint that a send to the member with `address` reaches, the newest first, as
+ * `[error, { endpoint, deliveries }]`, or `null` when the member has no endpoint. An agent that pairs as an inbox reads
+ * its sends here: pass its `endpointId` for an exact lookup with no fallback, and the last delivery as `before` for
+ * the next page. An empty `address` prefers the unaddressed endpoint. Check that the caller acts as `owner` first.
+ * Sealed bodies are omitted, as in the delivery log.
+ *
+ * ```ts
+ * import { listMemberDeliveries } from "@vite-hub/webhooks"
+ *
+ * const [error, inbox] = await listMemberDeliveries("user_ana", { limit: 20 })
+ * ```
+ */
+export async function listMemberDeliveries(owner: string, options: { address?: string, endpointId?: string } & Pick<ListWebhookDeliveriesOptions, "limit" | "before"> = {}): Promise<Result<MemberDeliveries | null, MemberEndpointErrorCode>> {
+  const { endpoints, store } = requireMemberEndpoints()
+  try {
+    const endpoint = await selectEndpoint(endpoints, owner, options)
+    if (!endpoint) return [undefined, null]
+    const deliveries = await store.list({ webhook: `${memberWebhookPrefix}${endpoint.id}`, limit: options.limit, before: options.before })
+    return [undefined, { endpoint: toMemberEndpoint(endpoint), deliveries: deliveries.map(inspectDelivery) }]
   }
   catch (error) {
     return [storeError(error), undefined]

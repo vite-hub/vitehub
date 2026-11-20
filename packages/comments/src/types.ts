@@ -86,6 +86,12 @@ export interface CommentsPageSubject extends CommentSubject {
   revision?: number
 }
 
+/** What `send.address` gets: the member who presses Send, and the subject of their page. */
+export interface CommentSendAddressContext {
+  user: CommentsUser
+  subject: CommentSubject
+}
+
 /** What `send.payload` gets: one send, before Comments delivers it. */
 export interface CommentSendPayloadContext {
   /** The id of the send, as `send` of the delivered body. */
@@ -110,6 +116,12 @@ export type CommentSendData = string | number | boolean | null | CommentSendData
 export interface CommentSendOptions {
   /** Adds `data` to the delivered body, such as the id of a document that your own MCP reads. Default: `null`. */
   payload?: (context: CommentSendPayloadContext) => CommentSendData | Promise<CommentSendData>
+  /**
+   * The address of the agent that should get a send from this subject, such as the T3 thread link that wrote the
+   * document. A member who paired an agent from that thread sends there; otherwise to the agent they paired last.
+   * Default: none, so every send goes to the agent the member paired last.
+   */
+  address?: (context: CommentSendAddressContext) => string | null | undefined | Promise<string | null | undefined>
   /**
    * `false` sends no read token: the agent reads the threads through your own MCP server, as the member. Default: each
    * send carries a token that reads its threads, as the member, for 24 hours.

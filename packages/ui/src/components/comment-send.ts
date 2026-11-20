@@ -141,7 +141,10 @@ export const CommentSend = defineComponent({
     const parts = (current: CommentSendState): Array<VNode | string> => {
       switch (current.status) {
         case "idle":
-          return current.count > 0 ? [sendButton(current.count, current.inbox)] : [];
+          return current.count > 0 ? [
+            sendButton(current.count, current.inbox),
+            ...(current.canPairAnother ? [action("pair-another", [icon("i-lucide-link"), "Pair another agent"], { onClick: () => void props.client.pairAnother(copyPrompt) })] : []),
+          ] : [];
         case "pairing":
           if (current.reason === "expired") return [status("warning", [icon("i-lucide-circle-alert"), "Setup code expired"]), copyAgain(), close("Cancel connect")];
           if (current.reason === "refused") return [status("error", [icon("i-lucide-circle-alert"), `That URL isn't ${current.agent.host}`]), copyAgain(), close("Cancel connect")];
