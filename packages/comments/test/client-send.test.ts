@@ -131,7 +131,7 @@ describe("createCommentSend", () => {
 
     // At the retry time, Send N comes back.
     await vi.advanceTimersByTimeAsync(10 * 60_000)
-    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
 
     expect(seen).toEqual(["idle", "pairing", "confirm", "sending", "sent", "working", "idle", "sending", "failed", "sending", "limited", "idle"])
     stop()
@@ -240,7 +240,22 @@ describe("createCommentSend", () => {
     expect(send.state.status).toBe("working")
     server.push({ type: "done", id: "send-1" })
     await flush()
-    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
+  })
+
+  it("starts a second pairing without sending to the existing agent", async () => {
+    const server = fakeTransport({ count: 2, agent: t3 })
+    const send = createCommentSend(server.transport)
+    await send.refresh()
+    expect(send.state).toMatchObject({ status: "idle", canPairAnother: true })
+    await send.pairAnother(copy)
+    expect(copied).toEqual([prompt])
+    expect(server.calls).not.toContain("send")
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    server.results.push({ status: "sent", id: "send-2" })
+    await send.allow()
+    expect(server.calls).toContain("allow code-1")
   })
 
   it("shows the agent's send on load, a limit on load, and an inbox", async () => {
@@ -253,7 +268,7 @@ describe("createCommentSend", () => {
     await flush()
     expect(working.state).toEqual({ status: "working", count: 0, agent: t3 })
     expect(limited.state).toEqual({ status: "limited", count: 4, retryAt: Date.now() + 60_000 })
-    expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true })
+    expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true, canPairAnother: true })
   })
 
   it("keeps Send hidden with nothing to send, and turns a thrown send into Not delivered", async () => {

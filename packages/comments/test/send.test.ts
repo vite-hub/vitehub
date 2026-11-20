@@ -4,7 +4,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../webhooks/src/database.ts"
-import { getMemberEndpoint } from "../../webhooks/src/index.ts"
+import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries } from "../../webhooks/src/index.ts"
 import { installWebhooks } from "../../webhooks/src/runtime.ts"
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
@@ -416,6 +416,22 @@ describe("sends", () => {
     expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: otherThread })
     expect(sentTo()).toBe("/b")
     expect(deliveries).toHaveLength(4)
+  })
+
+  it("keeps Allow on the newly paired endpoint when another pairing arrives during payload", async () => {
+    const { comment, connect } = await setup({
+      payload: async () => {
+        vi.setSystemTime(Date.now() + 1)
+        const [error] = await createMemberEndpoint({ owner: "ana", name: "Another inbox", address: threadLink, kind: "inbox" })
+        if (error) throw error
+      },
+    })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    await comment("ana", "Send this to the paired URL")
+    const { allowed } = await connect()
+    expect(allowed.body.data).toMatchObject({ status: "sent" })
+    expect(deliveries).toHaveLength(1)
+    expect((await listMemberDeliveries("ana", { address: threadLink }))[1]?.deliveries).toEqual([])
   })
 
   it("sends nothing to an endpoint whose host left `hosts`", async () => {

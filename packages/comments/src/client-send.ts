@@ -68,7 +68,7 @@ export interface CommentSendTransport {
 
 /** What the Send segment shows. Every state has the number of waiting threads, `count`. */
 export type CommentSendState =
-  | { status: "idle", count: number, inbox: boolean }
+  | { status: "idle", count: number, inbox: boolean, canPairAnother?: true }
   | { status: "pairing", count: number, prompt: string, expiresAt: number, agent: CommentSendAgent, reason?: "expired" | "refused" }
   | { status: "confirm", count: number, agent: CommentSendAgent }
   | { status: "sending", count: number }
@@ -102,6 +102,8 @@ export interface CommentSendClient {
    * for an agent to use the code.
    */
   send: (copy?: CommentSendCopy) => Promise<void>
+  /** Starts a new pairing without changing where the regular Send button sends. */
+  pairAnother: (copy?: CommentSendCopy) => Promise<void>
   /** Allow and send N: pairs the agent that used the code and sends to it. */
   allow: () => Promise<void>
   /** Copy again, after the code expired or the agent used a URL on another host. */
@@ -151,7 +153,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     timer = setTimeout(() => at === step && then(), ms)
   }
   const inbox = (): boolean => Boolean(agent && !agent.host)
-  const idle = (): void => set({ status: "idle", count, inbox: inbox() })
+  const idle = (): void => set({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
   const working = (): void => {
     set({ status: "working", count, ...(agent ? { agent } : {}), ...(thread ? { thread } : {}) })
     // Without pushed events, ask until the agent is done. A failed ask tries again later.
@@ -294,10 +296,15 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     },
     refresh,
     async send(copy) {
+      if (fetching) return
       if (state.status !== "idle" && state.status !== "failed" && state.status !== "working") return
       if (state.status !== "failed" && count === 0) return
       if (!agent) return pair(copy)
       return deliver(() => transport.send())
+    },
+    async pairAnother(copy) {
+      if (state.status !== "idle" || !state.canPairAnother) return
+      return pair(copy)
     },
     async allow() {
       if (state.status !== "confirm" || !code) return

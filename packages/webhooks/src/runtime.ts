@@ -467,7 +467,7 @@ export function listWebhooks(): WebhookInfo[] {
 
 /** Deliveries, newest first. */
 export function listWebhookDeliveries(options?: ListWebhookDeliveriesOptions): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(installed => installed.store.list(options))
+  return attempt(installed => (options?.owner === undefined ? installed : requireMemberEndpoints()).store.list(options))
 }
 
 /** Pending deliveries, the soonest due first: the debounce timers that run now. */

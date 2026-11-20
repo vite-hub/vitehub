@@ -118,6 +118,8 @@ export interface WebhookDelivery {
 /** Which deliveries `list()` returns, newest first. */
 export interface ListWebhookDeliveriesOptions {
   webhook?: string
+  /** Only deliveries to current endpoints of this member. */
+  owner?: string
   state?: WebhookDeliveryState
   /** At most this many, from 1 to 500. Default: 100. */
   limit?: number
@@ -285,6 +287,7 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       const { before } = options
       const where = and(
         options.webhook ? eq(t.webhook, options.webhook) : undefined,
+        options.owner === undefined ? undefined : inArray(t.webhook, db().select({ webhook: sql`'@' || ${webhookEndpoints.id}` }).from(webhookEndpoints).where(eq(webhookEndpoints.owner, options.owner))),
         options.state ? eq(t.state, options.state) : undefined,
         before ? or(lt(t.createdAt, before.createdAt), and(eq(t.createdAt, before.createdAt), lt(t.id, before.id))) : undefined,
       )
@@ -422,8 +425,9 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
       })
     }),
     get: (owner, address) => guarded("read a member endpoint", async () => {
+      const normalized = address?.trim()
       const [row] = await db().select().from(t).where(eq(t.owner, owner))
-        .orderBy(...address ? [desc(sql`${t.address} = ${address}`)] : [], desc(t.createdAt), desc(t.id))
+        .orderBy(...normalized === undefined ? [] : [desc(sql`${t.address} = ${normalized}`)], desc(t.createdAt), desc(t.id))
         .limit(1)
       return row
     }),

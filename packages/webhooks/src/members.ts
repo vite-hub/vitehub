@@ -56,6 +56,8 @@ export interface SendToMemberEndpointOptions {
    * member's endpoint with this address gets it; without one, their newest endpoint does.
    */
   address?: string
+  /** Send only to this endpoint of the member, with no address or newest-endpoint fallback. */
+  endpointId?: string
   /**
    * The hosts that the endpoint's URL may use now, such as the current `hosts` of the app. A URL endpoint on another
    * host gets `WEBHOOKS_URL_REFUSED` and no delivery, so narrowing the list also stops endpoints that it allowed before.
@@ -263,8 +265,8 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
   }
   if (json === undefined) return [webhooksErrors.WEBHOOKS_BODY_INVALID({ webhook: `of the member ${JSON.stringify(owner)}` }), undefined]
   try {
-    const endpoint = await installed.endpoints.get(owner, options.address)
-    if (!endpoint) return [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the owner ${JSON.stringify(owner)}` }), undefined]
+    const endpoint = await selectEndpoint(installed.endpoints, owner, options)
+    if (!endpoint) return [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: options.endpointId === undefined ? `the owner ${JSON.stringify(owner)}` : JSON.stringify(options.endpointId) }), undefined]
     if (endpoint.disabledAt !== null) return [webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id }), undefined]
     let target: { url: string, secret: string } | undefined
     if (endpoint.sealed !== null) {
@@ -295,10 +297,17 @@ export interface MemberDeliveries {
   deliveries: WebhookDelivery[]
 }
 
+async function selectEndpoint(endpoints: ReturnType<typeof requireMemberEndpoints>["endpoints"], owner: string, options: { address?: string, endpointId?: string }): Promise<StoredMemberEndpoint | undefined> {
+  if (options.endpointId === undefined) return endpoints.get(owner, options.address)
+  const endpoint = await endpoints.find(options.endpointId)
+  return endpoint?.owner === owner ? endpoint : undefined
+}
+
 /**
  * The deliveries to the endpoint that a send to the member with `address` reaches, the newest first, as
  * `[error, { endpoint, deliveries }]`, or `null` when the member has no endpoint. An agent that pairs as an inbox reads
- * its sends here: pass the last delivery as `before` for the next page. Check that the caller acts as `owner` first.
+ * its sends here: pass its `endpointId` for an exact lookup with no fallback, and the last delivery as `before` for
+ * the next page. An empty `address` prefers the unaddressed endpoint. Check that the caller acts as `owner` first.
  *
  * ```ts
  * import { listMemberDeliveries } from "@vite-hub/webhooks"
@@ -306,10 +315,10 @@ export interface MemberDeliveries {
  * const [error, inbox] = await listMemberDeliveries("user_ana", { limit: 20 })
  * ```
  */
-export async function listMemberDeliveries(owner: string, options: { address?: string } & Pick<ListWebhookDeliveriesOptions, "limit" | "before"> = {}): Promise<Result<MemberDeliveries | null, MemberEndpointErrorCode>> {
+export async function listMemberDeliveries(owner: string, options: { address?: string, endpointId?: string } & Pick<ListWebhookDeliveriesOptions, "limit" | "before"> = {}): Promise<Result<MemberDeliveries | null, MemberEndpointErrorCode>> {
   const { endpoints, store } = requireMemberEndpoints()
   try {
-    const endpoint = await endpoints.get(owner, options.address)
+    const endpoint = await selectEndpoint(endpoints, owner, options)
     if (!endpoint) return [undefined, null]
     const deliveries = await store.list({ webhook: `${memberWebhookPrefix}${endpoint.id}`, limit: options.limit, before: options.before })
     return [undefined, { endpoint: toMemberEndpoint(endpoint), deliveries }]
