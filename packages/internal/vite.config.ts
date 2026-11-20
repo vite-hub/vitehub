@@ -7,7 +7,8 @@ export default defineConfig({
       // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
       // Nitro must resolve its own dependencies from its installed package.
       // `ast` exposes Babel node types. Consumers resolve them from their own `@babel/types`.
-      neverBundle: ["vite", /^nitro(?:\/|$)/, "@valibot/to-json-schema", "@babel/types"],
+      // esbuild is a dev dependency: only the Workflow DevKit steps bundle loads it, and Workflow installs it.
+      neverBundle: ["vite", "esbuild", /^nitro(?:\/|$)/, "@valibot/to-json-schema", "@babel/types"],
     },
     dts: true,
     entry: [

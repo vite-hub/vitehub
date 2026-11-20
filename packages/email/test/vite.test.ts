@@ -52,6 +52,13 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
+/** The local name of the `env` import of `cloudflare:workers` in a bundle. The bundler can rename the import alias. */
+function cloudflareEnvName(source: string): string {
+  const match = /import\s*\{(?:[^}]*,)?\s*env(?:\s+as\s+([\w$]+))?\s*(?:,[^}]*)?\}\s*from\s*"cloudflare:workers"/.exec(source)
+  expect(match).not.toBeNull()
+  return match![1] ?? "env"
+}
+
 describe("hubEmail", () => {
   it("removes stale Email declarations when the integration is disabled", async () => {
     const root = await createTempProject()
@@ -139,7 +146,8 @@ describe("hubEmail", () => {
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
     expect(source).toContain("RESEND_API_KEY")
-    expect(source).toContain("options[\"apiKey\"]?.unseal()")
+    // The bundler may print the string key with backticks.
+    expect(source).toMatch(/options\[["`]apiKey["`]\]\?\.unseal\(\)/)
     expect(source).not.toContain(secret)
   })
 
@@ -218,8 +226,8 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     const source = await loadConfiguredDefinition(plugin)
-    expect(source).toMatch(/import\s*\{\s*env as vitehubEmailEnv\s*\}\s*from\s*"cloudflare:workers"/)
-    expect(source).toContain("runWithCloudflareEnv(vitehubEmailEnv,()=>resolveServerEnv(registry))")
+    const envName = cloudflareEnvName(source)
+    expect(source).toContain(`runWithCloudflareEnv(${envName},()=>resolveServerEnv(registry))`)
   })
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
@@ -240,7 +248,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("cloudflare:email")
-    expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
+    expect(source).toContain(`binding:${cloudflareEnvName(source)}.EMAIL`)
     expect(source).toContain("EmailMessage")
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })

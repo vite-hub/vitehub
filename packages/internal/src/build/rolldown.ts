@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { existsSync, readFileSync } from "node:fs"
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
 import { createRequire, isBuiltin } from "node:module"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
@@ -474,14 +475,16 @@ function createWasmModulePlugin(outdir: string, workingDir: string, copy: boolea
 }
 
 /**
- * Leaves every package import as an import, like esbuild's `packages: "external"`, including `#` imports of the
- * package.json `imports` field. Runs after every other resolver.
+ * Leaves every package import as an import, like esbuild's `packages: "external"`. Runs after every other resolver.
+ * A `#` import that the package.json `imports` field maps is bundled; one that nothing maps, such as a path that the
+ * app's own `imports` field gives at run time, stays an import.
  */
 function createExternalPackagesPlugin(): Plugin {
   return {
     name: "vitehub-external-packages",
-    resolveId(source) {
-      if ((source.startsWith("#") || isBareSpecifier(source)) && !isBuiltin(source)) return { id: source, external: true }
+    async resolveId(source, importer, extra) {
+      if (source.startsWith("#")) return await this.resolve(source, importer, { kind: extra.kind }) ?? { id: source, external: true }
+      if (isBareSpecifier(source) && !isBuiltin(source)) return { id: source, external: true }
     },
   }
 }
@@ -501,6 +504,41 @@ function createExternalMatcher(patterns: string[] | undefined): ((id: string) =>
   return id => matchers.some(matches => matches(id))
 }
 
+function packageNameOf(specifier: string): string {
+  const [first, second] = specifier.split("/")
+  return first!.startsWith("@") ? `${first}/${second}` : first!
+}
+
+/**
+ * Tells whether an external package declares `"sideEffects": false`. Rolldown keeps the import of an external package
+ * for its side effects even when no binding of it is used, and esbuild did not. A bundled ViteHub file can import a
+ * helper that the bundle drops, and that import alone would make the output load a package it does not need.
+ */
+function createExternalSideEffects(importers: Map<string, string>, workingDir: string): (id: string) => boolean | undefined {
+  const packages = new Map<string, boolean | undefined>()
+  return (id) => {
+    if (!isBareSpecifier(id) || isBuiltin(id)) return undefined
+    const name = packageNameOf(id)
+    // The package resolves from the file that imports it, as Node.js resolves it.
+    const importer = importers.get(id)
+    const from = importer && isAbsolute(importer) ? dirname(importer) : workingDir
+    const key = `${from}\0${name}`
+    if (!packages.has(key)) {
+      let sideEffects: boolean | undefined
+      for (let dir = from; ; dir = dirname(dir)) {
+        const manifest = join(dir, "node_modules", name, "package.json")
+        if (existsSync(manifest)) {
+          sideEffects = JSON.parse(readFileSync(manifest, "utf8")).sideEffects === false ? false : undefined
+          break
+        }
+        if (dirname(dir) === dir) break
+      }
+      packages.set(key, sideEffects)
+    }
+    return packages.get(key)
+  }
+}
+
 export async function bundleEsmEntry(
   entryFile: string,
   outfile: string,
@@ -516,7 +554,18 @@ export async function bundleEsmEntry(
     ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
     : Object.keys(options.alias || {})
   const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
-  const plugins: Plugin[] = []
+  // An installed package can `import()` an optional dependency that the app did not install, such as `zlib-sync` in
+  // `@discordjs/ws`. That import stays in the bundle and fails only when it runs, as it does unbundled. In app code,
+  // a missing package still stops the build.
+  const packageDynamicImports = new Set<string>()
+  const importers = new Map<string, string>()
+  const plugins: Plugin[] = [{
+    name: "vitehub-import-records",
+    resolveId(source, importer, extra) {
+      if (importer && !importers.has(source)) importers.set(source, importer)
+      if (extra.kind === "dynamic-import" && importer && /[\\/]node_modules[\\/]/.test(importer)) packageDynamicImports.add(`${importer}\0${source}`)
+    },
+  }]
   plugins.push(createWasmModulePlugin(dirname(outfile), workingDir, platform !== "node"))
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
@@ -531,6 +580,7 @@ export async function bundleEsmEntry(
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime, workingDir))
   if (options.packages === "external") plugins.push(createExternalPackagesPlugin())
   const isExternal = createExternalMatcher(options.external)
+  const externalSideEffects = createExternalSideEffects(importers, options.rootDir ?? workingDir)
   const minify = options.minifyIdentifiers || options.minifySyntax || options.minifyWhitespace
     ? {
         compress: options.minifySyntax ?? false,
@@ -553,15 +603,16 @@ export async function bundleEsmEntry(
     cwd: workingDir,
     external: isExternal ? id => isExternal(id) : undefined,
     input: entryFile,
-    // Rolldown keeps an import that it cannot resolve as an import and only warns. The bundle would fail when it runs,
-    // so stop the build, as esbuild did. Other warnings stay silent.
+    // Rolldown keeps a static import that it cannot resolve and only warns. The bundle would fail when it loads, so
+    // stop the build, as esbuild did. Other warnings stay silent.
     onLog(level, log) {
-      if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
+      if (log.code === "UNRESOLVED_IMPORT" && !packageDynamicImports.has(`${log.id}\0${log.exporter}`)) throw Object.assign(new Error(log.message), { code: log.code })
     },
     // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
     moduleTypes: platform === "node" ? { ".wasm": "binary" } : undefined,
     platform,
     plugins,
+    treeshake: { moduleSideEffects: (id, external) => external ? externalSideEffects(id) : undefined },
     resolve: {
       conditionNames: options.conditions ?? (platform === "node" ? ["node"] : undefined),
       extensions: options.extensions,

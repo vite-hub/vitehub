@@ -348,6 +348,28 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     expect(await readFile(outfile, "utf8")).toContain('import "optional-package"')
   })
 
+  it("keeps an installed package's import() of a missing package, and stops on one in app code", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = resolve(rootDir, "node_modules/discord-like")
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(resolve(packageDir, "package.json"), `${JSON.stringify({ exports: "./index.mjs", name: "discord-like", type: "module" })}\n`, "utf8"),
+      writeFile(resolve(packageDir, "index.mjs"), 'export const load = () => import("zlib-sync-missing").catch(() => null)\n', "utf8"),
+      writeFile(entry, 'export { load } from "discord-like"\n', "utf8"),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", workingDir: rootDir })
+    // SAFETY: The package above exports `load`.
+    const loaded = await import(pathToFileURL(outfile).href) as { load: () => Promise<unknown> }
+    await expect(loaded.load()).resolves.toBeNull()
+
+    await writeFile(entry, 'export const load = () => import("zlib-sync-missing")\n', "utf8")
+    await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", workingDir: rootDir })).rejects.toThrow("zlib-sync-missing")
+  })
+
   it("applies exact alias replacement tokens to the public specifier after resolution", async () => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/example")
