@@ -49,7 +49,7 @@ This Agent answers questions from the Markdown docs of a project in a web chat. 
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { workspaceShell } from 'vite-hub/agent/capabilities'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 import { glob } from 'vite-hub/workspace'
 
 export default defineAgent({

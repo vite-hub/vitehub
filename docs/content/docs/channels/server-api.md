@@ -32,7 +32,7 @@ export default defineChannel({
 
 | Option | Value |
 | --- | --- |
-| `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(message, options)`. |
+| `adapter` | The connection, from `vite-hub/channels/adapters`. `stripe()` and `webhook()` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/channels/adapters` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(message, options)`. |
 | `on` | Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. See [Receive webhooks](#receive-webhooks). |
 | `instructions`, `capabilities`, `history` | Read by the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. |
 
@@ -76,7 +76,7 @@ Channels passes the original options object to the adapter. It keeps object iden
 A Channel with `webhook()` or `stripe()` receives webhooks at `/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route. Such a Channel file turns it on, so install `@vite-hub/agent` and add no option. With `agent: false`, the build fails with [`CHANNELS_WEBHOOK_HOST_OFF`](/docs/channels/diagnostics/channels_webhook_host_off).
 
 ```ts [server/queues/fulfil.ts]
-import type { StripeEvent } from 'vite-hub/channels'
+import type { StripeEvent } from 'vite-hub/channels/adapters'
 import { defineQueue } from 'vite-hub/queue'
 
 export default defineQueue<StripeEvent>({
@@ -87,7 +87,8 @@ export default defineQueue<StripeEvent>({
 ```
 
 ```ts [server/channels/stripe.ts] fragment
-import { defineChannel, stripe } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { stripe } from 'vite-hub/channels/adapters'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineChannel({
@@ -117,11 +118,12 @@ An event without a target answers 200 with `{ accepted: false, reason }`, so the
 
 ### Choose the delivery rules with a trigger
 
-A trigger that selects no task runs the Agent that lists the Channel. Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
+A trigger that selects no task runs the Agent that lists the Channel. Use `defineChannelTrigger()` from `vite-hub/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
 
 ```ts [server/channels/prefect.ts]
-import { defineChannelTrigger } from 'vite-hub/agent/channels'
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannelTrigger } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 
 export default defineChannel({
   adapter: webhook({ kind: 'prefect', signature: 'bearer', secret: () => process.env.PREFECT_WEBHOOK_SECRET }),
@@ -170,10 +172,10 @@ export default defineSchedule({
 
 ## Send through a chat adapter
 
-The chat adapters in `vite-hub/agent/channels` also send: `teams()`, `slack()`, `discord()`, and `telegram()`. Each one sends through one Chat SDK adapter, which it builds on the first send. Text is Markdown. An object goes to the Chat SDK adapter as is, so a card from `Card()` in `chat` shows as an Adaptive Card in Teams and as Block Kit in Slack. Use `{ raw }` for text without Markdown conversion. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
+The chat adapters in `vite-hub/channels/adapters` also send: `teams()`, `slack()`, `discord()`, and `telegram()`. Each one sends through one Chat SDK adapter, which it builds on the first send. Text is Markdown. An object goes to the Chat SDK adapter as is, so a card from `Card()` in `chat` shows as an Adaptive Card in Teams and as Block Kit in Slack. Use `{ raw }` for text without Markdown conversion. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
 
 ```ts [server/channels/teams.ts]
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 import { defineChannel } from 'vite-hub/channels'
 
 export default defineChannel({ adapter: teams() })
@@ -207,7 +209,7 @@ if (error) throw error
 
 If the platform posts a message without returning its ID, the receipt has no `id`. The Channel client returns `CHANNEL_SEND_FAILED` with `AGENT_CHANNEL_MESSAGE_ID_MISSING` on `error.cause` if `update` or `replace` targets that message. With `replace`, the new message is already posted or edited, but the old message stays. Retrying with the same key does not post the new message again.
 
-Send a card with `fallbackText` for notifications and clients that cannot show it. The `ChatMessage` type from `vite-hub/agent/channels` lists every form.
+Send a card with `fallbackText` for notifications and clients that cannot show it. The `ChatMessage` type from `vite-hub/channels/adapters` lists every form.
 
 ```ts fragment
 import { Card, CardText } from 'chat'
@@ -217,7 +219,7 @@ const [error] = await useChannel('teams').send({ card, fallbackText: `Build ${bu
 if (error) throw error
 ```
 
-On Teams, `send()` also takes a raw Adaptive Card, `{ adaptiveCard, fallbackText }`, for card features that Chat SDK cards do not cover, such as `Badge`. The Teams adapter sends it as is. `TeamsChatMessage` from `vite-hub/agent/channels` is the message type of a Teams Channel.
+On Teams, `send()` also takes a raw Adaptive Card, `{ adaptiveCard, fallbackText }`, for card features that Chat SDK cards do not cover, such as `Badge`. The Teams adapter sends it as is. `TeamsChatMessage` from `vite-hub/channels/adapters` is the message type of a Teams Channel.
 
 Use `update` to keep one message current, such as a status card:
 

@@ -18,28 +18,28 @@ function uses(source: string) {
 describe("built-in Channel discovery", () => {
   it("keeps Teams Env required for the runtime-supported adapter true value", () => {
     expect(uses(`
-      import { teams } from "vite-hub/agent/channels"
+      import { teams } from "vite-hub/channels/adapters"
       teams({ adapter: true })
     `)).toEqual([{ kind: "teams", keys: [] }])
   })
 
   it("keeps Teams Env required for plain adapter options", () => {
     expect(uses(`
-      import { teams } from "vite-hub/agent/channels"
+      import { teams } from "vite-hub/channels/adapters"
       teams({ adapter: { userName: "support" } })
     `)).toEqual([{ kind: "teams", keys: [] }])
   })
 
   it("keeps Teams Env required for upstream adapter options", () => {
     expect(uses(`
-      import { teams } from "vite-hub/agent/channels"
+      import { teams } from "vite-hub/channels/adapters"
       teams({ adapter: { federated: { clientId: "managed-identity" }, token: () => "token" } })
     `)).toEqual([{ kind: "teams", keys: [] }])
   })
 
   it("omits Teams Env for custom adapter objects", () => {
     expect(uses(`
-      import { teams } from "vite-hub/agent/channels"
+      import { teams } from "vite-hub/channels/adapters"
       teams({ adapter: { name: "custom" } })
     `)).toEqual([{ kind: "teams", keys: ["adapter"] }])
   })
@@ -48,7 +48,7 @@ describe("built-in Channel discovery", () => {
   it.each(["as AgentOptions && actual", "satisfies AgentOptions || actual", "as AgentOptions ?? actual", "as AgentOptions ? actual : selected", "satisfies AgentOptions ? actual : selected"])("rejects runtime operations after unparenthesized settings assertions: %s", (expression) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { github, telegram } from "vite-hub/agent/channels"
+      import { github, telegram } from "vite-hub/channels/adapters"
       const selected = { channels: { support: github } }
       const actual = { channels: { support: telegram } }
       export default defineAgent(selected ${expression})
@@ -57,14 +57,14 @@ describe("built-in Channel discovery", () => {
 
   it("keeps conditional types in assertions", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(({} as T extends U ? A : B))
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
 
   it("rejects runtime conditionals after a completed conditional type assertion", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: token } as T extends U ? A : B ? dynamicOptions : fallback)
     `)).toEqual([{ kind: "telegram", keys: undefined }])
   })
@@ -75,7 +75,7 @@ describe("built-in Channel discovery", () => {
       // not parse. TypeScript also rejects `<` and `<<` there.
       for (const type of operator.startsWith("<") ? ["Options<Runtime>"] : ["TelegramChannelOptions", "Options<Runtime>"]) {
         expect(uses(`
-          import { telegram } from "vite-hub/agent/channels"
+          import { telegram } from "vite-hub/channels/adapters"
           telegram({} ${assertion} ${type} ${operator} dynamicOptions)
         `)).toEqual([{ kind: "telegram", keys: undefined }])
       }
@@ -84,14 +84,14 @@ describe("built-in Channel discovery", () => {
 
   it.each(["TelegramChannelOptions", "Options<Runtime>"])("rejects subtraction of a numeric literal after assertion to %s", (type) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({} as ${type} - 1)
     `)).toEqual([{ kind: "telegram", keys: undefined }])
   })
 
   it.each(["Options<Runtime>", "Options<() => Runtime>", "A | B", "A & B", "-1 | -2", "() => -1", "{ [K in keyof T]-?: T[K] }", "{ [K in keyof T]+?: T[K] }"])("preserves assertion type syntax: %s", (type) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({} as ${type})
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
@@ -99,7 +99,7 @@ describe("built-in Channel discovery", () => {
   it("finds factory calls imported from the Channels module", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram, github as gh } from "vite-hub/agent/channels"
+      import { telegram, github as gh } from "vite-hub/channels/adapters"
       export default defineAgent({
         channels: {
           bot: telegram({ mode: "webhook", "userName": "support" }),
@@ -131,7 +131,7 @@ describe("built-in Channel discovery", () => {
   it("finds bracketed namespace factory calls", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import * as channels from "vite-hub/agent/channels"
+      import * as channels from "vite-hub/channels/adapters"
       export default defineAgent({ channels: { telegram: channels["telegram"]() } })
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
@@ -139,7 +139,7 @@ describe("built-in Channel discovery", () => {
   it.each(["tele\\u0067ram", "tele\\x67ram", "tele\\u{67}ram"])("decodes escaped namespace factory members: %s", (member) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import * as channels from "vite-hub/agent/channels"
+      import * as channels from "vite-hub/channels/adapters"
       defineAgent({ channels: { support: channels["${member}"]() } })
       defineAgent({ channels: { support: channels["${member}"] } })
       defineAgent({ channels: { support: channels?.["${member}"]<Runtime>() } })
@@ -149,8 +149,8 @@ describe("built-in Channel discovery", () => {
   it("recognizes only single parenthesized bare factory references", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
-      import * as factories from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
+      import * as factories from "vite-hub/channels/adapters"
       defineAgent({ channels: { support: (telegram), other: ((factories["telegram"])), typed: (telegram<Runtime>) } })
       defineAgent({ channels: { support: (telegram, custom), other: (telegram || custom) } })
       function build(telegram) { return defineAgent({ channels: { support: (telegram) } }) }
@@ -176,8 +176,8 @@ describe("built-in Channel discovery", () => {
   ])("finds bare Channel factory aliases: %s", declaration => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
-      import * as channels from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
+      import * as channels from "vite-hub/channels/adapters"
       ${declaration}
       export default defineAgent({ channels: { support } })
     `)).toEqual([{ kind: "telegram", keys: [] }])
@@ -191,8 +191,8 @@ describe("built-in Channel discovery", () => {
   ])("finds calls through Channel factory aliases: %s", declaration => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
-      import * as channels from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
+      import * as channels from "vite-hub/channels/adapters"
       ${declaration}
       export default defineAgent({ channels: { telegram: support() } })
       support({ botToken: token })
@@ -211,7 +211,7 @@ describe("built-in Channel discovery", () => {
   it("ignores shadowed aliases and aliases of non-factory expressions", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const support = telegram
       const selected = telegram || custom
       const wrapped = () => telegram
@@ -226,7 +226,7 @@ describe("built-in Channel discovery", () => {
   it("respects shadows and requires a namespace initializer for destructured aliases", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import * as channels from "vite-hub/agent/channels"
+      import * as channels from "vite-hub/channels/adapters"
       const { telegram: support } = channels
       const { telegram: selected } = channels || custom
       const { telegram: unrelated } = custom
@@ -242,7 +242,7 @@ describe("built-in Channel discovery", () => {
 
   it("distinguishes JavaScript comparisons from TypeScript generic calls", () => {
     const source = `
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram < Runtime > ({ botToken: token })
     `
     expect(discoverBuiltInChannelUses(source, kinds, { typescript: false })).toEqual([])
@@ -252,8 +252,8 @@ describe("built-in Channel discovery", () => {
   it("finds generic bare factory references by their imported kind", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as bot } from "vite-hub/agent/channels"
-      import * as channels from "vite-hub/agent/channels"
+      import { telegram as bot } from "vite-hub/channels/adapters"
+      import * as channels from "vite-hub/channels/adapters"
       export default defineAgent({ channels: {
         support: bot<Runtime>,
         discord: channels.telegram<Map<string, (value: string) => void>>,
@@ -270,7 +270,7 @@ describe("built-in Channel discovery", () => {
 
   it.each(["override", "public override"])("ignores %s method declarations but preserves calls in their bodies", (modifier) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       class Base { telegram() {} }
       class Derived extends Base {
         ${modifier} telegram() { telegram({ botToken: token }) }
@@ -280,7 +280,7 @@ describe("built-in Channel discovery", () => {
 
   it.each(["@memo()", "@cache.memo({ enabled: true })", "@memo", "@memo() @trace()", "@memo<Options>()", "@memo<Map<string, () => void>>()"])("ignores decorated method declarations: %s", (decorator) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       class Helper {
         ${decorator} telegram() { telegram({ botToken: token }) }
       }
@@ -289,7 +289,7 @@ describe("built-in Channel discovery", () => {
 
   it("ignores method declarations while keeping calls inside method bodies", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       interface Tools { telegram(): void; telegram<T>(options: T): void }
       interface MoreTools {
         other(): void
@@ -321,7 +321,7 @@ describe("built-in Channel discovery", () => {
 
   it.each(["private", "protected", "public", "readonly", "private readonly", "public override readonly"])("treats %s constructor parameter properties as local bindings", (modifier) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       class Runner {
         constructor(${modifier} telegram: () => void) { telegram() }
         run() { telegram() }
@@ -348,14 +348,14 @@ describe("built-in Channel discovery", () => {
     "void new Token()",
   ])("requires Env when botToken can be undefined: %s", (token) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: ${token} })
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
 
   it("preserves supplied tokens with undefined inside call arguments", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: getToken(undefined) })
       telegram({ botToken: config?.token ?? configuredToken })
       telegram({ botToken: config?.token ? configuredToken : fallback })
@@ -365,7 +365,7 @@ describe("built-in Channel discovery", () => {
 
   it.each(["(undefined) + 'suffix'", "(config?.token) + '-suffix'", "(undefined) * 2", "!(config?.token)", "void configuredToken + 'suffix'"])("preserves defined values around grouped or void operands: %s", (token) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: ${token} })
     `)).toEqual([{ kind: "telegram", keys: ["botToken"] }])
   })
@@ -373,7 +373,7 @@ describe("built-in Channel discovery", () => {
   it("unwraps asserted bare Channel factories and treats optional accessors as omitted", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       defineAgent({ channels: { support: <AgentChannelFactory>telegram } })
       telegram({ get botToken(): string | undefined { return configuredToken } })
     `)).toEqual([{ kind: "telegram", keys: [] }, { kind: "telegram", keys: [] }])
@@ -381,7 +381,7 @@ describe("built-in Channel discovery", () => {
 
   it("recognizes static computed option keys", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ ["botToken"]: token })
       telegram({ get ["botToken"]() { return undefined } })
     `)).toEqual([{ kind: "telegram", keys: ["botToken"] }, { kind: "telegram", keys: [] }])
@@ -390,7 +390,7 @@ describe("built-in Channel discovery", () => {
 
   it("treats method and constructor parameters as shadowing imports", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const helpers = {
         run(telegram: () => void): { result: string } { return telegram() },
       }
@@ -404,7 +404,7 @@ describe("built-in Channel discovery", () => {
 
   it("keeps method parameter shadows through arrow-function return types", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const helpers = {
         run(telegram: () => void): () => { ready: boolean } { telegram() },
         nested(telegram: () => void): () => () => { ready: boolean } { telegram() },
@@ -418,7 +418,7 @@ describe("built-in Channel discovery", () => {
 
   it("ignores methods after nested class heritage expressions", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       class Tools extends mixin({ feature: true }) {
         telegram() {}
       }
@@ -429,7 +429,7 @@ describe("built-in Channel discovery", () => {
 
   it("treats bare arrow parameters as shadowing imports", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const inspect = telegram => telegram()
       const inspectBlock = telegram => { telegram() }
       telegram({ botToken: token })
@@ -438,14 +438,14 @@ describe("built-in Channel discovery", () => {
 
   it("requires imported, unshadowed Agent factories for bare factory references", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const defineAgent = (options) => options
       export default defineAgent({ channels: { support: telegram } })
     `)).toEqual([])
     expect(uses(`
       import { defineAgent as agent } from "vite-hub/agent"
       import * as agents from "@vite-hub/agent"
-      import { discord, telegram } from "vite-hub/agent/channels"
+      import { discord, telegram } from "vite-hub/channels/adapters"
       function local(agent) { agent({ channels: { support: telegram } }) }
       const callback = (agent) => agent({ channels: { support: telegram } })
       function shadowed() {
@@ -462,7 +462,7 @@ describe("built-in Channel discovery", () => {
 
   it("keeps calls followed by standalone blocks while ignoring multiline methods", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       function run() { telegram()
         {} }
       const callback = () => { telegram()
@@ -495,15 +495,15 @@ describe("built-in Channel discovery", () => {
   ])("reads options from optional factory calls: %s", (factory) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
-      import * as channels from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
+      import * as channels from "vite-hub/channels/adapters"
       export default defineAgent({ channels: { telegram: ${factory} } })
     `)).toEqual([{ kind: "telegram", keys: ["botToken"] }])
   })
 
   it("reads parenthesized static options without treating comma expressions as literals", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(({}))
       telegram((({ botToken: token })))
       telegram((undefined))
@@ -525,7 +525,7 @@ describe("built-in Channel discovery", () => {
     "(({}) satisfies TelegramChannelOptions)",
   ])("preserves required Telegram Env for grouped asserted options: %s", async (options) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(${options})
     `)).toEqual([{ kind: "telegram", keys: [] }])
     const root = await mkdtemp(join(tmpdir(), "vitehub-channel-env-"))
@@ -533,7 +533,7 @@ describe("built-in Channel discovery", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         export default defineAgent({ channels: { telegram: telegram(${options}) } })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(true)
@@ -545,7 +545,7 @@ describe("built-in Channel discovery", () => {
 
   it("preserves explicit credentials in grouped asserted options", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(({ botToken: token } as TelegramChannelOptions))
       telegram((({ botToken: token }) satisfies TelegramChannelOptions))
     `)).toEqual([
@@ -560,14 +560,14 @@ describe("built-in Channel discovery", () => {
     "({} satisfies TelegramChannelOptions && options)",
   ])("keeps grouped asserted runtime expressions unknown: %s", (options) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(${options})
     `)).toEqual([{ kind: "telegram", keys: undefined }])
   })
 
   it("marks spread, computed, and variable options as unknown", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ ...shared })
       telegram({ [key]: value })
       telegram(options)
@@ -580,8 +580,8 @@ describe("built-in Channel discovery", () => {
 
   it("finds calls with type arguments", () => {
     expect(uses(`
-      import * as channels from "vite-hub/agent/channels"
-      import { telegram } from "vite-hub/agent/channels"
+      import * as channels from "vite-hub/channels/adapters"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram<Runtime>({ botToken: token })
       channels.discord<Map<string, (value: string) => void>>()
     `)).toEqual([
@@ -593,7 +593,7 @@ describe("built-in Channel discovery", () => {
   it("reads bare factory references only in the top-level defineAgent() channels option", () => {
     expect(uses(`
       import { defineAgent as agent } from "vite-hub/agent"
-      import { discord, telegram } from "vite-hub/agent/channels"
+      import { discord, telegram } from "vite-hub/channels/adapters"
       type Settings = { channels: { support: telegram } }
       const defaults = { channels: { support: telegram } }
       export const first = agent<Runtime>({ provider: { channels: { support: telegram } }, channels: { support: telegram } })
@@ -608,7 +608,7 @@ describe("built-in Channel discovery", () => {
   it("classifies bare factories by their kind", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { discord, telegram } from "vite-hub/agent/channels"
+      import { discord, telegram } from "vite-hub/channels/adapters"
       const channels = { support: telegram, discord: telegram, telegram: { botToken: token } }
       export default defineAgent({ channels })
     `)).toEqual([
@@ -620,7 +620,7 @@ describe("built-in Channel discovery", () => {
   it("ignores complete definitions and shadowed factory names", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram, discord } from "vite-hub/agent/channels"
+      import { telegram, discord } from "vite-hub/channels/adapters"
       function run(telegram) { return telegram() }
       const wrap = (discord, other) => discord({})
       export default defineAgent({ channels: { telegram: { kind: "custom" } } })
@@ -629,7 +629,7 @@ describe("built-in Channel discovery", () => {
 
   it("distinguishes destructured parameter keys, bindings, types, and defaults", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       function build({ telegram: configured }: { telegram?: string }) { return telegram() }
       const buildArrow = ({ telegram: configured }: { telegram?: string }) => telegram()
       function typed(configured: telegram) { return telegram() }
@@ -641,7 +641,7 @@ describe("built-in Channel discovery", () => {
 
   it("treats asserted undefined options as omitted", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: undefined as string | undefined })
       telegram({ botToken: undefined satisfies string | undefined })
       telegram({ botToken: (undefined) })
@@ -662,7 +662,7 @@ describe("built-in Channel discovery", () => {
 
   it("treats void zero options as omitted without accepting operations on them", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: void 0, adapter: (void 0) })
       telegram({ botToken: ((void 0)) })
       telegram(void 0)
@@ -680,7 +680,7 @@ describe("built-in Channel discovery", () => {
 
   it.each(["as TelegramChannelOptions", "satisfies TelegramChannelOptions", "as Options<Runtime>"])("rejects runtime expressions after grouped asserted Channel options with %s", (assertion) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(({} ${assertion}) || dynamicOptions)
       telegram(({} ${assertion}) && dynamicOptions)
       telegram(({} ${assertion}) ?? dynamicOptions)
@@ -690,7 +690,7 @@ describe("built-in Channel discovery", () => {
   it.each(["settings", "(settings)", "settings as AgentOptions", "({ channels: { support: tg } })"])("scans locally resolved Agent settings: %s", (settings) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const settings = { channels: { support: tg }, driver: customDriver }
       defineAgent(${settings})
     `)).toEqual([{ kind: "telegram", keys: [] }])
@@ -704,7 +704,7 @@ describe("built-in Channel discovery", () => {
     'const channels: { telegram: () => unknown } = { support: tg }; defineAgent({ channels })',
     'const channels:\nRecord<string, () => unknown> = { support: tg }; defineAgent({ channels })',
   ])("resolves later const declarators: %s", (source) => {
-    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/agent/channels"; ${source}`)).toEqual([{ kind: "telegram", keys: [] }])
+    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/channels/adapters"; ${source}`)).toEqual([{ kind: "telegram", keys: [] }])
   })
 
   it.each([
@@ -714,13 +714,13 @@ describe("built-in Channel discovery", () => {
     'declare const settings: { channels: unknown }; const actual = { channels: { support: tg } };',
     'declare const settings: AgentOptions\nconst actual = { channels: { support: tg } };',
   ])("does not borrow another declarator's initializer: %s", (declarations) => {
-    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/agent/channels"; ${declarations} defineAgent(settings)`)).toEqual([])
-    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/agent/channels"; ${declarations} defineAgent(actual)`)).toEqual([{ kind: "telegram", keys: [] }])
+    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/channels/adapters"; ${declarations} defineAgent(settings)`)).toEqual([])
+    expect(uses(`import { defineAgent } from "vite-hub/agent"; import { telegram as tg } from "vite-hub/channels/adapters"; ${declarations} defineAgent(actual)`)).toEqual([{ kind: "telegram", keys: [] }])
   })
 
   it("unwraps TypeScript angle assertions on Channel options", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(<TelegramOptions>{})
       telegram((<TelegramOptions>{}))
       telegram(<Options<Runtime>><TelegramOptions>{ botToken: token })
@@ -733,7 +733,7 @@ describe("built-in Channel discovery", () => {
 
   it("keeps calls in labeled and case statement blocks", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       label: { telegram()
         {} }
       switch (value) { case "ready": { telegram()
@@ -753,7 +753,7 @@ describe("built-in Channel discovery", () => {
   it("unwraps single parenthesized Channels maps", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels: AgentChannelInputs | undefined = { support: tg }
       defineAgent({ channels: channels! })
       defineAgent({ channels: (({ support: tg })) })
@@ -764,7 +764,7 @@ describe("built-in Channel discovery", () => {
   it("resolves parenthesized local Channel maps without accepting comma expressions", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels = { support: tg }
       defineAgent({ channels: (channels) })
       defineAgent({ channels: ((channels)) })
@@ -775,7 +775,7 @@ describe("built-in Channel discovery", () => {
   it("resolves single parenthesized module-level map initializers", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const first = ({ support: tg })
       const second = (({ support: tg } satisfies AgentChannels))
       const third = ({ support: tg }) as
@@ -802,7 +802,7 @@ describe("built-in Channel discovery", () => {
   ])("rejects operations after module-level map initializers: %s", (expression) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels = ${expression}
       defineAgent({ channels })
     `)).toEqual([])
@@ -811,8 +811,8 @@ describe("built-in Channel discovery", () => {
   it("follows typed maps and explicit properties after spreads", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
+      import { telegram } from "vite-hub/channels/adapters"
       const base = {}
       const baseChannels = {}
       const channels: AgentChannels = { ...baseChannels, support: tg }
@@ -839,7 +839,7 @@ describe("built-in Channel discovery", () => {
 
   it("respects local declarations without hiding imported factories outside their scope", () => {
     expect(uses(`
-      import { telegram, discord, github } from "vite-hub/agent/channels"
+      import { telegram, discord, github } from "vite-hub/channels/adapters"
       if (enabled) { const telegram = () => ({}); telegram() }
       function format() { const telegram = () => ({}); return telegram() }
       function mutable() { let discord = () => ({}); return discord() }
@@ -862,7 +862,7 @@ describe("built-in Channel discovery", () => {
   it("limits unbraced loop bindings to the loop body", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       for (const telegram of factories) telegram()
       for (let telegram of factories) telegram();
       for (let telegram = local; ready; next()) telegram();
@@ -880,8 +880,8 @@ describe("built-in Channel discovery", () => {
   it("respects shadowed namespace and bare factory references", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
-      import * as channels from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
+      import * as channels from "vite-hub/channels/adapters"
       function local() {
         const telegram = custom
         const channels = customFactories
@@ -898,14 +898,14 @@ describe("built-in Channel discovery", () => {
 
   it("treats options set to undefined as omitted", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram({ botToken: undefined, adapter: undefined, mode: "webhook" })
     `)).toEqual([{ kind: "telegram", keys: ["mode"] }])
   })
 
   it("treats undefined Channel options as empty options", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       telegram(undefined)
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
@@ -913,7 +913,7 @@ describe("built-in Channel discovery", () => {
   it("recognizes async option methods and asserted local maps", () => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const channels = { support: telegram }
       export const first = defineAgent({ channels: channels satisfies AgentChannelInputs })
       export const second = defineAgent({ channels: channels as AgentChannelInputs })
@@ -938,7 +938,7 @@ describe("built-in Channel discovery", () => {
   ])("resolves assertions inside parenthesized Channel maps: %s", (expression) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels = { support: tg }
       export default defineAgent({ channels: ${expression} })
     `)).toEqual([{ kind: "telegram", keys: [] }])
@@ -947,7 +947,7 @@ describe("built-in Channel discovery", () => {
   it.each(["<AgentChannelInputs>{ support: tg }", "(<AgentChannelInputs>{ support: tg })", "<Record<string, () => unknown>>{ support: tg }"])("resolves angle-asserted module Channel maps: %s", (initializer) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels = ${initializer};
       export default defineAgent({ channels })
     `)).toEqual([{ kind: "telegram", keys: [] }])
@@ -961,7 +961,7 @@ describe("built-in Channel discovery", () => {
   ])("ignores asserted map expressions with a different runtime value: %s", (expression) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
-      import { telegram as tg } from "vite-hub/agent/channels"
+      import { telegram as tg } from "vite-hub/channels/adapters"
       const channels = { support: tg }
       export default defineAgent({ channels: ${expression} })
     `)).toEqual([])
@@ -969,7 +969,7 @@ describe("built-in Channel discovery", () => {
 
   it("distinguishes destructuring keys and defaults from binding names", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       function computed() { const { [telegram]: value } = source; telegram() }
       function defaultValue() { const { value = fallback || telegram() } = source }
       function nested() { const { nested: { telegram } } = source; telegram() }
@@ -979,7 +979,7 @@ describe("built-in Channel discovery", () => {
 
   it("keeps imported factories visible after module-level computed destructuring", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       const { [telegram]: value } = source;
       telegram()
     `)).toEqual([{ kind: "telegram", keys: [] }])
@@ -987,7 +987,7 @@ describe("built-in Channel discovery", () => {
 
   it("respects function, class, and catch bindings in their lexical scopes", () => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       function local() { function telegram() {}; telegram() }
       if (enabled) { class telegram {}; new telegram() }
       try {} catch (telegram) { telegram() }
@@ -1004,7 +1004,7 @@ describe("built-in Channel discovery", () => {
     "const format = wrap((telegram) => telegram()); telegram()",
   ])("ends expression-bodied arrow scopes at the expression boundary: %s", (source) => {
     expect(uses(`
-      import { telegram } from "vite-hub/agent/channels"
+      import { telegram } from "vite-hub/channels/adapters"
       ${source}
     `)).toEqual([{ kind: "telegram", keys: [] }])
   })
@@ -1012,7 +1012,7 @@ describe("built-in Channel discovery", () => {
   it("ignores local and unrelated factories", () => {
     expect(uses(`
       import { telegram } from "./channels"
-      import type { github } from "vite-hub/agent/channels"
+      import type { github } from "vite-hub/channels/adapters"
       const slack = () => ({})
       telegram({})
       bot.telegram({})
@@ -1028,7 +1028,7 @@ describe("built-in Channel discovery", () => {
       if (directory) await mkdir(join(root, directory), { recursive: true })
       await writeFile(join(root, handler), `
         import { defineChannel } from "vite-hub/channels"
-        import { teams, discord, telegram } from "vite-hub/agent/channels"
+        import { teams, discord, telegram } from "vite-hub/channels/adapters"
         export const others = [discord(), telegram()]
         export default defineChannel({ adapter: teams() })
       `)
@@ -1056,7 +1056,7 @@ describe("built-in Channel discovery", () => {
       await mkdir(join(root, "server", "channels"), { recursive: true })
       await writeFile(join(root, "server", "channels", "support.ts"), `
         import { defineChannel } from "vite-hub/channels"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         export default defineChannel({ adapter: telegram(${options}) })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(required)
@@ -1072,12 +1072,12 @@ describe("built-in Channel discovery", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels/adapters"`,
         `export default defineAgent({ channels: { telegram: telegram(({})) } })`,
       ].join("\n"))
       await writeFile(join(root, "server", "agents", "calories.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels/adapters"`,
         `interface Helpers { telegram(): void }`,
         `const helpers = { telegram() {} }`,
         `class Tools { telegram() {} }`,
@@ -1110,8 +1110,8 @@ describe("built-in Channel discovery", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
-        import * as channels from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
+        import * as channels from "vite-hub/channels/adapters"
         const support = telegram
         const { telegram: destructured } = channels
         const { telegram: defaulted = fallback } = channels
@@ -1132,7 +1132,7 @@ describe("built-in Channel discovery", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import * as channels from "vite-hub/agent/channels"
+        import * as channels from "vite-hub/channels/adapters"
         const { telegram = fallback } = channels
         export default defineAgent({ channels: { telegram } })
       `)
@@ -1160,7 +1160,7 @@ describe("Telegram adapter Env requirements", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         export default defineAgent({ channels: { telegram: telegram({ ${property} }) } })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(required)
@@ -1186,7 +1186,7 @@ describe("Telegram adapter Env requirements", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         export default defineAgent({ channels: { telegram: telegram({ ${property} }) } })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(required)
@@ -1214,7 +1214,7 @@ describe("Telegram adapter Env requirements", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         export default defineAgent({ channels: { support: telegram({ adapter: ${adapter} }) } })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(required)
@@ -1232,7 +1232,7 @@ describe("JavaScript Channel Env discovery", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", `support.${extension}`), `
         import { defineAgent } from "vite-hub/agent"
-        import { telegram } from "vite-hub/agent/channels"
+        import { telegram } from "vite-hub/channels/adapters"
         const compared = telegram < Runtime > ({ botToken: token })
         export default defineAgent({ channels: {} })
       `)
@@ -1552,7 +1552,7 @@ describe("Forge Server Env discovery", () => {
 })
 
 it.each(["gitlab", "forgejo"] as const)("discovers and reads the shared %s Channel Env", async kind => {
-  expect(uses(`import { ${kind} } from "vite-hub/agent/channels"; ${kind}({ token: "explicit" })`)).toEqual([{ kind, keys: ["token"] }])
+  expect(uses(`import { ${kind} } from "vite-hub/channels/adapters"; ${kind}({ token: "explicit" })`)).toEqual([{ kind, keys: ["token"] }])
   expect(builtInChannelEnv[kind]).toEqual({
     baseUrl: { names: [`VITEHUB_${kind.toUpperCase()}_BASE_URL`, `FORGES_${kind.toUpperCase()}_BASE_URL`] },
     token: { names: [`VITEHUB_${kind.toUpperCase()}_TOKEN`, `FORGES_${kind.toUpperCase()}_TOKEN`], secret: true },

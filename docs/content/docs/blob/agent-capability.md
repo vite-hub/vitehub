@@ -79,7 +79,7 @@ List the folders where a Provider-backed Agent may write public artifacts. The A
 ```ts [server/agents/review.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { blob } from 'vite-hub/agent/capabilities'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   capabilities: [

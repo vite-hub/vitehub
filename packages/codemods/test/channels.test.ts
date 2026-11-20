@@ -29,11 +29,11 @@ describe("channels", () => {
     })
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("channels")
     await runCodemod("channels", { cwd, dryRun: false })
-    expect(await readFile(join(cwd, "server/channels/team.ts"), "utf8")).toBe("import { defineChannel } from 'vite-hub/channels'\nimport { channelAdapter } from 'vite-hub/agent/channels'\n\nexport default defineChannel({ adapter: channelAdapter('http') })\n")
+    expect(await readFile(join(cwd, "server/channels/team.ts"), "utf8")).toBe("import { defineChannel } from 'vite-hub/channels'\nimport { channelAdapter } from 'vite-hub/channels/adapters'\n\nexport default defineChannel({ adapter: channelAdapter('http') })\n")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("channels")
   })
 
-  it("replaces http() with channelAdapter(\"http\") without changing the path", async () => {
+  it("replaces http() with channelAdapter(\"http\") and moves the path to the adapters entry", async () => {
     const { after } = await migrate({
       "server/agents/support.ts": [
         "import { defineAgent } from \"vite-hub/agent\"",
@@ -47,7 +47,7 @@ describe("channels", () => {
     })
     expect(after["server/agents/support.ts"]).toBe([
       "import { defineAgent } from \"vite-hub/agent\"",
-      "import { channelAdapter, slack } from \"vite-hub/agent/channels\"",
+      "import { channelAdapter, slack } from \"vite-hub/channels/adapters\"",
       "",
       "export default defineAgent({",
       "  channels: { portal: channelAdapter(\"http\", ({ route: true })), web: channelAdapter(\"http\"), slack: slack() },",
@@ -73,7 +73,7 @@ describe("channels", () => {
     const imports = adapterFirst ? [otherImport, oldImport] : [oldImport, otherImport]
     const { after, run } = await migrate({ "split.ts": [...imports, "export const channels = [http /* (legacy) */ (), slack(), channelAdapter('custom')]"].join("\n") })
     expect(run.result.followUps).toEqual([])
-    expect(after["split.ts"]).toBe([...imports.map(statement => statement.replace("{ http }", "{ channelAdapter as channelAdapter2 }")),
+    expect(after["split.ts"]).toBe([...imports.map(statement => statement.replace("{ http }", "{ channelAdapter as channelAdapter2 }").replace("vite-hub/agent/channels", "vite-hub/channels/adapters")),
       "export const channels = [channelAdapter2 /* (legacy) */ ('http'), slack(), channelAdapter('custom')]"].join("\n"))
   })
 
@@ -85,10 +85,10 @@ describe("channels", () => {
     ["export { http as portal } from 'vite-hub/agent/channels'", "removed"],
     ["import { defineChannel } from 'vite-hub/channels'\nvi.mock('vite-hub/agent/channels', () => ({ slack: fakeSlack }))", "mock"],
     ["import { http } from 'vite-hub/agent/channels'\nvi.doMock(import('vite-hub/agent/channels'), () => ({ http: fakeHttp }))\nhttp()", "mock"],
-  ])("reports manual work without changing %s", async (source, message) => {
+  ])("reports manual work for %s and only moves the path", async (source, message) => {
     const { after, run } = await migrate({ "manual.ts": source })
-    expect(after).toEqual({})
-    expect(run.result.followUps).toEqual([expect.objectContaining({ message: expect.stringContaining(message) })])
+    expect(after["manual.ts"] ?? source).toBe(source.replaceAll("'vite-hub/agent/channels'", "'vite-hub/channels/adapters'"))
+    expect(run.result.followUps).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining(message) })]))
   })
 
   it("reports an http reference that is not a call, and leaves other http names", async () => {
@@ -96,7 +96,7 @@ describe("channels", () => {
       "server/agents/factory.ts": "import { http } from 'vite-hub/agent/channels'\nexport const make = http\n",
       "server/api/ping.ts": "import http from 'node:http'\nexport const server = http.createServer()\n",
     })
-    expect(after).toEqual({})
+    expect(after).toEqual({ "server/agents/factory.ts": "import { http } from 'vite-hub/channels/adapters'\nexport const make = http\n" })
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/agents/factory.ts", line: 2, message: expect.stringContaining("channelAdapter(\"http\", options)") })])
   })
 
@@ -105,7 +105,23 @@ describe("channels", () => {
     "<script setup>\nimport { http as makeChannel } from 'vite-hub/agent/channels'\n</script>\n<template>\n<div>{{ makeChannel() }}</div>\n</template>",
   ])("reports Vue references outside the parsed script", async (source) => {
     const { after, run } = await migrate({ "Channels.vue": source })
-    expect(after).toEqual({})
+    expect(after).toEqual({ "Channels.vue": source.replace("'vite-hub/agent/channels'", "'vite-hub/channels/adapters'") })
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "Channels.vue", line: 2, message: expect.stringContaining("Vue") })])
+  })
+
+  it("moves the names that need no Agent to vite-hub/channels and the adapters to vite-hub/channels/adapters", async () => {
+    const { after } = await migrate({
+      "server/channels/digest.ts": "import { defineChannel } from 'vite-hub/channels'\nimport { defineChannelTrigger, ignored, teams } from 'vite-hub/agent/channels'\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => ignored('later') }) } })\n",
+      "server/channels/answers.ts": "import { retryLater, rejected } from 'vite-hub/agent/channels'\nexport const answers = [retryLater('down'), rejected('bad')]\n",
+      "server/channels/mixed.ts": "import { defineChannelTrigger, slack } from 'vite-hub/agent/channels'\nexport const pair = [defineChannelTrigger, slack]\n",
+      "server/utils/channels.ts": "export * from 'vite-hub/agent/channels'\nexport type { DiscordAdapterOptions } from 'vite-hub/agent/channels'\n",
+      "server/agents/owner.ts": "import { slack } from '@vite-hub/agent/channels'\nexport const channel = slack()\n",
+    })
+    expect(after).toEqual({
+      "server/channels/digest.ts": "import { defineChannel, defineChannelTrigger, ignored } from 'vite-hub/channels'\nimport { teams } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => ignored('later') }) } })\n",
+      "server/channels/answers.ts": "import { retryLater, rejected } from 'vite-hub/channels'\nexport const answers = [retryLater('down'), rejected('bad')]\n",
+      "server/channels/mixed.ts": "import { slack } from 'vite-hub/channels/adapters'\nimport { defineChannelTrigger } from 'vite-hub/channels'\nexport const pair = [defineChannelTrigger, slack]\n",
+      "server/utils/channels.ts": "export * from 'vite-hub/channels/adapters'\nexport type { DiscordAdapterOptions } from 'vite-hub/channels/adapters'\n",
+    })
   })
 })

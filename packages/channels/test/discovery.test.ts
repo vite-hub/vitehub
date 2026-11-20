@@ -82,12 +82,12 @@ describe("discoverChannelDefinitions", () => {
     const root = await createTempProject()
     await touch(root, "server/channels/teams/index.ts", [
       "import { defineChannel } from 'vite-hub/channels'",
-      "import { teams } from 'vite-hub/agent/channels'",
+      "import { teams } from 'vite-hub/channels/adapters'",
       "export default defineChannel({ adapter: teams() })",
       "",
     ].join("\n"))
     await touch(root, "server/channels/stripe.ts", [
-      "import { defineChannel, stripe } from 'vite-hub/channels'",
+      "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'",
       "const channel = defineChannel({ adapter: stripe() })",
       "export { channel as default }",
       "",

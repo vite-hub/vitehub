@@ -129,6 +129,12 @@ import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { ChannelAdapter, ChannelDefinition, ChannelEvent, ChannelHandler, WebhookChannelAdapter } from "@vite-hub/channels"
+// The answers need no Agent, so `vite-hub/channels` exports them. Agent code reads the same ones.
+import { ignored } from "@vite-hub/channels"
+export { ignored, rejected, retryLater } from "@vite-hub/channels"
+// `vite-hub/channels/adapters` re-exports this entry, so it holds every adapter, also the ones of `@vite-hub/channels`.
+export { stripe, webhook } from "@vite-hub/channels/adapters"
+export type { StripeAdapterOptions, StripeEvent } from "@vite-hub/channels/adapters"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 
@@ -3443,31 +3449,6 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && typeof value.resolve === "function"
 }
 
-/**
- * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
- * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
- */
-export function ignored(reason: string): Response {
-  return Response.json({ accepted: false, ok: true, reason })
-}
-
-/**
- * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
- * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
- * when a queued delivery's trigger returns it on replay.
- */
-export function retryLater(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
-}
-
-/**
- * Refuses a webhook that the Channel will never handle, such as a malformed payload.
- * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
- */
-export function rejected(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
-}
-
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
   return githubPullRequestRunContextFromUnknown(input)
 }
@@ -4098,7 +4079,7 @@ function validateChannelHistoryDefinition(kind: string, history: unknown, trigge
 
 /**
  * The adapter of a platform that has no built-in one, such as your own Chat SDK adapter, for
- * `defineChannel({ adapter })` from `vite-hub/channels`. `message.methods` become calls on `event.message` in Agent
+ * `defineChannel({ adapter })`, from `vite-hub/channels/adapters`. `message.methods` become calls on `event.message` in Agent
  * hooks. A method receives the Channel context first; `context.message` is the data that the trigger returned.
  *
  * @example
@@ -4186,7 +4167,11 @@ function assertChannelWebhookVerification<TRuntimeConfig extends AgentRuntimeCon
   for (const [name, trigger] of Object.entries(options.triggers || {})) check(`${kind}.${name}`, trigger.webhooks)
 }
 
-/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
+/**
+ * A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. It is the same
+ * trigger as `defineChannelTrigger()` from `vite-hub/channels`, typed without the module augmentation, so Agent code
+ * and presets get these types also when a program loads two copies of the Agent types.
+ */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
