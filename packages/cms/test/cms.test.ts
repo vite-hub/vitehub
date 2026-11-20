@@ -441,7 +441,7 @@ describe("the cms preset on the GitHub store", () => {
     const module = renderCmsWorkspaceModule(plan, imports)
     expect(module).toContain("try { database = useDatabase(\"default\").db }")
     expect(module).toContain("driver: \"github\",")
-    expect(module).toContain("repository: \"onmax/docs\",")
+    expect(module).toContain("repo: \"onmax/docs\",")
     expect(module).toContain("root: \"\",")
     expect(module).toContain("refs: { published: \"main\", draft: \"cms/drafts\" },")
     expect(module).toContain("rules: { \"**\": { write: false } },")
@@ -451,7 +451,7 @@ describe("the cms preset on the GitHub store", () => {
     const folder = renderCmsWorkspaceModule(resolveCmsPresetPlan({ file, options: { store: "github", root: "content" } }, choices([]), "/app"), imports)
     expect(folder).toContain("root: \"content\",")
     expect(folder).toContain("rules: { \"**\": { write: false } },")
-    expect(folder).not.toContain("repository:")
+    expect(folder).not.toContain("repo:")
   })
 
   it("validates the options at runtime too", () => {
