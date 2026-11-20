@@ -22,6 +22,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`t3-env`](/docs/codemods/nuxt-modules#t3-env) | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env |
 | [`resend`](/docs/codemods/nuxt-modules#resend) | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub [Email](/docs/email) |
 | [`nuxt-cron`](/docs/codemods/nuxt-modules#nuxt-cron) | `nuxt-cron` jobs to ViteHub [Schedule](/docs/schedule) Definitions |
+| [`nuxt-better-auth`](/docs/codemods/nuxt-modules#nuxt-better-auth) | A Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/auth) |
 | [`docus`](/docs/codemods/nuxt-modules#docus) | A Docus site to [`@vite-hub/docs`](/docs/docs-site) |
 | [`nuxt-content`](/docs/codemods/nuxt-modules#nuxt-content) | Nuxt Content collections to ViteHub [Content](/docs/content) Sources |
 
@@ -47,6 +48,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
 | [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |
+| [`cli-yes-flag`](/docs/codemods/upgrade-vitehub#cli-yes-flag) | Replace old CLI prompt flags in scripts and CI, or report a manual migration |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 

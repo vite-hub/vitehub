@@ -211,6 +211,21 @@
     }
   },
   {
+    "id": "nuxthub-better-auth",
+    "repo": "atinux/nuxthub-better-auth",
+    "commit": "708eea20f8510491f6c827fdfd157d118ef9abc1",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxthub",
+        "nuxt-better-auth (error)"
+      ],
+      "report": [
+        "Found an unsupported auth rule for /admin"
+      ]
+    }
+  },
+  {
     "id": "nuxt-color-mode-docs",
     "repo": "nuxt-modules/color-mode",
     "commit": "0a0df98f93abc531f0e2fb9e22d6d55f4678c708",
