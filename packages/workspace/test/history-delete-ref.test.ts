@@ -20,6 +20,12 @@ import type { BlobStorage } from "@vite-hub/blob"
 const cleanup: Array<() => Promise<void> | void> = []
 const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
 
+function deferred() {
+  let resolve = () => {}
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 afterEach(async () => {
   resetWorkspaceRegistry()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
@@ -110,8 +116,8 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     const files = { "run.ts": { path: "run.ts", content: "results" } }
     await store().history.commit({ ref: "old", ifHead: null, files })
 
-    const enteredHead = Promise.withResolvers<void>()
-    const resumeHead = Promise.withResolvers<void>()
+    const enteredHead = deferred()
+    const resumeHead = deferred()
     const primary = Object.create(blob) as BlobStorage
     primary.head = vi.fn(blob.head.bind(blob)).mockImplementationOnce(async key => {
       const result = await blob.head(key)
@@ -123,8 +129,8 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     await enteredHead.promise
     await store().history.deleteRef!({ ref: "old" })
 
-    const enteredPut = Promise.withResolvers<void>()
-    const resumePut = Promise.withResolvers<void>()
+    const enteredPut = deferred()
+    const resumePut = deferred()
     const secondary = Object.create(blob) as BlobStorage
     secondary.put = vi.fn(blob.put.bind(blob)).mockImplementationOnce(async (...args) => {
       enteredPut.resolve()
@@ -149,18 +155,16 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })
     const files = { "run.ts": { path: "run.ts", content: "results" } }
     await store().history.commit({ ref: "old", ifHead: null, files })
-    const entered = Promise.withResolvers<void>()
-    const resume = Promise.withResolvers<void>()
-    const stalled = Object.create(blob) as BlobStorage
-    stalled.delete = vi.fn(blob.delete.bind(blob)).mockImplementationOnce(async (...args) => {
+    const entered = deferred()
+    const resume = deferred()
+    const deleteBlob = blob.delete.bind(blob)
+    vi.spyOn(blob, "delete").mockImplementationOnce(async (...args) => {
       entered.resolve()
       await resume.promise
-      return await blob.delete(...args)
+      return await deleteBlob(...args)
     })
-    const cleanup = store(stalled).history.deleteRef!({ ref: "old" })
+    const cleanup = store().history.deleteRef!({ ref: "old" })
     await entered.promise
-    const future = Date.now() + 11 * 60_000
-    const clock = vi.spyOn(Date, "now").mockReturnValue(future)
     try {
       expect(await store().history.deleteRef!({ ref: "old" })).toBe(false)
       const result = await store().history.commit({ ref: "new", ifHead: null, files })
@@ -169,7 +173,6 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
       expect(await (await store().history.open(result.id)).readFile("run.ts")).toBe("results")
     }
     finally {
-      clock.mockRestore()
       resume.resolve()
       await cleanup
     }
@@ -234,8 +237,9 @@ describe("history.deleteRef() on the GitHub Store", () => {
     fake.commit("trunk", { "README.md": "Repository default" })
     const head = fake.commit(branch, { "app.vue": "<NuxtPage />" })
     const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token", root: "", branch, ...(refs ? { refs } : {}) }, "meetups")
+    const workspace = useWorkspaceFiles("meetups", { mode: "write", definition: { name: "meetups", store } })
 
-    await expect(store.history.deleteRef!({ ref })).rejects.toMatchObject({ code: "WORKSPACE_DEFAULT_REF_DELETE" })
+    await expect(workspace.history.deleteRef({ ref })).rejects.toMatchObject({ code: "WORKSPACE_DEFAULT_REF_DELETE" })
     expect(fake.head(branch)).toBe(head)
     expect(fake.writes()).toHaveLength(0)
   })

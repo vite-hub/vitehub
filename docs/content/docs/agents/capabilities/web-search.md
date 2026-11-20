@@ -50,6 +50,8 @@ export default defineAgent({
 
 Model mode adds the AI SDK tool `openai.web_search` as `web_search`; the provider runs it and gives results to the model.
 
+On the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator) (`VITEHUB_MODELS=emulate`), model mode has no `web_search` tool, because the emulator rejects hosted tools. The run continues and records the warning `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED` on the Invocation. A tool choice that names `web_search` becomes `'auto'` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`. Tool mode works on the emulator as usual.
+
 Tool mode loads `@agntn/web` on the first call:
 
 - `web_search` queries the provider and returns `title`, `url`, and `snippet` results in one shape.
@@ -110,7 +112,7 @@ Use [`fetch()`](/docs/agents/capabilities/fetch) to limit the Agent to specific 
 
 ## Verify web search
 
-Run `vitehub agent info --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
+Run `vitehub agent get --agent <name> --json`. In tool mode, `tools` has a `web-search` entry (keyed by Capability id), and a run's trace shows `web_search` or `web_read` calls.
 
 To test the error path, call `web_search` in tool mode without `@agntn/web`. It must fail with a message to install `@agntn/web` or use model mode.
 

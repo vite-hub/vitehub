@@ -589,6 +589,13 @@ export interface WorkspaceHistoryDiffOptions {
   to: string
 }
 
+export interface WorkspaceHistoryDiffOptions {
+  /** The older revision id. Leave it out to list every file of `to` as added. */
+  from?: string
+  /** The newer revision id. Revisions can be on different refs. */
+  to: string
+}
+
 export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
   /** The files that were added, modified, or removed from `from` to `to`, sorted by path. Changes to bytes or retained attributes count as modifications. */

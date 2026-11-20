@@ -182,7 +182,7 @@ await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 
 It removes the ref or returns `false` when the ref does not exist and no `ifHead` was supplied. A head that does not match `ifHead` throws `WORKSPACE_CONFLICT`. Deleting `main` or the Store's working ref throws `WORKSPACE_DEFAULT_REF_DELETE`, including through a GitHub ref alias.
 
-- The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup stops after the transaction commits, retry `deleteRef()` to finish deleting those bytes.
+- The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup fails and `history.head()` confirms the ref is still absent, call `deleteRef({ ref })` without `ifHead` to finish cleanup. This call returns `false` because there was no ref left to delete.
 - The GitHub Store only deletes the branch. Its commits and their bytes may still be readable by SHA. GitHub checks `ifHead` before sending the delete request, so it can still delete a branch whose head moves between the check and the delete. GitHub also refuses to delete the repository's default branch.
 
 ### Conflicts
@@ -202,7 +202,8 @@ It removes the ref or returns `false` when the ref does not exist and no `ifHead
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 | `history.deleteRef({ ref, ifHead? })` | `true` after deleting the ref, or `false` when the ref does not exist and no `ifHead` was supplied. Only Blob + Database deletes the revisions and their unshared bytes. |
 
-- Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` and `deleteRef` need write mode.
+- Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` needs write mode.
+- `deleteRef` needs write mode and access to the complete Workspace.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.
 - `history.checkpoint()` and `history.rebase()` work as before and use `main`. A checkpoint does not prove that every Store kept the file bytes.
 - History covers the Store file tree, not live Source responses or a running Session. Empty directories are not part of it.
