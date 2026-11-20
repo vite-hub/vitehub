@@ -140,18 +140,25 @@ export function isPublishedPackagePath(packageDir: string, publishedPaths: Publi
 
 /** Copies a filtered source tree, preserving symlinks, while tolerating disappearance entry by entry. */
 export async function copyRetainedSourceTree(source: string, target: string, filter: (path: string) => boolean): Promise<void> {
-  if (!filter(source)) return
-  const info = await unlessGone(() => lstat(source))
-  if (!info) return
-  if (!info.isDirectory()) {
-    await unlessGone(() => cp(source, target))
-    return
+  async function copyEntry(source: string, target: string, freshParent: boolean): Promise<void> {
+    if (!filter(source)) return
+    const info = await unlessGone(() => lstat(source))
+    if (!info) return
+    if (info.isFile() && freshParent) {
+      await unlessGone(() => copyFile(source, target))
+      return
+    }
+    if (!info.isDirectory()) {
+      await unlessGone(() => cp(source, target))
+      return
+    }
+    const entries = await unlessGone(() => readdir(source))
+    if (!entries) return
+    const created = await mkdir(target, { recursive: true })
+    for (const entry of entries) await copyEntry(join(source, entry), join(target, entry), created !== undefined)
+    if (created) await chmod(target, info.mode)
   }
-  const entries = await unlessGone(() => readdir(source))
-  if (!entries) return
-  const created = await mkdir(target, { recursive: true })
-  for (const entry of entries) await copyRetainedSourceTree(join(source, entry), join(target, entry), filter)
-  if (created) await chmod(target, info.mode)
+  await copyEntry(source, target, false)
 }
 
 /** Copies a file or folder and follows links. `node_modules` folders and paths that disappear during the copy are skipped. */

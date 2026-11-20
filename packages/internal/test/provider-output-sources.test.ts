@@ -676,7 +676,7 @@ it("retains Nuxt build tsconfigs without retaining other generated output", asyn
   await expect(readFile(retained.resolve(requestedAliasTarget), "utf8")).resolves.toContain("generated = true")
 })
 
-it("relinks dependency trees nested beneath retained workspace packages", async () => {
+it.each([{}, { files: ["dist"] }])("relinks nested workspace dependency trees (publish options: %j)", async (publishOptions) => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-dependencies-"))
   tempDirs.push(workspace)
   const rootDir = join(workspace, "apps", "web")
@@ -693,7 +693,7 @@ it("relinks dependency trees nested beneath retained workspace packages", async 
   await Promise.all([
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
     writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
-    writeFile(join(nestedPackage, "package.json"), "{\"type\":\"module\"}\n"),
+    writeFile(join(nestedPackage, "package.json"), JSON.stringify({ type: "module", ...publishOptions })),
     writeFile(join(nestedDependencyRoot, "package.json"), "{\"exports\":\"./index.mjs\",\"type\":\"module\"}\n"),
     writeFile(handler, 'export { value } from "../../../packages/docs/src/index.mjs"\n'),
     writeFile(nestedEntry, 'export { value } from "fixture-dependency"\n'),
