@@ -1,11 +1,42 @@
 import { createExecutionContext } from "@vite-hub/runtime"
 
+import { modelEmulatorUrl, resolveModelEmulation } from "../internal/agent-emulation.ts"
+import { createAgentInspectionMetadata } from "../workspace-agent.ts"
+
 import type { AgentInput, AgentProviderStatus, AgentRuntimeContext } from "../types.ts"
+
+/**
+ * The status of an Agent under `VITEHUB_MODELS=emulate`, or undefined when the switch is off. The AI emulator answers
+ * the models, so the check reads no credentials and does not call `agent.status()`.
+ */
+function emulatedStatus(agent: AgentInput, name: string): AgentProviderStatus | undefined {
+  const url = modelEmulatorUrl()
+  if (!url) return
+  const provider = createAgentInspectionMetadata(agent).config?.driver?.provider?.provider
+  const status: AgentProviderStatus = {
+    agent: name,
+    checkedAt: new Date().toISOString(),
+    emulated: { url },
+    ...(provider === "codex" || provider === "claude-code" ? { provider } : {}),
+    readiness: "ready",
+    stale: false,
+  }
+  try {
+    resolveModelEmulation()
+  }
+  catch (error) {
+    return { ...status, readiness: "unavailable", reason: error instanceof Error ? error.message : String(error) }
+  }
+  if (provider === "claude-code") return { ...status, readiness: "unavailable", reason: "The Claude Code Driver does not run on the AI emulator." }
+  return status
+}
 
 /** A definition owns its account. Cache by definition identity, never by provider name. */
 export function createAgentStatusReader(options: { maxAgeMs?: number, timeoutMs?: number } = {}): (agent: AgentInput, name: string) => Promise<AgentProviderStatus> {
   const states = new WeakMap<AgentInput, { value?: AgentProviderStatus, expiresAt: number, pending?: Promise<AgentProviderStatus> }>()
   return (agent: AgentInput, name: string): Promise<AgentProviderStatus> => {
+    const emulated = emulatedStatus(agent, name)
+    if (emulated) return Promise.resolve(emulated)
     const now = Date.now()
     let state = states.get(agent)
     if (!state) { state = { expiresAt: 0 }; states.set(agent, state) }

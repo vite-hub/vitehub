@@ -1869,6 +1869,8 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /** Set when `VITEHUB_MODELS=emulate` sends the Agent models to the AI emulator. The check then reads no credentials. */
+  emulated?: { url: string }
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */

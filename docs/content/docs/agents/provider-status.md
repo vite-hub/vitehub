@@ -15,6 +15,8 @@ The Console shows status on Usage, from the `status.get` operation of the Consol
 
 A result has `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. When the provider gives authoritative evidence, it also has `modelCompatibility` for the configured model and `workspaceCapacity` for workspace or project spending capacity. Quota windows hold percentages and reset times, not money costs.
 
+When `VITEHUB_MODELS=emulate` is set, the result has `emulated: { url }` with the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator) URL. The check does not call `status()` and reads no credentials. Readiness is `ready`, or `unavailable` for Claude Code and when `NODE_ENV` is `production`.
+
 Each check is:
 
 - `ready`: the executable, authentication, and available quota passed.
