@@ -67,7 +67,19 @@ export default defineConfig({
 
 Apps that do not use `vite-hub` pass the same object to `hubSandboxTask()` from `@vite-hub/sandbox/task/vite`. Do not add `hubSandboxTask()` next to `vitehub()`: the `vite-hub` app then has no Sandbox Tasks.
 
-The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials are set. The Cloudflare provider does not, because the dev server cannot host a Container. The `cloudflare` host writes the Durable Object and Container only to `.output/server/wrangler.json`. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker.
+### Development
+
+On macOS, Linux, or WSL, the Vite or Nuxt dev server runs each Sandbox Task as a Node process on your computer, in a temporary folder that the run removes. You need no Vercel credentials and no Docker. The process is not isolated: it can read your files and use your network, and `executionAuthority` reports `isolation: 'none'`.
+
+For Cloudflare apps, use Nitro's `node-worker` dev runner (`nitro.devServer.runner: 'node-worker'`). The `miniflare` dev runner cannot start Node processes. On native Windows, use WSL or run against the provider as described below.
+
+To run the tasks in the host's Sandbox during development, set `remote: true`:
+
+```ts fragment
+sandboxTask: { driver: 'vercel', remote: true }
+```
+
+With `remote: true`, the Vercel provider needs Vercel credentials. The Cloudflare provider still cannot run in the dev server, because the dev server cannot host a Container. The `cloudflare` host writes the Durable Object and Container only to `.output/server/wrangler.json`. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker.
 
 ### Size
 
@@ -128,7 +140,7 @@ For a custom image, give your container a complete Dockerfile that copies `/usr/
 
 ## Network policy
 
-Both providers take the same `networkPolicy`:
+Both providers take the same `networkPolicy`. The local dev runner cannot enforce network restrictions. It rejects `deny-all`, hostname allowlists, and Vercel subnet policies before starting a task. To develop with a restrictive policy, use `remote: true` on Vercel or the Wrangler setup above on Cloudflare.
 
 ```ts [vite.config.ts]
 import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'
