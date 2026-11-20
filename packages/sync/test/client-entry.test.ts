@@ -266,6 +266,34 @@ describe("createSync in the browser", () => {
     await expect(write).resolves.toMatchObject({ ownerId: "tenant-ada", title: "Milk" })
   })
 
+  it.each(["ada", "bob"])("checks Auth for a write queued during the first pull (session: %s)", async (authUser) => {
+    const server = createFakeSyncServer()
+    server.user = authUser === "ada" ? "tenant-ada" : "ada"
+    server.authUser = authUser
+    setSyncUser("ada")
+    let requested!: () => void
+    let release!: () => void
+    const started = new Promise<void>(resolve => { requested = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const store = open(async (input, init) => {
+      requested()
+      await gate
+      return server.fetch(input, init)
+    })
+    const refreshed = store.refresh()
+    await started
+    const write = store.insert({ title: "Milk" })
+    release()
+    await refreshed
+    if (authUser === "bob") {
+      expect(server.applied).toEqual([])
+      server.authUser = "ada"
+      server.user = "tenant-ada"
+      await store.refresh()
+    }
+    expect(server.rows.get(write.key)).toMatchObject({ ownerId: "tenant-ada", title: "Milk" })
+  })
+
   it("sends writes from pre-upgrade keys, including a subset the page never reopens", async () => {
     const server = createFakeSyncServer()
     server.live = false

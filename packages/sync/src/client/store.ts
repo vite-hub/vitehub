@@ -604,6 +604,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
       writes = [...writes, ...stored.filter(write => !known.has(write.id))]
+      if (stored.some(write => isProvisionalAccount(write.account))) wantPull = true
       version++
       publish()
       environment.post({ type: "change", id })
@@ -736,7 +737,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /** The query of a pull: where the client is, and its subset. */
-  function pullQuery(): string {
+  function pullQuery(claim: boolean): string {
     const query = new URLSearchParams()
     if (meta && !freshSnapshot) {
       query.set("cursor", String(meta.cursor))
@@ -746,7 +747,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     if (subset) query.set("where", subset)
     query.set("paged", "1")
-    if (writes.some(write => isProvisionalAccount(write.account))) query.set("claim", "1")
+    if (claim) query.set("claim", "1")
     return `?${query.toString()}`
   }
 
@@ -755,7 +756,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const mark = holdMark
     for (;;) {
       const sentAfter = freshSnapshot ? undefined : meta?.after
-      const answer = await request(`${url}${pullQuery()}`, { method: "GET", headers: { accept: "application/json" } })
+      const claim = writes.some(write => isProvisionalAccount(write.account))
+      const answer = await request(`${url}${pullQuery(claim)}`, { method: "GET", headers: { accept: "application/json" } })
       if (!answer.ok) return fail(answer.error)
       if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
       if (ignoredPage(sentAfter, answer.body)) {
@@ -764,7 +766,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       if (answer.body.reset) freshSnapshot = false
       recover()
-      const claimant = answer.body.authAccount === undefined ? answer.body.account : answer.body.authAccount
+      const claimant = claim ? (answer.body.authAccount === undefined ? answer.body.account : answer.body.authAccount) : undefined
       await commit(pullChange(meta, answer.body, writes, claimant), answer.body.more ? undefined : mark)
       pulled = true
       if (!answer.body.more) return true
