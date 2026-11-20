@@ -6,8 +6,13 @@ import type { SendWebhookResult } from "./runtime.ts"
 
 export { defineWebhook } from "./define.ts"
 export type { WebhookDefinition, WebhookEvent, WebhookOptions, WebhookSignature } from "./define.ts"
-export type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
+export type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode, SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
 export type { SendWebhookResult, WebhookEventBody } from "./runtime.ts"
+export { createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, memberEndpointHosts, removeMemberEndpoint, sendToMemberEndpoint } from "./members.ts"
+export type { CreateMemberEndpointOptions, SendToMemberEndpointOptions, SendToMemberEndpointResult } from "./members.ts"
+export type { MemberEndpoint, MemberEndpointKind } from "./database.ts"
+export { checkWebhookUrl } from "./url-guard.ts"
+export type { CheckWebhookUrlOptions } from "./url-guard.ts"
 
 /** The webhooks of `server/webhooks/`. The generated `.vitehub/webhooks.d.ts` adds one key for each file. */
 export interface WebhookRegistry {}
