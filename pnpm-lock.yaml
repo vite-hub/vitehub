@@ -2921,6 +2921,9 @@ importers:
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21
+      minimatch:
+        specifier: catalog:workspace
+        version: 10.2.6
       nostics:
         specifier: catalog:runtime
         version: 1.4.0

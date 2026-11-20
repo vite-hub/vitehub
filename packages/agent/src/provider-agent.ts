@@ -2230,7 +2230,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
  * The report names every attachment that the model receives or that was left out, with the reason.
  */
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean, provider: ProviderAgentAdapterOptions["provider"]) {
   const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
   const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
@@ -2242,7 +2242,9 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (currentParts.has(part)) continue
     const reason = !includeHistory
       ? "sandbox"
-      : part.type !== "image" ? "not-image" : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+      : part.type !== "image" ? "not-image"
+      : provider === "claude-code" && !providerInlineImageMediaTypes.has(part.mediaType.toLowerCase()) ? "not-inline"
+      : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
     if (reason) report.skipped.push({ ...entry(part, "history"), reason })
     else history.push(part)
   }
@@ -3720,7 +3722,7 @@ async function* runProvider<
     }
     const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox, options.provider),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,
