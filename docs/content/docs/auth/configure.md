@@ -384,6 +384,27 @@ export default defineAuth({
 
 Run `vitehub database generate` again after you change the fields or the plugins.
 
+Read and write the new columns through the tables of `useDatabase()`. ViteHub types them from `server/auth.ts`:
+
+```ts [server/api/settings.get.ts] fragment
+import { eq } from 'drizzle-orm'
+import { defineHandler } from 'h3'
+import { requireAuth } from 'vite-hub/auth/server'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineHandler(async (event) => {
+  const { user } = await requireAuth(event)
+  const { db, schema } = useDatabase('default')
+  const [settings] = await db
+    .select({ login: schema.user.login, language: schema.user.language })
+    .from(schema.user)
+    .where(eq(schema.user.id, user.id))
+  return settings
+})
+```
+
+`authSqliteSchema` and `authPostgresSchema` from `vite-hub/auth/schema` have only the core tables. Use them for foreign keys to `user` or `organization`, not to read your fields.
+
 - Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. A field is `NOT NULL` only with `required: true`.
 - Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. A plugin that comes from another file is not found: call it in `server/auth.ts`.
 - `genericOAuth()` adds no tables, so it works without a change.

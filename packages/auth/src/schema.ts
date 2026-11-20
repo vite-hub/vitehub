@@ -7,10 +7,10 @@ import { foreignKey as sqliteForeignKey, index, integer, sqliteTable, text, uniq
 import { authSqlName, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
 
 import type { AuthExistingTables } from "./existing-tables.ts"
-import type { AuthCoreTableSpecs, AuthSchemaOptions, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
+import type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
 
 export { authPluginSchemas, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
-export type { AuthCoreModel, AuthCoreTableSpecs, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
+export type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
 import type { $Type, BuildColumns, HasDefault, IsPrimaryKey, NotNull } from "drizzle-orm"
 import type { PgBigInt53Builder, PgBooleanBuilder, PgBuildColumns, PgColumn, PgIntegerBuilder, PgJsonbBuilder, PgTableWithColumns, PgTextBuilder, PgTimestampBuilder } from "drizzle-orm/pg-core"
 import type { SQLiteBooleanBuilder, SQLiteColumn, SQLiteIntegerBuilder, SQLiteTableWithColumns, SQLiteTextBuilder, SQLiteTextJsonBuilder, SQLiteTimestampBuilder } from "drizzle-orm/sqlite-core"
@@ -161,29 +161,81 @@ type SqliteColumns<TFields> = { id: IsPrimaryKey<SQLiteTextBuilder<[string, ...s
 
 type PostgresColumns<TFields> = { id: IsPrimaryKey<PgTextBuilder> } & { -readonly [K in keyof TFields]: WithConstraints<PostgresBuilder<TFields[K]>, TFields[K]> }
 
-/** The Better Auth table `TModel` in a SQLite Database, with a typed column for each field. */
-export type AuthSqliteCoreTable<TModel extends AuthTableName> = SQLiteTableWithColumns<{
+/** A SQLite table with a typed column for each field of `TFields`. */
+export type AuthSqliteTableOf<TFields> = SQLiteTableWithColumns<{
   name: string
   schema: undefined
-  columns: BuildColumns<string, SqliteColumns<AuthCoreTableSpecs[TModel]["fields"]>, "sqlite">
+  columns: BuildColumns<string, SqliteColumns<TFields>, "sqlite">
   dialect: "sqlite"
   isAlias: false
 }>
 
-/** The Better Auth table `TModel` in a Postgres Database, with a typed column for each field. */
-export type AuthPostgresCoreTable<TModel extends AuthTableName> = PgTableWithColumns<{
+/** A Postgres table with a typed column for each field of `TFields`. */
+export type AuthPostgresTableOf<TFields> = PgTableWithColumns<{
   name: string
   schema: undefined
-  columns: PgBuildColumns<string, PostgresColumns<AuthCoreTableSpecs[TModel]["fields"]>>
+  columns: PgBuildColumns<string, PostgresColumns<TFields>>
   dialect: "pg"
   isAlias: false
 }>
+
+/** The Better Auth table `TModel` in a SQLite Database, with a typed column for each field. */
+export type AuthSqliteCoreTable<TModel extends AuthTableName> = AuthSqliteTableOf<AuthCoreTableSpecs[TModel]["fields"]>
+
+/** The Better Auth table `TModel` in a Postgres Database, with a typed column for each field. */
+export type AuthPostgresCoreTable<TModel extends AuthTableName> = AuthPostgresTableOf<AuthCoreTableSpecs[TModel]["fields"]>
 
 /** The Better Auth tables for SQLite, libSQL, and Cloudflare D1. Auth adds them to the app Database. */
 export type AuthSqliteSchema = { readonly [TModel in AuthTableName]: AuthSqliteCoreTable<TModel> }
 
 /** The Better Auth tables for Postgres. Auth adds them to the app Database. */
 export type AuthPostgresSchema = { readonly [TModel in AuthTableName]: AuthPostgresCoreTable<TModel> }
+
+// The tables of `createAuthSqliteSchema(options)` and `createAuthPostgresSchema(options)`, typed from the literal of
+// `options` as the Auth Vite plugin writes it: the plugin tables, and the plugin and additional columns of each table.
+// Options with a wide type, such as a variable of type `AuthSchemaOptions`, give the core tables.
+
+/** The fields of a union of field records, keyed by every key of the union. */
+type MergeFields<TUnion> = { [K in TUnion extends unknown ? keyof TUnion : never]: TUnion extends { readonly [P in K]: infer TField } ? TField : never }
+
+/** `TFirst` wins a key that both have, as `resolveAuthTableSpecs()` keeps the column that a table has already. */
+type Prefer<TFirst, TSecond> = TFirst & Omit<TSecond, keyof TFirst>
+
+type SchemaPlugins<TOptions> = TOptions extends { plugins: readonly (infer TPlugin extends AuthSchemaPlugin)[] }
+  ? AuthSchemaPlugin extends TPlugin ? never : TPlugin
+  : never
+
+type PluginFields<TPlugin extends AuthSchemaPlugin, TModel extends string> = TPlugin extends unknown
+  ? AuthPluginSchemas[TPlugin] extends { fields: { readonly [K in TModel]: infer TFields } } ? TFields : never
+  : never
+
+type PluginTables<TPlugin extends AuthSchemaPlugin> = MergeFields<TPlugin extends unknown
+  ? AuthPluginSchemas[TPlugin] extends { tables: infer TTables } ? TTables : never
+  : never>
+
+type AdditionalFields<TOptions, TModel extends string> = TModel extends AuthCoreModel
+  ? TOptions extends { additionalFields: { readonly [K in TModel]?: infer TFields } }
+    ? string extends keyof NonNullable<TFields> ? {} : NonNullable<TFields>
+    : {}
+  : {}
+
+type TableFields<TOptions, TModel extends AuthTableName> = Prefer<
+  Prefer<AuthCoreTableSpecs[TModel]["fields"], MergeFields<PluginFields<SchemaPlugins<TOptions>, TModel>>>,
+  AdditionalFields<TOptions, TModel>
+>
+
+type PluginTableFields<TOptions, TTable extends keyof PluginTables<SchemaPlugins<TOptions>>> =
+  PluginTables<SchemaPlugins<TOptions>>[TTable] extends { fields: infer TFields } ? TFields : never
+
+/** The Better Auth tables for SQLite, with the plugin tables and the plugin and additional columns of `TOptions`. */
+export type AuthSqliteSchemaFor<TOptions extends AuthSchemaOptions> =
+  & { readonly [TModel in AuthTableName]: AuthSqliteTableOf<TableFields<TOptions, TModel>> }
+  & { readonly [TTable in keyof PluginTables<SchemaPlugins<TOptions>>]: AuthSqliteTableOf<PluginTableFields<TOptions, TTable>> }
+
+/** The Better Auth tables for Postgres, with the plugin tables and the plugin and additional columns of `TOptions`. */
+export type AuthPostgresSchemaFor<TOptions extends AuthSchemaOptions> =
+  & { readonly [TModel in AuthTableName]: AuthPostgresTableOf<TableFields<TOptions, TModel>> }
+  & { readonly [TTable in keyof PluginTables<SchemaPlugins<TOptions>>]: AuthPostgresTableOf<PluginTableFields<TOptions, TTable>> }
 
 // SAFETY: Every Drizzle column builder has the chain methods; the casts give the two dialects one builder type.
 const sqliteDialect: Dialect<SQLiteColumn, AuthSqliteTable> = {
@@ -247,15 +299,16 @@ export const authPostgresSchema: AuthPostgresSchema = buildTables(postgresDialec
  * Auth Vite plugin writes a module that calls it when the Auth Definition adds fields or imports a plugin of
  * `AuthSchemaPlugin`, or when the Database has some of the tables already. `existing` holds those tables, read from the
  * latest migration: each one keeps the column defaults, unique keys, and foreign keys that only a table rebuild could
- * change, so the migration adds columns and indexes, and does not drop a table that other tables reference.
+ * change, so the migration adds columns and indexes, and does not drop a table that other tables reference. The
+ * columns of the plugins and additional fields are typed from the literal of `options`.
  */
-export function createAuthSqliteSchema(options: AuthSchemaOptions, existing?: AuthExistingTables): AuthSqliteSchema & Readonly<Record<string, AuthSqliteTable>> {
-  // SAFETY: `resolveAuthTableSpecs()` starts from `authTableSpecs`.
-  return buildTables(sqliteDialect, resolveAuthTableSpecs(options), existing) as unknown as AuthSqliteSchema & Record<string, AuthSqliteTable>
+export function createAuthSqliteSchema<const TOptions extends AuthSchemaOptions>(options: TOptions, existing?: AuthExistingTables): AuthSqliteSchemaFor<TOptions> {
+  // SAFETY: `resolveAuthTableSpecs()` builds the tables and fields that `AuthSqliteSchemaFor` reads from the same options.
+  return buildTables(sqliteDialect, resolveAuthTableSpecs(options), existing) as unknown as AuthSqliteSchemaFor<TOptions>
 }
 
-/** The Better Auth tables for Postgres, with the plugins and additional fields of `options`. */
-export function createAuthPostgresSchema(options: AuthSchemaOptions): AuthPostgresSchema & Readonly<Record<string, AuthPostgresTable>> {
-  // SAFETY: `resolveAuthTableSpecs()` starts from `authTableSpecs`.
-  return buildTables(postgresDialect, resolveAuthTableSpecs(options)) as unknown as AuthPostgresSchema & Record<string, AuthPostgresTable>
+/** The Better Auth tables for Postgres, with the plugins and additional fields of `options`, typed from its literal. */
+export function createAuthPostgresSchema<const TOptions extends AuthSchemaOptions>(options: TOptions): AuthPostgresSchemaFor<TOptions> {
+  // SAFETY: `resolveAuthTableSpecs()` builds the tables and fields that `AuthPostgresSchemaFor` reads from the same options.
+  return buildTables(postgresDialect, resolveAuthTableSpecs(options)) as unknown as AuthPostgresSchemaFor<TOptions>
 }
