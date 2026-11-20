@@ -34,7 +34,7 @@ afterEach(async () => {
   emulator = undefined
 })
 
-realCodex("runs a Codex Agent without tools on the AI emulator with the scripted reply", async () => {
+async function startEmulator(): Promise<string> {
   emulator = await createEmulator({
     service: "ai",
     port: 0,
@@ -42,26 +42,55 @@ realCodex("runs a Codex Agent without tools on the AI emulator with the scripted
   })
   vi.stubEnv("VITEHUB_MODELS", "emulate")
   vi.stubEnv("VITEHUB_EMULATE_URL", emulator.url)
+  return emulator.url
+}
+
+async function projectRoot(): Promise<string> {
   await mkdir(".vitest-tmp", { recursive: true })
   const root = await mkdtemp(resolve(".vitest-tmp", "emulate-codex-"))
   cleanup.push(() => rm(root, { force: true, recursive: true }))
   await writeFile(resolve(root, "README.md"), "Emulated Codex run.\n")
+  return root
+}
 
+async function expectEmulatedCalls(url: string): Promise<void> {
+  // Strict rules reject a request with a tool that the emulator does not know, such as a `namespace` tool.
+  const calls = await (await fetch(`${url}/_ai/calls`)).json() as Array<{ format: string, model: string, matched: { id?: string } | null }>
+  expect(calls.length).toBeGreaterThan(0)
+  for (const call of calls) expect(call).toMatchObject({ format: "openai-responses", model: "gpt-5.5", matched: { id: "codex-hello" } })
+}
+
+realCodex("runs a Codex Agent without tools on the AI emulator with the scripted reply", async () => {
+  const url = await startEmulator()
+  const credentials = vi.fn(() => { throw credentialRead("driver.credentials") })
   const agent = defineAgent({
     name: "emulated-codex",
     runtime: false,
+    driver: codexDriver({ model: "gpt-5.5", cwd: await projectRoot(), credentials, instructions: "Answer briefly." }),
+  })
+  const [error, result] = await runAgent(agent, { prompt: "Hello", timeout: 60_000 })
+
+  expect(error).toBeUndefined()
+  expect(result?.text).toContain("Hello from the emulator.")
+  expect(credentials).not.toHaveBeenCalled()
+  await expectEmulatedCalls(url)
+}, 90_000)
+
+realCodex("keeps caller launch options from re-enabling namespace tools on the AI emulator", async () => {
+  const url = await startEmulator()
+  const agent = defineAgent({
+    name: "emulated-codex-launch-args",
+    runtime: false,
     driver: codexDriver({
       model: "gpt-5.5",
-      cwd: root,
-      credentials: () => { throw credentialRead("driver.credentials") },
-      instructions: "Answer briefly.",
+      cwd: await projectRoot(),
+      env: { T3CODE_CODEX_LAUNCH_ARGS: "-c hide_agent_reasoning=true --enable multi_agent" },
+      providerSettings: { launchArgs: "-c features.multi_agent_v2=true" },
     }),
   })
   const [error, result] = await runAgent(agent, { prompt: "Hello", timeout: 60_000 })
 
   expect(error).toBeUndefined()
   expect(result?.text).toContain("Hello from the emulator.")
-  const calls = await (await fetch(`${emulator.url}/_ai/calls`)).json() as Array<{ format: string, model: string, matched: { id?: string } | null }>
-  expect(calls.length).toBeGreaterThan(0)
-  for (const call of calls) expect(call).toMatchObject({ format: "openai-responses", model: "gpt-5.5", matched: { id: "codex-hello" } })
+  await expectEmulatedCalls(url)
 }, 90_000)

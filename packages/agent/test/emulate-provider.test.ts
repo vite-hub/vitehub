@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { chatgpt, defineAiGateway } from "@vite-hub/gateways"
+import { sshLaunch } from "@vite-hub/sandbox/ssh"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
@@ -7,9 +8,16 @@ const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const createProviderRuntime = vi.hoisted(() => vi.fn(async (_options: { environment?: Record<string, string>, settings?: Record<string, unknown> }) => providerRuntimes.shift()))
 const seen: { catalog?: string } = {}
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore: vi.fn() }))
-vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable: () => "/app/node_modules/@openai/codex/bin/codex.js" }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
+vi.mock("../src/internal/provider-runtime-packages.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/provider-runtime-packages.ts")>(),
+  resolveInstalledProviderExecutable: () => "/app/node_modules/@openai/codex/bin/codex.js",
+}))
 
+import { codexDriver, defineAgent, defineCapability } from "../src/index.ts"
 import { createProviderAgentAdapter } from "../src/provider-agent.ts"
+import { runAgentWithContext } from "../src/internal/agent-run.ts"
+import { installAgentServerEnv } from "../src/internal/builtin-env.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 
 // A credential read fails the test: an emulated run must not read a key, a Codex sign-in, or a ChatGPT grant.
@@ -35,12 +43,15 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  installAgentServerEnv(undefined)
   vi.unstubAllEnvs()
   process.env = originalEnv
   providerRuntimes.length = 0
 })
 
-function providerRuntime(threadId: string) {
+function providerRuntime(fixedThreadId?: string) {
+  // runAgent() picks the thread ID, so the events use the one that the run starts.
+  let threadId = fixedThreadId ?? ""
   providerRuntimes.push({
     attachmentsDirectory: `/tmp/attachments-${crypto.randomUUID()}`,
     close: vi.fn(async () => undefined),
@@ -59,7 +70,10 @@ function providerRuntime(threadId: string) {
       seen.catalog = path ? await readFile(path, "utf8") : undefined
       return { threadId, turnId: "turn-1" }
     }),
-    startSession: vi.fn(async () => ({ threadId })),
+    startSession: vi.fn(async (input: { threadId: string }) => {
+      threadId ||= input.threadId
+      return { threadId }
+    }),
     stopSession: vi.fn(async () => undefined),
   })
 }
@@ -101,9 +115,10 @@ describe("provider Drivers with VITEHUB_MODELS=emulate", () => {
     expect(launchArgs).toContain(codexConfigArg("model_provider", '"vitehub"'))
     expect(launchArgs).toContain(codexConfigArg("model_providers.vitehub.base_url", JSON.stringify(`${emulatorUrl}/v1`)))
     expect(launchArgs).toContain(codexConfigArg("model_providers.vitehub.name", '"emulate"'))
-    for (const value of ['web_search="disabled"', "features.multi_agent=false", "features.goals=false", "features.apps=false", "features.plugins=false", "mcp_servers={}"]) {
+    for (const value of ['web_search="disabled"', "mcp_servers={}"]) {
       expect(launchArgs).toContain(codexConfigArg(value.slice(0, value.indexOf("=")), value.slice(value.indexOf("=") + 1)))
     }
+    for (const feature of ["multi_agent", "multi_agent_v2", "goals", "apps", "plugins"]) expect(launchArgs).toContain(`--disable ${feature}`)
     // Codex applies the last override, so the emulator wins over a model provider in providerSettings.launchArgs.
     expect(launchArgs.lastIndexOf("model_provider=")).toBeGreaterThan(launchArgs.indexOf('model_provider="openai"'))
     expect(JSON.parse(seen.catalog ?? "{}")).toMatchObject({ models: [{ slug: "vitehub-emulator", visibility: "hide" }] })
@@ -123,6 +138,77 @@ describe("provider Drivers with VITEHUB_MODELS=emulate", () => {
     const launchArgs = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
     expect(launchArgs).toContain(codexConfigArg("model_providers.vitehub.base_url", JSON.stringify(`${emulatorUrl}/v1`)))
     expect(launchArgs).not.toContain("openai_chatgpt_plan")
+  })
+
+  it.each([
+    ["a disconnected ChatGPT Connection", () => ({ gateway: chatgpt() })],
+    ["driver.credentials", (spy: () => never) => ({ credentials: spy })],
+    ["a gateway key", (spy: () => never) => ({ gateway: defineAiGateway({ name: "real", apiKey: spy, baseURL: { codex: "https://real.example/v1" } }) })],
+  ])("runs through runAgent() with %s and probes no provider", async (_name, driver) => {
+    providerRuntime()
+    const read = vi.fn((): never => { throw credentialRead("a provider credential") })
+    const inspect = vi.fn(async () => ({ status: "disconnected", chatgpt: { hostId: "urn:uuid:host", plan: "disabled" } }))
+    const useChatGPTCredential = vi.fn(read)
+    const agent = defineAgent({
+      name: "emulated",
+      runtime: false,
+      // A Capability with a prepare hook makes the Invocation check provider readiness first.
+      capabilities: [defineCapability({ id: "setup", prepare: vi.fn() })],
+      driver: codexDriver({ model: "gpt-5.5", ...driver(read) }),
+    })
+    const host = {
+      runtime: "vite" as const,
+      memo: <T>(_key: string, create: () => T) => create(),
+      waitUntil: () => undefined,
+      capabilities: { connections: { runtime: () => ({ inspect }), useChatGPTCredential } },
+    }
+    await expect(runAgentWithContext(agent, host, { prompt: "Hello" })).resolves.toMatchObject({ finishReason: "completed" })
+    expect(read).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+    expect(useChatGPTCredential).not.toHaveBeenCalled()
+    expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)).toContain(codexConfigArg("model_providers.vitehub.base_url", JSON.stringify(`${emulatorUrl}/v1`)))
+  })
+
+  it("reads only VITEHUB_EMULATE_URL when another Server Env value is required and unset", async () => {
+    providerRuntime("codex-server-env")
+    installAgentServerEnv({ useServerEnv: () => { throw Object.assign(new Error("ENV_REQUIRED_MISSING: env.server.codex.auth is required."), { code: "ENV_REQUIRED_MISSING" }) } })
+    await createProviderAgentAdapter({ provider: "codex", model: "gpt-5.5" }).generate(context("codex-server-env") as never)
+    expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)).toContain(codexConfigArg("model_providers.vitehub.base_url", JSON.stringify(`${emulatorUrl}/v1`)))
+  })
+
+  it("keeps compatible caller launch options and turns off the ones that send namespace tools", async () => {
+    providerRuntime("codex-launch-args")
+    await createProviderAgentAdapter({
+      provider: "codex",
+      model: "gpt-5.5",
+      env: { T3CODE_CODEX_LAUNCH_ARGS: "-c hide_agent_reasoning=true --enable multi_agent" },
+      providerSettings: { launchArgs: "-c features.multi_agent_v2=true" },
+    }).generate(context("codex-launch-args") as never)
+
+    const options = createProviderRuntime.mock.lastCall?.[0]
+    const launchArgs = String(options?.settings?.launchArgs)
+    // The runtime prefers T3CODE_CODEX_LAUNCH_ARGS over settings, so both carry the complete list.
+    expect(options?.environment?.T3CODE_CODEX_LAUNCH_ARGS).toBe(launchArgs)
+    expect(launchArgs).toContain("-c hide_agent_reasoning=true")
+    // Codex applies `--disable` over `--enable` and `-c features.<name>=true`.
+    expect(launchArgs.indexOf("--disable multi_agent ")).toBeGreaterThan(launchArgs.indexOf("--enable multi_agent"))
+    expect(launchArgs).toContain("--disable multi_agent_v2")
+  })
+
+  it("forwards the emulator Codex Home through a launcher that forwards only required names", async () => {
+    providerRuntime("codex-ssh")
+    let forwarded: string[] = []
+    await createProviderAgentAdapter({
+      provider: "codex",
+      model: "gpt-5.5",
+      launch: (launchContext) => {
+        const { command, args } = sshLaunch({ host: "127.0.0.1", user: "agent", identityFile: "/dev/null", forwardEnvironment: [] })(launchContext)
+        forwarded = (JSON.parse(args.at(-1)!) as { forwardEnvironment: string[] }).forwardEnvironment
+        return { command, args }
+      },
+    }).generate(context("codex-ssh") as never)
+    expect(forwarded).toContain("CODEX_HOME")
+    expect(forwarded).toContain("VITEHUB_GATEWAY_API_KEY")
   })
 
   it.each([

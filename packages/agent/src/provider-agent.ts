@@ -13,7 +13,7 @@ import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructio
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
 import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
-import { assertProviderEmulationSupported, emulatedCodexGateway } from "./internal/codex-emulation.ts"
+import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionCursorRecordKey } from "./internal/provider-session-cursor.ts"
@@ -1355,6 +1355,9 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   context: AgentProviderCredentialContext<TRuntimeConfig>,
   inspectionOptions: { checkRequirements?: boolean } = {},
 ): Promise<AgentProviderStatus> {
+  // With VITEHUB_MODELS=emulate, a run calls only the AI emulator, so inspection probes no provider and reads no credential.
+  const emulatedStatus = emulatedProviderStatus(configuredOptions.provider, context)
+  if (emulatedStatus) return emulatedStatus
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
   if (isChatGPTGateway(options.gateway)) {
@@ -3222,10 +3225,11 @@ async function* runProvider<
         launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
       }
     }
-    // driver.env can override the forge access environment. The gateway owns its own variables.
+    // driver.env can override the forge access environment. The gateway owns its own variables. Auxiliary and emulated
+    // runs compose driver.env.T3CODE_CODEX_LAUNCH_ARGS into their launch arguments below, before the gateway arguments.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
-      : configuredEnvironmentOverrides, { auxiliary })
+      : configuredEnvironmentOverrides, { auxiliary: auxiliary || emulated })
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
       throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
@@ -3331,7 +3335,8 @@ async function* runProvider<
       }
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
-        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
+        // A launcher that forwards only required names must keep the credential or emulator Codex Home.
+        ...(codexCredentialHome || emulatedCodexHome ? ["CODEX_HOME"] : []),
         ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
@@ -3557,7 +3562,9 @@ async function* runProvider<
       })
       providerLauncher = providerSandboxRelay.launcher
     }
-    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
+    // The runtime chooses T3CODE_CODEX_LAUNCH_ARGS over settings. On the emulator, the emulator arguments must come last
+    // so that they win, so the environment arguments join the list like on an auxiliary run.
+    const composedEnvironmentLaunchArgs = options.provider === "codex" && (auxiliary || emulated)
       ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
       : undefined
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
@@ -3566,7 +3573,7 @@ async function* runProvider<
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       // Claude Code reads `.claude/skills` in every `--add-dir` directory.
       ...(providerSkillDirectory && options.provider === "claude-code" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
-      auxiliaryEnvironmentLaunchArgs,
+      composedEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
@@ -3611,7 +3618,7 @@ async function* runProvider<
     }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
-    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
+    if (composedEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
       providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
     }
     const settings = Object.fromEntries(Object.entries({
