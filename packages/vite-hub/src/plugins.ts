@@ -651,7 +651,8 @@ export interface ViteHubOptions {
    * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
    * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
    * `{ driver: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ driver: "vercel", networkPolicy: "deny-all" }`.
-   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials.
+   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials. `vite dev` runs
+   * each task as a local process with no isolation; `remote: true` uses the provider's Sandbox in dev too.
    */
   sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
