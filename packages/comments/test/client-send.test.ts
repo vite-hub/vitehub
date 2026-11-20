@@ -7,6 +7,16 @@ import type { CommentSendAgent, CommentSendEvent, CommentSendPairingCheck, Comme
 const t3: CommentSendAgent = { name: "T3 Code", logo: "t3", host: "relay.t3.codes" }
 const prompt = "Connect this site's comments to this T3 thread. The code K7Q-4MX works once, for 10 minutes."
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
 /** A server that the test answers by hand: each call waits until the test settles it. */
 function fakeTransport(status: CommentSendStatus, options: { push?: boolean } = {}) {
   let current = status
@@ -258,7 +268,7 @@ describe("createCommentSend", () => {
 
   it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {
     const server = fakeTransport({ count: 2 })
-    const delivery = Promise.withResolvers<CommentSendResult>()
+    const delivery = deferred<CommentSendResult>()
     server.transport.allow = () => delivery.promise
     const send = createCommentSend(server.transport)
     const stop = send.start()
@@ -286,10 +296,10 @@ describe("createCommentSend", () => {
     const send = createCommentSend(server.transport)
     send.start()
     await flush()
-    const load = Promise.withResolvers<CommentSendStatus>()
+    const load = deferred<CommentSendStatus>()
     server.transport.status = () => load.promise
     const refreshing = send.refresh()
-    const setup = Promise.withResolvers<void>()
+    const setup = deferred<void>()
     const startPairing = server.transport.startPairing
     server.transport.startPairing = async () => {
       await setup.promise
@@ -310,10 +320,10 @@ describe("createCommentSend", () => {
     const send = createCommentSend(server.transport)
     send.start()
     await flush()
-    const load = Promise.withResolvers<CommentSendStatus>()
+    const load = deferred<CommentSendStatus>()
     server.transport.status = () => load.promise
     await vi.advanceTimersByTimeAsync(5000)
-    const delivery = Promise.withResolvers<CommentSendResult>()
+    const delivery = deferred<CommentSendResult>()
     server.transport.send = () => delivery.promise
     const sending = send.send()
     load.reject(new Error("Offline"))
@@ -326,7 +336,7 @@ describe("createCommentSend", () => {
 
   it.each([false, true])("reconciles pushes before delivery responds (done: %s)", async (done) => {
     const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
-    const delivery = Promise.withResolvers<CommentSendResult>()
+    const delivery = deferred<CommentSendResult>()
     server.transport.send = () => delivery.promise
     const send = createCommentSend(server.transport)
     send.start()
@@ -347,7 +357,7 @@ describe("createCommentSend", () => {
 
   it("keeps a pushed count when an earlier status response arrives", async () => {
     const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
-    const load = Promise.withResolvers<CommentSendStatus>()
+    const load = deferred<CommentSendStatus>()
     server.transport.status = () => load.promise
     const send = createCommentSend(server.transport)
     send.start()
