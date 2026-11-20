@@ -4389,6 +4389,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ file, name }: { file: string, name: string }) => `[vitehub] Agent "${name}" has no default export in ${file}. Every file that Agent discovery finds must export its Agent Definition as default.`,
       fix: "Export the Agent from the file with `export default defineAgent({ ... })`. If the file holds helpers and not an Agent, move it out of `server/agents/`, or set `agent: false` in `vitehub()` when the app has no Agents.",
     },
+    AGENT_DEV_LOOP_FAILED: {
+      why: ({ message, status }: { message: string, status: number }) => `The dev server answered the Agent Dev Loop with HTTP ${status}: ${message}`,
+      fix: "Fix the error that the message names, for example an Agent module that does not load, and run the command again.",
+    },
     AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
       why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
       fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
@@ -4693,9 +4697,19 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
       fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
     },
+    AGENT_STATE_FILE_URL_UNSUPPORTED: {
+      why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
+      fix: "Set agent.providers.state.url to a libSQL server URL, such as a Turso URL. If VITEHUB_AGENT_STATE_URL is supplied to the Worker, change or remove that override. To keep using the local file, run `vite dev` on a Node dev runner.",
+    },
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
+      why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
+      fix: ({ host }: { host: "vercel" | "netlify" }) => host === "netlify"
+        ? "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Netlify Functions scope for the target deploy context."
+        : "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Vercel runtime environment for this deployment.",
     },
     AGENT_STORAGE_PREFIX_INVALID: {
       why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,

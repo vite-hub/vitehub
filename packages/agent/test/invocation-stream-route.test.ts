@@ -2,8 +2,10 @@ import { IncomingMessage, ServerResponse } from "node:http"
 import { Socket } from "node:net"
 
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { agentDevLoopTokenScopeHeader } from "../src/invocation-stream.ts"
 import { registerAgentInvocationStreamEndpoint } from "../src/vite/invocation-stream-route.ts"
 
 import type { handleAgentInvocationStreamEndpoint } from "../src/vite/invocation-stream-endpoint.ts"
@@ -12,6 +14,7 @@ vi.mock("@vite-hub/internal/dev-endpoint", () => ({ registerViteHubDevEndpoint: 
 vi.mock("@vite-hub/workspace/server", () => ({
   refreshWorkspaceDevToken: vi.fn(async () => {}),
   validateWorkspaceDevToken: vi.fn(async (_root: string, headers: IncomingMessage["headers"]) => headers["x-vitehub-dev-token"] === "test-token"),
+  workspaceDevTokenHeader: "x-vitehub-dev-token",
   workspaceDevTokenServerId: vi.fn(() => "test-server"),
 }))
 
@@ -25,7 +28,7 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
-async function setup({ address, forwarded = false, host = "localhost:5173", method = "GET", token }: { address?: string, forwarded?: boolean, host?: string, method?: string, token?: string } = {}) {
+async function setup({ method = "GET", token }: { method?: string, token?: string } = {}) {
   const handleEndpoint = vi.fn<typeof handleAgentInvocationStreamEndpoint>()
   const loading = deferred<{ handleAgentInvocationStreamEndpoint: typeof handleEndpoint }>()
   const loadEndpoint = vi.fn(() => loading.promise)
@@ -34,13 +37,9 @@ async function setup({ address, forwarded = false, host = "localhost:5173", meth
   const runtimeOptions = { runtimeCapabilities: [] }
   await registerAgentInvocationStreamEndpoint(server as never, runtimeOptions)
   const options = vi.mocked(registerViteHubDevEndpoint).mock.calls.at(-1)![1]
-  const socket = new Socket()
-  Object.defineProperty(socket, "remoteAddress", { value: address })
-  const req = new IncomingMessage(socket)
+  const req = new IncomingMessage(new Socket())
   req.method = method
-  req.headers.host = host
-  if (forwarded) req.headers.forwarded = "for=192.0.2.10"
-  if (token) req.headers["x-vitehub-dev-token"] = token
+  if (token) req.headers[workspaceDevTokenHeader] = token
   const res = new ServerResponse(req)
   const end = vi.spyOn(res, "end")
   const grant = {} as never
@@ -49,7 +48,7 @@ async function setup({ address, forwarded = false, host = "localhost:5173", meth
     options.handle(req, res, grant)
     await vi.waitFor(() => expect(loadEndpoint).toHaveBeenCalledOnce())
   }
-  return { end, grant, handleEndpoint, loadEndpoint, loading, req, res, runtimeOptions, server, start }
+  return { end, grant, handleEndpoint, loadEndpoint, loading, options, req, res, runtimeOptions, server, start }
 }
 
 describe("Agent Dev Loop lazy route", () => {
@@ -71,17 +70,14 @@ describe("Agent Dev Loop lazy route", () => {
     loading.resolve({ handleAgentInvocationStreamEndpoint: handleEndpoint })
     await vi.dynamicImportSettled()
 
-    expect(handleEndpoint).toHaveBeenCalledExactlyOnceWith(server, req, res, grant, { serverId: "test-server" }, runtimeOptions)
+    expect(handleEndpoint).toHaveBeenCalledExactlyOnceWith(server, req, res, grant, { serverId: "test-server" }, runtimeOptions, false)
     expect(res.listenerCount("close")).toBe(0)
   })
 
   it.each([
-    { name: "direct local discovery", address: "::ffff:127.0.0.1", detailed: true },
-    { name: "authenticated invocation", address: "192.0.2.10", method: "POST", token: "test-token", detailed: true },
-    { name: "network discovery", address: "192.0.2.10", detailed: false },
-    { name: "forwarded discovery", address: "::1", forwarded: true, detailed: false },
-    { name: "discovery with a non-local host", address: "::1", host: "example.test", detailed: false },
-    { name: "discovery with an unknown peer", detailed: false },
+    { name: "public discovery", detailed: false },
+    { name: "authenticated discovery", token: "test-token", detailed: true },
+    { name: "authenticated invocation", method: "POST", token: "test-token", detailed: true },
   ])("returns the appropriate load error for $name", async ({ detailed, ...request }) => {
     const { end, handleEndpoint, loading, res, start } = await setup(request)
     await start()
@@ -94,8 +90,17 @@ describe("Agent Dev Loop lazy route", () => {
     expect(end).toHaveBeenCalledWith(detailed
       ? "Cannot find package 'missing-sdk' imported from https://[redacted]@example.test/agent.ts"
       : "Agent Invocation Stream endpoint failed.")
+    expect(res.getHeader(agentDevLoopTokenScopeHeader)).toBe(detailed
+      ? undefined
+      : encodeURIComponent(JSON.stringify({ root: "/app", workspaceDevTokenServerId: "test-server" })))
     expect(handleEndpoint).not.toHaveBeenCalled()
     expect(res.listenerCount("close")).toBe(0)
+  })
+
+  it("rejects discovery with an invalid token", async () => {
+    const { loadEndpoint, options, req } = await setup({ token: "invalid-token" })
+    expect((await options.authorize?.(req))?.status).toBe(403)
+    expect(loadEndpoint).not.toHaveBeenCalled()
   })
 
   it("skips Agent work when the response closes during loading", async () => {
