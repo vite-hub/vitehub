@@ -173,6 +173,11 @@ describe("Webhooks in a built Nitro 3 app", () => {
       expect(listed.exitCode).toBe(0)
       expect(JSON.parse(listed.stdout)).toEqual([expect.objectContaining({ owner: "user_ana", ownerName: "Ana Ruiz", agent: "t3", host: "203.0.113.10", mine: false, last: expect.objectContaining({ state: "sent", status: 202 }) })])
       expect(listed.stdout).not.toMatch(/token=|whsec_|\/hooks|ana@example\.com/)
+      const [first] = JSON.parse(listed.stdout) as Array<{ createdAt: number, id: string }>
+      const next = await cli("endpoints", "--after", JSON.stringify({ createdAt: first!.createdAt, id: first!.id }))
+      expect(next.stderr).toBe("")
+      expect(next.exitCode).toBe(0)
+      expect(JSON.parse(next.stdout)).toEqual([])
       // A CLI key names no person, so it never owns a member endpoint.
       const redelivered = await cli("redeliver", sent.id)
       expect(redelivered.exitCode).not.toBe(0)

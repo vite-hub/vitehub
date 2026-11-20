@@ -40,6 +40,7 @@ export interface InstallWebhooksOptions {
   webhooks: Record<string, unknown>
   /** Where deliveries live: `createDrizzleWebhookStore()` from `@vite-hub/webhooks/database`. */
   store: WebhookDeliveryStore
+  resolveVerifiedOwner?: (email: string, request: Request) => Promise<string | undefined>
   /**
    * Sends a wake to the Queue. Without it, which is fine for an app with only member endpoints, a member delivery that
    * fails is not tried again.
@@ -55,6 +56,7 @@ export interface InstalledWebhooks {
   store: WebhookDeliveryStore
   wake: WebhookWakeSender | undefined
   endpoints: WebhookEndpointStore | undefined
+  resolveVerifiedOwner: InstallWebhooksOptions["resolveVerifiedOwner"]
 }
 
 /** One webhook, as the CLI and the Console list it. It names the variables, never their values. */
@@ -102,7 +104,7 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
     }
     webhooks.set(name, definition)
   }
-  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints }
+  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints, resolveVerifiedOwner: options.resolveVerifiedOwner }
   Reflect.set(globalThis, installedKey, installed)
   if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
@@ -206,18 +208,15 @@ async function resolveMemberTarget(installed: InstalledWebhooks, id: string): Pr
 
 /**
  * Who asks for an action on a member delivery, such as Redeliver. `id` is an app user. A ViteHub Console account is
- * not an app user, so the Console passes `consoleEmail`, the email that it signs for the account.
+ * not an app user, so the operation first resolves its verified email to a current app user id.
  */
-export type MemberCaller = { id: string } | { consoleEmail: string }
+export type MemberCaller = { id: string, verifiedConsoleEmail?: string }
 
 /**
- * Whether `caller` owns the member endpoint: an app user with the owner id, or a ViteHub Console account whose email
- * equals the verified email that the app stored with the endpoint. Without a stored email, only the app user matches.
+ * Whether `caller` has the app user id of the owner. Console callers must also match the email set at connect time.
  */
 export function ownsMemberEndpoint(endpoint: Pick<MemberEndpoint, "owner" | "ownerEmail">, caller: MemberCaller | undefined): boolean {
-  if (!caller) return false
-  if ("id" in caller) return caller.id === endpoint.owner
-  return endpoint.ownerEmail !== null && caller.consoleEmail.trim().toLowerCase() === endpoint.ownerEmail
+  return caller?.id === endpoint.owner && (caller.verifiedConsoleEmail === undefined || caller.verifiedConsoleEmail === endpoint.ownerEmail)
 }
 
 /**
@@ -489,14 +488,17 @@ export function getWebhookDelivery(id: string): Promise<Result<WebhookDelivery, 
 export interface WebhookDeliveryActionOptions {
   /** Who asks. A delivery to a member endpoint goes out again only for its owner: see `ownsMemberEndpoint()`. */
   caller?: MemberCaller
+  resolveCaller?: () => Promise<MemberCaller | undefined>
 }
 
 /** The member endpoint of a member delivery, when `caller` owns it. Throws the error that the action returns. */
-async function ownedMemberEndpoint(installed: InstalledWebhooks, delivery: WebhookDelivery, caller: MemberCaller | undefined) {
+async function ownedMemberEndpoint(installed: InstalledWebhooks, delivery: WebhookDelivery, options: WebhookDeliveryActionOptions) {
   const id = delivery.webhook.slice(memberWebhookPrefix.length)
   const endpoint = await installed.endpoints?.find(id)
   if (!endpoint) throw webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` })
-  if (!ownsMemberEndpoint(endpoint, caller)) throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_OWNER({ id: JSON.stringify(delivery.id) })
+  if (!ownsMemberEndpoint(endpoint, options.resolveCaller ? await options.resolveCaller() : options.caller)) {
+    throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_OWNER({ id: JSON.stringify(delivery.id) })
+  }
   return endpoint
 }
 
@@ -506,9 +508,10 @@ async function ownedMemberEndpoint(installed: InstalledWebhooks, delivery: Webho
  */
 export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
   return attempt(async (installed) => {
-    if (installed.endpoints) {
-      const current = await findDelivery(installed, id)
-      if (current.webhook.startsWith(memberWebhookPrefix)) await ownedMemberEndpoint(installed, current, options.caller)
+    const current = await findDelivery(installed, id)
+    if (current.webhook.startsWith(memberWebhookPrefix)) {
+      const endpoint = await ownedMemberEndpoint(installed, current, options)
+      if (endpoint.disabledAt !== null) throw webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id })
     }
     const delivery = await installed.store.due(id, Date.now())
     if (!delivery) {
@@ -541,7 +544,7 @@ export function cancelWebhookDelivery(id: string): Promise<Result<WebhookDeliver
 export function redeliverWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<SendWebhookResult | SendToMemberEndpointResult, WebhookDeliveryErrorCode>> {
   return attempt(async (installed): Promise<SendWebhookResult | SendToMemberEndpointResult> => {
     const source = await findDelivery(installed, id)
-    const endpoint = source.webhook.startsWith(memberWebhookPrefix) ? await ownedMemberEndpoint(installed, source, options.caller) : undefined
+    const endpoint = source.webhook.startsWith(memberWebhookPrefix) ? await ownedMemberEndpoint(installed, source, options) : undefined
     if (source.state === "pending" || source.state === "sending") throw webhooksErrors.WEBHOOKS_DELIVERY_ACTIVE({ id: JSON.stringify(id), state: source.state })
     if (endpoint) return await redeliverToMember(installed, source, endpoint)
     if (!installed.webhooks.has(source.webhook)) throw webhooksErrors.WEBHOOKS_NOT_FOUND({ name: JSON.stringify(source.webhook) })
@@ -562,7 +565,7 @@ async function redeliverToMember(installed: InstalledWebhooks, source: WebhookDe
     target = opened
   }
   const now = Date.now()
-  const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
+  const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, owner: endpoint.owner, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
   // `0` claims only a pending delivery, never one that another server is sending.
   const claim = await installed.store.claim(recorded.id, recorded.revision, now, 0)
   if (!claim) return { id: recorded.id, status: "pending" }

@@ -125,9 +125,18 @@ export async function readWebhookDeliveries(query: ConsoleWebhookLogQuery, signa
  */
 export async function readMemberEndpoints(signal?: AbortSignal): Promise<ConsoleMemberEndpoint[] | undefined> {
   try {
-    const value = await requestConsoleOperation(webhooksOperations.endpoints, {}, signal ? { signal } : {})
-    // SAFETY: `webhooks.endpoints` answers with an array of member endpoints.
-    return Array.isArray(value) ? value as ConsoleMemberEndpoint[] : []
+    const endpoints: ConsoleMemberEndpoint[] = []
+    let after: { createdAt: number, id: string } | undefined
+    for (;;) {
+      const value = await requestConsoleOperation(webhooksOperations.endpoints, after ? { after } : {}, signal ? { signal } : {})
+      // SAFETY: `webhooks.endpoints` answers with an array of member endpoints.
+      const page = Array.isArray(value) ? value as ConsoleMemberEndpoint[] : []
+      endpoints.push(...page)
+      if (page.length < 500) return endpoints
+      const last = page.at(-1)!
+      if (after?.id === last.id && after.createdAt === last.createdAt) throw new Error("The member endpoints page did not advance.")
+      after = { createdAt: last.createdAt, id: last.id }
+    }
   }
   catch (error) {
     if (error instanceof ConsoleRequestError && (error.code === "WEBHOOKS_ENDPOINTS_OFF" || error.code === "CONSOLE_NOT_FOUND")) return undefined

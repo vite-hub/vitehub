@@ -29,7 +29,7 @@ export async function connectAgent(user: { id: string, name: string, email: stri
   const [error, endpoint] = await createMemberEndpoint({
     owner: user.id,
     ownerName: user.name,
-    // Only a verified email. A Console account with this email acts as Ana.
+    // Only a verified email. Auth checks the current owner again on each Console call.
     ownerEmail: user.emailVerified ? user.email : undefined,
     name: 'Launch plan thread',
     agent: 't3',
@@ -128,6 +128,8 @@ The **Webhooks** section of the [Console](/docs/console) lists the member endpoi
 
 `vitehub webhooks endpoints`, `vitehub webhooks disable-endpoint <id>`, and `vitehub webhooks enable-endpoint <id>` do the same from the CLI, and `vitehub webhooks deliveries --owner <id>` lists the deliveries of one member.
 
+The endpoint list returns up to 500 rows per page. To get the next page, pass the last row's `createdAt` and `id`, for example `vitehub webhooks endpoints --after '{"createdAt":1794400000000,"id":"whe_123"}'`. Use `--limit` for a smaller page. The owner filter includes deliveries from earlier endpoints, even after reconnecting.
+
 ## Who owns an endpoint
 
 Only the member who owns an endpoint can send to it again: **Redeliver** and **Send now** of a member delivery work for the owner, and everyone else gets `403` with [`WEBHOOKS_DELIVERY_NOT_OWNER`](/docs/webhooks/diagnostics/webhooks_delivery_not_owner). The Console shows the buttons only on your own deliveries.
@@ -135,10 +137,10 @@ Only the member who owns an endpoint can send to it again: **Redeliver** and **S
 | Caller | Owns the endpoint when |
 | --- | --- |
 | An app user, such as through the app's MCP | Its user id is `owner` |
-| A ViteHub Console account | Its email equals the `ownerEmail` of the endpoint |
+| A ViteHub Console account | Its verified email equals `ownerEmail` and the app's Auth still verifies that email for `owner` |
 | The CLI with a key | Never: a key names no person |
 
-Console accounts are not app users, so their ids never match `owner`. The app stores `ownerEmail` only when the member verified it, and the Console signs the email of the account. An endpoint without `ownerEmail` can be redelivered only by the app user.
+Console accounts are not app users, so their ids never match `owner`. If the app cannot verify the current owner, only the app user can redeliver. After changing their email, a member can reconnect the endpoint to use Redeliver from the Console again.
 
 In server code, pass the caller: `redeliverWebhookDelivery(id, { caller: { id: user.id } })` from `vite-hub/webhooks/runtime`.
 

@@ -100,6 +100,7 @@ export async function collectWebhooksUses(plugins: readonly unknown[] | undefine
 
 /** The module specifiers that the generated code imports. `vite-hub` passes its own subpaths. */
 export interface WebhooksImports {
+  auth?: string
   /** `installWebhooks` and `deliverWebhookWake`. */
   runtime: string
   /** `webhooksOperations`: the operations of the Console, `vitehub webhooks`, and MCP. */
@@ -154,10 +155,12 @@ export interface WebhooksRegistryFeatures {
 /** The generated module that installs the webhooks. The Queue handler and the Nitro plugin import it. */
 export function renderWebhooksRegistry(webhooks: readonly DiscoveredWebhook[], imports: WebhooksImports, features: WebhooksRegistryFeatures = { queue: true, memberEndpoints: false }): string {
   const stores = features.memberEndpoints ? "createDrizzleWebhookEndpointStore, createDrizzleWebhookStore" : "createDrizzleWebhookStore"
+  const auth = features.memberEndpoints ? imports.auth : undefined
   return [
     `import { installWebhooks, selectDefaultDatabase } from ${JSON.stringify(imports.runtime)}`,
     `import { ${stores} } from ${JSON.stringify(imports.database)}`,
     `import { useDatabase } from ${JSON.stringify(imports.databases)}`,
+    ...auth ? [`import { findVerifiedAuthUserId } from ${JSON.stringify(auth)}`] : [],
     ...features.queue ? [`import { dynamicQueue } from ${JSON.stringify(imports.queue)}`] : [],
     ...webhooks.map((webhook, index) => `import webhook${index} from ${JSON.stringify(webhook.file)}`),
     "",
@@ -167,6 +170,7 @@ export function renderWebhooksRegistry(webhooks: readonly DiscoveredWebhook[], i
     `  webhooks: { ${webhooks.map((webhook, index) => `${JSON.stringify(webhook.name)}: webhook${index}`).join(", ")} },`,
     "  store: createDrizzleWebhookStore(db),",
     ...features.memberEndpoints ? ["  endpoints: createDrizzleWebhookEndpointStore(db),"] : [],
+    ...auth ? ["  resolveVerifiedOwner: findVerifiedAuthUserId,"] : [],
     ...features.queue ? [`  wake: (wake, options) => dynamicQueue.send(${JSON.stringify(webhooksQueueName)}, wake, options),`] : [],
     "})",
     "",
