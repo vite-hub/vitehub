@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 import { defaultExportExpression, objectProperties, scanModule, staticString, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
@@ -24,7 +25,7 @@ interface DefinitionObjectBody {
   callback: boolean
   /** Local names of `authDatabase` imported from the Auth database module. */
   authDatabase: ReadonlySet<string>
-  /** The plugins of `AuthSchemaPlugin` that the Definition module imports and calls. */
+  /** The plugins of `AuthSchemaPlugin` that the Definition module and the local modules it imports call. */
   plugins: AuthSchemaPlugin[]
 }
 
@@ -48,6 +49,52 @@ const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, A
   "better-auth/plugins": { anonymous: "anonymous", lastLoginMethod: "lastLoginMethod", phoneNumber: "phoneNumber", twoFactor: "twoFactor", username: "username" },
   "@better-auth/api-key": { apiKey: "apiKey" },
   "@better-auth/stripe": { stripe: "stripe" },
+}
+
+/** The file of a relative import such as `../src/server/auth-plugins.ts`, `./plugins.js`, or `./plugins`. */
+function resolveLocalModule(importer: string, specifier: string): string | undefined {
+  const path = resolve(dirname(importer), specifier)
+  const candidates = [path, path.replace(/\.(m?)js$/, ".$1ts"), `${path}.ts`, `${path}.mts`, `${path}.js`, `${path}.mjs`, resolve(path, "index.ts"), resolve(path, "index.js")]
+  return candidates.find(file => existsSync(file) && statSync(file).isFile())
+}
+
+/** The local modules that `module` imports or re-exports values from. Type-only imports are left out. */
+function readLocalValueImports(module: ScannedModule): string[] {
+  const files: string[] = []
+  for (const statement of module.program.body) {
+    let specifier: string | undefined
+    if (statement.type === "ImportDeclaration") {
+      const typeOnly = statement.importKind === "type" || (statement.specifiers.length > 0 && statement.specifiers.every(item => item.type === "ImportSpecifier" && item.importKind === "type"))
+      if (!typeOnly) specifier = statement.source.value
+    }
+    else if ((statement.type === "ExportNamedDeclaration" || statement.type === "ExportAllDeclaration") && statement.exportKind !== "type") {
+      specifier = statement.source?.value
+    }
+    if (!specifier) continue
+    if (!specifier.startsWith("./") && !specifier.startsWith("../")) continue
+    const file = resolveLocalModule(module.file, specifier)
+    if (file) files.push(file)
+  }
+  return files
+}
+
+/**
+ * The plugins of `AuthSchemaPlugin` that the Definition module calls, and that the local modules it imports call, such
+ * as `stripe()` in `src/server/auth-plugins.ts` that returns the plugin list of `server/auth.ts`.
+ */
+function readDefinitionSchemaPlugins(definition: ScannedModule): AuthSchemaPlugin[] {
+  const plugins = new Set<AuthSchemaPlugin>()
+  const seen = new Set([definition.file])
+  const queue = [definition]
+  for (let module = queue.shift(); module; module = queue.shift()) {
+    for (const plugin of readAuthSchemaPlugins(module)) plugins.add(plugin)
+    for (const file of readLocalValueImports(module)) {
+      if (seen.has(file)) continue
+      seen.add(file)
+      queue.push(scanModule(readFileSync(file, "utf8"), file))
+    }
+  }
+  return [...plugins].sort()
 }
 
 /** The plugins of `AuthSchemaPlugin` that `module` imports and calls, such as `twoFactor()` from `better-auth/plugins`. */
@@ -160,7 +207,7 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
-  const plugins = readAuthSchemaPlugins(module)
+  const plugins = readDefinitionSchemaPlugins(module)
   if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
     throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
   }
