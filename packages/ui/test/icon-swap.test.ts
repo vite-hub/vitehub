@@ -8,11 +8,11 @@ const packageJson: { exports: Record<string, unknown>; sideEffects: string[] } =
 
 // Drop's page frame inlines this file without Vue, so its data attributes are a contract.
 describe("@vite-hub/ui/icon-swap.css", () => {
-  it("is a package export that ships in dist, and styles.css includes it", () => {
+  it("is a package export that ships in dist, and styles.css leaves it out for CopyButton's swapIcon", () => {
     expect(packageJson.exports["./icon-swap.css"]).toBe("./dist/icon-swap.css");
     expect(packageJson.sideEffects).toContain("./dist/icon-swap.css");
     expect(built).toBe(swap);
-    expect(stylesheet).toContain('@import "./icon-swap.css" layer(components);');
+    expect(stylesheet).not.toContain("icon-swap.css");
   });
 
   it("stacks the two icons in one grid cell and swaps them on data-copied", () => {

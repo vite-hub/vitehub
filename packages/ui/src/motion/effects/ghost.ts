@@ -2,20 +2,20 @@ import { getMotionSlowFactor } from "../spring.ts";
 
 /**
  * A copy of an element that leaves the page, so its exit can play after the component removed or hid it. Reka and
- * ui-sdk remove a closed tooltip or toast at once when it has no CSS animation, and the motion layer does not use CSS
- * animations, so the effect plays the exit on this copy.
+ * ui-sdk remove a closed tooltip or toast at once when it has no CSS animation, and Nuxt UI removes the mark of a
+ * checkbox with the check. The motion layer does not use CSS animations, so the effect plays the exit on this copy.
  *
  * The copy is inert, hidden from assistive technology, and inside `data-motion="none"`, so the layer does not take it
- * for a new tooltip or toast. It has no `id` and no `role`.
+ * for a new tooltip, toast, or checkbox. It has no `id` and no `role`.
  */
-export function createGhost(source: HTMLElement, parent: Node, before: Node | null): HTMLElement {
-  const ghost = source.cloneNode(true) as HTMLElement;
-  for (const element of [ghost, ...ghost.querySelectorAll<HTMLElement>("*")]) {
+export function createGhost<T extends HTMLElement | SVGElement>(source: T, parent: Node, before: Node | null): T {
+  const ghost = source.cloneNode(true) as T;
+  for (const element of [ghost, ...ghost.querySelectorAll("*")]) {
     for (const name of ["id", "role", "tabindex", "hidden", "inert", "popover", "data-ending-style", "data-starting-style", "aria-live"]) element.removeAttribute(name);
   }
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("data-motion", "none");
-  ghost.inert = true;
+  if (ghost instanceof HTMLElement) ghost.inert = true;
   ghost.style.pointerEvents = "none";
   parent.insertBefore(ghost, before?.parentNode === parent ? before : null);
   return ghost;
