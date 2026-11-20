@@ -56,3 +56,35 @@ describe("hubSchedule resources", () => {
     expect(await collectViteHubResourceSummaries([plugin])).toEqual([])
   })
 })
+
+describe("hubSchedule standalone resources", () => {
+  async function suffixProject() {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-resources-suffix-"))
+    roots.push(root)
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 3 * * *', handler: () => {} })\n", "utf8")
+    return root
+  }
+
+  async function resolveWithoutNitro(root: string, options?: Parameters<typeof hubSchedule>[0]) {
+    const plugin = hubSchedule(options)
+    const config: Record<string, unknown> = { command: "build", root }
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<void>)(config, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)(config)
+    return plugin
+  }
+
+  it.each([[undefined], [{ providerOutput: "standalone" as const }]])("lists the cron of the standalone Schedule Worker when no host is known, for %j", async (options) => {
+    const plugin = await resolveWithoutNitro(await suffixProject(), options)
+    expect(await collectViteHubResourceSummaries([plugin])).toEqual([
+      expect.objectContaining({ definition: "cleanup", host: "cloudflare", kind: "cloudflare-cron", name: "0 3 * * *", standalone: true }),
+    ])
+  })
+
+  it("lists the cron of a suffix Schedule in a Cloudflare build as standalone", async () => {
+    const { plugin } = await resolvePlugin(await suffixProject(), "cloudflare_module")
+    expect(await collectViteHubResourceSummaries([plugin])).toEqual([
+      expect.objectContaining({ definition: "cleanup", kind: "cloudflare-cron", name: "0 3 * * *", standalone: true }),
+    ])
+  })
+})

@@ -601,11 +601,17 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "index.mjs") }]
           return []
           })(),
-          // The build binds each Workflow on Cloudflare. The names match the generated Wrangler config.
+          // The build binds each Workflow on Cloudflare. It makes the same output decision, and it scans the project root
+          // when Nitro writes the bindings or the Vite root when the standalone Cloudflare output does.
           resources: () => {
-            if (options?.driver !== "cloudflare") return []
-            const projectRoot = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
-            return inspectWorkflowResources({ binding: options.binding, name: options.name, projectRoot, rootDir: projectRoot, serverDirs })
+            const cloudflare = resolveOutputs(workflow).cloudflare
+            if (!cloudflare) return []
+            const viteRoot = resolved?.root ?? process.cwd()
+            const projectRoot = resolveViteHubProjectRoot(viteRoot)
+            const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+            const inNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
+            const resources = inspectWorkflowResources({ binding: cloudflare.binding, name: cloudflare.name, projectRoot, rootDir: inNitro ? projectRoot : viteRoot, serverDirs })
+            return inNitro ? resources : resources.map(resource => ({ ...resource, standalone: true }))
           },
         }
       },

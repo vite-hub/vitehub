@@ -724,17 +724,29 @@ function selectHostCronDefinitions(definitions: DiscoveredScheduleDefinition[], 
   return resolveProcessRuntimeOptions(options.runtime) && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
 }
 
-/** Lists the Cloudflare cron trigger of each Schedule that the build adds to `triggers.crons`. Reads local files only. */
-async function inspectScheduleResources(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): Promise<ViteHubResourceSummary[]> {
-  const crons = await readDefinitionCrons(selectHostCronDefinitions(definitions, options), resolveCronOverrides(options.cron, definitions, options))
-  return [...crons].map(([definition, cron]) => ({
+/**
+ * Lists the Cloudflare cron trigger of each Schedule that the build writes: Nitro's Wrangler config gets the Schedules
+ * that Nitro runs, and the standalone Schedule Worker gets the others. Reads local files only.
+ */
+async function inspectScheduleResources(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, output: { nitro: boolean, standalone: DiscoveredScheduleDefinition[] }): Promise<ViteHubResourceSummary[]> {
+  const overrides = resolveCronOverrides(options.cron, definitions, options)
+  const nitro = await readDefinitionCrons(output.nitro ? selectHostCronDefinitions(definitions, options) : [], overrides)
+  const standalone = await readDefinitionCrons(output.standalone.filter(definition => !nitro.has(definition.name)), overrides)
+  const resource = (definition: string, cron: string, inStandalone: boolean): ViteHubResourceSummary => ({
     definition,
     host: "cloudflare",
     kind: "cloudflare-cron",
     name: cron,
-    note: "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",
+    note: inStandalone
+      ? "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config of the standalone Schedule Worker."
+      : "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",
     owner: "schedule",
-  }))
+    ...(inStandalone ? { standalone: true } : {}),
+  })
+  return [
+    ...[...nitro].map(([definition, cron]) => resource(definition, cron, false)),
+    ...[...standalone].map(([definition, cron]) => resource(definition, cron, true)),
+  ]
 }
 
 function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition["source"] | undefined {
@@ -1147,7 +1159,13 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         const host = nitroPreset
           ? resolveHost({ nitro: { preset: nitroPreset } })
           : (resolved && getDeploymentHost(resolved)) ?? resolveHost({ nitro: Reflect.get(resolved ?? {}, "nitro") })
-        return host === "cloudflare" ? await inspectScheduleResources(discoverRegistrySchedules(), options) : []
+        const definitions = discoverRegistrySchedules()
+        // The standalone output resolves its host like the build does, and it writes Cloudflare output when no host is known.
+        const standaloneHost = resolveHost({ nitro: nitroPreset ? { preset: nitroPreset } : Reflect.get(resolved ?? {}, "nitro") })
+        const standalone = emitStandaloneProviderOutput && (standaloneHost === undefined || standaloneHost === "cloudflare")
+          ? definitions.filter(definition => !standaloneProviderSource || definition.source === standaloneProviderSource)
+          : []
+        return await inspectScheduleResources(definitions, options, { nitro: host === "cloudflare", standalone })
       },
     }),
   } satisfies ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }

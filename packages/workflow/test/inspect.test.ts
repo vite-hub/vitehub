@@ -68,6 +68,7 @@ it.each([
       note: `The Worker exports the class ${entry.class_name}.`,
       owner: "workflow",
       source: "name",
+      standalone: true,
     })))
     if ("binding" in workflow) expect(resources).toMatchObject([{ binding: "WELCOME", name: "welcome-flow" }])
   }
@@ -79,4 +80,37 @@ it.each([
 it("lists no Cloudflare Workflows for another driver", async () => {
   const plugin = hubWorkflow({ driver: "vercel" })
   expect(await collectViteHubResourceSummaries([plugin])).toEqual([])
+})
+
+it("lists the standalone Cloudflare Workflows of a plain Vite app", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "vitehub-workflow-resources-plain-"))
+  try {
+    await mkdir(resolve(root, "server", "workflows"), { recursive: true })
+    await writeFile(resolve(root, "server", "workflows", "welcome.ts"), "export default defineWorkflow(async () => 'ok')\n")
+    const plugin = hubWorkflow()
+    await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [plugin] }, "build")
+
+    expect(await collectViteHubResourceSummaries([plugin])).toMatchObject([{ definition: "welcome", kind: "cloudflare-workflow", standalone: true }])
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+it("reads the standalone Workflows from the Vite root, not the project root", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "vitehub-workflow-resources-root-"))
+  try {
+    await writeFile(resolve(root, "package.json"), "{}\n")
+    await mkdir(resolve(root, "client", "server", "workflows"), { recursive: true })
+    await mkdir(resolve(root, "sibling"), { recursive: true })
+    await writeFile(resolve(root, "client", "server", "workflows", "welcome.ts"), "export default defineWorkflow(async () => 'ok')\n")
+    await writeFile(resolve(root, "sibling", "spare.workflow.ts"), "export default defineWorkflow(async () => 'ok')\n")
+    const plugin = hubWorkflow({ driver: "cloudflare" })
+    await resolveConfig({ root: resolve(root, "client"), configFile: false, logLevel: "silent", plugins: [plugin] }, "build")
+
+    expect((await collectViteHubResourceSummaries([plugin])).map(resource => resource.definition)).toEqual(["welcome"])
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
 })
