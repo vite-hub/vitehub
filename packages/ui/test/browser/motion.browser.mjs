@@ -139,6 +139,66 @@ async function press(page, testId) {
 const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"]
 
 describe("press by role", async () => {
+  test("a switch keeps native activation at its original edge, but a drag outside does not activate", async () => {
+    const { context, page } = await open()
+    try {
+      const control = page.getByRole("switch")
+      await control.evaluate(node => { node.style.width = "120px" })
+      const { x, y, width, height } = await control.boundingBox()
+      const center = y + height / 2
+      for (const [start, end, checked] of [
+        [x + width - 1, x + width - 1, "true"],
+        [x + width / 2, x + width - 1, "false"],
+        [x + width / 2, x + width + 1, "false"],
+      ]) {
+        await page.mouse.move(start, center)
+        await page.mouse.down()
+        if (start === end) await frames(page)
+        else {
+          await page.waitForFunction(() => Number(document.querySelector("button[role=switch]").style.scale || 1) < 0.99, undefined, { timeout: 15_000 })
+          await page.mouse.move(end, center)
+        }
+        await page.mouse.up()
+        assert.equal(await control.getAttribute("aria-checked"), checked)
+      }
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("an ordinary inline link activates without changing layout or squashing", async () => {
+    const { context, page } = await open()
+    try {
+      const link = page.locator("[data-test=inline-a]")
+      assert.equal(await link.evaluate(node => getComputedStyle(node).display), "inline")
+      await pointerDown(page, "inline-a")
+      await frames(page)
+      assert.equal(await link.evaluate(node => node.style.scale), "")
+      await page.mouse.up()
+      assert.equal(new URL(page.url()).hash, "#inline")
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("a press override registered before install wins until removed", async () => {
+    const { context, page } = await open("?override")
+    try {
+      await pointerDown(page, "button")
+      assert.equal(await page.locator("[data-test=button]").getAttribute("data-custom-press"), "true")
+      await frames(page)
+      assert.equal(await scaleOf(page, "button"), 1)
+      await page.mouse.up()
+      await page.evaluate(() => window.removePressOverride())
+      assert.ok((await press(page, "button")).down < 0.99)
+    }
+    finally {
+      await context.close()
+    }
+  })
+
   test("a pressed UButton squashes, springs back past rest, and clears its scale", async () => {
     const { context, errors, page } = await open()
     const trace = await sample(page, "button")
@@ -292,7 +352,13 @@ describe("press by role", async () => {
     await system.context.close()
 
     const forced = await open()
-    await forced.page.locator("[data-test=reduce]").click()
+    await pointerDown(forced.page, "button")
+    await waitForScale(forced.page, "button", scale => scale < 0.99)
+    assert.equal(await forced.page.evaluate(() => {
+      window.forceReducedMotion(true)
+      return window.pressTarget("button").style.scale
+    }), "")
+    await forced.page.mouse.up()
     await pointerDown(forced.page, "button")
     await frames(forced.page)
     assert.equal(await scaleOf(forced.page, "button"), 1)
