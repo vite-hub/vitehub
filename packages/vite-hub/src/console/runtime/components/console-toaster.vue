@@ -56,7 +56,7 @@ watch(toasts, (list) => {
   >
     <template #default="{ toast }">
       <Toast
-        class="pointer-events-auto flex min-h-12 w-full items-center gap-2.5 rounded-xl bg-default py-2 ps-4 pe-2 text-sm text-highlighted shadow-(--vh-shadow-floating) data-swiping:translate-x-(--toast-swipe-x)"
+        class="pointer-events-auto flex min-h-12 w-full items-center gap-2.5 rounded-xl bg-default py-2 ps-4 pe-2 text-sm text-highlighted shadow-(--vh-shadow-floating) data-swiping:translate-x-(--toast-swipe-x) data-swiping:translate-y-(--toast-swipe-y)"
       >
         <Icon v-if="toast.type === 'error'" name="i-lucide-circle-alert" class="size-4 shrink-0 text-error" aria-hidden="true" />
         <ToastTitle class="min-w-0 flex-1 py-1" />

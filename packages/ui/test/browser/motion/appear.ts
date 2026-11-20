@@ -12,6 +12,7 @@ import UPopover from "@nuxt/ui/components/Popover.vue";
 import USlideover from "@nuxt/ui/components/Slideover.vue";
 import UTooltip from "@nuxt/ui/components/Tooltip.vue";
 import { useToast } from "@nuxt/ui/composables/useToast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/vue/tooltip";
 import { createApp, defineComponent, h, nextTick, ref } from "vue";
 import type { VNode } from "vue";
 
@@ -120,6 +121,10 @@ const Page = defineComponent({
       row("One tooltip of our own for a toolbar", [h(OwnToolbar)]),
       row("No motion", [
         h("div", { "data-motion": "none" }, [h(UTooltip, { text: "Still" }, () => h(UButton, { "data-test": "tool-still", "variant": "outline", "label": "data-motion=none" }))]),
+        h(Tooltip, null, () => [
+          h(TooltipTrigger, { "data-test": "kit-trigger" }, () => "ui-sdk tooltip"),
+          h(TooltipContent, { class: "rounded bg-default px-2 py-1 text-sm shadow" }, () => "Native tooltip"),
+        ]),
       ]),
       row("Dialogs, side panels, popovers, and menus open at once", [
         h(UButton, { "data-test": "open-modal", "variant": "outline", "label": "Open dialog", "onClick": () => (modalOpen.value = true) }),
