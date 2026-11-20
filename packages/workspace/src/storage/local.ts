@@ -1346,11 +1346,20 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
+    await this.#setMetaEntries({ [key]: value })
+  }
+
+  async #setMetaEntries(entries: Readonly<Record<string, unknown>>): Promise<void> {
     await this.#pathLock(this.root, ".vitehub/metadata", async () => {
       const metadata = new Map(await this.#readMeta())
-      metadata.set(key, value)
+      for (const [key, value] of Object.entries(entries)) metadata.set(key, value)
       await this.#writeMeta(metadata)
     })
+  }
+
+  async writeFiles(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>): Promise<void> {
+    for (const file of files) await this.writeFile(file.path, file)
+    if (meta && Object.keys(meta).length) await this.#setMetaEntries(meta)
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {

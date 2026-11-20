@@ -617,6 +617,12 @@ export interface WorkspaceStore {
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
+  /**
+   * Writes each file as `writeFile` does, then sets each metadata key as `setMeta` does, in one call. It is not atomic:
+   * a failure can leave some files written. Startup Source materialization uses it for new files. Without it, each file
+   * and key is written on its own.
+   */
+  writeFiles?(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>): Promise<void>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>

@@ -67,6 +67,8 @@ You must select Cloudflare Artifacts or GitHub yourself.
 
 A Custom Store can add `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, keep files and missing paths, and reject a non-empty directory inside the Store mutation boundary. Without it, cleanup keeps generated directories. Local, Memory, and Cloudflare Artifacts have it.
 
+A Custom Store can add `writeFiles(files, meta)` to write many files and metadata keys in one call. Startup Sources use it for files that are new to the Store. It does not need to be atomic: when it fails, the Workspace removes the files of that call. Without it, each file and key is written on its own. The Local Store has it.
+
 Workspace paths cannot use `.git` at any depth or `.vitehub` at the root, in any case. ViteHub also rejects, on every host, NTFS stream suffixes such as `.vitehub::$INDEX_ALLOCATION`, trailing ASCII periods or spaces such as `.vitehub.`, and NTFS short names such as `git~1`.
 
 ### Blob + Database Store

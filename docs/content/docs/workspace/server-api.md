@@ -404,7 +404,7 @@ export async function testDocs() {
 - `target` defaults to `/workspace`.
 - `abortSignal` cancels setup. `onProgress` reports copy phases.
 
-Closing the Workspace Session does not close the Sandbox host. Custom hosts copy files one at a time unless they declare a positive `materializationConcurrency` they can safely handle. The local Node host declares `8`.
+Closing the Workspace Session does not close the Sandbox host. When a Session copies 32 files or more, up to 64 MiB, it sends them as one `tar.gz` archive and runs `tar` on the host. A host without `tar` gets the files one at a time. Custom hosts copy files one at a time unless they declare a positive `materializationConcurrency` they can safely handle. The local Node host declares `8`.
 
 Control what the Session writes back:
 

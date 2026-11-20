@@ -42,7 +42,7 @@ function isDiscardable(store: WorkspaceStore): store is DiscardableStore {
   return typeof (store as WorkspaceStoreDiscardCarrier)[workspaceStoreDiscard] === "function"
 }
 
-const stagingMethods = ["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "writeFile", "writeFileConditional", "writeFileStream"] as const
+const stagingMethods = ["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "writeFile", "writeFileConditional", "writeFileStream", "writeFiles"] as const
 
 /**
  * Records which request stages writes in a Store that keeps them until `snapshot()`, for every caller of the Store:
