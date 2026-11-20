@@ -85,12 +85,23 @@ function stopAll(morph: Morph): void {
  *
  * Call it again at any time: a new text continues from the letters on screen. The element keeps the final text for
  * screen readers during the morph, and holds plain text again when it ends. Under reduced motion the two texts
- * crossfade in 150ms. Inside `data-motion="none"`, or before the element is on the page, it sets the text at once.
+ * crossfade in 150ms. Inside `data-motion="none"`, or when the element has no layout, it sets the text at once.
  *
  * Give it an element of its own with no padding, such as the label `<span>` of a button.
  */
 export function morphText(element: HTMLElement, text: string): void {
   morph(element, text, undefined);
+}
+
+function hasLayout(element: Element): boolean {
+  let node: Element | null = element;
+  while (node) {
+    if (node.getClientRects().length) return true;
+    if (getComputedStyle(node).display !== "contents") return false;
+    const root = node.getRootNode();
+    node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+  }
+  return false;
 }
 
 /**
@@ -100,7 +111,7 @@ export function morphText(element: HTMLElement, text: string): void {
 export function morph(element: HTMLElement, text: string, from: string | undefined): void {
   let current = morphs.get(element);
   const before = current?.text ?? from ?? element.textContent ?? "";
-  if (motionSkipped(element) || (!current && before === text)) {
+  if (motionSkipped(element) || (!current && before === text) || !hasLayout(element)) {
     if (current) {
       stopAll(current);
       morphs.delete(element);

@@ -1,142 +1,155 @@
+import { isMotionOff } from "../layer.ts";
+import { prefersReducedMotion } from "../reduced-motion.ts";
 import type { MotionEffect } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { createSpring, springs } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
-/*
- * Show or hide content (docs/design/motion.md): the chevron of a disclosure turns with a spring, and the content opens at
- * once, because the person reads it.
- *
- * A disclosure is a `<details>` with its `<summary>`, or a control with `aria-expanded`, such as an accordion item or a
- * folded group of a sidebar. Its stylesheet turns the chevron for each state, such as `group-open:rotate-90` or
- * `[aria-expanded=true] svg { transform: rotate(90deg) }`, with no transition. The effect reads the angle of each icon
- * in the trigger when the person presses it, and when the state changes it turns each icon whose angle changed from the
- * old angle to the new one. A change that no press started, such as one from code or on the first load, happens at once.
- */
+// A disclosure opens or closes: a native `<details>`, or a trigger with `aria-expanded`, such as an accordion item or
+// a folded group of a sidebar. The stylesheet turns its chevron for each state, and the chevron carries the change: it
+// turns from the old angle to the new one on `snappy`, as an indicator moves. The section itself opens at once,
+// because the person reads it.
 
-const triggerSelector = "summary, [aria-expanded]";
-// The icons of the trigger that may turn. Only an icon whose angle differs between the two states moves, so an icon in a
-// wrapper turns once: the stylesheet turns either the wrapper or the icon. `data-motion-chevron` marks another element.
+// The icons of the trigger that may turn. Only an icon whose angle differs between the two states moves.
 const iconSelector = "[data-motion-chevron], svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
 
-interface Turn {
-  spring: Spring;
-  /** The angle of the `transform` of the stylesheet. The effect writes `rotate`, which adds to it. */
-  transform: number;
-}
-
-// The angle of each icon when the person pressed its trigger.
-const pressed = new WeakMap<Element, number>();
-const turns = new WeakMap<Element, Turn>();
-// The spring counts in quarter turns, so it settles when the chevron is still to the eye, as a spring from 0 to 1 does.
+// The spring counts in quarter turns, so it settles at the same precision as a spring from 0 to 1.
 const quarter = 90;
 
+interface Turn {
+  /** The angle of the icon, in quarter turns. */
+  spring: Spring;
+  /** The angle of the icon's own `transform` in the current state. The layer writes `rotate` on top of it. */
+  base: number;
+}
+
+const turns = new WeakMap<Element, Turn>();
+const pending = new WeakMap<HTMLElement, Map<Element, number>>();
+
+/** The element that holds the chevron: the `<summary>` of a `<details>`, or the trigger itself. */
+function triggerOf(element: HTMLElement): HTMLElement | null {
+  return element instanceof HTMLDetailsElement ? element.querySelector<HTMLElement>(":scope > summary") : element;
+}
+
 function degrees(value: string): number {
-  const number = Number.parseFloat(value);
-  if (value.endsWith("turn")) return number * 360;
-  if (value.endsWith("grad")) return number * 0.9;
-  if (value.endsWith("rad")) return number * 180 / Math.PI;
-  return number || 0;
+  if (!value || value === "none") return 0;
+  const axis = value.trim().split(/\s+/);
+  const angle = axis.pop()!;
+  if (axis.length === 1 && axis[0] !== "z") return 0;
+  if (axis.length === 3 && (Number(axis[0]) !== 0 || Number(axis[1]) !== 0)) return 0;
+  const number = Number.parseFloat(angle);
+  if (angle.endsWith("turn")) return number * 360;
+  if (angle.endsWith("grad")) return number * 0.9;
+  if (angle.endsWith("rad")) return number * 180 / Math.PI;
+  return Number.isFinite(number) ? number : 0;
 }
 
-/** The angle of the CSS `rotate` property. A turn around another axis than z counts as 0. */
-function rotateAngle(value: string): number {
-  if (value === "none") return 0;
-  const parts = value.trim().split(/\s+/);
-  const angle = parts.pop()!;
-  if (parts.length === 1 && parts[0] !== "z") return 0;
-  if (parts.length === 3 && (Number(parts[0]) !== 0 || Number(parts[1]) !== 0)) return 0;
-  return degrees(angle);
+/** The Z angle of a computed transform matrix. */
+function matrixDegrees(value: string): number {
+  const match = /^matrix(?:3d)?\(([^)]+)\)$/.exec(value);
+  if (!match) return 0;
+  const [a = 1, b = 0] = match[1]!.split(",").map(Number);
+  return Math.atan2(b, a) * 180 / Math.PI;
 }
 
-/** The angle of a computed `transform` matrix, in degrees. */
-function transformAngle(value: string): number {
-  const values = /^matrix(?:3d)?\(([^)]+)\)$/.exec(value)?.[1]?.split(",").map(Number);
-  return values ? Math.atan2(values[1]!, values[0]!) * 180 / Math.PI : 0;
-}
-
-/** The angle that a person sees, and the part of it that comes from `transform`. */
-function angles(icon: Element): { visual: number; transform: number } {
+/** The angle that the stylesheet draws the icon at now, without what the effect wrote, split into its two sources. */
+function measure(icon: HTMLElement | SVGElement): { total: number; base: number } {
+  const written = icon.style.getPropertyValue("rotate");
+  if (written) icon.style.removeProperty("rotate");
   const style = getComputedStyle(icon);
-  const transform = transformAngle(style.transform);
-  return { visual: transform + rotateAngle(style.rotate), transform };
+  const base = matrixDegrees(style.transform);
+  const total = base + degrees(style.rotate);
+  if (written) icon.style.setProperty("rotate", written);
+  return { total, base };
 }
 
 /**
- * True when the icon still turns with a CSS transition of its own, such as Tailwind's `transition-transform` or Nuxt
- * UI's accordion chevron. The transition would smear each frame of the spring, so the effect leaves it alone, as the
- * press leaves a control that transitions `scale`.
+ * True when the icon still turns with a CSS transition of its own, as Nuxt UI's accordion chevron does. The transition
+ * would smear each frame of the spring, so that icon keeps its own motion.
  */
-function transitionsRotate(icon: Element): boolean {
+function transitionsTurn(icon: Element): boolean {
   const style = getComputedStyle(icon);
   const durations = style.transitionDuration.split(",");
   return style.transitionProperty.split(",").some((property, index) =>
-    /^\s*(?:rotate|transform|all)\s*$/.test(property) && Number.parseFloat(durations[index % durations.length]!) > 0);
+    /^\s*(?:transform|rotate|all)\s*$/.test(property) && Number.parseFloat(durations[index % durations.length]!) > 0);
 }
 
-function iconsOf(trigger: Element): Array<HTMLElement | SVGElement> {
-  return [...trigger.querySelectorAll<HTMLElement | SVGElement>(iconSelector)];
+function icons(trigger: HTMLElement): Array<HTMLElement | SVGElement> {
+  return [...trigger.querySelectorAll<HTMLElement | SVGElement>(iconSelector)].filter(icon => !icon.parentElement?.closest(iconSelector) || icon.matches("[data-motion-chevron]"));
 }
 
-function rotateFor(turn: Turn): string {
-  return `${(turn.spring.value * quarter - turn.transform).toFixed(2)}deg`;
-}
-
-function turn(icon: HTMLElement | SVGElement, from: number): void {
-  let state = turns.get(icon);
-  if (state?.spring.active) from = state.spring.value * quarter;
-  // The angle of the new state, without what the effect wrote.
-  writeMotionStyle(icon, { rotate: null });
-  const rest = angles(icon);
-  if (Math.abs(rest.visual - from) < 0.5 && !state?.spring.active) return;
-  if (!state) {
-    const current: Turn = {
-      transform: rest.transform,
-      spring: createSpring(from / quarter, (value, velocity) => {
-        const settled = velocity === 0 && value === current.spring.target;
-        writeMotionStyle(icon, { rotate: settled ? null : rotateFor(current) });
-      }, springs.snappy),
-    };
-    state = current;
-    turns.set(icon, state);
-  }
-  state.transform = rest.transform;
-  // A spring that still turns keeps its speed toward the new angle, so a fast second click never jumps.
-  if (!state.spring.active) state.spring.set(from / quarter);
-  state.spring.to(rest.visual / quarter);
-  // The first frame of the spring comes with the next paint. Until then the icon keeps its old angle.
-  if (state.spring.active) writeMotionStyle(icon, { rotate: rotateFor(state) });
+function turnOf(icon: HTMLElement | SVGElement): Turn {
+  const turn = turns.get(icon);
+  if (turn) return turn;
+  const current: Turn = {
+    base: 0,
+    spring: createSpring(0, (value, velocity) => {
+      if (isMotionOff(icon)) {
+        current.spring.stop();
+        writeMotionStyle(icon, { rotate: null });
+        return;
+      }
+      const settled = velocity === 0 && value === current.spring.target;
+      writeMotionStyle(icon, { rotate: settled ? null : `${(value * quarter - current.base).toFixed(2)}deg` });
+    }, springs.snappy),
+  };
+  turns.set(icon, current);
+  return current;
 }
 
 export const disclosure: MotionEffect = {
   name: "disclosure",
-  selector: `details, ${triggerSelector}`,
-  // The press comes before the change, so it reads where each icon is in the state that the person leaves. A press in
-  // the content of an open `<details>` finds the `<details>`, not a trigger, and reads nothing.
+  selector: "details, summary, [aria-expanded]",
+  // The press comes before the change, so it reads where the chevron is in the state that the person leaves.
   press(element) {
-    if (!element.matches(triggerSelector)) return;
-    for (const icon of iconsOf(element)) {
-      const running = turns.get(icon)?.spring;
-      pressed.set(icon, running?.active ? running.value * quarter : angles(icon).visual);
+    // A press in the content of an open `<details>` does not change it.
+    const owner = element.tagName === "SUMMARY" ? element.parentElement : element.matches("[aria-expanded]") ? element : null;
+    if (!owner || !(owner instanceof HTMLDetailsElement || owner.matches("[aria-expanded]"))) return;
+    const trigger = triggerOf(owner);
+    if (!trigger) return;
+    const angles = new Map<Element, number>();
+    for (const icon of icons(trigger)) {
+      if (isMotionOff(icon) || transitionsTurn(icon)) continue;
+      const spring = turns.get(icon)?.spring;
+      angles.set(icon, spring?.active ? spring.target * quarter : measure(icon).total);
     }
+    if (!angles.size) return;
+    pending.set(owner, angles);
+    return {
+      release() {
+        setTimeout(() => {
+          if (pending.get(owner) === angles) pending.delete(owner);
+        });
+      },
+    };
   },
   state(element, { attribute }) {
-    let trigger: Element | null = null;
-    if (attribute === "open" && element instanceof HTMLDetailsElement) trigger = element.querySelector(":scope > summary");
-    else if (attribute === "aria-expanded") trigger = element;
+    if (attribute !== (element instanceof HTMLDetailsElement ? "open" : "aria-expanded")) return;
+    const angles = pending.get(element);
+    pending.delete(element);
+    const trigger = triggerOf(element);
     if (!trigger) return;
-    for (const icon of iconsOf(trigger)) {
-      const from = pressed.get(icon);
-      pressed.delete(icon);
-      if (from === undefined || transitionsRotate(icon)) {
-        const spring = turns.get(icon)?.spring;
-        if (spring?.active) {
-          spring.stop();
+    for (const icon of icons(trigger)) {
+      const previous = turns.get(icon);
+      const sampled = angles?.get(icon);
+      if (isMotionOff(icon) || sampled === undefined || prefersReducedMotion() || transitionsTurn(icon)) {
+        if (previous?.spring.active) {
+          previous.spring.stop();
           writeMotionStyle(icon, { rotate: null });
         }
         continue;
       }
-      turn(icon, from);
+      const turn = turnOf(icon);
+      const from = turn.spring.active ? turn.spring.value * quarter : sampled;
+      const { total, base } = measure(icon);
+      turn.base = base;
+      if (Math.abs(total - from) < 0.5) {
+        if (turn.spring.active) turn.spring.set(total / quarter);
+        continue;
+      }
+      if (!turn.spring.active) turn.spring.set(from / quarter);
+      turn.spring.to(total / quarter);
+      if (turn.spring.active) writeMotionStyle(icon, { rotate: `${(turn.spring.value * quarter - base).toFixed(2)}deg` });
     }
   },
 };

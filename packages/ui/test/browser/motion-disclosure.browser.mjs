@@ -264,6 +264,29 @@ describe("disclosure on the docs site", () => {
     await context.close()
   })
 
+  test("successive programmatic changes snap to the CSS angle without a press", async () => {
+    const { context, page } = await open()
+    for (const [selector, property, angles] of [["#native", "open", [0, -90]], ["#expanded", "aria-expanded", [180, 0]]]) {
+      const trace = await sampleChevron(page, selector)
+      for (const [index, open] of [true, false].entries()) {
+        await page.locator(selector).evaluate(async (element, { property, open }) => {
+          if (property === "open") element.open = open
+          else element.setAttribute(property, String(open))
+          await new Promise(requestAnimationFrame)
+        }, { property, open })
+        const frame = await page.locator(`${selector} .chev`).evaluate((icon) => {
+          const style = getComputedStyle(icon)
+          const matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform)
+          const rotate = style.rotate === "none" ? 0 : Number.parseFloat(style.rotate)
+          return [Math.atan2(matrix.b, matrix.a) * 180 / Math.PI + rotate, icon.style.rotate]
+        })
+        assert.deepEqual(frame, [angles[index], ""])
+      }
+      assert.ok((await trace.stop()).every(frame => !frame.written))
+    }
+    await context.close()
+  })
+
   test("a second click in the middle of the turn reverses from where the chevron is, with no jump", async () => {
     const { context, page } = await open()
     await page.evaluate(() => window.setMotionSlowFactor(4))
@@ -281,7 +304,7 @@ describe("disclosure on the docs site", () => {
 
   test("under reduced motion the chevron is at its new angle at once", async () => {
     const { context, page } = await open()
-    // A first open and close with motion, so the layer knows both angles.
+    // Earlier presses must not animate a new change under reduced motion.
     await toggle(page, "#native")
     await toggle(page, "#native")
     await page.evaluate(() => window.forceReducedMotion(true))
@@ -298,6 +321,10 @@ describe("disclosure on the docs site", () => {
     assert.equal(off.at(-1).angle, 0)
     assert.deepEqual(between(off, -90, 0), [], "no motion inside data-motion=none")
     assert.ok(off.every(frame => !frame.written))
+    await page.locator("#native .chev").evaluate(icon => icon.setAttribute("data-motion", "none"))
+    const iconOff = await toggle(page, "#native")
+    assert.equal(iconOff.at(-1).angle, 0)
+    assert.ok(iconOff.every(frame => !frame.written), "a press on the summary leaves its opted-out icon alone")
     const own = await toggle(page, "#own")
     assert.equal(own.at(-1).angle, 0)
     assert.ok(own.every(frame => !frame.written), "the layer leaves a chevron with its own transition alone")
