@@ -328,6 +328,9 @@ describe("Agent Invocation Stream", () => {
       [agentDiagnostics.AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED({ provider: "openai.responses" }), "AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED", "provider \"openai.responses\""],
       [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_ASK_UNSUPPORTED(), false), "AGENT_MODELS_EMULATE_ASK_UNSUPPORTED", "asks Jev questions"],
       [agentDiagnostics.AGENT_MODELS_INVALID({ value: "sk-private" }), "AGENT_MODELS_INVALID", "must be \"emulate\" or unset"],
+      [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED(), false), "AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED", "uses the Claude Code Driver"],
+      [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED({ tools: 1 }), false), "AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED", "has 1 Capability tool"],
+      [agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED(), "AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED", "runs in a Sandbox"],
     ] as const
 
     for (const [failure, code, text] of failures) {

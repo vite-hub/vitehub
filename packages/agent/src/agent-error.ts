@@ -383,14 +383,24 @@ export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
  * carry no secrets, so every public error surface shows them with their own code, in the `CODE: message` form.
  * A value replaces the message of a diagnostic that quotes a host value.
  */
-const emulationDiagnostics = {
+const emulationDiagnostics: Readonly<Record<AgentEmulationErrorCode, string | undefined>> = {
   AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: undefined,
+  AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED: undefined,
+  AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED: undefined,
   AGENT_MODELS_EMULATE_IN_PRODUCTION: undefined,
   AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: undefined,
+  AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: undefined,
   AGENT_MODELS_INVALID: "[vitehub] VITEHUB_MODELS must be \"emulate\" or unset.",
-} as const satisfies Record<string, string | undefined>
+}
 
-export type AgentEmulationErrorCode = keyof typeof emulationDiagnostics
+export type AgentEmulationErrorCode =
+  | "AGENT_MODELS_EMULATE_ASK_UNSUPPORTED"
+  | "AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED"
+  | "AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED"
+  | "AGENT_MODELS_EMULATE_IN_PRODUCTION"
+  | "AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED"
+  | "AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED"
+  | "AGENT_MODELS_INVALID"
 
 function emulationPublicError(error: unknown): AgentPublicError | undefined {
   const code = readAgentErrorProperty(error, "code")
