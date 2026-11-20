@@ -291,16 +291,16 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
   }, 15000)
 
   it("does not repeat a remote side effect when a nested ssh connection is refused", async () => {
+    const outer = await fixture()
     const { server, cwd } = await fixture()
     const closedPort = server.port
     await server.close()
-    // Use a second live server for the outer connection and the closed port for the nested command.
-    const outer = await fixture()
+    await expectRefused(closedPort)
     const result = outer.launch(["-e", `
       const { appendFileSync } = require("node:fs")
       const { spawnSync } = require("node:child_process")
       appendFileSync(${JSON.stringify(join(cwd, "executions"))}, "x")
-      const child = spawnSync("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
+      const child = spawnSync("ssh", ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
       process.exitCode = child.status
     `], { connectRetryMs: 1800 })
     result.child.stdin.end()
