@@ -46,17 +46,17 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./_internal/cloudflare": {
+    "./internal/cloudflare": {
       "types": "./dist/internal/cloudflare.d.ts",
       "import": "./dist/internal/cloudflare.js",
       "default": "./dist/internal/cloudflare.js"
     },
-    "./_internal/toolchain": {
+    "./internal/toolchain": {
       "types": "./dist/internal/host-toolchain.d.ts",
       "import": "./dist/internal/host-toolchain.js",
       "default": "./dist/internal/host-toolchain.js"
     },
-    "./_internal/vercel": {
+    "./internal/vercel": {
       "types": "./dist/internal/vercel.d.ts",
       "import": "./dist/internal/vercel.js",
       "default": "./dist/internal/vercel.js"
@@ -92,17 +92,17 @@
       "default": "./dist/task/vite.js"
     },
     "./package.json": "./package.json",
-    "./_internal/task/runtime": {
+    "./internal/task/runtime": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js",
       "default": "./dist/task/index.js"
     },
-    "./_internal/task/runtime/providers/cloudflare": {
+    "./internal/task/runtime/providers/cloudflare": {
       "types": "./dist/task/runtime/providers/cloudflare.d.ts",
       "import": "./dist/task/runtime/providers/cloudflare.js",
       "default": "./dist/task/runtime/providers/cloudflare.js"
     },
-    "./_internal/task/runtime/providers/vercel": {
+    "./internal/task/runtime/providers/vercel": {
       "types": "./dist/task/runtime/providers/vercel.d.ts",
       "import": "./dist/task/runtime/providers/vercel.js",
       "default": "./dist/task/runtime/providers/vercel.js"

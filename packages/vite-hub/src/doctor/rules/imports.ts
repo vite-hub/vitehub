@@ -105,7 +105,7 @@ const ownerPackages = new Set(Object.keys({ ...frameworkPackageManifest.dependen
 /** Paths after `vite-hub/` that re-export the owner path after `@vite-hub/`, such as `blob` and `rate-limit/drivers/memory`. */
 const facadePaths = new Set(Object.keys(frameworkPackageManifest.exports).flatMap((subpath) => {
   const path = subpath.replace(/^\.\/?/, "")
-  return path && !path.startsWith("_internal/") && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
+  return path && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
 }))
 /** The `vite-hub` package and the owner packages import each other through `@vite-hub/*`. */
 const viteHubPackage = /^(?:vite-hub|@vite-hub\/.+)$/

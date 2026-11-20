@@ -2295,7 +2295,7 @@ describe("agent Vite plugin", () => {
           "export default defineAgent({",
           "  driver: { async run() { return 'ok' } },",
           "  workspace: {",
-          "    store: { driver: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
+          "    store: { driver: 'github', repo: 'onmax/bitacora-de-vida', root: '/' },",
           "  },",
           "})",
           "",
@@ -3114,7 +3114,7 @@ export default defineAgent({
           "    store: {",
           "      branch: 'main',",
           "      driver: 'github',",
-          "      repository: 'onmax/bitacora-de-vida',",
+          "      repo: 'onmax/bitacora-de-vida',",
           "      root: '/',",
           "    },",
           "  },",
@@ -22707,14 +22707,19 @@ describe("server helpers", () => {
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
+    const driverStarted = deferred<void>()
+    const streamStarted = deferred<void>()
+    const driverDelay = 10_000
     let invocationTimeout = 28_000
     const run = vi.fn(async ({ input }) => {
       invocationTimeout = input.timeout
       expect(invocationTimeout).toBeGreaterThan(0)
       expect(invocationTimeout).toBeLessThanOrEqual(28_000)
-      await new Promise((resolve) => setTimeout(resolve, 10_000))
+      driverStarted.resolve()
+      await new Promise((resolve) => setTimeout(resolve, driverDelay))
       return {
         stream: (async function* () {
+          streamStarted.resolve()
           await new Promise(() => undefined)
           yield* []
         })(),
@@ -22740,14 +22745,16 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = handler(chatWebhookRequest(91_021), "telegram", {
+      const responseError = handler(chatWebhookRequest(98_121), "telegram", {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
-      })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
-      const responseError = response.catch((error) => error)
+      }).catch((error) => error)
+      await driverStarted.promise
+      await vi.advanceTimersByTimeAsync(driverDelay)
+      await streamStarted.promise
+      expect(run).toHaveBeenCalledOnce()
 
-      await vi.advanceTimersByTimeAsync(28_000)
+      await vi.advanceTimersByTimeAsync(invocationTimeout - driverDelay)
 
       await expect(responseError).resolves.toMatchObject({
         message: `Chat invocation timed out after ${invocationTimeout}ms.`,

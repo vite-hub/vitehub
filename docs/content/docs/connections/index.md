@@ -29,7 +29,7 @@ icon: i-lucide-plug
   :::
 
   :::product-feature-item{title="API keys work too" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}
-  Add a key while the app runs, not in code. The same rules apply.
+  Add an API key while the app runs, not in code. The same rules apply.
   :::
 
   :::product-feature-item{title="A record of each change" icon="i-lucide-history" to="/docs/connections/server-api#activity"}

@@ -7,14 +7,13 @@ navigation.group: Start
 icon: i-lucide-terminal-square
 ---
 
-The `vitehub` CLI is one entry point for developers and agents. It loads your Vite config and collects the commands each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads each active plugin's commands and Provision Steps once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
+The `vitehub` CLI is one entry point for developers and coding agents. It loads your Vite config and collects the commands that each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads the commands and Provision Steps of each active plugin once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
 
-The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. An app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
+The CLI loads your Vite config with Console routes, but without the development invocation route. During `vite dev`, the development invocation endpoint stays inside the reserved `/_vitehub/agent` namespace. An app fallback route may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
 
 ## Install and open help
 
-The `vite-hub` package includes the CLI. Commands come from active Vite
-plugins, so a package that is not set up has no commands.
+The `vite-hub` package includes the CLI. Commands come from active Vite plugins, so a package that is not set up has no commands.
 
 ```bash [Terminal]
 pnpm add vite-hub
@@ -23,16 +22,16 @@ pnpm vitehub --help
 
 `@vite-hub/cli` is the command runner that the `vitehub` binary uses. It has no binary of its own.
 
-Help lists the namespaces (command groups) you have:
+`--help` lists the namespaces (command groups) that you have:
 
 - `agent`, `channels`, and `conversations` when `hubAgent()` is active.
 - `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDb()`, `hubEnv()`, `hubKv()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
 - `content` when the app defines `server/content.ts`.
-- `console` when `console` is on.
-- `types`, `task`, `choices`, and `sandbox` from the framework. `choices` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
-- `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
+- `console` when `console` is enabled.
+- `types`, `task`, `choices`, and `sandbox` from the framework. `choices` and `sandbox` skip loading the project config, and `sandbox` also runs in a deployed container without Vite.
+- `inspect` and `provision`, which are built into the CLI. Any plugin command named `inspect` is ignored.
 
-`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+`vitehub database --help` and `vitehub database <feature> --help` print help text without loading the project config, so they answer at once, even in a Nuxt app.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -218,12 +217,12 @@ Available namespaces:
 
 ## Next steps
 
-- Use [Project commands](/docs/cli/project) to create, link, and deploy an app, or [update ViteHub packages](/docs/cli/project#update-vitehub-packages).
-- Use [Server Primitive commands](/docs/cli/primitives) to read and write the data of a running app.
-- Use [Agent commands](/docs/cli/agents) to talk to an Agent and run Agent Evals.
-- Use [Inspect, operate, and provision](/docs/cli/inspect) to see what ViteHub discovered and to call any operation.
-- Use [CLI troubleshooting](/docs/cli/troubleshooting) when a command fails.
-- Use [Agent Evals](/docs/agents/evals) for behaviour checks.
-- Use [Workspace](/docs/workspace) for Workspace Sessions and write access.
-- Use [Provisioning](/docs/development/provisioning) for provider resource ids.
-- Use [Config options](/docs/reference/config-options) for package integration switches.
+- [Project commands](/docs/cli/project): create, link, and deploy an app, or [update ViteHub packages](/docs/cli/project#update-vitehub-packages).
+- [Server Primitive commands](/docs/cli/primitives): read and write data in a running app.
+- [Agent commands](/docs/cli/agents): talk to an Agent and run Agent Evals.
+- [Inspect, operate, and provision](/docs/cli/inspect): see what ViteHub discovered and call any operation.
+- [CLI troubleshooting](/docs/cli/troubleshooting): what to do when a command fails.
+- [Agent Evals](/docs/agents/evals): check Agent behavior.
+- [Workspace](/docs/workspace): Workspace Sessions and write access.
+- [Provisioning](/docs/development/provisioning): provider resource ids.
+- [Config options](/docs/reference/config-options): package integration switches.
