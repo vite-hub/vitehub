@@ -1,6 +1,7 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { pageRealtimeDefinition } from "./internal/page.ts"
 import { channelSimulationEnv } from "./internal/channel-simulation.ts"
+import { closeViteDevModuleRunners } from "./vite/dev-module-runners.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, readFileSync, statSync } from "node:fs"
@@ -3033,6 +3034,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         server.watcher?.off("add", refreshDiscovery)
         server.watcher?.off("unlink", refreshDiscovery)
         await discoveryRefresh
+        await closeViteDevModuleRunners(server)
       }
       server.watcher?.on("add", refreshDiscovery)
       server.watcher?.on("unlink", refreshDiscovery)
