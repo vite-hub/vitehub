@@ -21,6 +21,13 @@ async function call(name: string, input: unknown, access: OperationAccess = { mo
   return await runOperation(registry, `schedule.${name}`, input, { access, surface: "cli", user: null })
 }
 
+function scheduleListFormatter(): (output: unknown) => string {
+  const cli = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli
+  if (!cli || !cli.format) throw new Error("Missing CLI formatter for schedule.list")
+  // SAFETY: The tests pass the output of schedule.list or a fixture of that shape.
+  return cli.format as (output: unknown) => string
+}
+
 async function runDigest(scheduledAt: Date, handler: ScheduleHandler = () => {}): Promise<void> {
   await executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "digest", scheduledAt }).catch(() => {})
 }
@@ -218,8 +225,7 @@ describe("schedule operations", () => {
       ["pr-upkeep", { cron: "*/15 * * * *" }],
       ["vitehub/started-schedules", { cron: "* * * * *" }],
     ]))
-    // SAFETY: The operation formats its own output, which the call below returned.
-    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+    const format = scheduleListFormatter()
 
     const listed = await call("list", {})
     expect(listed).toEqual({
@@ -235,8 +241,7 @@ describe("schedule operations", () => {
   })
 
   it("say that an app without Schedules has none", async () => {
-    // SAFETY: The operation formats its own output, which the call below returned.
-    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+    const format = scheduleListFormatter()
     const listed = await call("list", {})
     expect(listed).toEqual({ ok: true, value: { definitions: [], schedules: [] } })
     expect(listed.ok && format(listed.value)).toBe("No Schedules.\n")
@@ -262,8 +267,7 @@ describe("schedule operations", () => {
     expect(started).toMatchObject({ ok: true, value: { schedule: { at: "2026-11-08T09:00:00.000Z", name: "reminder", payload: { text: "hi" } } } })
     const id = (started as { value: { schedule: { id: string } } }).value.schedule.id
     const listed = await call("list", {})
-    // SAFETY: The operation formats its own output, which the call above returned.
-    const format = (scheduleOperations.find(operation => operation.name === "schedule.list")?.cli || undefined)?.format as (output: unknown) => string
+    const format = scheduleListFormatter()
     expect(listed.ok && format(listed.value)).toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
     expect(format({ schedules: [{ at: "2026-11-08T09:00:00.000Z", createdAt: "2026-11-07T00:00:00.000Z", id, name: "reminder" }] }))
       .toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
