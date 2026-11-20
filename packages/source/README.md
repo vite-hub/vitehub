@@ -82,7 +82,7 @@ Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
 
 `github()` reads GitHub through `@vite-hub/forge`, an optional peer that it loads on the first read. Install it with
-`pnpm add @vite-hub/forge`. `auth` is a token or a trusted
+`pnpm add @vite-hub/forge`. A build of server code that calls `github()` without it fails with `VITE_HUB_R0136`. `auth` is a token or a trusted
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
 `auth: false` reads without a token. `authenticated()` tells whether reads send a
