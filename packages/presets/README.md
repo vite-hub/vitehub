@@ -159,7 +159,10 @@ changed its files after its checks ran, gets a branch update instead of a merge
 or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
-after checking that the head did not move.
+after checking that the head did not move. GitHub refuses App pushes to a fork,
+so a fork PR whose base changed its files, or that needs a retest on the current
+base, is closed and reopened instead, at most hourly. Its `pull_request` workflows
+then run again on the merge with the current base.
 
 PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
 
@@ -185,7 +188,8 @@ PR's head. When it is missing, the host pushes the head to that branch, once per
 head. A push runs the workflow files of the pushed commit with the repository's
 permissions, so the host first rereads GitHub and pushes only when a reviewer with
 write access approved that exact head, no change request stands, and the head's
-`.github` folder is the same as the base branch's. It moves and deletes only a
+`.github` folder is the same as the base branch's or as the merge base's, so the
+PR itself changes no workflow. It moves and deletes only a
 branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
