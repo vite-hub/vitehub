@@ -81,6 +81,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT: {
+      why: ({ file, names }: { file: string, names: string }) => `${file} exports ${names}, but the Worker entry already has an export of that name. The default export of the entry is the app.`,
+      fix: "Export each Durable Object, Workflow, or `WorkerEntrypoint` class from `server/cloudflare.ts` with a named export that no other export of the Worker uses, such as `export class Counter extends DurableObject {}`. Remove a default export.",
+    },
     VITE_HUB_DEFINITION_PACKAGE_MISSING: {
       why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
       fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,

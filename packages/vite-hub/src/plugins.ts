@@ -56,6 +56,7 @@ import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
+import { installCloudflareEntryExports } from "./cloudflare-entry-exports.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
@@ -1197,6 +1198,12 @@ function deploymentPlugins(
             // a number that another chunk imports from the entry. Keep shared values in internal chunks.
             const rollupConfig = cloneRecord(nitro.rollupConfig)
             if (rollupConfig.preserveEntrySignatures === undefined) nitro.rollupConfig = { ...rollupConfig, preserveEntrySignatures: "strict" }
+            if (building) {
+              const viteRoot = resolve(config.root ?? process.cwd())
+              const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+                ?? [resolve(viteRoot, typeof nitro.serverDir === "string" ? nitro.serverDir : "server")]
+              installCloudflareEntryExports(nitro, serverDirs)
+            }
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)

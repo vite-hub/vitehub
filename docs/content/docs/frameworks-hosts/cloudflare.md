@@ -172,6 +172,41 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bind
 
 Container duplicates must agree on `scheduling_policy`, which defaults to `default`. ViteHub rejects a policy change or conflicting image settings. It does not combine the default policy's `image` with Durable Object-managed `images`.
 
+### Your own Worker classes
+
+Cloudflare finds a Durable Object, Workflow, or `WorkerEntrypoint` class only among the exports of the Worker entry. Export the class from `server/cloudflare.ts`, and ViteHub adds each named export of that file to the entry when it builds for Cloudflare:
+
+```ts [server/cloudflare.ts]
+export { Counter } from './utils/counter'
+```
+
+```ts [server/utils/counter.ts]
+import { DurableObject } from 'cloudflare:workers'
+
+export class Counter extends DurableObject {
+  async increment() {
+    const count = ((await this.ctx.storage.get<number>('count')) ?? 0) + 1
+    await this.ctx.storage.put('count', count)
+    return count
+  }
+}
+```
+
+Declare the binding and its migration in your project Wrangler config. ViteHub does not write them:
+
+```json [wrangler.json]
+{
+  "durable_objects": { "bindings": [{ "name": "COUNTER", "class_name": "Counter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Counter"] }]
+}
+```
+
+A route then reaches the class through `env.COUNTER` from `cloudflare:workers`.
+
+- In Nuxt, the app's `server/cloudflare.ts` wins over a layer's.
+- The file must not have a default export, because the entry's default export is the app. A name that the entry already exports fails the build with `VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT`. Do not reuse the class name of a ViteHub Workflow or Sandbox Task.
+- Other hosts ignore the file, and `vite dev` does not load it.
+
 ### Node.js compatibility in Nuxt
 
 With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, Nitro adds `nodejs_compat` to the generated `wrangler.json` for compatibility dates before 2026-08-04. From that date, Workers turn it on by default. ViteHub leaves the flags as the app wrote them in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config.
