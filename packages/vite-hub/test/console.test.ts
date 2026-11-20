@@ -1107,7 +1107,7 @@ describe("Agent invocation console", () => {
         expect.objectContaining({ route: "/_vitehub", meta: { vitehubAuthAccess: "handler" } }),
         expect.objectContaining({ route: "/_vitehub/**", meta: { vitehubAuthAccess: "handler" } }),
         // The page tools session of the Console link. It reads no Console data and runs the access check of each tool.
-        { handler: expect.stringMatching(/server\/page-session\.js$/), meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/page/session" },
+        { handler: expect.stringMatching(/server\/page-session\.js$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/page/session" },
       ])
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')

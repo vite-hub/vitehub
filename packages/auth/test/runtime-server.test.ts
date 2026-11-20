@@ -77,16 +77,32 @@ describe("Auth startup runtime", () => {
 
   it("tells app middleware which requests a ViteHub route checks itself, from the root entry", async () => {
     const { checksOwnAccess } = await import("../src/index.ts")
-    const { ownAccessHandlerMeta } = await import("@vite-hub/internal/nitro-kit")
+    const { ownAccessHandlerMeta, ownAccessRouteMeta } = await import("@vite-hub/internal/nitro-kit")
     const event = (meta?: Record<string, unknown>) => ({
       "~standard": { vendor: "test", req: new Request("https://app.example/_vitehub/realtime/room"), res: { headers: new Headers() } },
       context: { matchedRoute: { route: "/_vitehub/realtime/**", ...meta ? { meta } : {} } },
     })
 
     expect(authAccessHandlerMeta).toEqual(ownAccessHandlerMeta)
+    expect(checksOwnAccess(event({ ...ownAccessRouteMeta }))).toBe(true)
     expect(checksOwnAccess(event({ ...ownAccessHandlerMeta }))).toBe(true)
+    expect(checksOwnAccess(event({ vitehubOwnAccess: "yes" }))).toBe(false)
     expect(checksOwnAccess(event())).toBe(false)
     expect(checksOwnAccess(new Request("https://app.example/_vitehub/realtime/room"))).toBe(false)
     expect([...loaded]).toEqual([])
+  })
+
+  it("keeps an app access rule on a ViteHub route that checks its own access", async () => {
+    const { ownAccessRouteMeta } = await import("@vite-hub/internal/nitro-kit")
+    const check = vi.fn(async () => new Response(null, { status: 403 }))
+    // An app that lets only admins use Realtime.
+    const handler = createLazyAuthAccessHandler([{ route: "/_vitehub/realtime/**", authorize: true }], async () => ({ createAuthAccessHandler: () => check }))
+    const event = {
+      "~standard": { vendor: "test", req: new Request("https://app.example/_vitehub/realtime/room"), res: { headers: new Headers() } },
+      context: { matchedRoute: { route: "/_vitehub/realtime/**", meta: { ...ownAccessRouteMeta } } },
+    }
+
+    await expect(handler(event)).resolves.toMatchObject({ status: 403 })
+    expect(check).toHaveBeenCalledOnce()
   })
 })

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
-import { createNitroServerKit, ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { dirname, relative, resolve } from "pathe"
 
 import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
@@ -254,9 +254,9 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       write(writeFileIfChangedSync)
       // With `auth: true`, the route checks the access token of each request. `auth: false` and `"optional"` serve tools
       // without a token, so the app's Auth access routes still guard the route.
-      kit.addHandler({ handler: handlerFile(), ...auth === true ? { meta: { ...ownAccessHandlerMeta } } : {}, route })
+      kit.addHandler({ handler: handlerFile(), ...auth === true ? { meta: { ...ownAccessRouteMeta } } : {}, route })
       // The public route serves only the tools with `access: "public"`.
-      if (publicRoute) kit.addHandler({ handler: publicHandlerFile(), meta: { ...ownAccessHandlerMeta }, route: publicRoute })
+      if (publicRoute) kit.addHandler({ handler: publicHandlerFile(), meta: { ...ownAccessRouteMeta }, route: publicRoute })
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))

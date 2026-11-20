@@ -5,7 +5,7 @@ import { loadConfigFromFile } from "vite"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
-import { createNitroServerKit, ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import { syncErrors } from "./errors.ts"
@@ -200,8 +200,7 @@ export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { dat
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // Not lazy: the handler installs the definitions when the server starts, so the operations work before the
         // first Sync request.
-        // Each definition must set `where`, and the handler filters every read and write with it.
-        kit.addHandler({ handler, lazy: false, meta: { ...ownAccessHandlerMeta }, route: `${mount}${syncRouteBase}/**` })
+        kit.addHandler({ handler, lazy: false, route: `${mount}${syncRouteBase}/**` })
         Reflect.set(config, "nitro", kit.config)
         await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)
       },

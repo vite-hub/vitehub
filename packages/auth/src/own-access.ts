@@ -1,5 +1,5 @@
 // The root entry and the generated access middleware import this module. Keep it free of Better Auth imports.
-import { ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
+import { ownAccessHandlerMeta, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 
 import type { AuthRequestInput } from "./types.ts"
 
@@ -10,15 +10,28 @@ import type { AuthRequestInput } from "./types.ts"
  */
 export const authAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = ownAccessHandlerMeta
 
-/**
- * Whether Nitro routed the request event to a ViteHub route that checks its own access, such as Realtime, Comments,
- * Sync, a signed Blob link, or a signed webhook. Auth access routes skip these requests. App middleware that guards the
- * whole app can skip them too, instead of a list of ViteHub paths. An open route, such as `/_vitehub/browser-errors`,
- * gets `false`. A plain Request has no route, so it gets `false` too.
- */
-export function checksOwnAccess(input: AuthRequestInput): boolean {
-  if (!("context" in input) || !(input.context instanceof Object)) return false
+function matchedRouteMeta(input: AuthRequestInput): object | undefined {
+  if (!("context" in input) || !(input.context instanceof Object)) return undefined
   const route: unknown = Reflect.get(input.context, "matchedRoute")
   const meta: unknown = route instanceof Object ? Reflect.get(route, "meta") : undefined
-  return meta instanceof Object && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
+  return meta instanceof Object ? meta : undefined
+}
+
+/** Whether Nitro routed the request event to a handler with `authAccessHandlerMeta`. A plain Request has no route. */
+export function routedToAccessHandler(input: AuthRequestInput): boolean {
+  const meta = matchedRouteMeta(input)
+  return meta !== undefined && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
+}
+
+/**
+ * Whether Nitro routed the request event to a ViteHub route that checks access on every request, such as the Console,
+ * Realtime, Comments, a signed Blob link, or the Content GitHub webhook. App middleware that guards the whole app can
+ * skip these requests, instead of a list of ViteHub paths. Auth access routes still apply to them, except to the
+ * Console. An open route, such as `/_vitehub/browser-errors`, gets `false`. A plain Request has no route, so it gets
+ * `false` too.
+ */
+export function checksOwnAccess(input: AuthRequestInput): boolean {
+  if (routedToAccessHandler(input)) return true
+  const meta = matchedRouteMeta(input)
+  return meta !== undefined && Reflect.get(meta, "vitehubOwnAccess") === ownAccessRouteMeta.vitehubOwnAccess
 }

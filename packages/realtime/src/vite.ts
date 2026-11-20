@@ -6,7 +6,7 @@ import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-cat
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { VITEHUB_SERVER_DIRS, isProductionBuild, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
-import { createNitroServerKit, ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as record } from "@vite-hub/internal/object"
 
@@ -356,7 +356,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const kit = createNitroServerKit(nitro)
       const { mount } = viteHubPageToolsBase(config)
       // Each definition sets `authorize` or `access: "public"`, and the handler checks it.
-      kit.addHandler({ handler: handlerFile, lazy: true, meta: { ...ownAccessHandlerMeta }, route: `${mount}/_vitehub/realtime/**` })
+      kit.addHandler({ handler: handlerFile, lazy: true, meta: { ...ownAccessRouteMeta }, route: `${mount}/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
       if (busPlugin) kit.addPlugin(busPlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)

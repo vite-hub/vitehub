@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { createNitroServerKit, mergeNitroExternal, ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, mergeNitroExternal, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { normalizeRoute } from "nitro/h3"
@@ -188,7 +188,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
   // Only an `fs` store signs links to this route. A hosted store signs links to its provider.
   // The route checks the signature of each link.
-  if (signedRoute) kit.addHandler({ handler: signedRouteModule, meta: { ...ownAccessHandlerMeta }, route: signedNitroRoute })
+  if (signedRoute) kit.addHandler({ handler: signedRouteModule, meta: { ...ownAccessRouteMeta }, route: signedNitroRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
     const existingHandlers = kit.config.handlers.filter(handler =>
@@ -196,8 +196,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     )
     kit.config.handlers.splice(0, kit.config.handlers.length, ...existingHandlers)
   }
-  // `serve` must set `authorize: true` or `access: "public"`, and the route checks it.
-  kit.addHandler({ handler: serveHandler, meta: { ...ownAccessHandlerMeta }, route: blobServeNitroRoute(serve) })
+  kit.addHandler({ handler: serveHandler, route: blobServeNitroRoute(serve) })
   return kit.config
 }
 
