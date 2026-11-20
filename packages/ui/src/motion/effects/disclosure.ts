@@ -128,7 +128,14 @@ export const disclosure: MotionEffect = {
     for (const icon of iconsOf(trigger)) {
       const from = pressed.get(icon);
       pressed.delete(icon);
-      if (from === undefined || transitionsRotate(icon)) continue;
+      if (from === undefined || transitionsRotate(icon)) {
+        const spring = turns.get(icon)?.spring;
+        if (spring?.active) {
+          spring.stop();
+          writeMotionStyle(icon, { rotate: null });
+        }
+        continue;
+      }
       turn(icon, from);
     }
   },

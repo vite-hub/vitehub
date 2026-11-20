@@ -1,4 +1,5 @@
 import { builtInEffects } from "./effects/index.ts";
+import { watchPanels } from "./effects/panel.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
@@ -7,7 +8,7 @@ import { settleSprings } from "./spring.ts";
 type MotionRoot = Document | ShadowRoot;
 
 const optOut = "[data-motion=\"none\"]";
-const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
+const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver; stopPanels: () => void }>();
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
@@ -224,7 +225,7 @@ export function installMotion(root?: MotionRoot): () => void {
   else {
     const observer = new MutationObserver(onMutations);
     observe(target, observer);
-    roots.set(target, { installs: 1, observer });
+    roots.set(target, { installs: 1, observer, stopPanels: watchPanels(target) });
   }
   let stopped = false;
   return () => {
@@ -233,6 +234,7 @@ export function installMotion(root?: MotionRoot): () => void {
     const current = roots.get(target);
     if (!current || --current.installs > 0) return;
     current.observer.disconnect();
+    current.stopPanels();
     roots.delete(target);
     if (roots.size) return;
     for (const stop of stopWatching) stop();
