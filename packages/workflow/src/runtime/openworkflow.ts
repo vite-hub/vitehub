@@ -25,6 +25,7 @@ type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
 type OpenWorkflowStepAttempt = Awaited<ReturnType<OpenWorkflowBackend["listStepAttempts"]>>["data"][number]
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
+type OpenWorkflowJsonValue = NonNullable<Parameters<OpenWorkflowClient["sendSignal"]>[0]["data"]>
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
 // A variable specifier keeps the optional OpenWorkflow packages out of host bundles. Do not build this
@@ -426,7 +427,27 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
     },
     // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
     sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
+    // The token is the OpenWorkflow signal name. OpenWorkflow waits one year by default and then returns null.
+    async waitForSignal(name, token) {
+      const received = await step.waitForSignal({ name, signal: token })
+      if (received === null) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TIMEOUT({ name })
+      return received.data
+    },
   }
+}
+
+/**
+ * Sends `value` to the run that waits for the signal `token`. Returns false when no run waits for it: OpenWorkflow
+ * drops a signal that comes before the wait.
+ */
+export async function resumeOpenWorkflowSignal(config: ResolvedWorkflowOptions, token: string, value: unknown): Promise<boolean> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  const { workflowRunIds } = await runWorkflowProviderOperation("openworkflow", "resume-signal", async () => await runtime.client.sendSignal({
+    // SAFETY: `resumeWorkflow()` documents that the value is JSON, as OpenWorkflow stores it.
+    data: value as OpenWorkflowJsonValue,
+    signal: token,
+  }))
+  return workflowRunIds.length > 0
 }
 
 export async function registerOpenWorkflowDefinition(

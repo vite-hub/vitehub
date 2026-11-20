@@ -10,6 +10,8 @@ export interface CloudflareWorkflowBinding<TPayload = unknown> {
 export interface CloudflareWorkflowInstance {
   id: string
   status: () => Promise<unknown>
+  /** Sends an event that `step.waitForEvent()` of the instance waits for. */
+  sendEvent?: (event: { payload: unknown, type: string }) => Promise<void>
   /** Stops the instance. Cloudflare rejects the call when the instance has already finished. */
   terminate: () => Promise<void>
 }
@@ -176,6 +178,25 @@ export interface WorkflowProviderStep {
   sleep?: (name: string, milliseconds: number) => Promise<void>
   /** Sleeps until a date. Without it, ViteHub sleeps for the time that is left until the date. */
   sleepUntil?: (name: string, date: Date) => Promise<void>
+  /**
+   * Waits durably until `resumeWorkflow(token, value)` sends the signal, and returns the value. ViteHub names each
+   * wait by call order (`signal-1`, `signal-2`).
+   */
+  waitForSignal?: (name: string, token: string) => Promise<unknown>
+}
+
+/**
+ * A signal of one run, from `context.createSignal()`. Give `token` to the code that will resume the run, such as the
+ * webhook URL of an outside service. `wait()` returns the value of `resumeWorkflow(token, value)`.
+ */
+export interface WorkflowSignal<TValue = unknown> {
+  /**
+   * The token of this signal. It is the same on each replay of the run. It is not a secret: check the caller, such as
+   * a webhook signature, before you pass a token from a request to `resumeWorkflow()`.
+   */
+  readonly token: string
+  /** Waits until `resumeWorkflow(token, value)` sends the signal, and returns the value. */
+  wait: () => Promise<TValue>
 }
 
 export type WorkflowDurationUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
@@ -237,8 +258,15 @@ export interface WorkflowProviderContext<TPayload = unknown> {
 
 /** The one object that a Workflow handler receives: the `payload` of the run, the run data, `sleep`, and `steps`. */
 export interface WorkflowExecutionContext<TPayload = unknown> extends Omit<WorkflowProviderContext<TPayload>, "step"> {
-  /** The provider step runner. Use `context.sleep()` to sleep. */
-  step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil">
+  /**
+   * Makes a signal that the run can wait for. `resumeWorkflow(signal.token, value)` ends the wait of
+   * `signal.wait()`. Only a folder Workflow's `index.ts` can wait: in a single-file Workflow, `wait()` throws
+   * `WORKFLOW_ROOT_STEP_SIGNAL`. The wait is durable on Cloudflare and OpenWorkflow. Inline runs (`vite dev`) wait in
+   * memory. Vercel does not support signals yet: `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`.
+   */
+  createSignal: <TValue = unknown>() => WorkflowSignal<TValue>
+  /** The provider step runner. Use `context.sleep()` to sleep and `context.createSignal()` to wait for a signal. */
+  step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil" | "waitForSignal">
   /**
    * Sleeps for a duration such as `'1 day'` or a number of milliseconds, or until a `Date`. Only a folder Workflow's
    * `index.ts` can sleep. In a single-file Workflow it throws `WORKFLOW_ROOT_STEP_SLEEP`. The sleep is durable on
@@ -303,6 +331,8 @@ export type WorkflowResultErrorCode =
   | "WORKFLOW_PROVIDER_OPERATION_FAILED"
   | "WORKFLOW_R0014"
   | "WORKFLOW_RUN_ID_UNSUPPORTED"
+  | "WORKFLOW_SIGNAL_NOT_WAITING"
+  | "WORKFLOW_SIGNAL_TOKEN_INVALID"
   | "WORKFLOW_START_DELAY_INVALID"
 
 /** `cancel()`, `getRun()`, and `start()` return `[error, data]`, as `cancelWorkflow()`, `getWorkflowRun()`, and `startWorkflow()` do. */
