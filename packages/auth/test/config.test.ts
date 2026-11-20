@@ -627,6 +627,28 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
   })
 
+  it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins/index.mjs", [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "import { keys } from '../keys.js'",
+      "const secondFactor = () => twoFactor()",
+      "export const accountProtection = () => [secondFactor(), ...keys()]",
+      "export const loginByUsername = () => [username()]",
+    ])
+    await writeAuthSource(rootDir, "server/keys.tsx", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export const keys = () => [apiKey()]",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { accountProtection } from './plugins'",
+      "export default defineAuth({ database: authDatabase(), plugins: accountProtection() })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["apiKey", "twoFactor"] } })
+  })
+
   it.each([
     ["{ database: authDatabase(), user: { additionalFields: profileFields } }", /user.additionalFields must be an inline object literal/],
     ["{ database: authDatabase(), user: { additionalFields: { plan: planField } } }", /user.additionalFields.plan must be an inline object/],
