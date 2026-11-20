@@ -286,6 +286,8 @@ describe("hubAuth", () => {
 
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
+    const session = "Pick<import(\"@vite-hub/auth\").AuthAuthorization<{ definition: typeof import(\"../../server/auth.js\").default }>, \"user\" | \"session\">"
+    expect(ambientTypes).toContain(`interface AuthRegistry { sessionResult: ${session} }`)
   })
 
   it("types useAuth(event).api with the plugins of server/auth.ts through the generated declarations", async () => {
@@ -295,11 +297,23 @@ describe("hubAuth", () => {
     tempDirs.push(root)
     // The project root of the generated declarations is the nearest package.json.
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }))
-    await writeAuth(root, "server/auth.ts", ["  appName: 'ViteHub',", "  plugins: [admin(), organization()],"])
+    const definitionOptions = [
+      "  appName: 'ViteHub',",
+      "  user: { additionalFields: { plan: { type: 'string', required: true } } },",
+      "  plugins: [admin(), organization()],",
+      "  session: { additionalFields: { region: { type: 'string', required: true } } },",
+      "  access: { routes: [{ route: '/admin', authorize: ({ user }) => user.role === 'admin' }] },",
+      "  events: { store, authorize: ({ user }) => user.role === 'admin' },",
+    ]
+    await writeAuth(root, "server/auth.ts", definitionOptions)
     const definitionFile = join(root, "server/auth.ts")
-    await writeFile(definitionFile, `import { admin, organization } from 'better-auth/plugins'\n${await readFile(definitionFile, "utf8")}`)
+    const definitionImports = "import { admin, organization, customSession } from 'better-auth/plugins'\nimport type { AuthEventStore } from '@vite-hub/auth'\ndeclare const store: AuthEventStore\n"
+    await writeFile(definitionFile, definitionImports + await readFile(definitionFile, "utf8"))
     await writeFile(join(root, "server/route.ts"), [
-      "import { useAuth } from '@vite-hub/auth/server'",
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { requireAuth, requireAuthorization, useAuth, withAuth, withAuthorization, withAnonymousAuthorization } from '@vite-hub/auth/server'",
+      "import type { AccessAuthorize } from '@vite-hub/runtime'",
+      "import type { ConsoleAuthorizeContext } from '../../../../vite-hub/src/console/auth-types.ts'",
       "import type { H3Event } from 'h3'",
       "export async function handler(event: H3Event) {",
       "  const auth = useAuth(event)",
@@ -307,6 +321,47 @@ describe("hubAuth", () => {
       "  await auth.api.createOrganization({ body: { name: 'Acme', slug: 'acme' }, headers: event.req.headers })",
       "  // @ts-expect-error The Definition has no such plugin endpoint.",
       "  void auth.api.notAnEndpoint",
+      "  const { user, session } = await requireAuth(event)",
+      "  const role: string | null | undefined = user.role",
+      "  const plan: string = user.plan",
+      "  const impersonatedBy: string | null | undefined = session.impersonatedBy",
+      "  // @ts-expect-error The user has no such field.",
+      "  void user.notAField",
+      "  const other = defineAuth({ database: 'memory' })",
+      "  const broad = (value: unknown) => true",
+      "  const appPolicy: AccessAuthorize = ({ user }) => typeof user.plan === 'string'",
+      "  // @ts-expect-error The explicit Definition may not satisfy an app policy that requires plan.",
+      "  await requireAuthorization(event, appPolicy, other)",
+      "  // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
+      "  const explicitPlan: string = (await requireAuth(event, other)).user.plan",
+      "  // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
+      "  const authorizedPlan: string = (await requireAuthorization(event, true, other)).user.plan",
+      "  withAuth((_, auth) => {",
+      "    // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
+      "    return auth.user.plan.toUpperCase()",
+      "  }, other)",
+      "  withAuthorization(({ user }) => {",
+      "    // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
+      "    return user.plan.toUpperCase() === 'PRO'",
+      "  }, broad, other)",
+      "  withAnonymousAuthorization(({ user }) => {",
+      "    // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
+      "    return user?.plan.toUpperCase() === 'PRO'",
+      "  }, broad, other)",
+      "  return [plan, role, impersonatedBy, explicitPlan, authorizedPlan]",
+      "}",
+      "export const admins = withAuthorization(({ user, session }) => {",
+      "  const plan: string = user.plan",
+      "  const region: string | undefined = session.region",
+      "  // @ts-expect-error API-key sessions can omit additional fields.",
+      "  const required: string = session.region",
+      "  return user.role === 'admin' && plan === region && region === required",
+      "}, () => 'ok')",
+      "export function consolePolicy(context: ConsoleAuthorizeContext) {",
+      "  if (context.via !== 'console') return false",
+      "  // @ts-expect-error Signed Console users do not have the app's plan.",
+      "  const plan: string = context.user.plan",
+      "  return context.user.id === plan",
       "}",
       "",
     ].join("\n"))
@@ -321,11 +376,46 @@ describe("hubAuth", () => {
         .map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
     }
 
-    // Without the generated registry, the instance has no plugin endpoints.
-    expect(diagnosticsFor([join(root, "server/route.ts")]).join("\n")).toMatch(/banUser/)
+    // Without the generated registry, the instance has no plugin endpoints, and the user has no plugin fields.
+    const withoutRegistry = diagnosticsFor([join(root, "server/route.ts")]).join("\n")
+    expect(withoutRegistry).toMatch(/banUser/)
+    expect(withoutRegistry).toMatch(/Type 'unknown' is not assignable/)
+    expect(withoutRegistry).toMatch(/Unused '@ts-expect-error' directive/)
 
     await resolvePluginConfig(hubAuth(), root)
-    expect(diagnosticsFor([join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")])).toEqual([])
+    const consumerFiles = [join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")]
+    expect(diagnosticsFor(consumerFiles)).toEqual([])
+
+    const resolver = (await readFile(definitionFile, "utf8")).replace("defineAuth({", "defineAuth(() => ({").replace("\n})", "\n}))")
+    await writeFile(definitionFile, resolver)
+    expect(diagnosticsFor(consumerFiles)).toEqual([])
+
+    const customDefinition = (project: string) => definitionImports + [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import type { BetterAuthOptions } from 'better-auth'",
+      "const options = {",
+      ...definitionOptions.slice(0, 4),
+      "} satisfies BetterAuthOptions",
+      `export default defineAuth({ ...options, plugins: [...options.plugins, customSession(async ({ user, session }) => (${project}), options)] })`,
+    ].join("\n")
+    await writeFile(definitionFile, customDefinition("{ user, session }"))
+    expect(diagnosticsFor(consumerFiles)).toEqual([])
+
+    await writeFile(definitionFile, customDefinition("{ user: { id: user.id }, session: { id: session.id } }"))
+    await writeFile(join(root, "server/route.ts"), [
+      "import { requireAuth } from '@vite-hub/auth/server'",
+      "export async function handler(request: Request) {",
+      "  const { user, session } = await requireAuth(request)",
+      "  // @ts-expect-error The projection removes plan.",
+      "  void user.plan",
+      "  // @ts-expect-error The projection removes role.",
+      "  void user.role",
+      "  // @ts-expect-error The projection removes expiresAt.",
+      "  void session.expiresAt",
+      "  return [user.id, session.id]",
+      "}",
+    ].join("\n"))
+    expect(diagnosticsFor(consumerFiles)).toEqual([])
   }, 120_000)
 
   it("serves the app's auth.client.ts as the default client's options and registers its type", async () => {
