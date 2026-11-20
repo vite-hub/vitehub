@@ -18,6 +18,12 @@ export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
  */
 export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
 
+/**
+ * Marks a gateway whose `openai-compatible` URL is the OpenAI API itself, such as `openai()`. Its `chat` model API then
+ * uses `@ai-sdk/openai`, the package that serves OpenAI, so the app needs no `@ai-sdk/openai-compatible`.
+ */
+export const aiGatewayOpenAIChat: unique symbol = Symbol.for("vitehub.aiGateway.openaiChat")
+
 /** Resolves model credentials together with headers that depend on their source. */
 export const aiGatewayModelCredentials: unique symbol = Symbol.for("vitehub.aiGateway.modelCredentials")
 

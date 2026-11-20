@@ -1,5 +1,5 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOptionalCredentials, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
@@ -206,6 +206,7 @@ function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolv
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
+  if (Reflect.get(definition, aiGatewayOpenAIChat) === true) Object.defineProperty(gateway, aiGatewayOpenAIChat, { value: true })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
   // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
@@ -349,13 +350,17 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
   return createAiGateway(definition, route, undefined, undefined, modelCredentials) as AiGateway<{ ask: true, routes: HostedRoutes }>
 }
 
-/** The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. */
+/**
+ * The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. Its AI SDK models use
+ * `@ai-sdk/openai` for both `chat` and `responses`.
+ */
 export function openai(options?: AiGatewayPresetOptions): AiModelGateway<"codex" | "openai-compatible"> {
-  return modelGateway<"codex" | "openai-compatible">(preset({
+  const definition = preset({
     name: "openai",
     baseURL: { "codex": "https://api.openai.com/v1", "openai-compatible": "https://api.openai.com/v1" },
     apiKey: apiKeyFromEnv("openai"),
-  }, options))
+  }, options)
+  return modelGateway<"codex" | "openai-compatible">(Object.defineProperty(definition, aiGatewayOpenAIChat, { value: true }))
 }
 
 /** The Anthropic API with an API key. Serves Claude Code and AI SDK models. Reads `ANTHROPIC_API_KEY`. */

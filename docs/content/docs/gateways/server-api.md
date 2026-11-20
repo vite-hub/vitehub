@@ -27,11 +27,11 @@ It needs the AI SDK provider package of its model API. The `api` option selects 
 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
-| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
-The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need.
+The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need. `openai()` uses `@ai-sdk/openai` for both, so an OpenAI app installs only that package.
 
 - The gateway rereads its URL, key, and headers per request, so a rotated key applies at once.
 - `languageModel()` reads `process.env`, like a direct `ask()` call. Pass `fetch` for a custom implementation.

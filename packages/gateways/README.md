@@ -12,7 +12,7 @@ The package has no Agent, Vite, or Nitro code. It works in a plain Node script, 
 
 ## Install
 
-`languageModel()`, `ask()`, and `gateway.ask()` load optional peer dependencies only when you use them. `gateway.ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible`, and `ask(prompt, { model, schema })` needs `ai`:
+`languageModel()`, `ask()`, and `gateway.ask()` load optional peer dependencies only when you use them. `gateway.ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible` (`@ai-sdk/openai` with `openai()`), and `ask(prompt, { model, schema })` needs `ai`:
 
 ```sh
 pnpm add @vite-hub/gateways advocaat
@@ -36,7 +36,7 @@ Change the preset to change the provider. The model ID is the ID that the gatewa
 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
-| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
