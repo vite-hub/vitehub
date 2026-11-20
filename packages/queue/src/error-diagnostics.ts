@@ -177,6 +177,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
     },
+    QUEUE_MAX_BATCH_SIZE_INVALID: {
+      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads the options from the file to configure the Cloudflare consumer, so they cannot use a spread or a computed key.`,
+      fix: "Write each option, such as `maxBatchSize: 5` (a whole number from 1 to 100), directly in the object of `export default defineQueue({ ... })`, without a variable, a spread, or a computed key.",
+    },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,
       fix: "Set `queue.driver`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.",

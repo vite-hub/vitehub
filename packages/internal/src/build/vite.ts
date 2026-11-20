@@ -97,7 +97,7 @@ export interface ProviderOutputEnvironmentOwner {
   /** Install as the plugin's `buildApp` hook. */
   buildApp: (builder: { environments: Record<string, { isBuilt: boolean }> }) => Promise<void>
   /** Install as the plugin's `nitro` module. */
-  nitro: { name: string, setup: (nitro: { options: { static?: boolean } }) => void }
+  nitro: { name: string, setup: (nitro: { options: NitroPackageLoadingOptions & { static?: boolean } }) => void }
   /** Whether a later environment of the same Vite build writes Provider Output. */
   defers: (context: { environment?: object } | undefined) => boolean
 }
@@ -127,13 +127,31 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
   }
 }
 
+type NitroPackageLoadingOptions = { devServer?: { runner?: string } }
+
 /**
- * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
- * This is the Nitro environment of `vite dev`. Generated Nitro plugins give these packages the registries and the
- * `define` values that Vite gives to the code it transforms. Builds and other environments still inline the packages.
+ * Use one app's effective Nitro runner for both environment configuration and generated imports.
+ * `configureEnvironment` reads the runner after Nitro's `build:before` hooks and saves the decision for `load`.
  */
-export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
-  return env.command === "serve" && name === "nitro"
+export function createNativePackageLoading() {
+  let nitro: { options: NitroPackageLoadingOptions } | undefined
+  let native = false
+  return {
+    nitro: {
+      setup(instance: { options: NitroPackageLoadingOptions }): void {
+        nitro = instance
+      },
+    },
+    configureEnvironment(name: string, env: { command: string }): boolean {
+      if (name !== "nitro") return false
+      const runner = nitro?.options.devServer?.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
+      native = env.command === "serve" && (runner === "node-worker" || runner === "node-process")
+      return native
+    },
+    load(id: string, environmentName: string | undefined): string | undefined {
+      if (environmentName === "nitro" && native) return loadNativePackageModule(id)
+    },
+  }
 }
 
 // The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
@@ -146,8 +164,7 @@ const nativePackageDistFile = /\/node_modules\/@vite-hub\/(?:agent|connections|r
  * registries. This returns a module that lets Node load the file instead, so the app and the generated code share one
  * instance. Use it as the `load` hook result for the file. It returns nothing for other files and environments.
  */
-export function loadNativePackageModule(id: string, environmentName: string | undefined, command: string): string | undefined {
-  if (!environmentName || !loadsViteHubPackagesNatively(environmentName, { command })) return
+function loadNativePackageModule(id: string): string | undefined {
   // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
   const file = id.startsWith("file:") ? fileURLToPath(id) : id
   if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return

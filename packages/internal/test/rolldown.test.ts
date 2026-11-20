@@ -1350,6 +1350,34 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  @./missing.md\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n\\> Waiting")
   })
 
+  it("keeps tsconfig paths of other folders when the app tsconfig.json references files that do not exist yet", async () => {
+    // A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which `nuxt prepare` writes. `lib/tsconfig.json`
+    // maps `theme` to a workspace file, and an installed `theme` package must not replace it.
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "server", "entry.ts")
+    const outfile = join(rootDir, "bundle.mjs")
+    await Promise.all(["server", "lib", "node_modules/theme"].map(dir => mkdir(join(rootDir, dir), { recursive: true })))
+    await Promise.all([
+      writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(rootDir, "lib", "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { theme: ["./theme.ts"] } } })),
+      writeFile(join(rootDir, "lib", "theme.ts"), 'export const theme: string = "workspace"\n'),
+      writeFile(join(rootDir, "lib", "helper.ts"), 'export { theme } from "theme"\n'),
+      writeFile(join(rootDir, "node_modules", "theme", "package.json"), JSON.stringify({ name: "theme", type: "module", exports: "./index.js" })),
+      writeFile(join(rootDir, "node_modules", "theme", "index.js"), 'export const theme = "installed"\n'),
+      writeFile(entry, 'export { theme } from "../lib/helper"\n'),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await expect(bundleEsmEntry(entry, outfile, { platform: "node", rootDir })).rejects.toThrow(".nuxt/tsconfig.server.json")
+
+    await mkdir(join(rootDir, ".nuxt"))
+    await writeFile(join(rootDir, ".nuxt", "tsconfig.server.json"), JSON.stringify({ include: ["../server/**/*"] }))
+    await bundleEsmEntry(entry, outfile, { platform: "node", rootDir })
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain('"workspace"')
+    expect(output).not.toContain('"installed"')
+  })
+
   it("bundles the exact Markdown template query", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
