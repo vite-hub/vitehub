@@ -2820,6 +2820,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         try {
           await (acquiring ??= acquire())
           const created = await create(...args)
+          const init = created.init.bind(created)
+          created.init = async (...initArgs) => {
+            try {
+              await init(...initArgs)
+            }
+            catch (error) {
+              await release()
+              throw error
+            }
+          }
           const close = created.close.bind(created)
           created.close = async () => {
             try {

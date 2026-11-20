@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createServer, createServerHotChannel, resolveConfig } from "vite"
+import { createServer, createServerHotChannel, DevEnvironment, resolveConfig } from "vite"
 import { afterEach, beforeEach, expect, expectTypeOf, it, vi } from "vitest"
 
 import { defineAgent, runAgent } from "../src/index.ts"
@@ -29,6 +29,7 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.close()
   for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true })
   vi.doUnmock("@emulators/ai")
+  vi.doUnmock("../src/internal/ai-emulator.ts")
   vi.resetModules()
 })
 
@@ -268,6 +269,32 @@ it("names a rule that the emulator rejects and leaves nothing running", async ()
   // The failed server holds no share, so a valid app starts on its own.
   await devServer(hello)
   expect(await invoke("hello")).toBe("Hi from the rule.")
+}, 30_000)
+
+it("releases the emulator if a Vite environment fails to initialize", async () => {
+  vi.resetModules()
+  const close = vi.fn(async () => {})
+  vi.doMock("../src/internal/ai-emulator.ts", () => ({
+    startAiEmulator: async () => ({ url: "http://127.0.0.1:4014", close, reseed: () => {} }),
+  }))
+  const { hubAgent: freshHubAgent } = await import("../src/vite.ts")
+  const config = inline(await app(), freshHubAgent({ models: { emulate: true } }))
+  const failure = new Error("Dev environment initialization failed")
+  config.environments = {
+    failing: {
+      dev: {
+        createEnvironment(name, resolved, context) {
+          const environment = new DevEnvironment(name, resolved, context)
+          environment.init = async () => { throw failure }
+          return environment
+        },
+      },
+    },
+  }
+  await expect(createServer(config)).rejects.toBe(failure)
+  expect(close).toHaveBeenCalledOnce()
+  expect(process.env.VITEHUB_MODELS).toBeUndefined()
+  expect(process.env.VITEHUB_EMULATE_URL).toBeUndefined()
 }, 30_000)
 
 it("accepts the upstream seed type of emulateModels()", () => {
