@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path"
 
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, findCalls, findDefaultExportCall, findProperty, objectProperties, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule } from "@vite-hub/internal/build/scan-module"
 
 import { defaultLocalQueueBase, normalizeQueueOptions } from "../config.ts"
 import { isQueueMaxBatchSize } from "../definition.ts"
@@ -113,26 +113,24 @@ function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefini
  * number literal, or the option on a `defineQueue()` call that is not the default export.
  */
 export function readQueueMaxBatchSize(file: string): number | undefined {
-  const source = readFileSync(file, "utf8")
-  if (!source.includes("defineQueue")) return undefined
-  const module = scanModule(source, file)
+  const module = scanModule(readFileSync(file, "utf8"), file)
   const invalid = (): never => {
     throw queueErrorDiagnostics.QUEUE_MAX_BATCH_SIZE_INVALID({ where: file })
   }
-  const exported = findDefaultExportCall(module, ["defineQueue"])
+  const exported = defaultExportExpression(module)
+  let maxBatchSize: number | undefined
   for (const call of findCalls(module, ["defineQueue"])) {
-    if (call === exported?.call) continue
     const options = argumentExpression(call.arguments[0])
-    if (options?.type === "ObjectExpression" && findProperty(options, "maxBatchSize")) invalid()
+    if (options?.type !== "ObjectExpression") return invalid()
+    const properties = objectProperties(options)
+    if (properties.some(property => property.key === undefined || property.computed)) return invalid()
+    const property = properties.findLast(candidate => candidate.key === "maxBatchSize")
+    if (!property) continue
+    if (call !== exported || property.node.type !== "Property" || property.node.kind !== "init" || property.node.method
+      || property.value?.type !== "Literal" || !isQueueMaxBatchSize(property.value.value)) return invalid()
+    maxBatchSize = property.value.value
   }
-  const properties = exported?.options ? objectProperties(exported.options) : []
-  if (properties.some(property => property.key === undefined || property.computed)) invalid()
-  const property = properties.findLast(candidate => candidate.key === "maxBatchSize")
-  if (!property) return undefined
-  const value = property.value && property.node.type === "Property" && property.node.kind === "init" && !property.node.method
-    ? staticValue(property.value)
-    : undefined
-  return isQueueMaxBatchSize(value) ? value : invalid()
+  return maxBatchSize
 }
 
 export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): CloudflareQueueBindings | undefined {

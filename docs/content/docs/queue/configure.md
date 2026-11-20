@@ -192,6 +192,8 @@ export default defineQueue<{ reportId: string }>({
 | `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
 | `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
 
+On Cloudflare, write Queue options in an object literal without spreads or computed keys. If you keep a Wrangler consumer for the same queue, its `max_batch_size` must match `maxBatchSize` when you set that option. The build rejects a missing or different value and leaves the consumer's other settings, such as `max_retries`, alone.
+
 ## Contribute Queues from a package
 
 A package can add a queue from its Vite plugin, so apps do not write `server/queues/<name>.ts`. Add `vitehub.queues` to the plugin:

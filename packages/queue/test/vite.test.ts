@@ -395,9 +395,12 @@ describe("hubQueue", () => {
 
   it.each([
     ["a variable", "const size = 5\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: size })"],
+    ["an options variable", "const options = { handler: async () => undefined, maxBatchSize: 5 }\nexport default defineQueue(options)"],
     ["a spread object", "const options = { maxBatchSize: 5 }\nexport default defineQueue({ handler: async () => undefined, ...options })"],
     ["a spread after the option", "const options = { maxBatchSize: 20 }\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: 5, ...options })"],
     ["a call that is not the default export", "const queue = defineQueue({ handler: async () => undefined, maxBatchSize: 5 })\nexport default queue"],
+    ["a spread in a call that is not the default export", 'const options = { "maxBatchSize": 5 }\nconst queue = defineQueue({ handler: async () => undefined, ...options })\nexport default queue'],
+    ["a computed key in a call that is not the default export", 'const key = "maxBatchSize"\nconst queue = defineQueue({ handler: async () => undefined, [key]: 5 })\nexport default queue'],
     ["a value above 100", "export default defineQueue({ handler: async () => undefined, maxBatchSize: 200 })"],
   ])("fails the Cloudflare build when it cannot read maxBatchSize from %s", async (_, source) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
