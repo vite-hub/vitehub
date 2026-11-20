@@ -301,7 +301,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureHostedWorkspaceRuntime } = await import("../src/hosted.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureHostedWorkspaceRuntime({
-      store: { branch: "main", driver: "github", repository: "onmax/repo", root: "mirror" },
+      store: { branch: "main", driver: "github", repo: "onmax/repo", root: "mirror" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
@@ -319,7 +319,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureCloudflareWorkspaceRuntime({
-      store: { branch: "main", driver: "github", repository: "onmax/repo", root: "mirror", token: "explicit-token" },
+      store: { branch: "main", driver: "github", repo: "onmax/repo", root: "mirror", token: "explicit-token" },
     })
     setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 

@@ -8,12 +8,11 @@ import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
 import type { AnyExtension } from "@tiptap/core"
-import type { Result } from "@vite-hub/runtime"
 import type { MaybeRefOrGetter, Ref } from "vue"
 import type { Awareness } from "y-protocols/awareness"
 import type { RealtimeCaretOptions } from "./caret.ts"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeRequestErrorCode, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeRequestResult, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
@@ -36,7 +35,7 @@ import {
 } from "./protocol.ts"
 import { realtimeErrorDiagnostics, type RealtimeRequestAction } from "./error-diagnostics.ts"
 
-export type { RealtimeRequestErrorCode } from "./types.ts"
+export type { RealtimeRequestError, RealtimeRequestErrorCode, RealtimeRequestFailure, RealtimeRequestResult } from "./types.ts"
 
 export { RealtimeCaret } from "./caret.ts"
 export type { RealtimeCaretOptions, RealtimeCaretUser } from "./caret.ts"
@@ -314,8 +313,8 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return () => resetListeners.delete(listener)
   }
 
-  async function request(action: RealtimeRequestAction): Promise<Result<unknown, Exclude<RealtimeRequestErrorCode, "REALTIME_DISABLED" | "REALTIME_INVALID_RESPONSE">>> {
-    const disconnected = (): Result<never, "REALTIME_DISCONNECTED"> => [realtimeErrorDiagnostics.REALTIME_DISCONNECTED({ action }), undefined]
+  async function request(action: RealtimeRequestAction): Promise<RealtimeRequestResult<unknown>> {
+    const disconnected = (): RealtimeRequestResult<never> => [realtimeErrorDiagnostics.REALTIME_DISCONNECTED({ action }), undefined]
     const controller = new AbortController()
     requestControllers.add(controller)
     if (action === "refresh") refreshControllers.add(controller)
@@ -370,7 +369,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     }
   }
 
-  async function requestResult<TData>(action: RealtimeRequestAction, accepts: (data: unknown) => data is TData): Promise<Result<TData, RealtimeRequestErrorCode>> {
+  async function requestResult<TData>(action: RealtimeRequestAction, accepts: (data: unknown) => data is TData): Promise<RealtimeRequestResult<TData>> {
     if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action }), undefined]
     const [error, data] = await request(action)
     if (error) return [error, undefined]
@@ -379,9 +378,9 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   /**
    * Saves the room through its document adapter now, including every edit this client has sent.
-   * Returns `[error, saved]`; `error.code` is a `RealtimeRequestErrorCode`.
+   * Returns `[error, saved]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
    */
-  async function save(): Promise<Result<RealtimeSaved, RealtimeRequestErrorCode>> {
+  async function save(): Promise<RealtimeRequestResult<RealtimeSaved>> {
     if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "save" }), undefined]
     saveRequests.value++
     try {
@@ -394,9 +393,9 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   /**
    * Saves the room and records a durable history entry through the document adapter.
-   * Returns `[error, checkpoint]`; `error.code` is a `RealtimeRequestErrorCode`.
+   * Returns `[error, checkpoint]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
    */
-  async function checkpoint(): Promise<Result<RealtimeCheckpoint, RealtimeRequestErrorCode>> {
+  async function checkpoint(): Promise<RealtimeRequestResult<RealtimeCheckpoint>> {
     if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "checkpoint" }), undefined]
     checkpointRequests.value++
     try {
@@ -409,9 +408,9 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   /**
    * Asks the room to compare its seed with the stored document. A changed source resets every client.
-   * Returns `[error, result]`; `error.code` is a `RealtimeRequestErrorCode`.
+   * Returns `[error, result]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
    */
-  async function refresh(): Promise<Result<{ digest: string | null, reseeded: boolean }, RealtimeRequestErrorCode>> {
+  async function refresh(): Promise<RealtimeRequestResult<{ digest: string | null, reseeded: boolean }>> {
     return await requestResult("refresh", isRefreshResult)
   }
 
