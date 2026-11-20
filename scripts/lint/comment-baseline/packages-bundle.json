@@ -1,0 +1,17 @@
+{
+  "packages/bundle/src/checks.ts": 5,
+  "packages/bundle/src/cli.ts": 4,
+  "packages/bundle/src/collect.ts": 5,
+  "packages/bundle/src/diagnostics.ts": 4,
+  "packages/bundle/src/groups.ts": 6,
+  "packages/bundle/src/operations.ts": 5,
+  "packages/bundle/src/report.ts": 4,
+  "packages/bundle/src/routes.ts": 3,
+  "packages/bundle/src/vite.ts": 12,
+  "packages/bundle/test/checks.test.ts": 1,
+  "packages/bundle/test/compare.test.ts": 2,
+  "packages/bundle/test/operations.test.ts": 1,
+  "packages/bundle/test/report.test.ts": 3,
+  "packages/bundle/test/routes.test.ts": 3,
+  "packages/bundle/vite.config.ts": 2
+}

@@ -1,0 +1,17 @@
+{
+  "packages/gateways/src/ai-sdk.ts": 5,
+  "packages/gateways/src/ask-model.ts": 7,
+  "packages/gateways/src/ask.ts": 8,
+  "packages/gateways/src/definition.ts": 3,
+  "packages/gateways/src/diagnostics.ts": 14,
+  "packages/gateways/src/env.ts": 1,
+  "packages/gateways/src/internal.ts": 1,
+  "packages/gateways/src/jev.ts": 16,
+  "packages/gateways/src/presets.ts": 24,
+  "packages/gateways/src/public-diagnostics.ts": 1,
+  "packages/gateways/test/ask-schema.test.ts": 2,
+  "packages/gateways/test/ask.test.ts": 2,
+  "packages/gateways/test/emulate.test.ts": 2,
+  "packages/gateways/test/error-fixes-plain.test.ts": 2,
+  "packages/gateways/vite.config.ts": 1
+}

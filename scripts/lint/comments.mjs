@@ -1,0 +1,96 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
+
+import { definePlugin, defineRule } from "vite-plus/lint/plugins"
+
+const repoRoot = resolve(import.meta.dirname, "../..")
+export const baselineDir = join(import.meta.dirname, "comment-baseline")
+
+/** Comments that a tool reads: compiler and linter directives, bundler annotations, triple-slash references, and licenses. */
+const directive = /^\s*(?:@ts-|eslint[\s-]|oxlint-|(?:nuxt-|vite-)?doctor-(?:disable|enable)|SAFETY\s*:|prettier-ignore|oxfmt-ignore|dprint-ignore|biome-ignore|global\s|[#@]__(?:PURE|NO_SIDE_EFFECTS)__|@vite-ignore|@vue-ignore|webpackIgnore|@vitest-environment|(?:v8|c8|istanbul) ignore|@jsx|#\s*source(?:Mapping)?URL=|\/\s*<reference|!|\s*@(?:license|preserve)\b)/
+/** JSDoc that gives a JavaScript file its types. */
+const jsTypes = /@(?:type|satisfies|typedef|import|template|callback|param|returns?|property|this)\s*\{/
+
+const apiMembers = [
+  "MethodDefinition",
+  "PropertyDefinition",
+  "TSCallSignatureDeclaration",
+  "TSEnumMember",
+  "TSIndexSignature",
+  "TSMethodSignature",
+  "TSPropertySignature",
+]
+
+/** `packages-<pkg>`, a top-level folder, or `root`. One baseline file per area keeps parallel pull requests apart. */
+export function areaOf(file) {
+  const parts = file.split("/")
+  if (parts.length === 1) return "root"
+  return parts[0] === "packages" ? `packages-${parts[1]}` : parts[0].replace(/^\./, "")
+}
+
+export function readBaseline() {
+  const baseline = {}
+  if (!existsSync(baselineDir)) return baseline
+  for (const name of readdirSync(baselineDir).filter(name => name.endsWith(".json"))) {
+    Object.assign(baseline, JSON.parse(readFileSync(join(baselineDir, name), "utf8")))
+  }
+  return baseline
+}
+
+const baseline = process.env.VITEHUB_COMMENT_BASELINE === "off" ? {} : readBaseline()
+
+function isExported(node) {
+  for (let current = node; current; current = current.parent) {
+    if (current.type === "ExportNamedDeclaration" || current.type === "ExportDefaultDeclaration") return true
+  }
+  return false
+}
+
+const noComments = defineRule({
+  meta: {
+    messages: {
+      banned: "Delete this comment. Name the code so it needs none, record a decision in adr/, or file an issue for a workaround. See .agents/skills/delete-comment/SKILL.md.",
+      ratchet: "This file has {{count}} comments, and scripts/lint/comment-baseline allows {{allowed}}. Delete comments until it fits. See .agents/skills/delete-comment/SKILL.md.",
+    },
+  },
+  create(context) {
+    const file = relative(repoRoot, context.filename)
+    if (/(?:^|\/)(?:fixtures|__fixtures__)\//.test(file)) return {}
+    const publicSource = /^packages\/[^/]+\/src\//.test(file)
+    const apiDocs = new Set()
+
+    function keepApiDoc(node) {
+      if (!publicSource || !isExported(node)) return
+      const pipe = node.parent?.type === "TSUnionType" ? context.sourceCode.getTokenBefore(node) : undefined
+      const doc = context.sourceCode.getCommentsBefore(pipe?.value === "|" ? pipe : node).at(-1)
+      if (doc?.type === "Block" && doc.value.startsWith("*")) apiDocs.add(doc)
+    }
+
+    const visitors = {
+      ExportDefaultDeclaration: keepApiDoc,
+      ExportNamedDeclaration: keepApiDoc,
+      "Program:exit"() {
+        const banned = context.sourceCode.getAllComments().filter(comment =>
+          comment.type !== "Shebang"
+          && !apiDocs.has(comment)
+          && !directive.test(comment.value)
+          && !(comment.type === "Block" && jsTypes.test(comment.value)))
+        const allowed = baseline[file] ?? 0
+        if (banned.length <= allowed) return
+        for (const comment of banned) {
+          context.report(allowed
+            ? { loc: comment.loc, messageId: "ratchet", data: { count: String(banned.length), allowed: String(allowed) } }
+            : { loc: comment.loc, messageId: "banned" })
+        }
+      },
+    }
+    for (const type of apiMembers) visitors[type] = keepApiDoc
+    visitors.TSUnionType = node => node.types.forEach(keepApiDoc)
+    return visitors
+  },
+})
+
+export default definePlugin({
+  meta: { name: "vitehub" },
+  rules: { "no-comments": noComments },
+})

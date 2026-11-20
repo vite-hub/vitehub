@@ -1,0 +1,7 @@
+{
+  "packages/channels/src/client.ts": 6,
+  "packages/channels/src/definition.ts": 5,
+  "packages/channels/src/discovery.ts": 5,
+  "packages/channels/src/error-diagnostics.ts": 2,
+  "packages/channels/src/vite.ts": 1
+}

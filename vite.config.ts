@@ -3,6 +3,12 @@ import { defineConfig } from "vite-plus";
 import { rootTestTasks } from "./test/tasks.ts";
 
 export default defineConfig({
+  lint: {
+    jsPlugins: ["./scripts/lint/comments.mjs"],
+    rules: {
+      "vitehub/no-comments": "error",
+    },
+  },
   run: {
     tasks: {
       "blob:e2e": {

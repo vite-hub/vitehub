@@ -1,0 +1,19 @@
+{
+  "packages/kit/scripts/styles.ts": 17,
+  "packages/kit/src/nuxt.ts": 3,
+  "packages/kit/src/primitives/tags-input.ts": 13,
+  "packages/kit/test/browser/page/App.vue": 1,
+  "packages/kit/test/browser/page/icons.ts": 1,
+  "packages/kit/test/browser/page/log.ts": 1,
+  "packages/kit/test/browser/page/main.ts": 4,
+  "packages/kit/test/browser/page/media.ts": 1,
+  "packages/kit/test/browser/page/parts/skeleton.vue": 1,
+  "packages/kit/test/browser/styles.browser.mjs": 29,
+  "packages/kit/test/dom.ts": 7,
+  "packages/kit/test/entries.ts": 3,
+  "packages/kit/test/own-ssr.test.ts": 1,
+  "packages/kit/test/package.test.ts": 5,
+  "packages/kit/test/styles.test.ts": 1,
+  "packages/kit/test/tokens.test.ts": 7,
+  "packages/kit/vite.config.ts": 2
+}
