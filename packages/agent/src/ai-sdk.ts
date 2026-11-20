@@ -1376,7 +1376,7 @@ async function createAgent(
     ),
     metadataContext,
     context.workspaceInstructionBindings,
-  )
+  ) || undefined
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
   const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence((await applyCapabilityToolTransforms({
     ...context.tools,
