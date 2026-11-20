@@ -230,6 +230,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           }
           const packageMarker = `/node_modules/${packageName}/`
           const packageMarkerIndex = normalizedSpecifier.lastIndexOf(packageMarker)
+          if (alias.prefix && packageMarkerIndex === -1 && !isRelativeSpecifier(alias.specifier)) continue
           const resolutionScope = packageMarkerIndex === -1
             ? ""
             : normalizedSpecifier.slice(0, packageMarkerIndex + packageMarker.length)

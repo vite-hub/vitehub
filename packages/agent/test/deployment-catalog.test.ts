@@ -6,12 +6,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 import { parse, string } from "valibot"
 
+import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+
 import { agentRuntimeModule, hubAgent } from "../src/vite.ts"
 import { syncWorkspaceDefinition } from "../../workspace/src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../../workspace/src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../../workspace/src/storage/local.ts"
 
 import type { WorkspaceDefinition } from "../../workspace/src/core/types.ts"
+
+vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
+  writeProviderDeploymentOutputs: vi.fn(async () => undefined),
+}))
 
 interface CapturedStateAdapter {
   kind: string
@@ -596,8 +603,12 @@ describe("generated Agent deployment catalog", () => {
 
 it("executes the same catalog through the Netlify Adapter", async () => {
   vi.stubEnv("VITEHUB_HOST", "netlify")
+  vi.mocked(writeProviderDeploymentOutputs).mockClear()
   runtime = await createDeploymentRuntimeFixture("netlify")
 
+  expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
+    netlify: { functions: [expect.objectContaining({ functionName: "vitehub-agent" })] },
+  }))
   await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
     agent: "support",
     agentIdentity: { name: "support", workspace: "support" },
@@ -619,4 +630,4 @@ it("executes the same catalog through the Netlify Adapter", async () => {
   await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
     .resolves.toBe("Retained Workspace context.\n")
   expect(runtime.waitUntilTasks).toHaveLength(2)
-}, 30_000)
+})

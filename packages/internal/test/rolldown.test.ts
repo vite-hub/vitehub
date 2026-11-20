@@ -658,6 +658,33 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
   })
 
+  it("does not probe a synthetic package prefix for unrelated absolute imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "retained.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\n`),
+      writeFile(dependency, 'export const value = "retained"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example/server/registry", replacement }]),
+      platform: "node",
+      plugins: [{
+        name: "reject-invalid-package-prefix",
+        resolveId(source) {
+          if (source === "example/server/registry/") this.error(`Cannot resolve ${source}`)
+        },
+      }],
+    })
+
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("retained")
+  })
+
   it("matches scope aliases after scoped package imports become absolute", async () => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/@scope/example")
