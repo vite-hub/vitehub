@@ -913,10 +913,12 @@ function deploymentNitroModule(
   deploy: DeploymentDeployManifest | undefined,
   cloudflareVars: () => ReturnType<typeof cloudflareServerEnvVars>,
   resolvedPlugins: () => readonly unknown[] | undefined,
+  realtime: boolean,
 ) {
   return (nitro: {
     hooks: {
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
+        & ((name: "build:before", callback: () => void) => void)
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
     logger: { warn(message: string): void }
@@ -944,6 +946,16 @@ function deploymentNitroModule(
       // Nitro passes the configuration for its resolved builder.
       nitro.hooks.hook("build:config", (_nitro, config) => addPackagesPlugin(config.rolldown ?? config.rollup))
     }
+    if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false) {
+      // Every module has added its `compiled` hooks by `build:before`, and Nitro runs them in order. Adding the check then
+      // runs it on the final `wrangler.json`, after the hooks of modules that the project installs after ViteHub.
+      let checked = false
+      nitro.hooks.hook("build:before", () => {
+        if (checked) return
+        checked = true
+        nitro.hooks.hook("compiled", async () => await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [], { realtime }))
+      })
+    }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
@@ -951,7 +963,6 @@ function deploymentNitroModule(
       if (plan.host === "cloudflare") {
         await addCloudflareVars(nitro.options.output.serverDir, cloudflareVars())
         await collapseWranglerConfigFile(nitro.options.output.serverDir)
-        await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [])
       }
       if (plan.output.packaging === "deno-node-modules") {
         invariant(serverPackages, "denoServerPackagesPlugin() sets the runtime packages when it writes the Deno server bundle")
@@ -1295,7 +1306,7 @@ function deploymentPlugins(
               const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
               nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars, () => resolvedPlugins)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars, () => resolvedPlugins, Boolean(options.realtime))
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,

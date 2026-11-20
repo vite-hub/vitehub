@@ -35,12 +35,15 @@ function describe(resource: ViteHubResourceSummary): string {
   return `the ${resource.kind} binding ${resource.binding}${resource.name ? ` (${resource.name})` : ""} ${owner}`
 }
 
-/** Lists the resources that the Wrangler config lacks. A resource without a binding or cron is not checked. */
+/**
+ * Lists the resources that the Wrangler config lacks. A resource without a binding or cron is not checked, and neither is
+ * one in a standalone Worker's own Wrangler config.
+ */
 export function findMissingCloudflareResources(config: Record<string, unknown>, resources: readonly ViteHubResourceSummary[]): ViteHubResourceSummary[] {
   const triggers = section(config, "triggers")
   const crons = new Set(Array.isArray(triggers.crons) ? triggers.crons.filter(cron => typeof cron === "string") : [])
   return resources.filter((resource) => {
-    if (resource.host !== "cloudflare") return false
+    if (resource.host !== "cloudflare" || resource.standalone) return false
     if (resource.kind === "cloudflare-cron") return resource.name !== undefined && !crons.has(resource.name)
     const fields = wranglerFields[resource.kind]
     if (!fields || !resource.binding) return false
@@ -50,15 +53,18 @@ export function findMissingCloudflareResources(config: Record<string, unknown>, 
   })
 }
 
+/** The Durable Object that ViteHub binds for Realtime rooms on Cloudflare. ViteHub writes it, so no plugin lists it. */
+const realtimeDurableObject: ViteHubResourceSummary = { binding: "$DurableObject", definition: "rooms", host: "cloudflare", kind: "cloudflare-durable-object", name: "$DurableObject", owner: "realtime" }
+
 /**
  * Checks the final `wrangler.json` against the resources that the ViteHub plugins list for this build, and throws when one
- * is missing. A Worker deployed without a binding fails only when code first reads it.
+ * is missing. A Worker deployed without a binding fails only when code first reads it. A missing or unreadable file lacks
+ * every resource.
  */
-export async function assertCloudflareResources(serverDir: string, plugins: readonly unknown[]): Promise<void> {
+export async function assertCloudflareResources(serverDir: string, plugins: readonly unknown[], options: { realtime?: boolean } = {}): Promise<void> {
   const file = join(serverDir, "wrangler.json")
-  if (!existsSync(file)) return
-  const config: unknown = JSON.parse(await readFile(file, "utf8"))
-  if (typeof config !== "object" || config === null) return
-  const missing = findMissingCloudflareResources(config as Record<string, unknown>, await collectViteHubResourceSummaries(plugins))
+  const config: unknown = existsSync(file) ? JSON.parse(await readFile(file, "utf8")) : undefined
+  const resources = [...await collectViteHubResourceSummaries(plugins), ...options.realtime ? [realtimeDurableObject] : []]
+  const missing = findMissingCloudflareResources(typeof config === "object" && config !== null && !Array.isArray(config) ? config as Record<string, unknown> : {}, resources)
   if (missing.length) throw viteHubErrorDiagnostics.VITE_HUB_CLOUDFLARE_RESOURCE_MISSING({ file, resources: missing.map(describe).join("; ") })
 }

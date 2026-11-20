@@ -174,7 +174,7 @@ Container duplicates must agree on `scheduling_policy`, which defaults to `defau
 
 ### Resource check
 
-After it writes `wrangler.json`, the build checks that the file still has every resource that ViteHub generates for the app: D1, KV, R2, Queue, Workflow, and Durable Object bindings, and the Schedule cron triggers. A Worker without a binding fails only when code first reads it, so a missing entry fails the build with `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`. The error names each missing entry and its Definition. Look for a project Wrangler config, Nitro hook, or module that removes or renames it. `vitehub inspect resources` lists the resources that the check expects.
+After every Nitro hook has written `wrangler.json`, the build checks that the file still has every resource that ViteHub generates for the app: the D1, KV, R2, Queue, and Workflow bindings, the Durable Objects of Agent state, Realtime, and Sandbox Tasks, and the Schedule cron triggers. A Worker without a binding fails only when code first reads it, so a missing entry fails the build with `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`. A missing `wrangler.json` fails the same way. The error names each missing entry and its Definition. Look for a project Wrangler config, Nitro hook, or module that removes or renames it. `vitehub inspect resources` lists the resources that the check expects. The check skips the resources of a standalone Worker, which has its own Wrangler config, and it does not run when `cloudflare.deployConfig` is `false`.
 
 ### Node.js compatibility in Nuxt
 

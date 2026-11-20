@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { createBuilder } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { findMissingCloudflareResources } from "../src/cloudflare-resources.ts"
+import { assertCloudflareResources, findMissingCloudflareResources } from "../src/cloudflare-resources.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubResourceSummary } from "@vite-hub/internal/inspect"
@@ -39,6 +40,19 @@ describe("findMissingCloudflareResources", () => {
     }, resources)
     expect(missing.map(resource => resource.kind)).toEqual(["cloudflare-queue", "cloudflare-durable-object", "cloudflare-cron"])
   })
+
+  it("checks the Realtime Durable Object that ViteHub binds", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-resources-"))
+    roots.push(dir)
+    await writeFile(join(dir, "wrangler.json"), JSON.stringify({ durable_objects: { bindings: [] } }))
+    await expect(assertCloudflareResources(dir, [], { realtime: true })).rejects.toMatchObject({ code: "VITE_HUB_CLOUDFLARE_RESOURCE_MISSING" })
+    await writeFile(join(dir, "wrangler.json"), JSON.stringify({ durable_objects: { bindings: [{ class_name: "$DurableObject", name: "$DurableObject" }] } }))
+    await expect(assertCloudflareResources(dir, [], { realtime: true })).resolves.toBeUndefined()
+  })
+
+  it("skips the resources of a standalone Worker, which has its own Wrangler config", () => {
+    expect(findMissingCloudflareResources({}, [{ definition: "cleanup", host: "cloudflare", kind: "cloudflare-cron", name: "0 3 * * *", owner: "schedule", standalone: true }])).toEqual([])
+  })
 })
 
 const roots: string[] = []
@@ -46,11 +60,27 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).flatMap(root => [root, `${root}.vite-cache`]).map(root => rm(root, { force: true, recursive: true })))
 })
 
-// A Nitro module that removes the cron triggers that the Schedule plugin added, as a broken upgrade or project hook could.
-const dropTriggers = (nitro: { hooks: { hook: (name: string, fn: () => void) => void }, options: { cloudflare?: { wrangler?: Record<string, unknown> } } }) => {
+type TestNitro = { hooks: { hook: (name: string, fn: () => unknown) => void }, options: { cloudflare?: { wrangler?: Record<string, unknown> }, output: { serverDir: string } } }
+
+// Nitro modules that break the Schedule cron, as a broken upgrade or project hook could. A project module runs after ViteHub's.
+const dropTriggers = (nitro: TestNitro) => {
   nitro.hooks.hook("build:before", () => {
     delete nitro.options.cloudflare?.wrangler?.triggers
   })
+}
+const dropTriggersFromFile = (nitro: TestNitro) => {
+  nitro.hooks.hook("compiled", async () => {
+    const file = join(nitro.options.output.serverDir, "wrangler.json")
+    const config = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    delete config.triggers
+    await writeFile(file, JSON.stringify(config))
+  })
+}
+const deleteFile = (nitro: TestNitro) => {
+  nitro.hooks.hook("compiled", async () => await unlink(join(nitro.options.output.serverDir, "wrangler.json")))
+}
+const writeNull = (nitro: TestNitro) => {
+  nitro.hooks.hook("compiled", async () => await writeFile(join(nitro.options.output.serverDir, "wrangler.json"), "null"))
 }
 
 async function build(modules: unknown[]): Promise<string> {
@@ -79,8 +109,13 @@ describe("Cloudflare build", () => {
     expect(wrangler.triggers?.crons).toContain("0 9 * * *")
   }, 120_000)
 
-  it("fails with a coded error when a step drops the Schedule cron", async () => {
-    await expect(build([dropTriggers])).rejects.toMatchObject({
+  it.each([
+    ["drops the cron from the Nitro config", dropTriggers],
+    ["drops the cron from the generated file", dropTriggersFromFile],
+    ["deletes the generated file", deleteFile],
+    ["writes null to the generated file", writeNull],
+  ])("fails with a coded error when a project module %s", async (_name, module) => {
+    await expect(build([module])).rejects.toMatchObject({
       code: "VITE_HUB_CLOUDFLARE_RESOURCE_MISSING",
       message: expect.stringMatching(/wrangler\.json lacks the cron trigger "0 9 \* \* \*" for schedule "daily"/),
     })
