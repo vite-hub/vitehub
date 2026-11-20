@@ -36,7 +36,7 @@ const factories = {
 }
 
 describe.each(Object.entries(factories))("%s KV clear", (_name, createStorage) => {
-  it.each(["users", "users/", "/users", "users\\", "users::"])("clears only keys under base %j", async (base) => {
+  it.each(["users:", "users/", "users\\", "users::"])("clears only keys below the prefix %j, which ends with a separator", async (base) => {
     const { storage, cleanup } = await createStorage()
     try {
       await storage.setItem("users/alice", "alice")
@@ -53,6 +53,25 @@ describe.each(Object.entries(factories))("%s KV clear", (_name, createStorage) =
 
       await storage.clear()
       await expect(storage.getKeys()).resolves.toEqual([])
+    }
+    finally {
+      await storage.dispose()
+      await cleanup()
+    }
+  })
+
+  it.each(["users", "/users"])("clears every key that starts with the text %j", async (base) => {
+    const { storage, cleanup } = await createStorage()
+    try {
+      await storage.setItem("users/alice", "alice")
+      await storage.setItem("users-other/alice", "other")
+      await storage.setItem("settings", "keep")
+
+      await storage.clear(base)
+
+      await expect(storage.getItem("users/alice")).resolves.toBeNull()
+      await expect(storage.getItem("users-other/alice")).resolves.toBeNull()
+      await expect(storage.getItem("settings")).resolves.toBe("keep")
     }
     finally {
       await storage.dispose()
@@ -79,14 +98,16 @@ describe("a driver without clear()", () => {
     return driver
   }
 
-  it("removes only keys under the base", async () => {
+  it("removes only keys that start with the prefix", async () => {
     const storage = createKVStorage(createDriver())
     for (let index = 0; index < 250; index++) await storage.setItem(`users:${index}`, "value")
     await storage.setItem("users-other:alice", "other")
+    await storage.setItem("settings", "keep")
 
+    await storage.clear("users:")
+    expect((await storage.getKeys()).sort()).toEqual(["settings", "users-other:alice"])
     await storage.clear("users")
-
-    await expect(storage.getKeys()).resolves.toEqual(["users-other:alice"])
+    await expect(storage.getKeys()).resolves.toEqual(["settings"])
   })
 
   it("propagates a prefix enumeration failure without deleting keys", async () => {

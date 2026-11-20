@@ -1,4 +1,4 @@
-import type { KVListOptions, KVListPage } from "../types.ts"
+import type { KVPageOptions, KVListPage } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
 
@@ -93,7 +93,7 @@ export function createRedisKeyLister(provider: string, scan: (cursor: string, ma
     return continuations.retain({ cursor: providerCursor, keys }, bytes)
   }
 
-  async function listKeys({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> {
+  async function listKeys({ cursor, limit, prefix = "" }: KVPageOptions): Promise<KVListPage> {
     const retained = cursor ? continuations.take(cursor) : undefined
     if (cursor && !retained && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(cursor)) {
       throw expired()
@@ -160,7 +160,7 @@ function encodePortableCursor(cursor: PortableCursor): string {
  * pages are deleted. Like SCAN itself, a key that changes during the listing can be missed or repeated.
  */
 export function createPortableRedisKeyLister(provider: string, scan: (cursor: string, match: string, count: number) => Promise<[string, string[]]>) {
-  return async function listKeys({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> {
+  return async function listKeys({ cursor, limit, prefix = "" }: KVPageOptions): Promise<KVListPage> {
     const state = cursor ? decodePortableCursor(cursor) : { cursor: "0", keys: [] }
     let next = state.cursor
     let batch = state.keys
