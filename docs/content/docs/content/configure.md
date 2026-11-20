@@ -392,7 +392,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { roles: true }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.

@@ -24,6 +24,7 @@ export function isTransientNetworkError(error: unknown): boolean {
 /** Runs a read again after 1 and 3 seconds while it fails with a transient network error. */
 export async function retryTransient<T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
     try {
       return await read();
     } catch (error) {

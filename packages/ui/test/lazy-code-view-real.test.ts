@@ -2,6 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
+import { reactive } from "vue";
 import {
   FileDiff,
   FileView,
@@ -77,6 +78,51 @@ describe("lazy Pierre renderer", () => {
     });
     expect(loadDiffFiles).toHaveBeenCalledOnce();
     wrapper.unmount();
+  });
+
+  it("hydrates the supplied FileDiff metadata and reuses it on remount", async () => {
+    const { getSingularPatch } = await import("@pierre/diffs");
+    const fileDiff = getSingularPatch(patch);
+    const loadDiffFiles = vi.fn(async () => ({ oldFile, newFile }));
+    const props = { fileDiff, options: { loadDiffFiles } };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const wrapper = mount(FileDiff, { props });
+      try {
+        await vi.waitFor(() => {
+          expect(wrapper.get("diffs-container").element.shadowRoot?.textContent).toContain("first");
+        });
+        expect(fileDiff.isPartial).toBe(false);
+        expect(loadDiffFiles).toHaveBeenCalledOnce();
+      } finally {
+        wrapper.unmount();
+      }
+    }
+  });
+
+  it("moves the highlight and scrolls when a reactive selection is edited in place", async () => {
+    const selectedLines = reactive({ start: 1, end: 1 });
+    const scrolled: (string | undefined)[] = [];
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(function (this: HTMLElement) {
+      scrolled.push(this.dataset.line);
+    });
+    const wrapper = mount(FileView, { props: { file: newFile, scrollToSelectedLines: true, selectedLines } });
+    const highlightedLine = () => wrapper.get("diffs-container").element.shadowRoot
+      ?.querySelector<HTMLElement>("[data-line][data-selected-line]")?.dataset.line;
+
+    try {
+      await vi.waitFor(() => expect(scrolled).toEqual(["1"]));
+      expect(highlightedLine()).toBe("1");
+      selectedLines.start = 5;
+      selectedLines.end = 5;
+      await vi.waitFor(() => {
+        expect(highlightedLine()).toBe("5");
+        expect(scrolled).toEqual(["1", "5"]);
+      });
+    } finally {
+      wrapper.unmount();
+      scrollIntoView.mockRestore();
+    }
   });
 
   it("scrolls to the selected lines once for each new selection", async () => {

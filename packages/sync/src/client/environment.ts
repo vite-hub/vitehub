@@ -5,8 +5,11 @@ import type { BrowserEnvironment, BrowserEvent } from "@vite-hub/internal/browse
 /** A page event that the store reacts to. */
 type SyncEvent = BrowserEvent
 
-/** A message between tabs. `change` tells that the stored copy of a Sync route changed. */
-type SyncMessage = { type: "change", id: string } | { type: "clear" }
+/**
+ * A message between tabs. `change` tells that the stored copy of a Sync route changed. `clear` tells that `clearSync()`
+ * ran, with `keepWrites` when it kept the queued writes of each account.
+ */
+type SyncMessage = { type: "change", id: string } | { type: "clear", keepWrites?: boolean }
 
 /** What the store needs from the browser. Tests pass a fake one. */
 type SyncEnvironment = BrowserEnvironment<SyncMessage>
@@ -24,8 +27,8 @@ function createBrowserEnvironment(): SyncEnvironment {
 }
 
 /** Tells the other tabs that every store was cleared. */
-function postClear(): void {
-  postOnce(channel, { type: "clear" } satisfies SyncMessage)
+function postClear(keepWrites: boolean): void {
+  postOnce(channel, (keepWrites ? { type: "clear", keepWrites } : { type: "clear" }) satisfies SyncMessage)
 }
 
 export { createBrowserEnvironment, postClear }

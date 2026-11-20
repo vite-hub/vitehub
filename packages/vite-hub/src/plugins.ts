@@ -16,7 +16,7 @@ import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { viteHubHintsPlugin } from "@vite-hub/internal/hints"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
+import { collapseWranglerConfigFile, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
@@ -652,7 +652,8 @@ export interface ViteHubOptions {
    * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
    * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
    * `{ driver: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ driver: "vercel", networkPolicy: "deny-all" }`.
-   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials.
+   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials. `vite dev` runs
+   * each task as a local process with no isolation; `remote: true` uses the provider's Sandbox in dev too.
    */
   sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
@@ -853,6 +854,31 @@ type ResolvedBuildConfig = {
 
 interface BundlerConfig { plugins?: unknown }
 
+interface NitroCompatibilityDateOptions {
+  _c12?: { layers?: ReadonlyArray<{ config?: { compatibilityDate?: unknown } | null }> }
+  _config?: { compatibilityDate?: unknown }
+  compatibilityDate: Record<string, string>
+}
+
+function applyCloudflareCompatibilityDate(options: NitroCompatibilityDateOptions): void {
+  if (options._config?.compatibilityDate !== undefined
+    || options._c12?.layers?.some(layer => layer.config?.compatibilityDate !== undefined)) return
+  const value = process.env.NITRO_COMPATIBILITY_DATE || process.env.SERVER_COMPATIBILITY_DATE || process.env.COMPATIBILITY_DATE
+  const date = value === "latest" ? new Date() : new Date(value ?? "")
+  const cloudflare = process.env.COMPATIBILITY_DATE_CLOUDFLARE && options.compatibilityDate.cloudflare
+  options.compatibilityDate = {
+    default: Number.isNaN(date.getTime()) ? defaultCloudflareCompatibilityDate : date.toISOString().slice(0, 10),
+    ...(cloudflare ? { cloudflare } : {}),
+  }
+}
+
+export function applyCloudflareNodeCompatOptOut(cloudflare: Record<string, unknown>, rootDir: string): void {
+  if (cloudflare.nodeCompat === false) return
+  const inline = isRecord(cloudflare.wrangler) ? cloudflare.wrangler.compatibility_flags : undefined
+  const project = readProjectWranglerConfig(rootDir)?.compatibility_flags
+  if ([inline, project].some(flags => Array.isArray(flags) && flags.includes("no_nodejs_compat"))) cloudflare.nodeCompat = false
+}
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
@@ -874,9 +900,13 @@ function deploymentNitroModule(
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
     logger: { warn(message: string): void }
-    options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean, nodeCompat?: boolean, wrangler?: unknown }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
+    if (plan.host === "cloudflare") {
+      applyCloudflareCompatibilityDate(nitro.options)
+      applyCloudflareNodeCompatOptOut(nitro.options.cloudflare ??= {}, nitro.options.rootDir)
+    }
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.

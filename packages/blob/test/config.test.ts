@@ -862,6 +862,27 @@ describe("blob config in vite dev", () => {
     })
   })
 
+  it("keeps an explicit cloudflare store on the dev runner's binding or the local fs store", () => {
+    // The Node dev runner of `vite dev` and `nuxt dev` has no R2 binding, so the store must not need one.
+    expect(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: {}, hosting: "cloudflare" })?.store).toEqual({
+      binding: "TASK_ASSETS",
+      bucketName: "task-assets",
+      driver: "cloudflare",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { binding: "BLOB", driver: "cloudflare" },
+        media: { binding: "MEDIA", driver: "cloudflare" },
+      },
+    }, { dev: true, env: {} })
+    expect(config?.stores?.default).toMatchObject({ localFallback: { base: ".vitehub/data/blob", driver: "fs" } })
+    // Each named store gets its own folder, so two buckets do not share files.
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: ".vitehub/data/blob-media", driver: "fs" } })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare", remote: true }, { dev: true, env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare", remote: true })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare" }, { env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare" })
+  })
+
   it("applies remote per named store", () => {
     const config = normalizeBlobOptions({
       stores: {
