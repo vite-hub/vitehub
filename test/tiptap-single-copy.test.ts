@@ -25,5 +25,8 @@ it.each(["realtime", "content"])("@vite-hub/%s takes Tiptap and Yjs from the app
   const shared = (name: string) => (name.startsWith("@tiptap/") || name === "yjs") && !(directory === "realtime" && bundled.has(name))
   expect(Object.keys(dependencies).filter(shared)).toEqual([])
   expect(Object.keys(peerDependencies).filter(shared)).toContain("@tiptap/core")
-  expect(Object.keys(peerDependenciesMeta).filter(name => shared(name) && peerDependenciesMeta[name]?.optional)).toEqual([])
+  // Content needs Tiptap only for `./editor` and its live room, so an app that does not edit installs none. An optional
+  // peer still resolves to the app's copy. Realtime needs Tiptap in every room.
+  const optional = Object.keys(peerDependenciesMeta).filter(name => shared(name) && peerDependenciesMeta[name]?.optional).sort()
+  expect(optional).toEqual(directory === "content" ? Object.keys(peerDependencies).filter(shared).sort() : [])
 })
