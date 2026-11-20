@@ -471,6 +471,7 @@
     "magic-string": "^0.30.21",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
+    "resolve-pkg-maps": "^1.0.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {

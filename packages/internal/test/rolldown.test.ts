@@ -27,6 +27,23 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("preserves a handled missing dynamic import without tolerating required imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "out.mjs")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const handled = 'export const run = () => import("missing-adapter").then(m => m.default).catch(() => "fallback")'
+    await writeFile(entry, handled)
+    await bundleEsmEntry(entry, outfile)
+    const loaded: { run: () => Promise<string> } = await import(pathToFileURL(outfile).href)
+    await expect(loaded.run()).resolves.toBe("fallback")
+
+    await writeFile(entry, `${handled}\nexport const required = () => import("missing-adapter")`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+    await writeFile(entry, `${handled}\nimport "missing-adapter"`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+  })
+
   it("resolves a private import alias alongside unrelated absolute imports", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")

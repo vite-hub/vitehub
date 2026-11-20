@@ -183,8 +183,12 @@ describe("unified vite e2e hosted outputs", () => {
     })
   }, 45_000)
 
-  it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
+  it("keeps the Cloudflare artifact provider-pure and preserves hosted bindings from config and provision state", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: { d1: { analytics: "analytics-d1-id", primary: "primary-d1-id" } },
+    }))
 
     await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
@@ -195,8 +199,8 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "",
+        VITEHUB_D1_DATABASE_ID: "",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
         VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
@@ -251,50 +255,6 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.durable_objects?.bindings).toBeTruthy()
     expect(cloudflareConfig.migrations).toBeTruthy()
     expect(cloudflareConfig.artifacts).toBeUndefined()
-  }, 90_000)
-
-  it("uses provision state for cloudflare D1 bindings", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-provision-")
-    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
-    await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
-      cloudflare: {
-        d1: {
-          analytics: "analytics-d1-id",
-          primary: "primary-d1-id",
-        },
-      },
-    }, null, 2)}\n`)
-
-    await execFileAsync(process.execPath, [vp, "build"], {
-      cwd: rootDir,
-      env: {
-        ...process.env,
-        BLOB_BUCKET_NAME: "assets",
-        KV_NAMESPACE_ID: "kv-namespace",
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOST: "cloudflare",
-        VITEHUB_VITE_MODE: "e2e",
-      },
-      maxBuffer: execMaxBuffer,
-    })
-
-    const cloudflareConfig = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
-
-    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        binding: "DB",
-        database_id: "primary-d1-id",
-        database_name: "vitehub-playground-db",
-      }),
-      expect.objectContaining({
-        binding: "DB_ANALYTICS",
-        database_id: "analytics-d1-id",
-        database_name: "vitehub-playground-analytics",
-      }),
-    ]))
   }, 90_000)
 
   it("names every Cloudflare resource after the live-smoke scratch prefix", async () => {

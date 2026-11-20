@@ -8,6 +8,7 @@ import type { Rolldown } from "vite"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
+import type { Node } from "./scan-module.ts"
 
 type Plugin = Rolldown.Plugin
 type PluginContext = Rolldown.PluginContext
@@ -480,10 +481,68 @@ function createExternalPackagesPlugin(): Plugin {
   return {
     name: "vitehub-external-packages",
     async resolveId(source, importer, extra) {
+      if (source.startsWith("npm:") || source.startsWith("jsr:")) return { id: source, external: true }
       if (source.startsWith("#")) {
         return await this.resolve(source, importer, { custom: extra.custom, kind: extra.kind }) ?? { id: source, external: true }
       }
       if (isBareSpecifier(source) && !isBuiltin(source)) return { id: source, external: true }
+    },
+  }
+}
+
+function hasImportRejectionHandler(importNode: Node, parents: WeakMap<Node, Node>): boolean {
+  let expression = importNode
+  let parent = parents.get(expression)
+  while (parent?.type === "MemberExpression" && parent.object === expression) {
+    const call = parents.get(parent)
+    if (call?.type !== "CallExpression" || call.callee !== parent) break
+    const method = parent.property.type === "Identifier" && !parent.computed ? parent.property.name
+      : parent.property.type === "Literal" ? parent.property.value : undefined
+    const handler = call.arguments[method === "then" ? 1 : 0]
+    if ((method === "then" || method === "catch") && handler && handler.type !== "SpreadElement") {
+      if (handler.type !== "Literal" && !(handler.type === "Identifier" && handler.name === "undefined")) return true
+    }
+    if (method !== "then" && method !== "finally") break
+    expression = call
+    parent = parents.get(expression)
+  }
+  if (parent?.type !== "AwaitExpression") return false
+  for (let child: Node = parent, ancestor = parents.get(child); ancestor; ancestor = parents.get(child)) {
+    if (ancestor.type === "TryStatement" && ancestor.block === child && ancestor.handler) return true
+    if (ancestor.type === "ArrowFunctionExpression" || ancestor.type === "FunctionExpression" || ancestor.type === "FunctionDeclaration") break
+    child = ancestor
+  }
+  return false
+}
+
+function createOptionalImportPlugin(): Plugin {
+  const prefix = "\0vitehub-optional-import:"
+  return {
+    name: "vitehub-optional-import",
+    resolveId(source) {
+      if (source.startsWith(prefix)) return { id: source.slice(prefix.length), external: "absolute" }
+    },
+    transform: {
+      order: "post",
+      filter: { code: /\bimport\s*(?:\(|\/)/ },
+      async handler(code, id) {
+        const { scanModule, walk } = await import("./scan-module.ts")
+        const module = scanModule(code, id)
+        if (module.errors.length) return
+        const parents = new WeakMap<Node, Node>()
+        const handled: { source: string, start: number, end: number }[] = []
+        walk(module.program, (node, parent) => {
+          if (parent) parents.set(node, parent)
+          if (node.type !== "ImportExpression" || node.source.type !== "Literal" || typeof node.source.value !== "string") return
+          if (hasImportRejectionHandler(node, parents)) handled.push({ source: node.source.value, start: node.source.start, end: node.source.end })
+        })
+        if (!handled.length) return
+        const resolved = await Promise.all(handled.map(({ source }) => this.resolve(source, id, { kind: "dynamic-import" })))
+        for (const [index, { source, start, end }] of [...handled.entries()].reverse()) {
+          if (!resolved[index]) code = code.slice(0, start) + JSON.stringify(prefix + source) + code.slice(end)
+        }
+        return code
+      },
     },
   }
 }
@@ -532,6 +591,7 @@ export async function bundleEsmEntry(
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime, workingDir))
   if (options.packages === "external") plugins.push(createExternalPackagesPlugin())
+  plugins.push(createOptionalImportPlugin())
   const isExternal = createExternalMatcher(options.external)
   const minify = options.minifyIdentifiers || options.minifySyntax || options.minifyWhitespace
     ? {

@@ -369,9 +369,13 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
   const literal = stringifyProviderOutputConfig(config)
   // Minification keeps the names of functions and classes, so the bundle can declare its own `config`. Netlify also
   // reads a config that an export list names.
-  const exported = await declaresTopLevelBinding(bundled, "config")
-    ? `const vitehubNetlifyFunctionConfig = ${literal}\nexport { vitehubNetlifyFunctionConfig as config }`
-    : `export const config = ${literal}`
+  let exported = `export const config = ${literal}`
+  if (await declaresTopLevelBinding(bundled, "config")) {
+    const baseName = "vitehubNetlifyFunctionConfig"
+    let name = baseName
+    for (let suffix = 2; bundled.includes(name); suffix++) name = `${baseName}${suffix}`
+    exported = `const ${name} = ${literal}\nexport { ${name} as config }`
+  }
   await writeFile(outfile, `${bundled.trimEnd()}\n\n${exported}\n`, "utf8")
 }
 
