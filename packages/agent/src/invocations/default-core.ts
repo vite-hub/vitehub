@@ -2,6 +2,7 @@
 // `libsql` loader. It never references `@libsql/client`, so a Worker build that passes no loader does not ship it.
 // It imports no Node builtin, so a Worker that selects D1 or memory starts without Node compatibility.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isWorkersRuntime } from "../internal/workers-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { d1AgentInvocationRetention } from "./d1-retention.ts"
 import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
@@ -101,12 +102,6 @@ export interface DefaultAgentInvocationsLocation {
 }
 
 const databases = new WeakMap<AgentInvocations, DefaultAgentInvocationsDatabase>()
-
-/** Workers have no file system, and the libSQL Web client rejects `file:` URLs. */
-function isWorkersRuntime(): boolean {
-  const navigator: unknown = Reflect.get(globalThis, "navigator")
-  return typeof navigator === "object" && navigator !== null && Reflect.get(navigator, "userAgent") === "Cloudflare-Workers"
-}
 
 function runtimeEnv(options: Pick<DefaultAgentInvocationsOptions, "env">): Readonly<Record<string, string | undefined>> {
   return options.env ?? globalThis.process?.env ?? {}
