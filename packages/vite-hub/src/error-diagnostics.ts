@@ -203,7 +203,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0113: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent get`.",
+      fix: "Pass an Agent name of at most 512 characters with `vitehub agent get <name>`. Use `vitehub agent list` to find the name.",
     },
     VITE_HUB_R0114: {
       ...dynamicError,

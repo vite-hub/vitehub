@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { organization } from "better-auth/plugins"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/internal/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 describe("server auth helpers", () => {
@@ -299,7 +299,7 @@ describe("server auth helpers", () => {
   it("does not treat an explicitly cached Auth Definition as the default discovered definition", () => {
     getAuthForDefinition(defineAuth({ appName: "Explicit" }))
 
-    expect(() => getAuth()).toThrow(/No Auth Definition was discovered/)
+    expect(() => useAuth()).toThrow(/No Auth Definition was discovered/)
   })
 
   it("requires an Auth Session and starts configured provider sign-in for HTML requests", async () => {

@@ -67,11 +67,13 @@ describe("vitehub connections", () => {
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
     const expiresAt = new Date(Date.now() + 150)
-    const fetch = (async () => Response.json({ expiresAt: expiresAt.toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
-    expect(await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47991"], context, { fetch, openBrowser: false })).toBe(1)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ expiresAt: expiresAt.toISOString(), state: "state-1", url: "https://auth.example.com/authorize" }))
+    expect(await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741"], context, { fetch, openBrowser: false })).toBe(1)
+    expect(fetch).toHaveBeenCalledOnce()
+    const { redirectUri } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
     const until = expiresAt.toTimeString().slice(0, 5)
-    expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for http://127.0.0.1:47991/callback ...\n`)
-    expect(output.stderr).toContain(`The browser did not return to http://127.0.0.1:47991/callback before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
+    expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for ${redirectUri} ...\n`)
+    expect(output.stderr).toContain(`The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
   })
 
   it("allows OAuth completion to finish after the provider's 30-second deadline", async () => {
@@ -113,16 +115,21 @@ describe("vitehub connections", () => {
   })
 
   it("explains the port to forward when the browser runs on another computer", async () => {
-    const fetch = (async () => Response.json({ expiresAt: new Date(Date.now() + 100).toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
-    const hint = "If the browser runs on another computer, forward port 47992 first. On that computer, run:\n\n  ssh -N -L 47992:127.0.0.1:47992 <user>@<this computer>\n"
-    const run = async (env: NodeJS.ProcessEnv, openBrowser: false | ((url: string) => Promise<void>)) => {
+    const run = async (env: NodeJS.ProcessEnv, openBrowser: (url: string) => Promise<void>) => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ expiresAt: new Date(Date.now() + 100).toISOString(), state: "state-1", url: "https://auth.example.com/authorize" }))
       let stderr = ""
-      await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47992"], { env, stderr: { write: chunk => (stderr += String(chunk)) }, stdout: { write: () => true } }, { fetch, openBrowser })
-      return stderr
+      await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741"], { env, stderr: { write: chunk => (stderr += String(chunk)) }, stdout: { write: () => true } }, { fetch, openBrowser })
+      expect(fetch).toHaveBeenCalledOnce()
+      const { redirectUri } = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))
+      const { port } = new URL(redirectUri)
+      expect(stderr).toContain(`Waiting for ${redirectUri} ...`)
+      return { stderr, hint: `If the browser runs on another computer, forward port ${port} first. On that computer, run:\n\n  ssh -N -L ${port}:127.0.0.1:${port} <user>@<this computer>\n` }
     }
-    expect(await run({ SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }, async () => {})).toContain(hint)
-    expect(await run({}, async () => { throw new Error("No browser") })).toContain(hint)
-    expect(await run({}, async () => {})).not.toContain("forward port")
+    const remote = await run({ SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }, async () => {})
+    expect(remote.stderr).toContain(remote.hint)
+    const noBrowser = await run({}, async () => { throw new Error("No browser") })
+    expect(noBrowser.stderr).toContain(noBrowser.hint)
+    expect((await run({}, async () => {})).stderr).not.toContain("forward port")
   })
 
   it("names the fix when the authorization link expired", async () => {

@@ -66,11 +66,11 @@ The route reads the signed-in user with a helper of the app:
 
 ```ts [server/utils/auth.ts]
 import { HTTPError } from 'h3'
-import { auth } from 'vite-hub/auth/server'
+import { useAuth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireAuthenticatedUser(event: H3Event) {
-  const session = await auth.api.getSession({ headers: event.req.headers })
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
   if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }

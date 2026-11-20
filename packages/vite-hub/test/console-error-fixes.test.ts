@@ -64,6 +64,11 @@ describe("Console error fixes", () => {
     expect(error.docs).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
   })
 
+  it("tells the CLI caller to pass the Agent name as an argument", () => {
+    const error = viteHubErrorDiagnostics.VITE_HUB_R0113({ message: "Invalid Agent name." })
+    expect(error.fix).toContain("`vitehub agent get <name>`")
+  })
+
   it("tells an Agent handler what invocationUrl() needs", () => {
     const links = agentConsole.resolve(runtime)
     expect(() => links.invocationUrl({ id: "ainv_1" })).toThrow(expect.objectContaining({

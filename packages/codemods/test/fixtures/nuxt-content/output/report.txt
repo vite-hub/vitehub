@@ -1,0 +1,23 @@
+nuxt-content: moved 3 collections from content.config.ts to server/content.ts, host "node".
+Dry run: no files were written.
+
+Files to change (4):
+  nuxt.config.ts
+  content.config.ts (deleted)
+  server/content.ts (new)
+  package.json
+
+Manual follow-ups (5):
+  1. nuxt.config.ts:6 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  2. content.config.ts:18 Collection authors: it is a data collection. Add json() or yaml() from comark-content to plugins in server/content.ts, so Content parses its files.
+  3. nuxt.config.ts:4 The codemod removed the content options of Nuxt Content. Set Markdown plugins with markdown or plugins in server/content.ts.
+  4. app/pages/blog/[...slug].vue:3 queryCollection() is Nuxt Content's query builder. Read a page with content.get(path) from server/content.ts, or createContentClient().get(path) from vite-hub/content/client in app code.
+  5. app/pages/blog/[...slug].vue:7 Render a Content document with the Markdown component of ViteHub UI. See https://vitehub.dev/docs/ui/markdown#content-pages.
+
+Notes:
+  - Each collection became a read-only glob() Source with the same files and paths. Content serves them at /api/content and reads them with content.get(path) and content.list().
+  - The codemod does not rewrite queryCollection() calls or <ContentRenderer>: the read API differs. See https://vitehub.dev/docs/content/get-started.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and @vite-hub/content and remove @nuxt/content.
+  - Run `npx nuxi prepare`, then replace the reads that the report lists.
