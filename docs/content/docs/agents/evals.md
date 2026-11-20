@@ -15,6 +15,8 @@ An Eval keeps the Agent's Driver, Capabilities, and Workspace, so it tests more
 than a prompt. Evals run the Agent inline. Test Workflow scheduling,
 durability, and the provider lifecycle separately on your host.
 
+Do not score Evals on the [AI emulator](/docs/agents/no-ai-key). It returns the answers of your rules, so the Eval scores the rules, not a model.
+
 ## Add one behavior check
 
 Install the Eval runner:

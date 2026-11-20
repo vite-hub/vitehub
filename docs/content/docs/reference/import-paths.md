@@ -199,6 +199,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/agent/observability/host` | Agent Package | `installObservability()` for hosts without `vitehub()`. |
 | `@vite-hub/agent/observability/posthog` | Agent Package | Optional PostHog exporter. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
+| `@vite-hub/agent/test/emulate-models` | Agent Package | `emulateModels()`, which starts the AI emulator for one test so model Driver Agents run with no AI key. |
 | `@vite-hub/docs/navigation` | Docs Package | The manifest types and navigation helpers. |
 | `@vite-hub/docs/primitive-rail` | Docs Package | `PrimitiveRail`, the navigation rail for Server Primitives. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
