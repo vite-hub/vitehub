@@ -25,12 +25,16 @@ const adaptersPath = "vite-hub/channels/adapters"
 const channelsPath = "vite-hub/channels"
 const channelNames = new Set(["defineChannelTrigger", "ignored", "rejected", "retryLater"])
 
+/** `webhook()` and `stripe()` left the root of `vite-hub/channels` and `@vite-hub/channels` for its adapters entry. */
+const rootModules = new Set([channelsPath, "@vite-hub/channels"])
+const rootAdapterNames = new Set(["webhook", "stripe", "StripeEvent", "StripeAdapterOptions"])
+
 /** Calls whose first argument names a module, such as `vi.mock("vite-hub/agent/channels")`. */
 const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"])
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /vite-hub\/agent\/channels|\bhttp\b/
+const needle = /vite-hub\/agent\/channels|\bhttp\b|vite-hub\/channels/
 
 interface Block {
   code: string
@@ -200,16 +204,57 @@ function moveSource(context: FileContext, source: StringLiteral, to: string) {
 }
 
 /**
+ * Moves `webhook`, `stripe`, and their types from the root of `vite-hub/channels` or `@vite-hub/channels` to its
+ * adapters entry. Returns the import statements that it changed.
+ */
+function moveRootAdapters(context: FileContext): Set<ImportDeclaration> {
+  const { block, output, program, style } = context
+  const semicolon = style.semicolons ? ";" : ""
+  const changed = new Set<ImportDeclaration>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || !rootModules.has(statement.source.value)) continue
+    const adaptersSource = `${statement.source.value}/adapters`
+    const namespace = statement.specifiers.find(specifier => specifier.type === "ImportNamespaceSpecifier")
+    if (namespace) {
+      let used = false
+      walk(program, (node) => {
+        if (node.type !== "MemberExpression" || node.object.type !== "Identifier" || node.object.name !== namespace.local.name) return
+        const name = node.computed ? (node.property.type === "StringLiteral" ? node.property.value : undefined) : node.property.type === "Identifier" ? node.property.name : undefined
+        if (name === "webhook" || name === "stripe") used = true
+      })
+      if (used) followUp(context, namespace, `\`webhook()\` and \`stripe()\` moved to \`${adaptersSource}\`. Import them from there.`)
+      continue
+    }
+    const moved = statement.specifiers.filter(specifier => rootAdapterNames.has(importedName(specifier) ?? ""))
+    if (!moved.length) continue
+    changed.add(statement)
+    if (moved.length === statement.specifiers.length) {
+      moveSource(context, statement.source, adaptersSource)
+      continue
+    }
+    const names = moved.map(specifier => block.code.slice(start(specifier), end(specifier))).join(", ")
+    for (const specifier of moved) {
+      const [from, to] = listItemRemoval(block.code, specifier)
+      output.remove(block.offset + from, block.offset + to)
+    }
+    const keyword = statement.importKind === "type" ? "import type" : "import"
+    output.appendLeft(block.offset + end(statement), `\n${keyword} { ${names} } from ${quoteString(adaptersSource, style)}${semicolon}`)
+  }
+  return changed
+}
+
+/**
  * Moves imports of `vite-hub/agent/channels`. A named import of only `defineChannelTrigger`, `ignored`, `retryLater`,
  * or `rejected` moves to `vite-hub/channels`. A mixed import moves to `vite-hub/channels/adapters`, and those names
  * join an import of `vite-hub/channels`. Everything else moves to `vite-hub/channels/adapters`, which has every name.
  */
-function moveImports(context: FileContext) {
+function moveImports(context: FileContext, changed: ReadonlySet<ImportDeclaration>) {
   const { block, output, program, style } = context
   const semicolon = style.semicolons ? ";" : ""
   const channelImports = new Map<string, ImportDeclaration>()
   for (const statement of program.program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.source.value !== channelsPath) continue
+    // A statement that `moveRootAdapters()` changed takes no more names: its edited text has other bounds.
+    if (statement.type !== "ImportDeclaration" || statement.source.value !== channelsPath || changed.has(statement)) continue
     if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier")) {
       channelImports.set(statement.importKind ?? "value", statement)
     }
@@ -276,7 +321,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       const before = output.toString()
       const context: FileContext = { block, file, followUps, output, program, style: detectStyle(block.code, program) }
       replaceHttp(context)
-      moveImports(context)
+      moveImports(context, moveRootAdapters(context))
       changed = output.toString() !== before || changed
     }
     if (changed) edits.push({ path: file, before: source, after: output.toString() })

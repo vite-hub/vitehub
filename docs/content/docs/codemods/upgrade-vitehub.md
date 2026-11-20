@@ -389,6 +389,6 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
  })
 ```
 
-A namespace import, a re-export, an `import()` call, and a `vi.mock()` path move to `vite-hub/channels/adapters`, which has every name. The report lists each mock, because the names that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
+It also moves `webhook` and `stripe` imports from `vite-hub/channels` to `vite-hub/channels/adapters`. A namespace import, a re-export, an `import()` call, and a `vi.mock()` path move to `vite-hub/channels/adapters`, which has every name. The report lists each mock, because the names that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
 
 The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
