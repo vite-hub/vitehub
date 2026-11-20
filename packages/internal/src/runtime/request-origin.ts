@@ -32,5 +32,10 @@ export function forwardedRequestOrigin(request: Pick<Request, "headers" | "url">
 export function matchesPublicOrigin(request: Pick<Request, "headers" | "url">, origins: readonly string[]): boolean {
   if (origins.length === 0) return true
   const { host, hostname } = new URL(forwardedRequestOrigin(request))
-  return hostname === "localhost" || hostname === "[::1]" || hostname.startsWith("127.") || origins.some(origin => new URL(origin).host === host)
+  return isLoopbackHostname(hostname) || origins.some(origin => new URL(origin).host === host)
+}
+
+/** `localhost`, `[::1]`, or an IPv4 address in `127.0.0.0/8`. URL parsing writes IPv4 addresses as four decimal parts. */
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname)
 }
