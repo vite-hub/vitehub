@@ -75,7 +75,6 @@ Some rules read the whole project:
 | [`VHUB0016`](#vhub0016) | `vitehub/queue-payload-options` | Warning |
 | [`VHUB0017`](#vhub0017) | `vitehub/no-module-scope-dispatch` | Warning |
 | [`VHUB0018`](#vhub0018) | `vitehub/no-destructure-non-tuples` | Error |
-| [`VHUB0019`](#vhub0019) | `vitehub/check-response-results` | Error |
 | [`VHUB0020`](#vhub0020) | `vitehub/workflow-step-names` | Error |
 | [`VHUB0021`](#vhub0021) | `vitehub/valid-schedule-cron` | Error |
 | [`VHUB0022`](#vhub0022) | `vitehub/manual-schedule-run` | Error |
@@ -100,7 +99,8 @@ Some rules read the whole project:
 Code imports an internal ViteHub path or a generated file. These change without notice:
 
 - `vite-hub/_internal/*` no longer exists. Generated code imports ViteHub runtime files by path.
-- `@vite-hub/internal/*`, `@vite-hub/*/internal/*`, and `@vite-hub/*/_internal/*` are package implementation.
+- `@vite-hub/*/_internal/*` paths no longer resolve.
+- `@vite-hub/internal/*` and `@vite-hub/*/internal/*` are package implementation paths.
 - `.vitehub/**` and `.nuxt/vitehub/**` files are build output. ViteHub writes them again on each build.
 - `#vitehub/*` aliases other than `#vitehub/env/public`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry` are generated modules for ViteHub runtime code, for example `#vitehub/agent/registry`.
 
@@ -166,6 +166,11 @@ The rule checks these calls:
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
 - `runAgent()` and `streamAgent()` from `vite-hub/agent`
+- `runBrowser()` and `runBrowserContent()` from `vite-hub/browser`
+- `runSandboxTask()` from `vite-hub/sandbox/task`
+- `listAuthEvents()` and `aggregateAuthEvents()` from `vite-hub/auth/server`
+- `save()`, `list()`, and `missing()` of `useTranslations()` from `vite-hub/i18n/server`
+- `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` from `vite-hub/gateways`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and Nuxt auto-imports in `server/`. It reports a result that code:
 
@@ -615,8 +620,10 @@ Move helpers out, for example to `server/utils/`, and default-export each Defini
 // Valid
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -648,14 +655,14 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 **Pass Queue options as the third argument.** Rule `vitehub/queue-payload-options`.
 
-`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
+`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delay`, `idempotencyKey`, `retention`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
 ```ts [server/utils/signup.ts] fails=TS2353
 import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Invalid
-  await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+  await sendQueue('welcome-email', { payload: { email }, delay: '1m' })
 }
 ```
 
@@ -664,7 +671,7 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Valid
-  await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
+  await sendQueue('welcome-email', { email }, { delay: '1m' })
 }
 ```
 
@@ -679,8 +686,10 @@ The rule accepts a `payload` field with no option keys, because that is app data
 ```ts [server/queues/warmup.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue(async () => {
-  console.log('Warming the cache')
+export default defineQueue({
+  handler: async () => {
+    console.log('Warming the cache')
+  },
 })
 ```
 
@@ -712,7 +721,6 @@ Code destructures `[error, value]` from an API that returns no tuple:
 
 - `useQueue()` returns the client and throws on failure.
 - `deferWorkflow()` returns `void` and logs start failures.
-- `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/welcome.post.ts] fragment
 import { useQueue } from 'vite-hub/queue'
@@ -724,48 +732,26 @@ const [error, queue] = await useQueue('welcome-email')
 const queue = await useQueue('welcome-email')
 ```
 
-The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runAgent()`, and `streamAgent()`.
-
-## VHUB0019
-
-**Read Sandbox Task and Browser results as a Response.** Rule `vitehub/check-response-results`.
-
-`runSandboxTask()` and `runBrowser()` return a Web `Response`. A failed run returns one with an error status, not your data. Reading a data field from it gives `undefined`.
-
-```ts [server/api/resize.post.ts] fragment
-import { runSandboxTask } from 'vite-hub/sandbox/task'
-
-// Invalid
-const { width } = await runSandboxTask('resize', payload)
-```
-
-```ts [server/api/resize.post.ts] fragment
-import { runSandboxTask } from 'vite-hub/sandbox/task'
-
-// Valid
-const response = await runSandboxTask('resize', payload)
-if (!response.ok) throw new Error(await response.text())
-const { width } = await response.json()
-```
-
-The rule reports property reads and destructuring of names that are not `Response` properties.
+The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runBrowser()`, `runSandboxTask()`, `runAgent()`, and `streamAgent()`.
 
 ## VHUB0020
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports a step that no folder Workflow has, through `.vitehub/workflow.d.ts`. The rule checks the steps of each folder, covers JavaScript files, and runs without a type check.
 
 ```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload)
-  // Invalid: there is no send-welcome-email step file.
-  return await steps.sendWelcomeEmail(user)
-  // Valid
-  // return await steps.sendWelcome(user)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload)
+    // Invalid: there is no send-welcome-email step file.
+    return await steps.sendWelcomeEmail(user)
+    // Valid
+    // return await steps.sendWelcome(user)
+  },
 })
 ```
 
@@ -876,7 +862,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -887,7 +873,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })
@@ -990,10 +976,10 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `preset` was renamed to `host`.
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
-- `logs` moved into `observability`, as `observability: { logs }`.
+- `observability.logs` moved to the top-level `logs` key.
 - `contentImportBase` was removed.
 
-A build that sets `preset`, `sandbox`, `devtools`, `logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
+A build that sets `preset`, `sandbox`, `devtools`, `observability.logs`, or `contentImportBase` fails with `VITE_HUB_B0024`, and the message names the fix. Without it, a renamed `preset` would build for the host ViteHub detects, which is Node when it finds none.
 - In Vite, a top-level `env` key, or a top-level feature key such as `kv` or `blob`, does nothing. Only `vitehub()` reads feature options.
 
 The [`vitehub-options` codemod](/docs/codemods/upgrade-vitehub#vitehub-options) moves `logs`, Env declarations, and top-level feature keys, and removes `contentImportBase`.
@@ -1103,7 +1089,7 @@ import renderReply from './reply.template.md'
 const prompt = await renderReply({ pullRequest })
 ```
 
-To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/reference/markdown-templates).
+To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/markdown-template).
 
 ## VHUB0035
 

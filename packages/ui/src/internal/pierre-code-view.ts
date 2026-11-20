@@ -1,4 +1,5 @@
 import {
+  areOptionsEqual,
   CodeView as PierreCodeViewModel,
   DIFFS_TAG_NAME,
   File as PierreFileModel,
@@ -128,6 +129,10 @@ function rangeKey(range: SelectedLineRange) {
   return [range.start, range.end, range.side, range.endSide];
 }
 
+function snapshotSelection(range: SelectedLineRange | null) {
+  return range === null ? null : { ...range };
+}
+
 function controlledOptions<T extends { controlledSelection?: boolean }>(
   options: T | undefined,
   selectedLines: unknown,
@@ -171,6 +176,14 @@ function trackArrayItems<T extends readonly unknown[] | undefined>(values: T): T
   return toRaw(values);
 }
 
+/**
+ * The annotations to pass to Pierre. Pierre compares annotation lists by reference, so the list is a new array only
+ * when the prop or one of its items changes, and the same array when the view renders for another reason.
+ */
+function useLineAnnotations<T>(read: () => readonly T[] | undefined) {
+  return computed(() => [...(trackArrayItems(read()) ?? [])]);
+}
+
 function copyFile(file: FileContents | null): FileContents | null {
   return file === null ? null : { ...file };
 }
@@ -200,36 +213,44 @@ export const PierreDiff = defineComponent({
     let host: HTMLElement | null = null;
     let instance: SelectionDiffModel | undefined;
     const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
-    const fileDiff = computed<FileDiffMetadata | undefined>(() => {
-      if (props.fileDiff) return trackShallow(props.fileDiff);
-      if (props.patch !== undefined) return getSingularPatch(props.patch);
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
+    const diffInput = computed(() => {
+      if (props.fileDiff) return { diff: trackShallow(props.fileDiff) };
+      if (props.patch !== undefined) return { diff: getSingularPatch(props.patch) };
       if (props.oldFile !== undefined && props.newFile !== undefined) {
-        return parseDiffFromFile(
+        const diff = parseDiffFromFile(
           copyFile(props.oldFile),
           copyFile(props.newFile),
           copyParseDiffOptions(props.options?.parseDiffOptions),
         );
+        return { diff };
       }
     });
+    let renderedInput: typeof diffInput.value;
 
     const render = () => {
       if (!host) return;
-      if (!fileDiff.value) {
+      const input = diffInput.value;
+      if (!input) {
         instance?.cleanUp();
         instance = undefined;
+        renderedInput = undefined;
         return;
       }
-      const options = accessibleDiffOptions(props.options, props.selectedLines, fileDiff.value);
+      const options = accessibleDiffOptions(props.options, props.selectedLines, input.diff);
       if (!instance) instance = new SelectionDiffModel(options, undefined, true);
+      const diffChanged = renderedInput !== undefined && renderedInput !== input;
+      const forceRender = diffChanged || !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         fileContainer: host,
-        fileDiff: fileDiff.value,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        fileDiff: input.diff,
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
+      renderedInput = input;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         toRaw(props.fileDiff),
         props.patch,
@@ -266,6 +287,7 @@ export const PierreFile = defineComponent({
     let host: HTMLElement | null = null;
     let instance: SelectionFileModel | undefined;
     const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
@@ -276,15 +298,17 @@ export const PierreFile = defineComponent({
       }
       const options = accessibleOptions(props.options, props.selectedLines);
       if (!instance) instance = new SelectionFileModel(options, undefined, true);
+      // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
+      const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         file: file.value,
         fileContainer: host,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         file.value.name,
         file.value.contents,
@@ -318,6 +342,7 @@ export const PierreUnresolvedFile = defineComponent({
     let instance: SelectionUnresolvedFileModel | undefined;
     const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     let renderedFile: FileContents | undefined;
+    const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
     const render = () => {
       if (!host) return;
@@ -333,16 +358,18 @@ export const PierreUnresolvedFile = defineComponent({
       }
       const options = accessibleOptions(props.options, props.selectedLines);
       if (!instance) instance = new SelectionUnresolvedFileModel(options, undefined, true);
+      // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
+      const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         file: file.value,
         fileContainer: host,
-        forceRender: true,
-        lineAnnotations: trackArrayItems(props.lineAnnotations) ?? [],
+        forceRender,
+        lineAnnotations: lineAnnotations.value,
       });
       renderedFile = file.value;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         file.value.name,
         file.value.contents,

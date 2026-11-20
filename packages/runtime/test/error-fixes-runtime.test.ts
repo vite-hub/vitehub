@@ -23,7 +23,7 @@ it("gives each Runtime code a fix and its own docs page", () => {
   for (const code of fixedCodes) {
     const error = runtimeErrorDiagnostics[code]({ message: "m" })
     expect(error.fix, code).toMatch(/\S/)
-    expect(error.docs, code).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
+    expect(error.docs, code).toBe(`https://vitehub.dev/docs/runtime/diagnostics/${code.toLowerCase()}`)
   }
 })
 

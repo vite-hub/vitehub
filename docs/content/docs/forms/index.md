@@ -25,7 +25,7 @@ export const ContactSchema = v.object({
 import { defineForm } from 'vite-hub/forms'
 import { ContactSchema } from '../../shared/schemas'
 
-// One file is one form, at POST /api/_vitehub/forms/contact
+// One file is one form, at POST /_vitehub/forms/contact
 export default defineForm({
   schema: ContactSchema,
   notify: { email: { to: 'you@example.com', replyTo: 'email' } },
@@ -55,15 +55,15 @@ vitehub forms mark 3f2c... done
 
 | Part | What it does |
 | --- | --- |
-| Guard | Accepts only `POST`, rejects a present `Origin` unless it is your origin or in `origins`, stops large bodies, answers a filled honeypot field with a fake success, and limits each address to 5 messages a minute. Requests without `Origin` may pass. |
+| Guard | Accepts only `POST`, rejects a present `Origin` unless it is your origin or in `origins`, blocks large bodies, answers a filled honeypot field with a fake success, and limits each address to 5 messages a minute. Requests without `Origin` may pass. |
 | Validation | Checks each message with your Standard Schema: Valibot, Zod, or ArkType. A bad message gets the error of each field. |
 | Inbox | Keeps each message in the `vitehub_form_submissions` table, with its page and the sentence the sender selected. The Console lists them. |
-| Notify | Emails you each message through [Email](/docs/email), with a reply that goes to the sender. |
-| `onSubmit` | Runs your code before the message is stored, for example to post it to a support tool. |
+| Notify | Emails each message to you through [Email](/docs/email), with reply-to set to the sender. |
+| `onSubmit` | Runs your code before Forms stores the message, for example to post it to a support tool. |
 
 ## Forms or Comments
 
-Does the sender talk with other readers on the page? Then use [Comments](/docs/comments). Does the message go one way to you and stay private? Then use Forms.
+Use [Comments](/docs/comments) when readers talk with each other on the page. Use Forms when messages stay private and go straight to you.
 
 ## Next
 

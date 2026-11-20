@@ -160,15 +160,15 @@ To only poll, stop here. For push, continue:
      --role=roles/pubsub.publisher
    ```
 
-6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/_vitehub/agents/<agent>/webhooks/<channel>`.
 
    ```sh
    gcloud iam service-accounts create gmail-push-invoker
    gcloud pubsub subscriptions create gmail-push \
      --topic=gmail-push \
-     --push-endpoint=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-endpoint=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --push-auth-service-account=gmail-push-invoker@my-project.iam.gserviceaccount.com \
-     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-auth-token-audience=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --ack-deadline=600 \
      --min-retry-delay=10s \
      --max-retry-delay=600s
@@ -316,7 +316,7 @@ pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks).
 
 Gmail allows one active watch per mailbox. `channels sync` reads the mailbox profile first and stops before any change if you select more than one Gmail Channel for the same mailbox, even with different credentials.
 
@@ -372,7 +372,7 @@ One process at a time reads the mailbox. A push during a sync makes the running 
 
 A sync stops after 4 minutes. It saves its checkpoint and frees the mailbox, and the next push or poll continues. A sync that hangs, for example on a request without a timeout, stops renewing its mailbox lock at 4 minutes and loses it within a minute. A process that stops in the middle of a sync also frees the mailbox within a minute. Then the next sync reads the mailbox, and the late writes of the hung sync fail.
 
-A push or poll that finds no new mail sends 6 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+A push or poll that finds no new mail sends 6 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
 
 A push waits for the Invocations that its sync starts, and stops between messages after about 5 seconds. For large bursts, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run and the push answers sooner. Keep the [poll](#poll-without-pubsub) as a safety net: it reads mail when Pub/Sub stops sending a notification again.
 
@@ -461,4 +461,4 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/presets/labeller#clean-up-old-mail) and its `cleanup` option.

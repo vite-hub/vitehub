@@ -37,17 +37,13 @@ pnpm add @vite-hub/schedule
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
-
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'netlify',
     agent: { invocations: false },
     blob: true,
-  },
-  vite: {
-    plugins: [hubSchedule({ providerOutput: 'standalone' })],
+    schedule: { providerOutput: 'standalone' },
   },
 })
 ```
@@ -55,7 +51,6 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
@@ -66,9 +61,9 @@ export default defineConfig({
       host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
     nitro(),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
@@ -76,7 +71,6 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -86,8 +80,8 @@ export default defineConfig({
       host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```

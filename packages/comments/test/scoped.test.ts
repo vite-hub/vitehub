@@ -77,8 +77,8 @@ describe("threads on subjects of the app", () => {
     const comments = await withDocs({ identify: () => ({ id: "ada", name: "Ada" }), authorize: ({ subject }) => subject?.kind !== "doc" })
     const [, scoped] = await comments.create({ subject: doc("1"), body: "Private to the app", author: ada })
     await comments.create({ page: "/", anchor, body: "On the page", author: ada })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-    const call = async (path: string, init: RequestInit = {}) => await (await app.fetch(new Request(`http://site.test/api/_vitehub/comments${path}`, { ...init, headers: { origin: "http://site.test" } }))).json() as { data?: any, error?: { code: string } }
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    const call = async (path: string, init: RequestInit = {}) => await (await app.fetch(new Request(`http://site.test/_vitehub/comments${path}`, { ...init, headers: { origin: "http://site.test" } }))).json() as { data?: any, error?: { code: string } }
     const listed = await call("/threads")
     expect(listed.data.map((thread: { subject: { kind: string } }) => thread.subject.kind)).toEqual(["page"])
     expect((await call(`/threads/${scoped!.id}/resolve`, { method: "POST" })).error?.code).toBe("COMMENTS_NOT_FOUND")
@@ -88,8 +88,8 @@ describe("threads on subjects of the app", () => {
     // A policy that lets people read documents opens them through the same routes, for an app's own UI.
     const open = await withDocs({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true })
     const [, doc1] = await open.create({ subject: doc("1"), body: "Shared", author: ada })
-    const openApp = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments: open, realtime: false }))
-    const openList = await (await openApp.fetch(new Request("http://site.test/api/_vitehub/comments/threads?subjectKind=doc&subjectId=1"))).json() as { data: Array<{ id: string }> }
+    const openApp = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments: open, realtime: false }))
+    const openList = await (await openApp.fetch(new Request("http://site.test/_vitehub/comments/threads?subjectKind=doc&subjectId=1"))).json() as { data: Array<{ id: string }> }
     expect(openList.data.map(thread => thread.id)).toEqual([doc1!.id])
 
     const tools = Object.fromEntries(commentsMcpTools(open).map(tool => [tool.name, tool]))

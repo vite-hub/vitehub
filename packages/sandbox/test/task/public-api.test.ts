@@ -39,12 +39,11 @@ describe("sandbox public api", () => {
       .toThrow(expect.objectContaining({ code: "SANDBOX_TASK_C0014", message: expect.stringContaining("`defineSandboxTask({ handler })`") }))
   })
 
-  it("returns an HTTP response for failures", async () => {
-    const response = await runSandboxTask("missing")
+  it("returns failures as [error, undefined]", async () => {
+    const [error, data] = await runSandboxTask("missing")
 
-    expect(response).toBeInstanceOf(Response)
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({ error: { message: expect.stringContaining('"missing". Sandbox Tasks are not enabled in this build.') } })
+    expect(data).toBeUndefined()
+    expect(error).toMatchObject({ code: "SANDBOX_TASK_RUN_FAILED", status: 500, cause: { message: expect.stringContaining('"missing". Sandbox Tasks are not enabled in this build.') } })
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {

@@ -33,7 +33,7 @@ export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, ch
       page: async () => ({ items: [{ id: 'm1' }], nextCursor: null }),
     } },
     triggers: { webhook: defineChannelTrigger({ invoke: () => Response.json({ ok: true }) }) },
-    webhooks: { path: '/api/productlane/webhook', secretHeader: 'x-test-secret', secretToken: 'secret' },
+    webhooks: { path: '/api/productlane/webhook', secretHeader: 'x-test-secret', secret: () => 'secret' },
   }),
 } })`
   await Promise.all(names.map(name => writeFile(join(root, `server/agents/${name}.ts`), source)))
@@ -58,7 +58,7 @@ it('serves declared webhook paths through Nitro middleware with HEAD, authentica
   const server = await declaredWebhookServer()
   try {
     const app = await declaredWebhookApp(server)
-    for (const path of ['/api/productlane/webhook', '/api/productlane/webhook/', '/api/_vitehub/agents/support/webhooks/productlane']) {
+    for (const path of ['/api/productlane/webhook', '/api/productlane/webhook/', '/_vitehub/agents/support/webhooks/productlane']) {
       const head = await app.request(path, { method: 'HEAD' })
       expect(head.status).toBe(204)
       expect(head.headers.get('x-vitehub-channel-provider')).toBe('productlane')

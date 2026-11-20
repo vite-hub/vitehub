@@ -326,7 +326,7 @@ describe("hubBlob", () => {
     expect(userConfig).toHaveProperty("nitro.plugins", [generatedPlugin])
     expect(userConfig).toHaveProperty("nitro.handlers", [
       { handler: generatedMiddleware, middleware: true },
-      { handler: generatedServeHandler, route: "/api/_vitehub/blob/**" },
+      { handler: generatedServeHandler, route: "/_vitehub/blob/**" },
     ])
 
     const resolvedConfig = {
@@ -336,9 +336,9 @@ describe("hubBlob", () => {
         handlers: [
           ...(userConfig.nitro.handlers ?? []),
           { handler: resolve(staleRoot, generatedMiddleware), middleware: true, route: "/**" },
-          { handler: resolve(staleRoot, generatedServeHandler), route: "/api/_vitehub/blob/**" },
+          { handler: resolve(staleRoot, generatedServeHandler), route: "/_vitehub/blob/**" },
           { handler: resolvedMiddleware, middleware: true, route: "/**" },
-          { handler: resolvedServeHandler, route: "/api/_vitehub/blob/**" },
+          { handler: resolvedServeHandler, route: "/_vitehub/blob/**" },
         ],
         plugins: [
           ...(userConfig.nitro.plugins ?? []),
@@ -357,7 +357,7 @@ describe("hubBlob", () => {
       expect(resolvedConfig).toHaveProperty("nitro.plugins", [resolvedPlugin])
       expect(resolvedConfig).toHaveProperty("nitro.handlers", [
         { handler: resolvedMiddleware, middleware: true },
-        { handler: resolvedServeHandler, route: "/api/_vitehub/blob/**" },
+        { handler: resolvedServeHandler, route: "/_vitehub/blob/**" },
       ])
     }
     finally {
@@ -997,8 +997,8 @@ describe("hubBlob", () => {
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
         handlers: [
-          { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" },
-          { handler: ".vitehub/blob/serve-route.ts", route: "/api/_vitehub/blob/**" },
+          { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob-signed/**" },
+          { handler: ".vitehub/blob/serve-route.ts", route: "/_vitehub/blob/**" },
         ],
       },
     })
@@ -1012,7 +1012,7 @@ describe("hubBlob", () => {
       await config(userConfig, { command: "build" })
       return userConfig.nitro?.handlers
     }
-    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob/signed/**" }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob-signed/**" }
 
     expect(await handlers({ driver: "fs" })).toEqual([signed])
     expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare" }, local: { driver: "fs" } } })).toEqual([signed])
@@ -1038,7 +1038,7 @@ describe("hubBlob", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
 
-    expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+    expect(config.nitro.handlers?.filter(handler => handler.route === "/_vitehub/blob-signed/**")).toHaveLength(count)
   })
 
   it.each([
@@ -1069,7 +1069,7 @@ describe("hubBlob", () => {
         root,
       } as UserConfig, command)
 
-      expect(handlers?.filter(handler => handler.route === "/_vitehub/blob/signed/**")).toHaveLength(count)
+      expect(handlers?.filter(handler => handler.route === "/_vitehub/blob-signed/**")).toHaveLength(count)
     }
     finally {
       await close?.()
@@ -1154,7 +1154,7 @@ describe("hubBlob", () => {
       { name: "bracket parameter route", route: "/files/[tenant]", baseURL: "/files/acme", requestRoute: "/files/acme" },
     ].map(test => ({ ...test, expectedCacheControl: "public, max-age=0, s-maxage=0" })),
   ]
-  it.each(serveCacheCases)("preserves the Blob path and response with $name", async ({ expectedCacheControl, headers, route: serveRoute = "/api/_vitehub/blob", baseURL = "", requestRoute = serveRoute }) => {
+  it.each(serveCacheCases)("preserves the Blob path and response with $name", async ({ expectedCacheControl, headers, route: serveRoute = "/_vitehub/blob", baseURL = "", requestRoute = serveRoute }) => {
     const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
@@ -1336,9 +1336,9 @@ describe("hubBlob", () => {
       app.use((event) => {
         event.res.headers.set("content-security-policy", appPolicy)
       })
-      app.all("/api/_vitehub/blob/**", artifact.default)
+      app.all("/_vitehub/blob/**", artifact.default)
       const request = (pathname: string, headers: Record<string, string> = {}, method = "GET") =>
-        app.fetch(new Request(`http://localhost/api/_vitehub/blob/${pathname}`, { headers, method }))
+        app.fetch(new Request(`http://localhost/_vitehub/blob/${pathname}`, { headers, method }))
       const pagePolicy = appPolicy ? `${appPolicy}, sandbox` : "sandbox"
 
       const page = await request("page.html")
@@ -1409,7 +1409,11 @@ describe("hubBlob", () => {
               return { namespace: "auth-provider-test", path: args.path }
             })
             build.onLoad({ filter: /^#vitehub\/auth\/definition$/, namespace: "auth-provider-test" }, () => ({
-              contents: `import { defineAuth } from ${JSON.stringify(join(workspaceRoot, "packages/auth/src/index.ts"))}; export default defineAuth({ appName: "Blob test" })`,
+              contents: [
+                `import { defineAuth } from ${JSON.stringify(join(workspaceRoot, "packages/auth/src/index.ts"))}`,
+                'export default defineAuth({ appName: "Blob test" })',
+                "export const getAuthApp = () => undefined",
+              ].join("\n"),
               loader: "js",
               resolveDir: workspaceRoot,
             }))
@@ -1788,6 +1792,13 @@ describe("hubBlob in vite dev", () => {
 
   it("gives the Cloudflare dev plugin a local fs fallback", async () => {
     const root = await resolveConfig(hubBlob(), "serve", { preset: "cloudflare_module" })
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
+  it("gives an explicit cloudflare store the local fs fallback in the dev plugin", async () => {
+    const root = await resolveConfig(hubBlob({ binding: "TASK_ASSETS", driver: "cloudflare" }), "serve", { preset: "cloudflare_module" })
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')

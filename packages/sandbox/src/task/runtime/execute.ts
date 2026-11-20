@@ -1,4 +1,5 @@
 import { decodeSandboxTaskValue, encodeSandboxTaskValue } from './binary-sidecars'
+import { isTrustedHostReservedCommandEnvironmentKey } from '../../internal/trusted-host-environment'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { combineSandboxTaskErrors, readSandboxTaskErrorMetadata } from './error-normalization'
 import { createEntrySource } from './entry-script.injected'
@@ -55,7 +56,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
 ) {
   const bundle = normalizeSandboxTaskDefinitionBundle(source)
 
-  const files = createExecutionFiles(definitionName)
+  const files = createExecutionFiles(definitionName, sandbox.tempDir)
   let failure: { error: unknown } | undefined
   const throwIfAborted = () => {
     if (signal?.aborted)
@@ -87,14 +88,24 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       signal,
     ), 'payload/context')
     const definitionPath = resolveSandboxTaskModulePath(prepared.directory, bundle.entry)
+    const local = sandbox.provider === 'local'
+    let env = definitionOptions?.env
+    let entryEnvironment: Record<string, string> | undefined
+    if (local && env) {
+      const entries = Object.entries(env)
+      entryEnvironment = Object.fromEntries(entries.filter(([name]) => isTrustedHostReservedCommandEnvironmentKey(name)))
+      env = Object.fromEntries(entries.filter(([name]) => !isTrustedHostReservedCommandEnvironmentKey(name)))
+    }
     throwIfAborted()
     await Promise.all([
-      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution), { signal }),
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, entryEnvironment), { signal }),
       sandbox.writeFile(files.inputPath, inputJson, { signal }),
     ])
     throwIfAborted()
 
-    const execArgs = ['-e', 'import(process.argv[1])', files.entryPath, files.inputPath, files.outputPath]
+    const execArgs = local
+      ? [files.entryPath, files.inputPath, files.outputPath]
+      : ['-e', 'import(process.argv[1])', files.entryPath, files.inputPath, files.outputPath]
 
     let outputRaw = ''
     let execution: Awaited<ReturnType<TaskSandbox['exec']>> | undefined
@@ -103,7 +114,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       lifecycle?.onCommandStart?.()
       execution = await sandbox.exec('node', execArgs, {
         cwd: prepared.cwd,
-        env: definitionOptions?.env,
+        env,
         signal,
         timeout: definitionOptions?.timeout,
       })

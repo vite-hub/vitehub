@@ -8,7 +8,6 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 /** The features that `vitehub()` checks when the app turns them on, with the error for a host that cannot provide them. */
 const featureErrors = {
   browser: () => viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare host." }),
-  email: () => viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare host; configure an explicit Email driver for other hosts." }),
 } satisfies Partial<Record<FeatureId, () => Error>>
 
 export type CheckedFeature = keyof typeof featureErrors
@@ -24,6 +23,21 @@ export function assertFeatureSupported(id: CheckedFeature, host: ViteHubHost, op
   const support = featureSupport(id, host)
   if (support.level === "native" || (support.level === "explicit" && value !== true)) return
   throw featureErrors[id]()
+}
+
+/**
+ * The Email driver that `email: true` selects: the host driver from the catalog, or `log` when the host has none.
+ * A production build with `log` fails in `assertEmailBuildDriver()`.
+ */
+export function defaultEmailDriver(host: ViteHubHost): "cloudflare" | "log" {
+  const support = featureSupport("email", host)
+  return support.level === "native" && support.driver === "cloudflare" ? "cloudflare" : "log"
+}
+
+/** Throws when a production build has `email: true` on a host that has no default Email provider. */
+export function assertEmailBuildDriver(host: ViteHubHost, email: unknown): void {
+  if (email !== true || defaultEmailDriver(host) !== "log") return
+  throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: `[vitehub] \`email: true\` has no default provider on the "${host}" host. \`vite dev\` keeps each message in the development outbox, but a production build must send real email.` })
 }
 
 /** The Deployment Plan services that the app can ask ViteHub to select from the host, and their features. */

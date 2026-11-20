@@ -57,9 +57,9 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
       [
         `import { defineWorkflow } from "vite-hub/workflow"`,
         ``,
-        `export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {`,
+        `export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => {`,
         `  return await steps.createUser(payload)`,
-        `})`,
+        `} })`,
         ``,
       ].join("\n"),
     );
@@ -100,6 +100,9 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
     await builder.buildApp();
     await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
       `declare module "vite-hub/workflow" {`,
+      `  interface WorkflowRegistry {`,
+      `    "onboard-user": typeof import("../server/workflows/onboard-user/index.ts") extends { default: infer TDefault } ? TDefault : unknown`,
+      `  }`,
       `  interface WorkflowStepRegistry {`,
       `    "onboard-user": {`,
       `      "createUser": typeof import("../server/workflows/onboard-user/01.create-user.ts").default`,

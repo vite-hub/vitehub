@@ -70,7 +70,7 @@ async function setup(headMoves?: "notify" | "cancel", events: readonly string[] 
           ...(config.actorFilter ? { filter: { actor: { allow: ["onmax"] } } } : {}),
           reply: false,
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

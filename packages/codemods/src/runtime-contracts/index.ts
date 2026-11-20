@@ -42,7 +42,7 @@ const nodeNames = new Set(["nodeRuntimeResources", "NodeRuntimeResourceInspector
 const logNames = new Set(["createLogBuffer", "LogBuffer", "LogCursorExpiredError", "parseLogQuery", "LogEntry", "LogLevel", "LogPage", "LogQuery", "LogSource", "LogSourceInfo"])
 
 const authSetter = "ViteHub sets it in generated code. Remove the call. To read host bindings, use the request event: `getStandardContext(event).runtime.cloudflare.env` from `vite-hub/runtime`."
-const authFactory = "Read the discovered Better Auth instance with `useAuth(event)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`."
+const authFactory = "Read the discovered Better Auth instance with `useAuth(event)` in a route or `useAuth()` outside a request. To create a handler for another Definition, use `createAuthHandler(definition)`."
 const authAccess = "Configure `access.routes` in `defineAuth()`. The generated middleware checks them on each request."
 const authRemoved = new Map<string, string>([
   ["resetAuth", authSetter],

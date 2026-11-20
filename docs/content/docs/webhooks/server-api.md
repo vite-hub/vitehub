@@ -70,7 +70,7 @@ Delivery is at least once. A receiver can get the same delivery twice, for examp
 
 | Function | Does |
 | --- | --- |
-| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, and `debounceMs`. It returns the list, not a Result. |
+| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, `debounceMs`, and `events`. It returns the list, not a Result. |
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first. `limit` is 100 by default, 500 at most. |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first. |
 | `getWebhookDelivery(id)` | One delivery. |
@@ -99,15 +99,15 @@ A delivery has `id`, `webhook`, `key`, `event`, `body`, `revision`, `count`, `st
 
 ## Tests
 
-In a unit test, call `installWebhooks()` from `@vite-hub/webhooks/runtime` with your definitions, a store, and a wake sender. `createDrizzleWebhookStore(db)` from `@vite-hub/webhooks/database` gives a store on a libSQL or D1 Drizzle client, and `webhooksTables` holds the SQL of the table.
+In a unit test, call `installWebhooks()` from `@vite-hub/webhooks/runtime` with your definitions, a store, and a wake sender. `createDrizzleWebhookStore(db)` from `@vite-hub/webhooks/database` gives a store on a libSQL or D1 Drizzle client, and `webhooksTables` holds the SQL of the tables. For member endpoints, also pass `endpoints: createDrizzleWebhookEndpointStore(db)`.
 
 ## Public imports
 
 | Import | Purpose |
 | --- | --- |
-| `vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, and the types |
+| `vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, the [member endpoint](/docs/webhooks/member-endpoints) functions, `checkWebhookUrl()`, and the types |
 | `vite-hub/webhooks/runtime` | The delivery functions above, and `installWebhooks()` for tests |
-| `vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore()` |
+| `vite-hub/webhooks/database` | The tables as `webhooksSchema` and `webhookEndpointsSchema`, as SQL in `webhooksTables`, `createDrizzleWebhookStore()`, and `createDrizzleWebhookEndpointStore()` |
 | `@vite-hub/webhooks/vite` | `hubWebhooks()`. `vitehub()` adds it for you. |
 
 Outside a ViteHub app, import the same names from `@vite-hub/webhooks`.

@@ -180,7 +180,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         changes.length
           ? `Replace <old_name> with the removed name. ${retry.hintsFile ? `Add one answer per change to the array in ${retry.hintsFile}, then run ${retry.command} --hints-file ${retry.hintsFile}:` : "With several changes, put one answer per change in the same array:"}${changes.map(change => changeAnswers(change, retry)).join("")}`
           : `Copy the answers that Drizzle Kit printed into ${retry.command} --hints '[...]'.`,
-        "In a terminal without CI or --non-interactive, the command asks instead.",
+        "In a terminal without CI, the command asks instead.",
       ].join("\n"),
     },
 
@@ -235,7 +235,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_DROP_NOT_CONFIRMED: {
       why: ({ command, database }: { command: "drop" | "reset", database: string }) => `\`vitehub database ${command}\` drops every table of the database "${database}" and was not confirmed.`,
-      fix: "Answer `y` on a terminal, or add `--force` when no terminal can answer, such as in CI or a script.",
+      fix: "Answer `y` on a terminal, or add `--yes` when no terminal can answer, such as in CI or a script.",
     },
     DATABASE_SQL_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot run the SQL on the database "${database}". ${problem}`,

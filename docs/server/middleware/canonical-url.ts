@@ -1,4 +1,4 @@
-import { defineEventHandler, getRequestURL, redirect } from "nitro/h3";
+import { defineEventHandler, getRequestURL, redirect } from "h3";
 
 const canonicalOrigin = "https://vitehub.dev";
 

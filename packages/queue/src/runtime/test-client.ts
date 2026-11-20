@@ -1,5 +1,6 @@
+import { readQueueTimes } from "../duration.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueUnsupportedOptionsError } from "../errors.ts"
+import { queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 
 import type { ViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { LocalQueueClient, NormalizedQueueEnqueueInput, QueueEnqueueOptions, QueueDriver } from "../types.ts"
@@ -36,18 +37,20 @@ export function createTestQueueClient(test: ViteHubTestMode, queue: string, prov
     queue,
     async send(payload, options) {
       const input = normalizeQueueEnqueueInput(payload, options)
-      const error = queueUnsupportedOptionsError(input.options, provider)
+      const error = queueUnsupportedOptionsError(input.options, provider) ?? readQueueTimes(input.options)[0]
       if (error) return [error, undefined]
       return [undefined, recordQueueTestMessage(test, queue, input)]
     },
     async sendBatch(items: ({ body: unknown } & QueueEnqueueOptions)[], options: QueueEnqueueOptions = {}) {
+      const removed = queueRemovedOptionsError(provider, options, items)
+      if (removed) return [removed, undefined]
       const inputs = items.map(({ body, ...itemOptions }) => normalizeQueueEnqueueInput(body, {
         ...options,
         ...Object.fromEntries(Object.entries(itemOptions).filter(([, value]) => value !== undefined)),
       }))
       // Reject the whole batch before recording any jobs.
       for (const input of inputs) {
-        const error = queueUnsupportedOptionsError(input.options, provider)
+        const error = queueUnsupportedOptionsError(input.options, provider) ?? readQueueTimes(input.options)[0]
         if (error) return [error, undefined]
       }
       return [undefined, inputs.map(input => recordQueueTestMessage(test, queue, input))]

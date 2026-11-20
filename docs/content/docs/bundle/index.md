@@ -48,7 +48,7 @@ export default defineConfig({
 :::
 ::
 
-Then build and read the report:
+Then build your app and read the report:
 
 ```bash [Terminal]
 vite build                         # or nuxt build
@@ -56,14 +56,14 @@ vitehub bundle                     # client and server size, startup size, large
 vitehub bundle why @libsql/client  # the import chain from the entry to the package
 ```
 
-The commands read `.vitehub/bundle/` and need no dev server. Development builds are not measured.
+These commands read `.vitehub/bundle/` directly and do not need a running server. Development builds are not measured.
 
 ## What the report says
 
 - **Client and server.** The bytes and gzip bytes of the JavaScript that the build wrote, and of the files that load at startup.
-- **Groups.** Each module counts toward one group: a ViteHub package, a framework package, a dependency, an app folder, or generated code.
-- **Why.** The shortest import chain from an entry to a package, a file, or a group.
-- **Routes.** In a Nuxt app, what the browser loads on a first visit to each page route.
+- **Groups.** Each module counts toward one group: a ViteHub package, framework package, dependency, app folder, or generated code.
+- **Why.** The shortest import chain from an entry point to a package, file, or group.
+- **Routes.** In a Nuxt app, what the browser loads on the first visit to each page route.
 - **Against.** The change from a saved report, side by side.
 - **Checks.** Problems that the report proves, such as a server that is too large for the host.
 

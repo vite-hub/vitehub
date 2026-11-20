@@ -19,10 +19,10 @@
   <a href="https://vitehub.dev/docs">Docs</a>
 </p>
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://npmx.dev/package/vite-hub)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://npmx.dev/package/vite-hub)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/vite-hub)](https://npmx.dev/package/vite-hub)
+[![npm downloads](https://img.shields.io/npm/dm/vite-hub)](https://npmx.dev/package/vite-hub)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 ## Server Primitives
 
@@ -55,7 +55,7 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
-    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/decisions"><img src=".github/assets/primitives/decisions.svg" alt="" height="24"><br><b>Decisions</b></a><br>Text to choices</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/choices"><img src=".github/assets/primitives/choices.svg" alt="" height="24"><br><b>Choices</b></a><br>Text to choices</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="24"><br><b>Realtime</b></a><br>Live collaboration</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="24"><br><b>Browser</b></a><br>Browser operations</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="24"><br><b>Shell</b></a><br>Command execution</td>
@@ -108,8 +108,6 @@ pnpm add vite-hub @vite-hub/kv nitro h3
 pnpm add -D vite
 ```
 
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script. Then run `pnpm add -D vite` before you continue.
-
 ```ts
 // vite.config.ts
 import { vitehub } from "vite-hub";
@@ -128,7 +126,7 @@ If a coding agent writes your app, install the ViteHub skill:
 npx skills add https://vitehub.dev --skill vitehub
 ```
 
-Requirements: Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer, and Vite 8 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+Requirements: Node.js 24.15 or newer, and Vite 8 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
 
 ## Agents
 

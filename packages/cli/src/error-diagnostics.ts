@@ -7,7 +7,7 @@ const dynamicError = {
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // Retired codes. Do not reuse them: CLI_R0006, SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/cli/diagnostics",
   codes: {
     CLI_CONSOLE_LOGIN_FAILED: {
       fix: "Run `vitehub login` again, and approve the code in the browser within 15 minutes. Pass --console <url> for a self-hosted Console.",
@@ -53,9 +53,31 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the cause that the message names, then run the command again.",
       why: ({ message }: { message: string }) => message,
     },
+    CLI_UPDATE_INSTALL_FAILED: {
+      fix: ({ command }: { command?: unknown }) => `The package files already name the new versions. Fix the cause that the package manager printed, then run \`${String(command)}\`. To undo the update, restore the changed files with git.`,
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    CLI_UPDATE_NO_PACKAGES: {
+      fix: "Run `vitehub update` in the folder of the app or of the workspace that installs `vite-hub`. To start, run `pnpm add vite-hub`.",
+      why: ({ root }: { root?: unknown }) => `No package.json in ${String(root)} or its workspace packages names \`vite-hub\` or an \`@vite-hub/*\` package with a version or a pkg.pr.new URL.`,
+    },
+    CLI_UPDATE_PACKAGE_MISSING: {
+      fix: ({ target }: { target?: unknown }) => String(target) === "npm"
+        ? "Pass --preview <commit> to use a pkg.pr.new build that has these packages, or remove them from package.json."
+        : "Pass the commit of a build that has these packages, such as a newer commit of main, or remove them from package.json.",
+      why: ({ packages, target }: { packages?: unknown, target?: unknown }) => `The project depends on ${String(packages)}, which ${String(target)} does not have. Nothing was changed.`,
+    },
+    CLI_UPDATE_REQUEST_FAILED: {
+      fix: "Check the network and the npm registry in `npm_config_registry`, then run `vitehub update` again.",
+      why: ({ status, url }: { status?: unknown, url?: unknown }) => `The request to ${String(url)} failed (${String(status)}). Nothing was changed.`,
+    },
     SETUP_CONFIG_NOT_LITERAL: {
       fix: "Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand.",
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `The vitehub() options in ${String(file)} cannot be read without running the config (${String(reason)}).`,
+    },
+    SETUP_LOGS_OPTION_MOVED: {
+      why: "`observability.logs` is no longer a ViteHub option.",
+      fix: "Remove the option from the command. Configure the top-level `logs` key by hand, for example `logs: { source: './server/logs.ts' }` to set `logs.source`.",
     },
     SETUP_NOT_A_PROJECT: {
       fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",

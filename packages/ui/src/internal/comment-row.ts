@@ -26,7 +26,8 @@ export interface ThreadRowOptions {
 export function threadRow(thread: CommentThread, options: ThreadRowOptions = {}) {
   const replies = thread.messages.length - 1;
   return [
-    h("span", { "data-slot": "comment-list-number" }, String(thread.n)),
+    // A thread that waits in the outbox has no number yet.
+    h("span", { "data-slot": "comment-list-number" }, thread.n ? String(thread.n) : ""),
     h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(thread)], size: "sm" }),
     h("span", { "data-slot": "comment-list-body" }, [
       h("span", { "data-slot": "comment-list-text" }, options.preview ?? threadPreview(thread)),

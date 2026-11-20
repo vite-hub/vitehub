@@ -11,7 +11,7 @@ Deploy one greeting Agent on Cloudflare Workers and on Vercel. The Agent and
 route stay the same. Only the host, which picks the host output, changes.
 
 Start with the app from [Installation](/docs/getting-started/installation),
-with its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm. A
+with its pinned Nitro and H3 versions, Node.js 24.15 or newer, and pnpm. A
 function Driver (plain code that makes the reply) means you need no model
 account, only an account with each host.
 
@@ -49,8 +49,7 @@ export default defineEventHandler(async (event) => {
 
 ## Build for Cloudflare Workers
 
-Select the Cloudflare host. Turn off Workflow, because this Agent finishes
-inside the request. Turn off Console, so the check needs no run log.
+Select the Cloudflare host. Turn off Console, so the check needs no run log.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -61,7 +60,6 @@ export default defineNuxtConfig({
   	name: 'vitehub-greeting',
   	host: 'cloudflare',
   	agent: true,
-  	workflow: false,
   	console: false,
   },
 })
@@ -79,7 +77,6 @@ export default defineConfig({
 		name: 'vitehub-greeting',
 		host: 'cloudflare',
 		agent: true,
-		workflow: false,
 		console: false,
 	}), nitro()],
 })
@@ -96,7 +93,6 @@ export default defineConfig({
 		name: 'vitehub-greeting',
 		host: 'cloudflare',
 		agent: true,
-		workflow: false,
 		console: false,
 	})],
 })

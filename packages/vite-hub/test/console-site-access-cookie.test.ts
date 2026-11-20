@@ -42,9 +42,9 @@ const kv = vi.hoisted(() => {
         entries.delete(key)
         return [undefined, value] as const
       },
-      async keys(base: string) {
+      async list({ prefix }: { prefix: string }) {
         // Redis lists keys with `:`; some drivers use `/`.
-        return [undefined, [...entries.keys()].filter(key => key.startsWith(base) && live(key) !== null).map(key => key.replaceAll(":", "/"))] as const
+        return [undefined, { keys: [...entries.keys()].filter(key => key.startsWith(prefix) && live(key) !== null).map(key => key.replaceAll(":", "/")) }] as const
       },
       async delete(key: string) {
         entries.delete(key)
@@ -91,7 +91,7 @@ async function tools(cookie: string): Promise<string[]> {
 
 /** The person that Comments resolves for this browser. */
 async function commentsUser(cookie: string): Promise<CommentsUser | null> {
-  const request = new Request(`${origin}/api/_vitehub/comments/session`, { headers: { cookie } })
+  const request = new Request(`${origin}/_vitehub/comments/session`, { headers: { cookie } })
   installRequestStandardContext(request)
   // SAFETY: The line above installed the Standard Context of this Request, as Nitro does for a route.
   return (await resolveCommentsIdentity(defineComments(), request as Request & CommentsRequestEvent)).user
