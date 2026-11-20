@@ -42,9 +42,9 @@ const kv = vi.hoisted(() => {
         entries.delete(key)
         return [undefined, value] as const
       },
-      async keys(base: string) {
+      async list({ prefix }: { prefix: string }) {
         // Redis lists keys with `:`; some drivers use `/`.
-        return [undefined, [...entries.keys()].filter(key => key.startsWith(base) && live(key) !== null).map(key => key.replaceAll(":", "/"))] as const
+        return [undefined, { keys: [...entries.keys()].filter(key => key.startsWith(prefix) && live(key) !== null).map(key => key.replaceAll(":", "/")) }] as const
       },
       async delete(key: string) {
         entries.delete(key)

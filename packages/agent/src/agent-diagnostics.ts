@@ -10,6 +10,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1042",
   "AGENT_R1043",
   "AGENT_R1044",
+  "AGENT_WEBHOOK_OPTION_RENAMED",
+  "AGENT_WEBHOOK_SECRET_NAME_INVALID",
   "AGENT_STORAGE_PREFIX_INVALID",
   "AGENT_STORAGE_PREFIX_OUTSIDE",
   "AGENT_R1007",
@@ -161,7 +163,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0357",
   "AGENT_R0358",
   "AGENT_R0371",
-  "AGENT_R0372",
   "AGENT_R0373",
   "AGENT_R0374",
   "AGENT_R0375",
@@ -509,6 +510,7 @@ const agentDiagnosticHandles = defineDiagnostics({
   codes: {
     // AGENT_R0081, AGENT_R0085, AGENT_R0086, AGENT_R0088, AGENT_R0094, AGENT_R0109, and AGENT_R0153 through AGENT_R0155 are retired. Nothing raised them. AGENT_R0105, AGENT_R0106, and AGENT_R0151 are retired: only a ViteHub bug reached them. Do not reuse them.
     // AGENT_R0038 through AGENT_R0048, AGENT_R0889, and AGENT_R0922 are retired. Nothing raised them. Do not reuse them.
+    // AGENT_R1053 is retired with the old `--url` forms of `vitehub agent invocations`. Do not reuse it.
     AGENT_R0907: {
       ...dynamicError,
       fix: "Set the observations option of the Agent Invocation journal to whole numbers inside the range that the message names, or remove the option to use its default.",
@@ -1832,10 +1834,6 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Pass channelAdapter() a non-empty Channel kind string, such as \"slack\".",
     },
-    AGENT_R0372: {
-      ...dynamicError,
-      fix: "Remove path from http(), and set the route with http({ webhooks: { path } }).",
-    },
     AGENT_R0373: {
       ...dynamicError,
       fix: "Pass telegram() either webhookSecret or webhooks, not both.",
@@ -2376,7 +2374,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0524: {
       ...dynamicError,
-      fix: "Set a webhook secret on the Channel webhook registration, such as secretToken, and make a base64 secret canonical base64.",
+      fix: "Set a webhook secret on the Channel webhook registration with secret, the name of the server variable that holds it, and make a base64 secret canonical base64.",
     },
     AGENT_R0525: {
       ...dynamicError,
@@ -3776,7 +3774,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
     AGENT_INVOCATIONS_NO_DEV_SERVER: {
-      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to call.`,
       fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
     },
     AGENT_R0939: {
@@ -4029,7 +4027,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R1044: {
       why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" does not verify requests, and it does not opt out of verification.`,
-      fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
+      fix: "Set secret, the name of the server variable that holds the secret, with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secret: false.",
     },
     AGENT_R1045: {
       why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime driver.",
@@ -4062,10 +4060,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1052: {
       why: ({ problem }: { problem: string }) => `[vitehub] page() has an invalid rule: ${problem}`,
       fix: "Give each rule in `deny` and `requireApproval` a non-empty `label`, a `component`, or `confirm: true`, such as `{ label: \"Project name\" }`.",
-    },
-    AGENT_R1053: {
-      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
-      fix: ({ use }: { use: string }) => `Pass ${use}.`,
     },
     AGENT_R1054: {
       why: "[vitehub] This page is closed. Its queued calls cannot run.",
@@ -4773,6 +4767,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ phase, status, reason }: { phase: "delivery" | "rehydration", status: number, reason: string | undefined }) => `[vitehub] Handled webhook ${phase} returned HTTP ${status}${reason ? ` (${reason})` : ""}.`,
       fix: "The webhook queue retries the delivery. Check the trigger handler that answered with 5xx, and answer with 2xx or 4xx to stop the retries.",
     },
+    AGENT_WEBHOOK_OPTION_RENAMED: {
+      why: ({ registration, from, to }: { registration: string, from: string, to: string }) => `[vitehub] Webhook registration "${registration}" sets ${from}, which is now ${to}.`,
+      fix: "Use the names of Webhooks and Channels: `secret` names the server variable that holds the secret, and `signature` is `\"bearer\"`, `\"github\"`, `\"stripe\"`, `{ type: \"hmac-sha256\" }`, `{ type: \"stripe\", tolerance: \"5m\" }`, or `{ verify }`. `vitehub migrate` renames them.",
+    },
     AGENT_WEBHOOK_REHYDRATION_CHANGED: {
       why: ({ kind, resolved, expected }: { kind: "Agent" | "task", resolved: string, expected: string }) => `[vitehub] Persisted webhook delivery resolved ${kind} "${resolved}" instead of "${expected}".`,
       fix: "Keep the task and Agent that a trigger selects for a delivery the same while queued deliveries wait, or let them finish before you deploy the change.",
@@ -4782,6 +4780,10 @@ const agentDiagnosticHandles = defineDiagnostics({
         ? "[vitehub] Webhook aliases currently require a Nitro host."
         : `[vitehub] Channel ${channel} declares its own webhook route. Inbound Channels that no Agent lists currently require a Nitro host.`,
       fix: "Build for a Nitro host, such as `vitehub({ host: \"node\" })`. On Deno or Netlify, remove `routes.aliases` from `vitehub({ agent })` and list each inbound Channel in `defineAgent({ channels })`.",
+    },
+    AGENT_WEBHOOK_SECRET_NAME_INVALID: {
+      why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" sets a \`secret\` string that is not a server variable name.`,
+      fix: "Set `secret` to the name of the server variable that holds the secret, such as `secret: \"GITHUB_WEBHOOK_SECRET\"`, or to a function that returns the secret, such as `secret: () => useServerEnv().github.webhookSecret`.",
     },
     AGENT_WEBHOOK_STATE_SCOPE_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Webhook registration "${id}" stateScope must be a non-empty string.`,

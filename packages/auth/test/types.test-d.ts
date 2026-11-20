@@ -29,7 +29,6 @@ import {
   type ViteHubAuth,
 } from "../src/index.ts"
 import {
-  auth,
   createAuthForRequest,
   getAuthForDefinition,
   handleAuthRequest,
@@ -61,10 +60,10 @@ describe("types", () => {
           route: "/_vitehub/**",
         }],
         signIn: {
-          callbackURL: "/app",
           provider: "github",
           scopes: ["read:org"],
         },
+        afterSignIn: "/app",
       },
       appName: "ViteHub",
       database: authDatabase("auth"),
@@ -110,8 +109,8 @@ describe("types", () => {
   })
 
   it("exposes the server auth handler shape", () => {
-    expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
-    expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(useAuth().handler).parameters.toEqualTypeOf<[Request]>()
+    expectTypeOf(useAuth().handler).returns.toEqualTypeOf<Promise<Response>>()
 
     const runtimeAuth = createAuthForRequest(defineAuth(() => ({
       socialProviders: {
@@ -239,8 +238,29 @@ describe("types", () => {
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>["api"]["listUsers"]>().toBeFunction()
     expectTypeOf<RegisteredAuth<{}>>().toEqualTypeOf<ViteHubAuth>()
     expectTypeOf(authServer.useAuth).returns.toEqualTypeOf<RegisteredAuth>()
-    expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
+  })
+
+  it("types the requireAuth() user and Session from the generated Auth registry", () => {
+    const definition = defineAuth({
+      appName: "ViteHub",
+      plugins: [admin()],
+      user: { additionalFields: { team: { type: "string", required: false } } },
+    })
+    type Registered = AuthAuthorization<{ definition: typeof definition }>
+    expectTypeOf<Registered["user"]>().toEqualTypeOf<RegisteredAuth<{ definition: typeof definition }>["$Infer"]["Session"]["user"]>()
+    expectTypeOf<Registered["user"]["email"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["user"]["name"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["user"]>().toHaveProperty("role")
+    expectTypeOf<Registered["user"]>().toHaveProperty("team")
+    expectTypeOf<Registered["session"]["userId"]>().toEqualTypeOf<string>()
+    expectTypeOf<Registered["session"]["impersonatedBy"]>().toEqualTypeOf<string | null | undefined>()
+
+    // Without a generated registry, the user has the fields of Better Auth's core schema.
+    expectTypeOf<AuthAuthorization<{}>["user"]["email"]>().toEqualTypeOf<string>()
+    // @ts-expect-error A field that no plugin adds is not on the user.
+    void ({} as AuthAuthorization<{}>["user"]).team
+    expectTypeOf(requireAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<Promise<AuthAuthorization>>()
   })
 
   it("types session.onRefresh in static and callback definitions", () => {

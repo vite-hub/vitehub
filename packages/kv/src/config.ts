@@ -26,6 +26,8 @@ import type {
 } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
+import type { Diagnostic } from "nostics"
+
 export interface KVResolutionInput {
   /**
    * `vite dev`. A store is then local unless it sets `remote: true`: inference never selects Upstash, and a Cloudflare
@@ -84,7 +86,7 @@ export function redisStorePrefix(name: string): string {
   return `vitehub:kv:${segment}`
 }
 
-/** An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis or Upstash database. */
+/** An empty prefix would let `kv.clear()` and `kv.list()` reach every key of the Redis or Upstash database. */
 function resolveStoreBase(base: string | undefined, name: string): string {
   return normalizeKey(trimmed(base)) || redisStorePrefix(name)
 }
@@ -213,22 +215,18 @@ export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig
 }
 
 /**
- * The build warning for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
+ * The build hint for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
  * another service, such as BullMQ or sessions. A NuxtHub app that kept its keys in Redis must select it.
  */
-export function kvRedisEnvWarning(options: KVOptions | undefined, input: KVResolutionInput = {}): string | undefined {
+export function kvRedisEnvHint(options: KVOptions | undefined, input: KVResolutionInput = {}): Diagnostic | undefined {
   if (options === false || input.dev || (options && ("stores" in options || options.driver))) return
   const env = input.env || process.env
   const name = readEnv(env, redisUrlEnvName) ? redisUrlEnvName : readEnv(env, "KV_URL")?.startsWith("rediss://") ? "KV_URL" : undefined
   if (!name) return
-  const fix = `To keep KV in that Redis, set \`kv: { driver: "redis"${name === redisUrlEnvName ? "" : `, url: "env:${name}"`} }\`. To keep this store, set its \`driver\`.`
   const store = normalizeKVOptions(options, input)?.store
-  if (store?.driver === "upstash" && !hasUpstashEnv(env)) {
-    return `[vitehub] KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own. ${fix}`
-  }
+  if (store?.driver === "upstash" && !hasUpstashEnv(env)) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: "upstash" })
   const selected = store?.driver === "database" ? `the table vitehub_kv of the Database "${store.database}"` : store?.driver === "fs-lite" ? `fs-lite in ${store.base}` : undefined
-  if (!selected) return
-  return `[vitehub] The build has \`${name}\`, but KV does not select Redis on its own. The KV store "default" uses ${selected}. ${fix}`
+  if (selected) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: selected })
 }
 
 export function warnVercelKVFallback(

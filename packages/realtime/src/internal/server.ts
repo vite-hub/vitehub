@@ -371,7 +371,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition
   if (cached) return cached
   assertRealtimeCheckpoint(definition)
   const document = definition.document
-  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
+  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace, document.checkpointAuthor)
   const persistence = definition.persistence === false
     ? false as const
     : {
@@ -2013,7 +2013,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       snapshot = await adapter.checkpoint!(room.context, {
         digest: saved.digest,
         message: configured === true ? undefined : configured?.message,
-        user: user ?? saved.savedBy ?? undefined,
+        user: user ?? undefined,
       })
     }
     catch (error) {

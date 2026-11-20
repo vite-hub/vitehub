@@ -28,7 +28,8 @@ Components that use one name share one store. It stops when the last of them unm
 | Field | What it holds |
 | --- | --- |
 | `rows` | The rows from the server, with the writes that wait applied on top. New rows come last. |
-| `status` | `idle` on the server and until the stored rows are read, so a server-rendered page hydrates without a mismatch. Then `loading` until the first pull, and `ready`. `offline` when the network failed, `error` when the server refused the caller or failed. |
+| `status` | `idle` on the server and until the stored rows are read, so a server-rendered page hydrates without a mismatch. Then `loading` until the first pull, and `ready`. A snapshot in pages stays `loading` until its last page is in. `offline` when the network failed, `error` when the server refused the caller or failed. |
+| `complete` | `true` once the store holds a complete snapshot from the server. It stays `true` offline, after an error and after a reload, and is `false` while a snapshot in pages is not done, also after a reload between two pages. Use it to tell "has every row" apart from "has some rows". |
 | `error` | The error of the last pull or push, with its `code`. `null` after a success. |
 | `queued` | The number of writes of the signed-in account that the server did not confirm yet. |
 | `failures` | Refused writes, oldest first. Each has `key`, `mutation`, and `error`. |
@@ -223,6 +224,17 @@ export async function signOutEverywhere() {
 ```
 
 If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
+
+To clear the rows and keep the writes that wait, such as changes that a person made offline, pass `keepWrites: true`. Each write stays in IndexedDB with its account, hidden from the next person, and goes out when its person signs in again. Its promise stays pending until then. A write made before the first pull has no account, so it goes with the rows:
+
+```ts [app/composables/sign-out.ts] fragment
+import { clearSync } from 'vite-hub/sync/client'
+
+export async function signOut() {
+  await $fetch('/api/logout', { method: 'POST' })
+  await clearSync({ keepWrites: true })
+}
+```
 
 ## Refused writes
 

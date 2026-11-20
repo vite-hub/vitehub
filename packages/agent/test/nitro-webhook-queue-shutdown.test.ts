@@ -119,7 +119,7 @@ export default defineAgent({
           }),
         },
       },
-      webhooks: { secretToken: false },
+      webhooks: { secret: false },
     }),
   },
   driver: {

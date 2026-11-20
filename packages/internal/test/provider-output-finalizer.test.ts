@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
 
 import {
   captureProviderDeploymentOutputGeneration,
@@ -20,7 +20,7 @@ import {
   finalizeProviderDeploymentOutputs,
   resetProviderDeploymentOutputs,
 } from "../src/build/deployment-output.ts"
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
 
 type BundledProviderOutput = Pick<typeof import("../src/build/deployment-output.ts"),
@@ -33,15 +33,12 @@ const tempDirs: string[] = []
 const execFileAsync = promisify(execFile)
 
 // Owner packages bundle @vite-hub/internal and keep npm packages external. Since #2567 the provider output sources
-// import `vite`, which esbuild cannot bundle, so test bundles import npm packages from this package's node_modules.
-const externalPackages: Plugin = {
+// import `vite`, so test bundles import npm packages from this package's node_modules.
+const externalPackages: Rolldown.Plugin = {
   name: "external-packages",
-  setup(build) {
-    // esbuild filters are Go regular expressions without lookahead, so relative, absolute, and node: imports return here.
-    build.onResolve({ filter: /.*/ }, (args) => {
-      if (/^[./]|^node:/.test(args.path)) return undefined
-      return { external: true, path: import.meta.resolve(args.path) }
-    })
+  resolveId(source) {
+    if (/^[./]|^node:|^\0/.test(source)) return
+    return { id: import.meta.resolve(source), external: true }
   },
 }
 
@@ -1507,10 +1504,8 @@ describe("Provider Output finalizer", () => {
           bundleOptions: {
             plugins: [{
               name: "reset-finalization",
-              setup(build) {
-                build.onStart(() => {
-                  reset = resetProviderDeploymentOutputs(catalog)
-                })
+              buildStart() {
+                reset = resetProviderDeploymentOutputs(catalog)
               },
             }],
           },

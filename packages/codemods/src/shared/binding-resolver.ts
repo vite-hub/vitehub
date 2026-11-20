@@ -10,7 +10,7 @@ interface Scope {
 }
 
 /** Resolve identifiers to declarations, including block bindings, parameters, and hoisted var declarations. */
-export function bindingResolver(program: File): (node: Identifier) => Identifier | undefined {
+export function bindingResolver(program: File): (node: Identifier, name?: string) => Identifier | undefined {
   const scopes = new Map<Node, Scope>()
   const declare = (node: Node | null | undefined, scope: Scope): void => {
     if (!node) return
@@ -47,10 +47,10 @@ export function bindingResolver(program: File): (node: Identifier) => Identifier
     else if (node.type === "CatchClause") declare(node.param, scope)
     else if (node.type === "TSEnumDeclaration" || node.type === "TSImportEqualsDeclaration") declare(node.id, scope)
   })
-  return (node) => {
+  return (node, name = node.name) => {
     let scope = scopes.get(node)
     while (scope) {
-      const binding = scope.bindings.get(node.name)
+      const binding = scope.bindings.get(name)
       if (binding) return binding
       scope = scope.parent
     }

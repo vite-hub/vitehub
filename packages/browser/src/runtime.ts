@@ -2,12 +2,9 @@ import { withBrowserTimeout } from "./internal/timeout.ts"
 import browserRegistry from "#vitehub/browser/registry"
 import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
-import {
-  browserDefinitionNotFoundError,
-  browserProviderError,
-  toBrowserError,
-} from "./errors.ts"
-import { toResponse } from "@vite-hub/runtime/internal/response"
+import { browserProviderError } from "./errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { browserRunErrors } from "./run-errors.ts"
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
 import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
@@ -37,8 +34,11 @@ import type { PlaywrightBrowserConnection } from "./internal/connections.ts"
 import type {
   BrowserDefinitionInputArgs,
   BrowserDefinitionName,
+  BrowserDefinitionOutput,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
+import type { BrowserRunErrorCode } from "./run-errors.ts"
+import type { Result } from "@vite-hub/runtime"
 import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 async function boundedCleanup(cleanup: Promise<void>, operation = "close the browser after setup failure"): Promise<void> {
@@ -110,7 +110,9 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
 
   async content(input: BrowserActionInput): Promise<string> {
-    return await runBrowserContent(input)
+    const [error, content] = await runBrowserContent(input)
+    if (error) throw error
+    return content
   }
 
   async run(action: BrowserAction, input: BrowserActionInput): Promise<Response> {
@@ -190,10 +192,7 @@ function isBrowserDefinition(value: unknown): value is BrowserDefinition {
     && typeof (value as { run?: unknown }).run === "function"
 }
 
-async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition> {
-  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
-  if (!entry) throw browserDefinitionNotFoundError(name)
-  const loaded = typeof entry === "function" ? await entry() : entry
+function readBrowserDefinition(name: string, loaded: unknown): BrowserDefinition {
   const definition = loaded
     && (typeof loaded === "object" || typeof loaded === "function")
     && "default" in loaded
@@ -241,21 +240,38 @@ export async function executeBrowserDefinition<TInput, TResult>(
   return result
 }
 
+/**
+ * Run a Browser Definition by its name. `data` is the value that the handler returned, such as a string or a `Response`.
+ * An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`; an import, handler, or provider failure returns `BROWSER_RUN_FAILED`.
+ * A build without Browser and a file that does not default-export `defineBrowser()` throw.
+ */
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
   ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>
-): Promise<Response>
+): Promise<Result<BrowserDefinitionOutput<BrowserRegistryDefinition<TName>>, BrowserRunErrorCode>>
 export function runBrowser<TName extends string>(
   name: string extends TName ? TName : never,
   input?: unknown,
-): Promise<Response>
-export async function runBrowser(name: string, input?: unknown): Promise<Response> {
+): Promise<Result<unknown, BrowserRunErrorCode>>
+export async function runBrowser(name: string, input?: unknown): Promise<Result<unknown, BrowserRunErrorCode>> {
+  if (!isBrowserAvailable()) throw browserUnavailableError()
+  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
+  if (!entry) return [browserRunErrors.BROWSER_DEFINITION_NOT_FOUND({ name }), undefined]
+
+  let loaded: unknown
   try {
-    const definition = await resolveBrowserDefinition(name)
-    return toResponse(await executeBrowserDefinition(definition, input))
+    loaded = typeof entry === "function" ? await entry() : entry
+  }
+  catch (cause) {
+    return [browserRunErrors.BROWSER_RUN_FAILED({ name, cause }), undefined]
+  }
+
+  const definition = readBrowserDefinition(name, loaded)
+  try {
+    return [undefined, await executeBrowserDefinition(definition, input)]
   }
   catch (error) {
-    const normalized = toBrowserError(error)
-    return Response.json({ error: { code: normalized.code, message: normalized.message, details: normalized.details } }, { status: 500 })
+    if (getViteHubErrorShape(error)?.code === "BROWSER_UNAVAILABLE") throw error
+    return [browserRunErrors.BROWSER_RUN_FAILED({ name, cause: error }), undefined]
   }
 }

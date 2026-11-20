@@ -44,7 +44,7 @@ export function wordGateway(calls: { questions: Record<string, unknown>, state: 
       })
     })
     // SAFETY: The test answers follow the question keys that the plan builds.
-    return answers as never
+    return [undefined, answers as never]
   }
   return { ask }
 }

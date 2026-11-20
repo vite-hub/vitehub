@@ -39,7 +39,7 @@ const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init
 // The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
 const page: SyncPage = { stores: new Set(), version: 0 }
 
-const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
+const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", complete: false, error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
@@ -217,19 +217,31 @@ function openSync<TName extends SyncName>(name: TName, options: SyncOptions<Sync
   } as SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>>
 }
 
+/** Options of `clearSync()`. */
+interface ClearSyncOptions {
+  /**
+   * Keeps the queued writes of each account, so writes that a person made offline go out when that person signs in
+   * again. They stay hidden from other accounts, as writes of another account always are. Writes made before the first
+   * pull have no account, and go. Default `false`.
+   */
+  keepWrites?: boolean
+}
+
 /**
  * Forgets every Sync row and queued write in this browser, in every tab, also the writes that wait for another
  * account. Call it on sign-out, so the next person on the device does not see them. Writes that wait reject with
- * `SYNC_CLEARED`.
+ * `SYNC_CLEARED`. With `keepWrites: true`, the writes of each account stay queued, and their promises stay pending.
  * Active stores stay paused until an explicit `refresh()` after the identity transition.
  * @experimental
  */
-async function clearSync(): Promise<void> {
+async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
   if (!isBrowser()) return
-  for (const { store } of shared.values()) store.forget()
-  for (const store of draining.keys()) store.forget()
-  await Promise.all([memoryStorage?.clear(), indexedDBStorage?.clear()])
-  postClear()
+  const keepWrites = options.keepWrites === true
+  for (const { store } of shared.values()) store.forget(keepWrites)
+  for (const store of draining.keys()) store.forget(keepWrites)
+  await Promise.all([memoryStorage?.clear({ keepWrites }), indexedDBStorage?.clear({ keepWrites })])
+  postClear(keepWrites)
 }
 
 export { clearSync, openSync }
+export type { ClearSyncOptions }
