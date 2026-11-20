@@ -334,13 +334,21 @@ export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_REQUESTS_OFF"
   | "REALTIME_ROOM_TIMEOUT"
 
-/** Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple. */
+/**
+ * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
+ * When the server names why it refused the request, the code is that name, such as `REALTIME_SOURCE_CHANGED`. Other
+ * server and network errors are `REALTIME_REQUEST_FAILED`.
+ */
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"
+  | "REALTIME_INVALID_DOCUMENT"
   | "REALTIME_INVALID_RESPONSE"
   | "REALTIME_MISSING_DOCUMENT"
+  | "REALTIME_READ_ONLY"
   | "REALTIME_REQUEST_FAILED"
+  | "REALTIME_SOURCE_CHANGED"
+  | "REALTIME_SYNC_PENDING"
 
 export type { RealtimeRequestFailure }
 
