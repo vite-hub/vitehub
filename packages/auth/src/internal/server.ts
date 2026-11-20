@@ -33,7 +33,7 @@ import {
 import type { AbilityArgs, AbilityAuthorization, AbilityName } from "../abilities.ts"
 import { parseAuthEventList, parseAuthEventWindow, type AuthEventAggregates, type AuthEventListInput, type AuthEventPage, type AuthEventStore, type AuthEventWindow } from "../events.ts"
 import type { AuthAccessIdentityResolver } from "../runtime-state.ts"
-import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorizeOption, AnonymousAccessAuthorizationContext, ViteHubContext } from "@vite-hub/runtime"
 import type {
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
@@ -604,6 +604,9 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
 }
 
 type CoreAuthorization = AuthAuthorization<unknown>
+type GuardContext<TEvent> = AccessAuthorizationContext<TEvent> & AuthAccessAuthorizationContext<TEvent>
+type GuardAuthorize<TEvent> = AccessAuthorizeOption<TEvent> | AccessAuthorizeOption<TEvent, false>
+type GuardAnonymousAuthorize<TEvent> = AuthAnonymousAuthorize<TEvent> | AuthAnonymousAuthorize<TEvent, false>
 
 function checkedAuthorization(request: CoreAuthorization["request"], session: Record<string, unknown>, user: Record<string, unknown> & { id: string }): CoreAuthorization {
   // SAFETY: The guard read `getSession()` from the selected Auth instance.
@@ -885,7 +888,7 @@ async function checkAuthRequest(
 
 async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   input: TInput,
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: GuardAuthorize<TInput & ViteHubContext>,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
@@ -893,7 +896,8 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization = checkedAuthorization(request, session.session, session.user)
   if (authorize === true) return { authorization }
-  const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
+  const context = { ...authorization, event: authRequestEvent(input) } as GuardContext<TInput & ViteHubContext>
+  const rejection = await runAccessAuthorize<typeof context>(authorize, context)
   return rejection.response ? reject(rejection.response) : { authorization }
 }
 
@@ -908,12 +912,12 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
   definition?: undefined,
 ): (input: TInput) => Promise<TResult | Response>
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext, false>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult, unknown>,
   definition: AuthDefinition | undefined,
 ): (input: TInput) => Promise<TResult | Response>
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
+  authorize: GuardAnonymousAuthorize<TInput & ViteHubContext>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -931,7 +935,9 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
-    const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
+    type Event = TInput & ViteHubContext
+    const context = { ...authorization, event: authRequestEvent(input) } as GuardContext<Event> | AnonymousAccessAuthorizationContext<Event>
+    const rejection = await runAccessAuthorize<typeof context>(authorize, context, deny)
     if (rejection.response) return sendSessionCookies(input, rejection.response)
     return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization | AuthAnonymousAuthorization))
   }
@@ -974,12 +980,12 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   definition?: undefined,
 ): (input: TInput) => Promise<TResult | Response>
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
   handler: AuthGuardedHandler<TInput, TResult, unknown>,
   definition: AuthDefinition | undefined,
 ): (input: TInput) => Promise<TResult | Response>
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: GuardAuthorize<TInput & ViteHubContext>,
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
@@ -1066,12 +1072,12 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
 ): Promise<AuthAuthorization>
 export function requireAuthorization<TInput extends AuthRequestInput>(
   event: TInput,
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext, false>,
   definition: AuthDefinition | undefined,
 ): Promise<CoreAuthorization>
 export function requireAuthorization<TInput extends AuthRequestInput>(
   event: TInput,
-  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  authorize: GuardAuthorize<TInput & ViteHubContext>,
   definition?: AuthDefinition,
 ): Promise<CoreAuthorization> {
   if (authorize !== true && typeof authorize !== "function") {

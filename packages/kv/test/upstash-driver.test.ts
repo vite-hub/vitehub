@@ -186,7 +186,7 @@ it("clears 2,500 keys with DEL commands of at most 1,000 keys", async () => {
   upstash.data.set("other:a:0", "keep")
   for (let index = 0; index < 2500; index++) upstash.data.set(`app:a:${index}`, "v")
   upstash.data.set("app:ab", "keep")
-  await createKVStorage(upstash.create({ base: "app" })).clear("a")
+  await createKVStorage(upstash.create({ base: "app" })).clear("a:")
   expect(upstash.commands).toEqual([{ name: "del", keys: 1000 }, { name: "del", keys: 1000 }, { name: "del", keys: 500 }])
   expect([...upstash.data.keys()].sort()).toEqual(["app:ab", "other:a:0"])
 })

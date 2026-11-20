@@ -65,7 +65,9 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
-At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
+At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`. A named `fs` store without `base` uses a sibling folder such as `.vitehub/data/blob-avatars`. The Node development fallback of a `cloudflare` store uses the same rule. Names used to generate folders can use letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
 The `fs` driver keeps each object as the file at its pathname, so `docs/a.txt` is the file `<base>/docs/a.txt`. A pathname that is also a folder, such as `docs` next to `docs/a.txt`, keeps its bytes in `<base>/.vitehub/blob-folder-objects`, the same way S3 and R2 keep both keys. Files that older versions stored stay where they are.
 
@@ -85,7 +87,7 @@ On Vercel, the `vercel` driver uses OIDC when the project has `BLOB_STORE_ID`, w
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the dev runner's emulated R2 binding. Without a binding, only the Node runner falls back to `fs`. With Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the store.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -97,7 +99,7 @@ export default defineConfig({
 })
 ```
 
-With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. Another explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route is `/_vitehub/blob` by default. Use `serve.route` for product-facing paths such as `/assets`.
 `put()` has no `access` option. One object cannot be private in a public store, so `put()` with `access` throws `BLOB_R0045`. Keep private files in a store that the route does not serve, or serve that store with `authorize: true`. On Vercel Blob, `access` on the store sets the provider access. It defaults to `"private"`, or to `"public"` when `serve: { access: "public" }` serves the store, and `access: "public"` on a store that `authorize: true` serves fails with `BLOB_C0022`.

@@ -300,7 +300,7 @@
     "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // Local SQLite while you develop\n    vitehub({ host: 'node', database: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
-    "key": "docs/content/docs/decisions/get-started.md#1",
+    "key": "docs/content/docs/choices/get-started.md#1",
     "file": "vite.config.ts",
     "code": "import vue from \"@vitejs/plugin-vue\"\nimport { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vue(), vitehub({ host: \"node\" })],\n})\n"
   },

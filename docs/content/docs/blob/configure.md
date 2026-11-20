@@ -85,7 +85,7 @@ export default defineConfig({
 
 ### Use the real store in development
 
-`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, the Node runner in `vite dev` and `nuxt dev` uses the local `fs` driver: `.vitehub/data/blob` for the default store and `.vitehub/data/blob-<name>` for a named store. If you use Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the Blob store. Without it, Miniflare reports a missing binding instead of falling back to `fs`.
 
 Set `remote: true` to use the real store in `vite dev`:
 
@@ -127,7 +127,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` other than `cloudflare` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -592,8 +592,12 @@ The value must be in exactly one env variable at build time. When two variables 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
-| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
+| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. A named store without `base` uses a sibling folder with `-<name>` added to the folder name, such as `.vitehub/data/blob-avatars`. |
 | `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`. |
+
+ViteHub uses the same folder rule for the Node development fallback of a `cloudflare` store. Store names used to generate folders can contain letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters. `BLOB_FS_BASE` must name a folder, not a filesystem root, when ViteHub needs to generate a sibling folder.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
 Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 

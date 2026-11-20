@@ -7,7 +7,7 @@ import { dirname, join, relative, sep } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { providerOutputAliasSources, publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []

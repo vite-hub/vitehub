@@ -2,8 +2,10 @@ import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as Co
 import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { useCommentAttachments } from "../internal/comment-attachments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
-import { repliedSinceResolved } from "../internal/comment-status.ts";
+import { commentThreadKey, useSelectedComment } from "../internal/comment-selection.ts";
+import { commentTitle, deliveryAttributes, repliedSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -77,8 +79,10 @@ export const CommentPanel = defineComponent({
     title: { default: "Comments", type: String },
     /** Hide the page box and every reply, edit, delete, and status control. */
     readOnly: { default: false, type: Boolean },
-    /** Turns attached files into attachment keys. Without it the boxes take no files. */
+    /** Turns attached files into attachment keys before the comment is saved or sent. */
     upload: { type: Function as PropType<CommentUpload> },
+    /** Save raw files with outbox entries. Set only when the server accepts file uploads. `upload` takes precedence. */
+    queueFiles: { default: false, type: Boolean },
     /** The file types that the boxes take, such as `image/*`. */
     accept: { type: String },
     /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
@@ -123,11 +127,14 @@ export const CommentPanel = defineComponent({
     const rows = computed(() =>
       scoped.value.filter((thread) => thread.status === status.value || (status.value === "open" && repliedSinceResolved(thread))),
     );
-    const opened = computed(() => (threadId.value ? state.threads.value.find((thread) => thread.id === threadId.value) : undefined));
+    const opened = useSelectedComment(state.threads, threadId);
 
     watch(opened, (thread, _previous, onCleanup) => {
       if (thread) onCleanup(state.retainMark(thread.id));
     }, { immediate: true, flush: "sync" });
+    watch(opened, thread => {
+      if (thread && thread.id !== threadId.value) setThread(thread.id);
+    });
 
     const body = ref("");
     const mentions = ref<string[]>([]);
@@ -149,15 +156,14 @@ export const CommentPanel = defineComponent({
       void nextTick(() => root.value?.querySelector<HTMLElement>("[data-slot='comment-thread']")?.focus());
     }
     function back() {
-      const id = threadId.value;
+      const id = opened.value?.id;
       setThread(null);
       void nextTick(() => {
         const rowsOf = root.value?.querySelectorAll<HTMLElement>("[data-slot='comment-panel-item']") ?? [];
         [...rowsOf].find((row) => row.dataset.threadId === id)?.focus();
       });
     }
-    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
-    const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
+    const { enabled: attachmentsOn, prepare } = useCommentAttachments(state, props);
 
     // The page box belongs to one subject. Another subject starts with an empty, ready box, and a send that is still on
     // its way for the old subject no longer touches it.
@@ -179,10 +185,10 @@ export const CommentPanel = defineComponent({
       failure.value = undefined;
       const submitted = { body: body.value, files: files.value, mentions: mentions.value };
       try {
-        const attachments = await keys(submit.files);
+        const attached = await prepare(submit.files);
         // A comment written on one page never goes to the next one, even when the subject changed during the upload.
         if (run !== sending) return;
-        await state.create({ attachments, body: submit.body, mentions: submit.mentions });
+        await state.create({ ...attached, body: submit.body, mentions: submit.mentions });
         if (run === sending && body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
           body.value = "";
           mentions.value = [];
@@ -217,6 +223,7 @@ export const CommentPanel = defineComponent({
             "data-focus-inset": "",
             "data-slot": "comment-panel-item",
             "data-status": thread.status,
+            ...deliveryAttributes(thread.delivery),
             "data-thread-id": thread.id,
             onClick: () => select(thread),
             type: "button",
@@ -310,7 +317,7 @@ export const CommentPanel = defineComponent({
         can: props.can,
         detached: state.positions.value.get(thread.id)?.detached === true,
         dismissible: false,
-        key: thread.id,
+        key: commentThreadKey(thread),
         navigation: "back",
         onClose: back,
         onDelete: async (messageId: string) => {
@@ -318,7 +325,10 @@ export const CommentPanel = defineComponent({
         },
         onEdit: (messageId: string, text: string, ids: string[]) => state.edit(thread.id, messageId, text, ids),
         onReopen: () => state.reopen(thread.id),
-        onReply: async (text: string, ids: string[], attached: File[]) => state.reply(thread.id, text, ids, await keys(attached)),
+        onReply: async (text: string, ids: string[], list: File[]) => {
+          const { attachments, files } = await prepare(list);
+          return state.reply(thread.id, text, ids, attachments, files);
+        },
         onResolve: () => state.resolve(thread.id),
         people: props.people,
         readOnly: props.readOnly,
@@ -330,7 +340,7 @@ export const CommentPanel = defineComponent({
       h(
         "section",
         {
-          "aria-label": opened.value ? `Comment ${opened.value.n}` : props.title,
+          "aria-label": opened.value ? commentTitle(opened.value) : props.title,
           "data-comments-ui": "",
           "data-slot": "comment-panel",
           "data-variant": props.variant,

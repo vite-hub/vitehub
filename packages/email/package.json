@@ -89,7 +89,6 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "birpc": "catalog:runtime",
-    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -97,6 +96,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

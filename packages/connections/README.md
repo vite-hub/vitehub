@@ -266,6 +266,6 @@ Start the local app and run `vitehub connections connect chatgpt`. The CLI opens
 
 For a VM, sign in on the laptop first. Run `vitehub connections export chatgpt --file ./chatgpt-grant.json`, transfer that owner-only file over SSH, then run `vitehub connections import chatgpt --file ./chatgpt-grant.json` against the destination app. Import keeps the destination host ID and immediately rotates the refresh token. Export removes the source token set, so the source can no longer use or revoke the transferred grant. Delete both copies of the transfer file after import. If export is interrupted after removing the source grant, sign in again. Do not copy a running grant to two refresh owners.
 
-Sign out with `vitehub connections revoke chatgpt --confirm chatgpt`. Revocation keeps the registration and host ID for the next sign-in.
+Sign out with `vitehub connections revoke chatgpt`. It asks first, and needs `--yes` without a terminal. Revocation keeps the registration and host ID for the next sign-in.
 
 OpenAI plan usage is available to open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join OpenAI's waitlist first. ViteHub does not enforce eligibility or fall back to API billing.

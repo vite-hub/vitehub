@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, and Nuxt Content to ViteHub.
+description: Migrate a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -74,6 +74,32 @@ The codemod stops without edits when:
 - the app already has Schedule options,
 - the host or the jobs directory is computed, or the host is `deno`,
 - the host is Node and KV is turned off. Configure a default KV store before you retry.
+
+## nuxt-better-auth
+
+The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/auth). It reads the app and its local layers:
+
+- `server/auth.config.ts` becomes `server/auth.ts` with `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. When the app has a Database, the codemod adds `database: authDatabase()`.
+- `app/auth.config.ts` becomes `app/auth.client.ts` with `defineAuthClient()` from `vite-hub/auth/vue`.
+- Supported page rules with `auth` become `definePageMeta({ auth })`. Signed-in API rules become `access.routes` entries. The Auth endpoints and exact public exceptions stay outside those guards. See [Protect pages](/docs/auth/protect-pages).
+- `auth.redirects.login` and `auth.redirects.guest` become `access.signIn` and `access.afterSignIn` in `server/auth.ts`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)` and `requireUserSession(event)` becomes `requireAuth(event)`. Optional session reads forward the cookies from Better Auth.
+
+```diff [server/auth.config.ts → server/auth.ts]
+-import { defineServerAuth } from '@nuxtjs/better-auth/config'
++import { defineAuth } from 'vite-hub/auth'
++import { authDatabase } from 'vite-hub/auth/database'
+
+-export default defineServerAuth({
++export default defineAuth({
++  database: authDatabase(),
+   emailAndPassword: { enabled: true },
+ })
+```
+
+The codemod stops without editing Auth when it cannot preserve the access policy or move the source configs. This includes user-field checks in route rules and page meta, overlapping page rules, and guest-only API rules. It checks nested local layers and stops for Nuxt environment overrides such as `$production` or `$env`, `extends` overrides, or `extends` entries it cannot inspect. It also stops for disabled ViteHub Auth, multiple source definitions, or a nonempty client config outside the app’s `app/` directory. The error names the rule or config to migrate by hand.
+
+The report lists what you change by hand after a successful migration: the module's client composables, such as `useSignIn()` and `fetchSession()`, `requireUserSession()` with options, and `NUXT_BETTER_AUTH_SECRET`. ViteHub Auth uses the same session cookie, so users stay signed in when the secret stays the same.
 
 ## docus
 

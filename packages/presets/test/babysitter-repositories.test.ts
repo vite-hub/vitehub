@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { babysitterRepositories } from "../src/babysitter/repositories.ts";
 import { PullRequestInbox } from "../src/babysitter/inbox/store.ts";
+import { deferred } from "./fixtures/deferred.ts";
 
 const installed = (repository: string, archived = false) => ({ repository, installationId: 1, archived });
 
@@ -20,6 +21,21 @@ describe("Babysitter repositories", () => {
     const repositories = babysitterRepositories({ repository: { deny: ["Acme/Private"] } }, read);
     expect(repositories.source).toBe("installations");
     await expect(repositories.current()).resolves.toEqual(["acme/app", "acme/docs"]);
+  });
+
+  it("replaces an aborted refresh and ignores its late result", async () => {
+    const first = deferred<ReturnType<typeof installed>[]>();
+    const read = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce([installed("acme/new")]);
+    const repositories = babysitterRepositories({}, read);
+    const controller = new AbortController();
+    const refresh = repositories.current(controller.signal);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(refresh).rejects.toMatchObject({ name: "AbortError" });
+    await expect(repositories.current()).resolves.toEqual(["acme/new"]);
+    first.resolve([installed("acme/old")]);
+    await first.promise;
+    expect(repositories.known()).toEqual(["acme/new"]);
   });
 
   it("reads installations again after the TTL or an installation event", async () => {

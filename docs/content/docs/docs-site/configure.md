@@ -601,12 +601,12 @@ import cms from 'vite-hub/cms'
 import { docsCollection } from 'vite-hub/docs'
 
 export default defineContent({
-  extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
+  extends: [cms, { repo: 'owner/name', publish: 'pr', roles: true }],
   collections: { docs: docsCollection() },
 })
 ```
 
-Open the app in the [Console](/docs/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
+Open the app in the [Console](/docs/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and use literal `cms` options. Use the boolean literal `true` for `roles`. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 
@@ -618,6 +618,6 @@ With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A s
 
 Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files the site renders, so use it only to try the editor. Run `vitehub database generate` and `vitehub database migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
 
-`access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
+`roles: true` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
 
 The page route can render a draft: it reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. Draft-only pages preview too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page; a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.

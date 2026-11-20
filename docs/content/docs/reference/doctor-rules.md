@@ -168,6 +168,9 @@ The rule checks these calls:
 - `runAgent()` and `streamAgent()` from `vite-hub/agent`
 - `runBrowser()` and `runBrowserContent()` from `vite-hub/browser`
 - `runSandboxTask()` from `vite-hub/sandbox/task`
+- `listAuthEvents()` and `aggregateAuthEvents()` from `vite-hub/auth/server`
+- `save()`, `list()`, and `missing()` of `useTranslations()` from `vite-hub/i18n/server`
+- `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` from `vite-hub/gateways`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and Nuxt auto-imports in `server/`. It reports a result that code:
 

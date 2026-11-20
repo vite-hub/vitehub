@@ -1,6 +1,6 @@
 import type { Driver, TransactionOptions } from "unstorage"
 
-import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
+import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVPageOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import type { KVDatabases } from "./database.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -25,7 +25,7 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract at the internal driver boundary.
   getAndDeleteItem?: <T = unknown>(key: string) => Promise<T | null>
   incrementItem?: (key: string, ttl: number) => Promise<number>
-  listKeys: (options: KVListOptions) => Promise<KVListPage>
+  listKeys: (options: KVPageOptions) => Promise<KVListPage>
   /** Writes the serialized value only when the key is missing. Resolves `true` when this call wrote it. */
   setIfAbsentItem?: (key: string, value: string, ttl?: number) => Promise<boolean>
 }

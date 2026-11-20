@@ -533,7 +533,7 @@ export default defineConfig({
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
@@ -712,11 +712,11 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
-          neverBundle: ["esbuild", "vite"],
+          neverBundle: ["vite"],
           alwaysBundle: [/^@vite-hub\/internal/, configurationOwners],
         },
       },
