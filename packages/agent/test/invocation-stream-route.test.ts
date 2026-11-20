@@ -68,15 +68,16 @@ describe("Agent Dev Loop lazy route", () => {
     expect(res.listenerCount("close")).toBe(0)
   })
 
-  it("ends a controlled error response when loading rejects", async () => {
+  it("answers with the load error when the runtime module fails to load", async () => {
     const { end, handleEndpoint, loading, res, start } = await setup()
     await start()
-    loading.reject(new Error("Module evaluation failed"))
+    // Vitest wraps a rejected mock factory in its own error, so the module fails when the route reads its export.
+    loading.resolve({ get handleAgentInvocationStreamEndpoint(): never { throw new Error("Cannot find package 'missing-sdk' imported from https://user:hunter2@example.test/agent.ts") } })
     await vi.dynamicImportSettled()
 
     expect(res.statusCode).toBe(500)
     expect(res.writableEnded).toBe(true)
-    expect(end).toHaveBeenCalledWith("Agent Invocation Stream endpoint failed.")
+    expect(end).toHaveBeenCalledWith("Cannot find package 'missing-sdk' imported from https://[redacted]@example.test/agent.ts")
     expect(handleEndpoint).not.toHaveBeenCalled()
     expect(res.listenerCount("close")).toBe(0)
   })

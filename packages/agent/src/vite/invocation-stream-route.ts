@@ -1,4 +1,6 @@
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
@@ -39,11 +41,12 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
           // The handler installs its own cancellation listener synchronously at handoff.
           if (!closed && !res.destroyed) handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions)
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (closed || res.destroyed) return
           res.statusCode = 500
           res.setHeader("Content-Type", "text/plain; charset=utf-8")
-          res.end("Agent Invocation Stream endpoint failed.")
+          // The CLI prints this text, so a module that fails to load shows its own error. Only local dev requests get here.
+          res.end(redactInspectionText(formatRuntimeDiagnosticError(error)))
         })
         .finally(() => {
           req.off("aborted", onClose)
