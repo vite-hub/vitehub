@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
             <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
               <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
                 <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md select-none hover:text-highlighted">
-                  <Icon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                  <Icon name="i-lucide-chevron-right" class="size-3.5 group-open:rotate-90" aria-hidden="true" />
                   Access rules
                 </summary>
                 <ul class="mt-2 list-inside list-disc space-y-1">

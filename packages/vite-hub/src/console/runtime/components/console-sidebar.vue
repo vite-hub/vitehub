@@ -24,7 +24,7 @@ withDefaults(defineProps<{
 
 const emit = defineEmits<{ home: [event: MouseEvent], search: [] }>();
 
-// The width animates only after the first paint, so a sidebar that was open on the last visit does not grow on load.
+// The labels fade only after the first paint, so a sidebar that was open on the last visit does not fade in on load.
 const ready = ref(false);
 
 const surface = useTemplateRef<HTMLElement>("surface");
@@ -54,6 +54,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 <template>
   <div
     class="vitehub-sidebar"
+    data-motion-panel
     :data-open="consoleSidebarOpen ? '' : undefined"
     :data-drawer="consoleSidebarDrawer ? '' : undefined"
     :data-ready="ready ? '' : undefined"
@@ -95,7 +96,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 /*
  * Measures: the rail is 52px and the open sidebar 232px. Rows are 34px with a 9px inset, so an 18px icon sits in the
  * middle of the 52px rail, and it keeps the same place when the sidebar opens. Labels are clipped, not hidden, so the
- * width can animate and nothing moves.
+ * width can change and nothing moves. The width follows a spring of the motion layer (`data-motion-panel`), and the
+ * surface follows the width. A drawer covers the page, so it opens at once, as a dialog does.
  */
 .vitehub-sidebar {
   --vitehub-sidebar-rail: 3.25rem;
@@ -125,7 +127,11 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   width: var(--vitehub-sidebar-rail);
 }
 
-.vitehub-sidebar[data-open] .vitehub-sidebar__surface {
+.vitehub-sidebar:not([data-drawer]) .vitehub-sidebar__surface {
+  width: 100%;
+}
+
+.vitehub-sidebar[data-drawer][data-open] .vitehub-sidebar__surface {
   width: var(--vitehub-sidebar-open);
 }
 
@@ -140,11 +146,6 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .vitehub-sidebar[data-ready],
-  .vitehub-sidebar[data-ready] .vitehub-sidebar__surface {
-    transition: width 200ms cubic-bezier(0.23, 1, 0.32, 1);
-  }
-
   .vitehub-sidebar[data-ready] :is(.vitehub-sidebar__label, .vitehub-sidebar__badge, .vitehub-sidebar__fade, .vitehub-sidebar__brand-text, .vitehub-sidebar__group-label, .vitehub-sidebar__group-label::after) {
     transition: opacity 150ms ease-out, color 150ms ease-out;
   }

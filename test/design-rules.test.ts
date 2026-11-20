@@ -115,15 +115,6 @@ type Wave = "W2" | "W3" | "W4" | "W5"
  * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
  */
 const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W5: the Console.
-  "packages/vite-hub/src/console/runtime/components/console-app.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-auth-chart.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-auth.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-search-palette.vue": { count: 3, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-sidebar.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-usage-chart.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
-  "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
   // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
   "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
   "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },

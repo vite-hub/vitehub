@@ -11,7 +11,7 @@ import type { Spring } from "../spring.ts";
 // because the person reads it.
 
 // The icons of the trigger that may turn. Only an icon whose angle differs between the two states moves.
-const iconSelector = "[data-motion-chevron], svg, .iconify, [data-slot=icon], [data-slot$=Icon]";
+const iconSelector = "[data-motion-chevron], svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
 
 // The spring counts in quarter turns, so it settles at the same precision as a spring from 0 to 1.
 const quarter = 90;
@@ -33,17 +33,20 @@ function triggerOf(element: HTMLElement): HTMLElement | null {
 
 function degrees(value: string): number {
   if (!value || value === "none") return 0;
-  // `rotate` computes to an angle, or to an axis and an angle, such as "90deg" or "0 0 1 90deg".
-  const angle = value.trim().split(/\s+/).at(-1)!;
+  const axis = value.trim().split(/\s+/);
+  const angle = axis.pop()!;
+  if (axis.length === 1 && axis[0] !== "z") return 0;
+  if (axis.length === 3 && (Number(axis[0]) !== 0 || Number(axis[1]) !== 0)) return 0;
   const number = Number.parseFloat(angle);
   if (angle.endsWith("turn")) return number * 360;
+  if (angle.endsWith("grad")) return number * 0.9;
   if (angle.endsWith("rad")) return number * 180 / Math.PI;
   return Number.isFinite(number) ? number : 0;
 }
 
-/** The angle of a 2D transform matrix, such as "matrix(0, -1, 1, 0, 0, 0)" for -90deg. */
+/** The Z angle of a computed transform matrix. */
 function matrixDegrees(value: string): number {
-  const match = /^matrix\(([^)]+)\)$/.exec(value);
+  const match = /^matrix(?:3d)?\(([^)]+)\)$/.exec(value);
   if (!match) return 0;
   const [a = 1, b = 0] = match[1]!.split(",").map(Number);
   return Math.atan2(b, a) * 180 / Math.PI;
