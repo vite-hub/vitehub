@@ -290,8 +290,14 @@ describe("member endpoints", () => {
 
   it("keeps one endpoint per address, sends to the one with the send's address, and else to the newest", async () => {
     const threadA = "t3-thread://v2/env-1/thread-a"
+    // A millisecond apart, so the inbox is the newest endpoint.
+    const now = Date.now()
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(now)
     const [, a] = await createMemberEndpoint({ owner: "user_ana", name: "Thread A", agent: "t3", address: threadA, kind: "url", url: endpointUrl, secret, hosts: [publicHost] })
+    vi.setSystemTime(now + 1)
     const [, inbox] = await createMemberEndpoint({ owner: "user_ana", name: "Claude Code", agent: "claude-code", kind: "inbox" })
+    vi.useRealTimers()
     expect(a).toMatchObject({ address: threadA })
     expect(inbox).toMatchObject({ address: null })
     expect(await getMemberEndpoint("user_ana", { address: ` ${threadA} ` })).toEqual([undefined, a])
