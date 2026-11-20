@@ -499,6 +499,8 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
+  AgentModelsEmulateSeed,
+  AgentModelsOptions,
   AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,

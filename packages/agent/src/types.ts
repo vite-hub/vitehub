@@ -2473,10 +2473,36 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
+/**
+ * The `ai` seed of the AI emulator. The emulator validates it when `vite dev` starts, and a seed that it rejects fails
+ * with `AGENT_EMULATOR_RULES_INVALID`. This type does not import the optional `@emulators/ai` package, so the config
+ * types work without it. `EmulatedModelSeed` from `@vite-hub/agent/test/emulate-models` is the full upstream type.
+ */
+export interface AgentModelsEmulateSeed {
+  /** Scripted rules. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. */
+  rules?: readonly object[]
+  /** When `true`, a request that no rule matches fails with the missing rule. */
+  strict?: boolean
+  timing?: object
+  random?: { seed?: number }
+  models?: readonly string[]
+}
+
+export interface AgentModelsOptions {
+  /**
+   * In `vite dev`, start the AI emulator (`@emulators/ai`) on a free loopback port and run every model Driver Agent on
+   * it with no AI key. `true` uses the default answers; a seed object sets the rules.
+   * The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` in `vite dev` only. A build does not start the
+   * emulator. It needs the optional packages `@emulators/core` and `@emulators/ai`.
+   */
+  emulate?: boolean | AgentModelsEmulateSeed
+}
+
 export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
+  models?: AgentModelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions

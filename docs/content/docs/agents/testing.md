@@ -224,6 +224,10 @@ pnpm vitehub agent dev --agent support --prompt 'Summarize the support policy.'
 This checks discovery, the dev route, input preparation, Capability setup,
 the Driver, and streamed output together.
 
+To run this smoke test with no AI key, set `agent.models.emulate`. `vite dev`
+then starts the AI emulator, and model Driver Agents answer from your rules.
+See [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
 `--timeout <milliseconds>` sets the stream inactivity timeout, for a long tool
 or provider turn that needs more time between events. It is not a deadline for
 the whole Invocation. With `--cli` or a direct Workspace command, `--timeout`
