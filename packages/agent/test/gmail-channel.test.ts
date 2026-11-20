@@ -406,13 +406,16 @@ describe("gmail() Channel", () => {
           return typeof value === "function" ? value.bind(target) : value
         },
       })
-      await expect(syncGmailMailbox({
+      const syncing = syncGmailMailbox({
         bodyLimit: 1000,
         client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
         dispatch: vi.fn(),
         notificationHistoryId: "105",
         state: { keyPrefix: "mail:", state },
-      })).rejects.toThrow("Lost ownership")
+      })
+      // Clearing the pending mark is part of taking the lock, so a lease lost there means the sync never held it.
+      if (phase === "pending") await expect(syncing).resolves.toEqual({ finished: false })
+      else await expect(syncing).rejects.toThrow("Lost ownership")
       await expect(storedCursor(second)).resolves.toBe("200")
       await expect(second.get("mail:sync-pending")).resolves.toBe("successor-notification")
       expect(successor).not.toBeNull()
@@ -1773,7 +1776,7 @@ describe("gmail() Channel", () => {
     expect(run).toHaveBeenCalledOnce()
     const calls = { notNewer, notNewerInNewProcess, nothingNew, pollNothingNew, oneNewMessage }
     expect(Object.fromEntries(Object.entries(calls).map(([name, list]) => [name, list.length])), JSON.stringify(calls)).toEqual({
-      notNewer: 0, notNewerInNewProcess: 1, nothingNew: 6, pollNothingNew: 6, oneNewMessage: 8,
+      notNewer: 0, notNewerInNewProcess: 1, nothingNew: 3, pollNothingNew: 3, oneNewMessage: 5,
     })
   })
 

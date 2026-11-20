@@ -7,6 +7,7 @@ import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface ViteHubAgentStateDurableObjectStub {
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> | Lock | null
+  acquireLockWith(threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ lock: Lock | null, values: Array<string | null> }> | { lock: Lock | null, values: Array<string | null> }
   cacheMutateWithLock(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[]): Promise<boolean> | boolean
   cacheDelete(key: string): Promise<void> | void
   cacheGet(key: string): Promise<string | null> | string | null
@@ -23,6 +24,7 @@ export interface ViteHubAgentStateDurableObjectStub {
   queueReplaceHead(threadId: string, expected: string | null, replacement: string[], maxSize: number): Promise<boolean> | boolean
   queueDepth(threadId: string): Promise<number> | number
   releaseLock(threadId: string, token: string): Promise<void> | void
+  releaseLockWith(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ committed: boolean, values: Array<string | null> }> | { committed: boolean, values: Array<string | null> }
   subscribe(threadId: string): Promise<void> | void
   unsubscribe(threadId: string): Promise<void> | void
 }
@@ -72,6 +74,18 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
     return await this.stub(threadId).acquireLock(threadId, ttlMs)
+  }
+
+  async acquireLockWith(threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ lock: Lock | null, values: unknown[] }> {
+    invariant(!this.shardKey || this.shardKey(threadId) === this.defaultName, "ViteHub calls forCacheLocks() before cache lease mutations on a sharded State")
+    const result = await this.stub().acquireLockWith(threadId, ttlMs, mutations, keys)
+    return { lock: result.lock, values: result.values.map(parseCacheValue) }
+  }
+
+  async releaseLockWith(lock: Lock, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ committed: boolean, values: unknown[] }> {
+    invariant(!this.shardKey || this.shardKey(lock.threadId) === this.defaultName, "ViteHub calls forCacheLocks() before cache lease mutations on a sharded State")
+    const result = await this.stub().releaseLockWith(lock.threadId, lock.token, mutations, keys)
+    return { committed: result.committed, values: result.values.map(parseCacheValue) }
   }
 
   async appendToList(key: string, value: unknown, options?: { maxLength?: number; ttlMs?: number }): Promise<void> {
@@ -187,6 +201,10 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     const id = this.namespace.idFromName(name)
     return this.locationHint ? this.namespace.get(id, { locationHint: this.locationHint }) : this.namespace.get(id)
   }
+}
+
+function parseCacheValue(raw: string | null): unknown {
+  return raw === null ? null : JSON.parse(raw)
 }
 
 export function createCloudflareAgentState(options: CloudflareAgentStateOptions): StateAdapter {
