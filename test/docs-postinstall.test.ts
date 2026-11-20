@@ -17,19 +17,25 @@ async function fakeTools(exitCodes: { nuxi: number, vp: number }): Promise<{ cal
   const directory = await mkdtemp(join(tmpdir(), "vitehub-docs-postinstall-"))
   temporaryDirectories.push(directory)
   const log = join(directory, "calls.log")
+  const windows = process.platform === "win32"
   for (const [name, code] of Object.entries(exitCodes)) {
-    const tool = join(directory, name)
-    await writeFile(tool, `#!/bin/sh\necho ${name} >> "${log}"\nexit ${code}\n`)
-    await chmod(tool, 0o755)
+    const tool = join(directory, windows ? `${name}.cmd` : name)
+    await writeFile(tool, windows
+      ? `@echo off\r\n>> "${log}" echo ${name}\r\nexit /b ${code}\r\n`
+      : `#!/bin/sh\necho ${name} >> "${log}"\nexit ${code}\n`)
+    if (!windows) await chmod(tool, 0o755)
   }
   return {
-    calls: async () => (await readFile(log, "utf8").catch(() => "")).split("\n").filter(Boolean),
+    calls: async () => (await readFile(log, "utf8").catch(() => "")).split(/\r?\n/).filter(Boolean),
     path: directory,
   }
 }
 
 function postinstall(env: Record<string, string | undefined>) {
-  const { CI: _ci, VITEHUB_SKIP_DOCS_PREPARE: _skip, ...inherited } = process.env
+  const { CI: _ci, VITEHUB_SKIP_DOCS_PREPARE: _skip, npm_command: _command, ...inherited } = process.env
+  for (const key of Object.keys(inherited)) {
+    if (key.toLowerCase() === "path") delete inherited[key]
+  }
   return spawnSync(process.execPath, ["docs/scripts/postinstall.mjs"], {
     cwd: root,
     encoding: "utf8",
@@ -46,7 +52,7 @@ describe("docs postinstall", () => {
 
   it("keeps a local install green when a package build fails, and says how to retry", async () => {
     const tools = await fakeTools({ nuxi: 0, vp: 1 })
-    const result = postinstall({ PATH: tools.path })
+    const result = postinstall({ npm_command: "install", PATH: tools.path })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stderr).toContain("failed (exit code 1)")
     expect(result.stderr).toContain("corepack pnpm --dir docs run postinstall")
@@ -56,9 +62,16 @@ describe("docs postinstall", () => {
 
   it("fails the install in CI when a package build fails", async () => {
     const tools = await fakeTools({ nuxi: 0, vp: 1 })
-    const result = postinstall({ CI: "true", PATH: tools.path })
+    const result = postinstall({ CI: "true", npm_command: "install", PATH: tools.path })
     expect(result.status).toBe(1)
     expect(await tools.calls()).toEqual(["vp"])
+  })
+
+  it("propagates a failed nuxi prepare when explicitly retried outside CI", async () => {
+    const tools = await fakeTools({ nuxi: 7, vp: 0 })
+    const result = postinstall({ npm_command: "run-script", PATH: tools.path })
+    expect(result.status, result.stderr).toBe(7)
+    expect(await tools.calls()).toEqual(["vp", "nuxi"])
   })
 
   it("runs the build and nuxi prepare when both pass", async () => {

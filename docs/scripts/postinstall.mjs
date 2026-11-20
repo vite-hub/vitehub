@@ -1,10 +1,11 @@
 // Builds the workspace packages the docs import and generates the .nuxt types.
 // CI jobs that never touch the docs set VITEHUB_SKIP_DOCS_PREPARE=1: in those
 // jobs this hook took about 47 of the 90 seconds of dependency setup.
-// Outside CI a failed step does not fail `pnpm install`: the dependencies are
-// installed, and the contributor reruns the step after fixing the package.
+// Only the automatic local install hook is best-effort. Explicit retries and
+// CI still report failures through their exit status.
 import { spawnSync } from "node:child_process"
 
+const bestEffort = !process.env.CI && process.env.npm_command === "install"
 const steps = [
   ["vp", ["run", "--cache", "--filter", "@vite-hub/agent...", "--filter", "@vite-hub/ui...", "--filter", "@vite-hub/docs...", "--filter", "vite-hub...", "build"]],
   ["nuxi", ["prepare"]],
@@ -17,7 +18,7 @@ else {
   for (const [command, args] of steps) {
     const result = spawnSync(command, args, { stdio: "inherit", shell: process.platform === "win32" })
     if (result.status === 0) continue
-    if (process.env.CI) {
+    if (!bestEffort) {
       if (result.error) throw result.error
       process.exit(result.status ?? 1)
     }
