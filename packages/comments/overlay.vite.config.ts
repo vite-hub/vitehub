@@ -11,6 +11,9 @@ const root = import.meta.dirname
 // directory as public assets. `overlay.js` holds Vue, the comment parts of `@vite-hub/ui`, and their styles. The
 // Realtime client of presence, with Yjs, is a hashed chunk next to it that only sites with presence load.
 export default defineConfig({
+  // The overlay is served below the app, at `<base>/_vitehub/comments/assets/`. A relative base makes Vite resolve
+  // the modulepreload links of its chunks from `overlay.js`, not from the site root.
+  base: "./",
   configFile: false,
   define: {
     __VUE_OPTIONS_API__: "false",

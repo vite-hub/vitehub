@@ -85,7 +85,9 @@ try {
     beforeExit() {},
   })
   await connections
-  console.log(JSON.stringify(sockets))
+  // Vite adds a modulepreload link for each chunk of the Realtime import before it imports it.
+  const preloads = [...page.mainFrame.document.querySelectorAll("link[rel=modulepreload]")].map(link => link.href)
+  console.log(JSON.stringify({ sockets, preloads }))
 }
 finally {
   clearTimeout(timeout)
