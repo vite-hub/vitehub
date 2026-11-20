@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../webhooks/src/database.ts"
 import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries } from "../../webhooks/src/index.ts"
-import { installWebhooks } from "../../webhooks/src/runtime.ts"
+import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries, redeliverWebhookDelivery } from "../../webhooks/src/runtime.ts"
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
@@ -15,6 +15,7 @@ import { commentsMigration } from "./harness.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
 import type { CommentsUser, CommentThread, DefineCommentsOptions } from "../src/types.ts"
+import type { WebhookWakeSender } from "../../webhooks/src/runtime.ts"
 
 // The guard resolves names. A real lookup would make the test depend on the network.
 vi.mock("node:dns/promises", () => {
@@ -53,19 +54,21 @@ interface Delivery {
 }
 
 let deliveries: Delivery[] = []
+let receiverStatus = 202
 /** Threads that the policy hides from everyone, to check that a token reads as the sender now. */
 let hidden = new Set<string>()
 
-async function setup(send: DefineCommentsOptions["send"] = true) {
+async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookWakeSender) {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple([commentsMigration, ...commentSendsTables.map(statement => `${statement};`), ...webhooksTables.map(statement => `${statement};`)].join("\n"))
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   const database = drizzle({ client }) as unknown as CommentsDatabase
   const db = drizzle({ client })
-  installWebhooks({ webhooks: {}, store: createDrizzleWebhookStore(db), endpoints: createDrizzleWebhookEndpointStore(db) })
+  const store = createDrizzleWebhookStore(db)
+  installWebhooks({ webhooks: {}, store, endpoints: createDrizzleWebhookEndpointStore(db), ...(wake ? { wake } : {}) })
   const comments = defineComments({
     identify: ({ event }) => people[event["~standard"].req.headers.get("x-test-user") ?? ""] ?? null,
-    authorize: ({ thread }) => !thread || !hidden.has(thread.id),
+    authorize: ({ thread, user, console }) => !thread || (!hidden.has(thread.id) && (user?.role !== "viewer" || console === true)),
     send,
   })
   installComments(comments, { database, webhooks: () => import("../../webhooks/src/index.ts") })
@@ -99,11 +102,12 @@ async function setup(send: DefineCommentsOptions["send"] = true) {
     expect(paired.status).toBe(200)
     return { code, allowed: await call(`/send/allow?page=${page}`, { json: { code }, as }) }
   }
-  return { comments, call, comment, reply, connect, page }
+  return { comments, call, comment, reply, connect, page, store }
 }
 
 beforeEach(() => {
   deliveries = []
+  receiverStatus = 202
   hidden = new Set()
   vi.stubEnv("VITEHUB_WEBHOOKS_KEY", btoa(String.fromCharCode(...new Uint8Array(32).fill(7))))
   const real = globalThis.fetch
@@ -111,7 +115,7 @@ beforeEach(() => {
     const request = new Request(input, init)
     if (!request.url.startsWith("https://relay.t3.codes/") && !request.url.startsWith("https://hooks.example.com/")) return real(input, init)
     deliveries.push({ url: request.url, headers: request.headers, body: JSON.parse(await request.text()) })
-    return new Response(null, { status: 202 })
+    return new Response(null, { status: receiverStatus })
   })
 })
 
@@ -302,8 +306,7 @@ describe("sends", () => {
     expect(deliveries[0]!.body.threads.sort()).toEqual([own.id, other.id].sort())
     const after = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
     expect(after).toMatchObject({ count: 0, agent: { name: "T3 Code", host: "relay.t3.codes" }, working: { id: deliveries[0]!.body.send } })
-    // A send with nothing new posts nothing.
-    expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data).toMatchObject({ status: "failed" })
+    expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data).toMatchObject({ status: "sent", id: deliveries[0]!.body.send })
     expect(deliveries).toHaveLength(1)
     await reply(other.id, "bob", "Also the bus times")
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
@@ -460,5 +463,93 @@ describe("sends", () => {
     expect(result.text).toContain(`Quote: Thread #${thread.n} ${thread.id}`)
     const other = await tool.call({ id: deliveries[0]!.body.send }, { user: { id: "bob", name: "Bob" } })
     expect(other.isError).toBe(true)
+  })
+
+  it("seals the delivery body at rest and can redeliver it without exposing the grant", async () => {
+    const { comment, connect, store } = await setup()
+    await comment("ana", "Hello")
+    await connect()
+    const id = deliveries[0]!.headers.get("x-vitehub-delivery")!
+    const token = deliveries[0]!.body.read!.token
+    expect(JSON.stringify(await store.get(id))).not.toContain(token)
+    expect((await getWebhookDelivery(id))[1]?.body).toBeNull()
+    expect((await listWebhookDeliveries())[1]?.[0]?.body).toBeNull()
+    expect((await listWebhookDeliveries({ owner: "ana" }))[1]?.[0]).toMatchObject({ id, body: null })
+    expect((await listMemberDeliveries("ana"))[1]?.deliveries[0]).toMatchObject({ id, body: null })
+    expect((await redeliverWebhookDelivery(id, { caller: { id: "ana" } }))[0]).toBeUndefined()
+    expect(deliveries[1]!.body.read!.token).toBe(token)
+  })
+
+  it("checks the current MCP identity and finishes an ask when the agent replies with its send ID", async () => {
+    const { comments, call, comment, page } = await setup({ grant: false })
+    const ask = await comment("ana", "Please update the notes")
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const code: string = started.body.data.code
+    await call("/send/pair", { json: { code, inbox: "Codex" }, origin: null })
+    const allowed = await call(`/send/allow?page=${page}`, { json: { code }, as: "ana" })
+    const id: string = allowed.body.data.id
+    const tools = commentsMcpTools(comments)
+    const read = tools.find(tool => tool.name === "comments_get_send")!
+    const replyTool = tools.find(tool => tool.name === "comments_reply")!
+    expect((await read.call({ id }, { user: { id: "ana", role: "viewer" } })).text).not.toContain(ask.id)
+    const consoleRead = commentsMcpTools(comments, { console: true }).find(tool => tool.name === "comments_get_send")!
+    expect((await consoleRead.call({ id }, { user: { id: "ana", role: "viewer" } })).text).toContain(ask.id)
+    const editor = { user: { id: "ana", role: "editor" } }
+    expect((await read.call({ id }, editor)).text).toContain(ask.id)
+    expect((await replyTool.call({ id: ask.id, send: id, body: "Updated the notes." }, editor)).isError).toBeUndefined()
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).toMatchObject({ count: 0 })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.working).toBeUndefined()
+  })
+
+  it("keeps a batch retryable when preparing the payload fails", async () => {
+    const payload = vi.fn().mockRejectedValueOnce(new Error("prepare failed")).mockResolvedValue(null)
+    const { call, comment, connect, page } = await setup({ payload })
+    await comment("ana", "Hello")
+    expect((await connect()).allowed.body.data.status).toBe("failed")
+    expect(deliveries).toHaveLength(0)
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
+    expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data.status).toBe("sent")
+    expect(deliveries).toHaveLength(1)
+  })
+
+  it("claims just one send and payload for concurrent requests", async () => {
+    const payload = vi.fn(() => null)
+    const { call, comment, connect, page } = await setup({ payload })
+    await comment("ana", "First batch")
+    await connect()
+    await comment("ana", "Next batch")
+    const results = await Promise.all(Array.from({ length: 5 }, () => call(`/send?page=${page}`, { method: "POST", as: "ana" })))
+    expect(payload).toHaveBeenCalledTimes(2)
+    expect(deliveries).toHaveLength(2)
+    expect(results.map(result => result.body.data.id)).toEqual(Array.from({ length: 5 }, () => deliveries[1]!.body.send))
+  })
+
+  it("shares an in-flight send and makes its batch retryable after the Queue marks it dead", async () => {
+    const jobs: unknown[] = []
+    const { call, comment, connect, page, store } = await setup(true, async (job) => {
+      jobs.push(job)
+      return [undefined, undefined]
+    })
+    await comment("ana", "Hello")
+    receiverStatus = 503
+    const { allowed } = await connect()
+    const send = allowed.body.data
+    expect(send.status).toBe("pending")
+    const again = await call(`/send?page=${page}`, { method: "POST", as: "ana" })
+    expect(again.body.data).toEqual(send)
+    expect(deliveries).toHaveLength(1)
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).toMatchObject({ count: 1, pending: true })
+    expect(jobs).toHaveLength(1)
+    for (let attempt = 0; attempt < 2; attempt++) await expect(deliverWebhookWake(jobs[0])).rejects.toMatchObject({ code: "WEBHOOKS_DELIVERY_FAILED" })
+    await deliverWebhookWake(jobs[0])
+    expect((await store.get(deliveries[0]!.headers.get("x-vitehub-delivery")!))?.state).toBe("dead")
+    const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    expect(status.count).toBe(1)
+    expect(status.working).toBeUndefined()
+    expect(status.pending).toBeUndefined()
+    receiverStatus = 202
+    const retried = (await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data
+    expect(retried.status).toBe("sent")
+    expect(retried.id).not.toBe(send.id)
   })
 })

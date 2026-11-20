@@ -28,7 +28,8 @@ interface EndpointLike {
 export interface CommentSendWebhooks {
   createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string, address?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
   getMemberEndpoint: (owner: string, options?: { address?: string }) => Promise<Result<EndpointLike | null, string>>
-  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, endpointId: string, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
+  getMemberDeliveryState: (id: string) => Promise<"pending" | "sending" | "sent" | "dead" | "cancelled" | undefined>
+  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, endpointId: string, deliveryId: string, sealBody: boolean, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
   checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
   sealWebhooksText: (label: string, text: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
   unsealWebhooksText: (label: string, sealed: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
@@ -83,7 +84,7 @@ export interface CommentSendService {
   /** Opens a send with its read token. */
   read: (id: string, token: string) => Promise<Result<CommentSendView, "COMMENTS_SEND_GRANT_INVALID">>
   /** Opens a send of `user`, or their latest one that the agent has not read, for the MCP tool. */
-  readOwn: (user: CommentsUser, id?: string) => Promise<CommentSendView | undefined>
+  readOwn: (user: CommentsUser, id?: string, policy?: { gate: CommentsPolicyGate, console: boolean }) => Promise<CommentSendView | undefined>
 }
 
 const codeLifetime = 10 * 60_000
@@ -237,6 +238,19 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   /** Start answers with the code and the secret, and Allow and Send build `read.url`, so plain http would leak them. */
   const insecure = (origin: string): [ResultError<"COMMENTS_SEND_INSECURE">, undefined] | undefined => isSecureOrigin(origin) ? undefined : [commentsErrors.COMMENTS_SEND_INSECURE({ origin }), undefined]
 
+  const deliveryFailed = "The agent's receiver did not take the send."
+  async function reconcile(row: SendRow): Promise<SendRow> {
+    if (row.state !== "pending") return row
+    const delivery = row.delivery && await (await webhooks()).getMemberDeliveryState(row.delivery)
+    const state = delivery === "sent" ? "sent"
+      : delivery === "dead" || delivery === "cancelled" || (!delivery && Date.now() - row.updatedAt > 60_000) ? "failed"
+        : "pending"
+    if (state === "pending") return row
+    const error = state === "failed" ? deliveryFailed : null
+    if (!await store.setSendState(row.id, ["pending"], state, Date.now(), { error })) return await store.send(row.id) ?? row
+    return { ...row, state, error }
+  }
+
   /** The open threads of the subject that `user` may read. */
   async function readable(caller: CommentSendCaller, user: CommentsUser): Promise<CommentThread[]> {
     const [error, threads] = await comments.list({ subject: caller.subject, status: "open", limit: 500 })
@@ -248,7 +262,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   /** When each thread of the subject last reached an agent. */
   async function lastSent(subject: CommentSubject): Promise<Map<string, number>> {
     const sent = new Map<string, number>()
-    for (const row of await store.subjectSends(subject, 200)) {
+    for (const row of await Promise.all((await store.subjectSends(subject, 200)).map(reconcile))) {
+      if (row.state === "pending" || row.state === "failed") continue
       for (const thread of threadsOf(row)) if (!sent.has(thread.id)) sent.set(thread.id, row.createdAt)
     }
     return sent
@@ -276,14 +291,12 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return endpoint && endpoint.disabledAt === null ? endpoint : undefined
   }
 
-  async function view(row: SendRow): Promise<CommentSendView> {
-    const fields = readFields(row.sender)
-    const sender: CommentsUser = { ...fields, id: stringField(fields, "id") }
+  async function view(row: SendRow, user: CommentsUser, policy?: { gate: CommentsPolicyGate, console: boolean }): Promise<CommentSendView> {
     const threads: CommentSendThread[] = []
     for (const entry of threadsOf(row)) {
       const [, thread] = await comments.get(entry.id)
       // Exactly the threads of the send, and only those the sender may still read.
-      if (thread && await comments.can({ user: sender, action: "read", thread })) threads.push({ ...thread, role: entry.role })
+      if (thread && await comments.can({ user, action: "read", thread, ...(policy ? { console: policy.console } : {}) }, policy?.gate)) threads.push({ ...thread, role: entry.role })
     }
     await store.setSendState(row.id, ["sent"], "working", Date.now())
     return {
@@ -299,24 +312,34 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
    */
   async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, thread: string | null }): Promise<CommentSendResult> {
     const now = Date.now()
-    const limitedUntil = await retryAt(user.id, now)
-    if (limitedUntil !== undefined) return { status: "limited", retryAt: limitedUntil }
     const endpoint = paired ?? await endpointOf(user.id, await addressOf(caller, user))
     if (!endpoint) return { status: "failed", reason: "No agent is paired. Press Send to pair one." }
-    const threads = (await waiting(caller, user)).waiting.sort((a, b) => a.id < b.id ? -1 : 1)
-    if (!threads.length) return { status: "failed", reason: "No comment waits for an answer." }
+    const resultOf = (row: SendRow): CommentSendResult => row.state === "failed" ? { status: "failed", reason: row.error ?? deliveryFailed }
+      : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}) }
+    const live = ["pending", "sent", "working", "done"] as const
+    const ready = await waiting(caller, user)
+    const threads = ready.waiting.sort((left, right) => left.id < right.id ? -1 : 1)
+    if (!threads.length) {
+      const latest = await store.latestSend(user.id, caller.subject, ["sent", "working"])
+      const eligible = new Map(ready.open.filter(commentThreadWaits).map(thread => [thread.id, lastOf(thread)!.id]))
+      if (latest?.endpoint === endpoint.id && threadsOf(latest).every(entry => eligible.get(entry.id) === entry.message)) return resultOf(latest)
+      return { status: "failed", reason: "No comment waits for an answer." }
+    }
     const entries: SentThread[] = threads.map(thread => ({ id: thread.id, message: lastOf(thread)!.id, role: roleOf(thread, user.id) }))
-    const key = await sha256(JSON.stringify([user.id, entries.map(entry => [entry.id, entry.message])]))
-    const earlier = await store.sendByKey(user.id, key, ["sent", "working"])
-    if (earlier) return { status: "sent", id: earlier.id, ...(earlier.thread ? { thread: earlier.thread } : {}) }
+    const key = await sha256(JSON.stringify([user.id, endpoint.id, entries.map(entry => [entry.id, entry.message])]))
+    const earlier = await store.sendByKey(user.id, key, live)
+    if (earlier) return resultOf(earlier)
+    const limitedUntil = await retryAt(user.id, now)
+    if (limitedUntil !== undefined) return { status: "limited", retryAt: limitedUntil }
     const thread = paired ? paired.thread : await store.endpointThread(user.id, endpoint.id)
 
     const id = `send_${crypto.randomUUID()}`
+    const delivery = `whd_${crypto.randomUUID()}`
     const token = grant ? `vhs_${random(32)}` : undefined
     const expiresAt = now + grantLifetime
     const asks = entries.filter(entry => entry.role === "ask").map(entry => entry.id)
     const quotes = entries.filter(entry => entry.role === "quote").map(entry => entry.id)
-    await store.insertSend({
+    const claimed = await store.insertSend({
       id,
       member: user.id,
       subjectKind: caller.subject.kind,
@@ -324,8 +347,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       page: caller.page,
       threads: JSON.stringify(entries),
       key,
-      state: "sent",
-      delivery: null,
+      state: "pending",
+      delivery,
       endpoint: endpoint.id,
       thread,
       error: null,
@@ -336,7 +359,21 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       createdAt: now,
       updatedAt: now,
     })
-    const data = config.payload ? await config.payload({ send: id, user, subject: caller.subject, threads, asks, quotes }) : null
+    if (!claimed) {
+      const winner = await store.sendByKey(user.id, key, [...live, "failed"])
+      return winner ? resultOf(winner) : { status: "failed", reason: deliveryFailed }
+    }
+    const fail = async (reason: string): Promise<CommentSendResult> => {
+      await store.setSendState(id, ["pending"], "failed", Date.now(), { error: reason })
+      return { status: "failed", reason }
+    }
+    let data: CommentSendData = null
+    try {
+      if (config.payload) data = await config.payload({ send: id, user, subject: caller.subject, threads, asks, quotes })
+    }
+    catch {
+      return fail("The app could not prepare this send. Try Send again.")
+    }
     const body: CommentSendBody = {
       event: "comments.send",
       send: id,
@@ -348,14 +385,11 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       data,
     }
     // The current `hosts`, so an endpoint that an older, wider list allowed gets nothing.
-    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, endpointId: endpoint.id, hosts })
-    if (error || delivered.status === "failed") {
-      const reason = error ? error.why : "The agent's receiver did not take the send."
-      await store.setSendState(id, ["sent"], "failed", Date.now(), { error: reason, delivery: delivered?.id ?? null })
-      return { status: "failed", reason }
-    }
-    await store.setSendState(id, ["sent"], "sent", Date.now(), { delivery: delivered.id })
-    return { status: "sent", id, ...(thread ? { thread } : {}) }
+    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, endpointId: endpoint.id, deliveryId: delivery, sealBody: true, hosts })
+    if (error || delivered.status === "failed") return fail(error?.why ?? deliveryFailed)
+    const status = delivered.status === "pending" ? "pending" : "sent"
+    await store.setSendState(id, ["pending"], status, Date.now(), { delivery: delivered.id })
+    return { status, id, ...(thread ? { thread } : {}) }
   }
 
   return {
@@ -363,15 +397,16 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const user = await maySend(caller)
       if (!user) return { count: 0 }
       const now = Date.now()
-      const [{ open, waiting: ready }, endpoint, latest, limitedUntil] = await Promise.all([
+      const [{ open, waiting: ready }, endpoint, candidate, limitedUntil] = await Promise.all([
         waiting(caller, user),
         addressOf(caller, user).then(address => endpointOf(user.id, address)),
-        store.latestSend(user.id, caller.subject, ["sent", "working"]),
+        store.latestSend(user.id, caller.subject, ["pending", "sent", "working"]),
         retryAt(user.id, now),
       ])
+      const latest = candidate && await reconcile(candidate)
       const agent = agentOf(endpoint)
       let working: CommentSendStatus["working"]
-      if (latest) {
+      if (latest?.state === "sent" || latest?.state === "working") {
         // A send is done when every thread that the sender wrote left the waiting set: resolved, deleted, or answered
         // by an agent. A send of quotes only is done when all of them did.
         const sent = threadsOf(latest)
@@ -384,7 +419,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         if (pending) working = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
-      return { count: ready.length, ...(agent ? { agent } : {}), ...(working ? { working } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
+      return { count: ready.length, ...(agent ? { agent } : {}), ...(working ? { working } : {}), ...(latest?.state === "pending" ? { pending: true } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
     },
 
     async start(caller) {
@@ -497,16 +532,20 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
 
     async read(id, token) {
       const invalid = (): [ResultError<"COMMENTS_SEND_GRANT_INVALID">, undefined] => [commentsErrors.COMMENTS_SEND_GRANT_INVALID(), undefined]
-      const row = await store.send(id)
+      const found = await store.send(id)
+      const row = found && await reconcile(found)
       if (!row?.tokenHash || !row.tokenExpiresAt || row.tokenExpiresAt < Date.now() || row.state === "failed") return invalid()
       if (await sha256(token) !== row.tokenHash) return invalid()
-      return [undefined, await view(row)]
+      const fields = readFields(row.sender)
+      return [undefined, await view(row, { ...fields, id: stringField(fields, "id") })]
     },
 
-    async readOwn(user, id) {
-      const row = id ? await store.send(id) : await store.latestSend(user.id, undefined, ["sent"])
-      if (!row || row.member !== user.id || row.state === "failed") return undefined
-      return view(row)
+    async readOwn(user, id, policy) {
+      const found = id ? await store.send(id) : await store.latestSend(user.id, undefined, ["pending", "sent"])
+      if (found?.member !== user.id) return undefined
+      const row = await reconcile(found)
+      if (row.state === "failed" || row.state === "pending") return undefined
+      return view(row, user, policy)
     },
   }
 }

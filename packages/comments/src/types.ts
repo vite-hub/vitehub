@@ -3,6 +3,7 @@ import type { ViteHubContext } from "@vite-hub/runtime"
 import type { CommentsDefinition, CommentsUser } from "./operations-core/define.ts"
 import type {
   CommentAnchor,
+  CommentActor,
   CommentContext,
   CommentListCursor,
   CommentMetadata,
@@ -197,6 +198,8 @@ export interface EditCommentInput {
 export interface ReplyInput {
   body: string
   author: CommentUser
+  /** The agent replying on behalf of the author. */
+  actor?: CommentActor
   mentions?: string[]
   attachments?: string[]
   /** A retry key. A second reply with the same key and author in the same thread returns the first message. */

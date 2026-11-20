@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentSend } from "../src/client.ts"
+import { createCommentSend, createCommentSendTransport } from "../src/client.ts"
 
 import type { CommentSendAgent, CommentSendEvent, CommentSendPairingCheck, CommentSendResult, CommentSendStatus, CommentSendTransport } from "../src/client.ts"
 
@@ -71,6 +71,19 @@ beforeEach(() => {
   copied.length = 0
 })
 afterEach(() => vi.useRealTimers())
+
+it("allows the code on the page that started pairing", async () => {
+  let page = "/original"
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({ data: { code: "paired-code" } }))
+  const transport = createCommentSendTransport({ page: () => page, fetch })
+  const pairing = await transport.startPairing()
+  page = "/another-page"
+  await transport.allow(pairing.code)
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+    "/_vitehub/comments/send/start?page=%2Foriginal",
+    "/_vitehub/comments/send/allow?page=%2Foriginal",
+  ])
+})
 
 describe("createCommentSend", () => {
   it("walks all eight states: pairs in place, sends, works, and is done", async () => {

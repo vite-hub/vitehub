@@ -195,7 +195,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
       section: "comments",
       inputSchema: {
         type: "object",
-        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Markdown, at most 10,000 characters." } },
+        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Markdown, at most 10,000 characters." }, ...comments.options.send ? { send: { type: "string", description: "The send ID from comments_get_send when answering an ask." } } : {} },
         required: ["id", "body"],
         additionalProperties: false,
       },
@@ -206,8 +206,14 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
         const { thread, grant } = found
         const author = identity.user ? authorOf(identity.user) : guestFor(context)
         if (!author) return forbidden("write")
+        const send = text(input.send)
+        if (send) {
+          const service = await commentSendOf(comments)
+          const opened = identity.user && !identity.user.guest && await service?.readOwn(identity.user, send, { gate: identity.gate, console: admitted })
+          if (!opened || !opened.threads.some(entry => entry.id === thread.id && entry.role === "ask")) return forbidden("write")
+        }
         spend(grant, "write", thread.id)
-        const [error, message] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
+        const [error, message] = await comments.reply(thread.id, { body: text(input.body) ?? "", author, ...(send ? { actor: { id: "comments-mcp", name: "Comments agent" } } : {}) })
         if (error) return failure(error.why)
         await comments.flush()
         return { text: `Replied to thread ${thread.id}.`, structured: { message: { ...message } } }
@@ -243,17 +249,17 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
     tools.push({
       name: "comments_get_send",
       title: "Read a ViteHub Comments send",
-      description: "ViteHub Comments: read the threads that the signed-in user sent to their agent with Send in the comment pill. Each thread says whether it is an ask, the user's own question, or a quote, what someone else said. Without an id, it reads the user's latest send that no agent read yet. Answer each ask with comments_reply.",
+      description: "ViteHub Comments: read the threads that the signed-in user sent to their agent with Send in the comment pill. Each thread says whether it is an ask, the user's own question, or a quote, what someone else said. Without an id, it reads the user's latest send that no agent read yet. Answer each ask with comments_reply, passing the send ID as `send`.",
       section: "comments",
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The send id, such as send_… from the delivery. Default: the latest unread send." } }, additionalProperties: false },
       async call(input, context) {
-        const { user } = await identityFor(context)
+        const { user, gate } = await identityFor(context)
         if (!user || user.guest) return forbidden("read")
         const service = await commentSendOf(comments)
         if (!service) return failure(`${commentsErrors.COMMENTS_SEND_OFF().why} ${commentsErrors.COMMENTS_SEND_OFF().fix}`)
         const id = text(input.id)
-        const opened = await service.readOwn(user, id)
+        const opened = await service.readOwn(user, id, { gate, console: admitted })
         if (!opened) return failure(id ? `No send ${id} of this user.` : "This user has no send that an agent did not read yet.")
         const { send, threads } = opened
         const lines = [

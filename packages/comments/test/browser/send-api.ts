@@ -31,6 +31,7 @@ export async function createSendApi() {
       return [undefined, endpoint]
     },
     getMemberEndpoint: async owner => [undefined, endpoints.get(owner) ?? null],
+    getMemberDeliveryState: async () => undefined,
     sendToMemberEndpoint: async () => {
       await new Promise(resolve => setTimeout(resolve, control.delay))
       control.deliveries++
