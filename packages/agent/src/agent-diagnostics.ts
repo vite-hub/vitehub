@@ -4543,6 +4543,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent asks Jev questions. The AI emulator does not answer Jev questions, and ViteHub does not send them to a real provider while the switch is on.",
       fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
     },
+    AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent uses the Claude Code Driver. The AI emulator rejects the `system` turns that Claude Code sends, and ViteHub does not start Claude Code against a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to run Claude Code, or give the Agent a model Driver, such as `driver: { model: 'anthropic/claude-sonnet-4.5' }`, or `codexDriver()` without Capability tools while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED: {
+      why: ({ tools }: { tools: number }) => `[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent has ${tools} Capability ${tools === 1 ? "tool" : "tools"}. Codex sends Capability tools as one \`namespace\` tool, which the AI emulator rejects, and ViteHub does not start Codex against a real provider while the switch is on.`,
+      fix: "Remove the Capabilities that add tools while you run this Agent on the emulator, or give it a model Driver, such as `driver: { model: 'openai/gpt-5.5' }`, which sends Capability tools as function tools. Unset `VITEHUB_MODELS` to run Codex with tools.",
+    },
     AGENT_MODELS_EMULATE_IN_PRODUCTION: {
       why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
       fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
@@ -4550,6 +4558,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
       why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
       fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
+    },
+    AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
+      fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
     },
     AGENT_MODELS_INVALID: {
       why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
