@@ -283,8 +283,8 @@ it("releases the emulator if a Vite environment fails to initialize", async () =
   config.environments = {
     failing: {
       dev: {
-        createEnvironment(name, resolved, context) {
-          const environment = new DevEnvironment(name, resolved, context)
+        createEnvironment(name, resolved) {
+          const environment = new DevEnvironment(name, resolved, { hot: false })
           environment.init = async () => { throw failure }
           return environment
         },
