@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readdir, rm } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
@@ -21,7 +21,7 @@ import { isWorkspaceDefinitionPackageSpecifier } from "./discovery.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinition, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
-import type { TransformOptions } from "jiti"
+import type { Jiti, ModuleCache, TransformOptions } from "jiti"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceAssetFile {
@@ -119,6 +119,12 @@ function resolveWorkspaceRawSpecifier(path: string, rootDir: string): string {
   return existsSync(publicPath) ? publicPath : join(rootDir, rootRelativePath)
 }
 
+// One loader serves one discovery or asset pass. The Definitions that it loads share their imported modules, as in one
+// ES module graph, so a helper that many Definitions import compiles and runs once. The next pass creates a new
+// loader, so it sees edited files.
+const passModuleCaches = new WeakMap<Jiti, ModuleCache>()
+
+/** Creates the loader of one pass. Create a new loader for each pass, so that changed modules load again. */
 export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<string, string> = {}) {
   let loader: ReturnType<typeof createJiti>
   const virtualModules = new Proxy<Record<string, unknown>>(Object.create(null), {
@@ -155,7 +161,23 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
     transform: createWorkspaceDefinitionTransform(),
     virtualModules,
   })
+  passModuleCaches.set(loader, Object.create(null))
   return loader
+}
+
+async function importInPass(loader: Jiti, file: string): Promise<unknown> {
+  const shared = passModuleCaches.get(loader)
+  if (!shared || !isAbsolute(file)) return await loader.import(file)
+  const resolved = loader.esmResolve(file, { try: true })
+  const filename = resolved?.startsWith("file:") ? fileURLToPath(resolved) : resolved
+  if (!filename || !isAbsolute(filename) || !/\.[cm]?tsx?$/.test(filename) || !existsSync(filename)) return await loader.import(file)
+
+  const cache: ModuleCache = { ...shared }
+  const namespace = await loader.evalModule(readFileSync(filename, "utf8"), { async: true, cache, filename })
+  for (const [path, module] of Object.entries(cache)) {
+    if (path !== filename && module?.loaded) shared[path] = module
+  }
+  return namespace
 }
 
 /**
@@ -179,7 +201,7 @@ export async function loadDiscoveredWorkspaceDefinition(
   rootDir?: string,
 ): Promise<WorkspaceDefinitionInput> {
   // SAFETY: Jiti returns the module namespace; the export is checked before use and normalized by the registry.
-  const mod = await loader.import(resolveWorkspaceDefinitionModule(loader, definition, rootDir)) as Record<string, WorkspaceDefinitionInput | undefined>
+  const mod = await importInPass(loader, resolveWorkspaceDefinitionModule(loader, definition, rootDir)) as Record<string, WorkspaceDefinitionInput | undefined>
   const exportName = definition.export ?? "default"
   const loaded = mod[exportName]
   if (!loaded) throw workspaceErrorDiagnostics.WORKSPACE_B0001({ message: `[vitehub] Workspace definition "${definition.name}" has no ${exportName === "default" ? "default export" : `export ${JSON.stringify(exportName)}`}.` })

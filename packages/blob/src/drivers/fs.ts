@@ -1,7 +1,7 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, open, opendir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
@@ -745,6 +745,11 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
 
   const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
     name: "fs",
+    async checkHealth() {
+      await assertNoSymlinkPath(root, root)
+      const directory = await opendir(root).catch(ignoreNotFound)
+      await directory?.close()
+    },
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
     // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.

@@ -97,7 +97,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     `import { ${secrets ? "blobRuntimeEnv, " : ""}setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
-    imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload, blobStoreMode, readonlyBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { checkBlobDriverHealth, checkBlobStorageHealth, createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload, blobStoreMode, readonlyBlobStorage, registerBlobStorageHealthCheck } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
@@ -193,7 +193,8 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "function createGeneratedBlobStorage(name = \"default\") {",
           "  const existing = blobStorages.get(name)",
           "  if (existing) return existing",
-          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name, { images: blobConfig.images, url: pathname => servedBlobUrl(name, pathname) })",
+          "  const driver = createBlobDriver(resolveBlobStoreConfig(name))",
+          "  const storage = createBlobStorage(driver, name, { images: blobConfig.images, url: pathname => servedBlobUrl(name, pathname) })",
           "  const runtimeStorage = {",
           "    ...storage,",
           "    async copy(from, to, options) {",
@@ -224,6 +225,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    },",
           "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage),",
           "  }",
+          "  registerBlobStorageHealthCheck(runtimeStorage, () => checkBlobDriverHealth(driver))",
           "  blobStorages.set(name, runtimeStorage)",
           "  return runtimeStorage",
           "}",
@@ -234,7 +236,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "}",
           "",
           "function createLazyGeneratedBlobStorage(name) {",
-          "  return {",
+          "  const storage = {",
           "    media: createLazyBlobMedia(() => resolveGeneratedBlobStorage(name, \"media\")),",
           "    async copy(from, to, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"copy\"); return error ? [error, undefined] : storage.copy(from, to, options) },",
           "    async createMultipartUpload(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.createMultipartUpload(pathname, options) },",
@@ -250,6 +252,8 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    async serve(request, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); if (error) throw error; return storage.serve(request, pathname, options) },",
           "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createLazyGeneratedBlobStorage),",
           "  }",
+          "  registerBlobStorageHealthCheck(storage, () => checkBlobStorageHealth(createGeneratedBlobStorage(name)))",
+          "  return storage",
           "}",
           "",
           "export const blob = createLazyGeneratedBlobStorage(\"default\")",
