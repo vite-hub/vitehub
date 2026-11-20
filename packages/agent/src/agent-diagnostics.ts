@@ -4425,6 +4425,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] The AI emulator of emulateModels() is closed.",
       fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
     },
+    AGENT_EMULATOR_DEV_APPS_CONFLICT: {
+      why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
+      fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
       why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
       fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",

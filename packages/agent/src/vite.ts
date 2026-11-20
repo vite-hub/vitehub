@@ -2778,32 +2778,58 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       else env[channelSimulationEnv] = channelSimulationPreviousValue
     }
   }
-  // A dev server with `agent.models.emulate` owns a share of the AI emulator of this process until it closes.
-  const modelEmulatorOwner = {}
-  let modelEmulatorAcquired = false
-  let previewing = false
   let nitroInstance: { options: { dev?: boolean, devServer?: { runner?: string }, cloudflare?: { wrangler?: { vars?: Record<string, unknown> } } } } | undefined
-  async function startModelEmulation(config: ResolvedConfig): Promise<void> {
-    const seed = agent?.models?.emulate
-    // SAFETY: Vite preserves this optional discovery flag from the inline config.
+  /**
+   * Ties the AI emulator of `agent.models.emulate` to each dev server that Vite creates from this config. Vite calls
+   * `createEnvironment` only for a dev server, so a config-only load, a build, or a preview starts nothing, and the
+   * Nitro runner starts after the variables are set. The server closes its environments, also on a restart that reuses
+   * this plugin, so each server releases its own share. A failed environment releases it at once.
+   */
+  function ownDevModelEmulation(config: ResolvedConfig): void {
+    // SAFETY: Vite preserves this optional discovery flag from the inline config. `vitehub env` creates an environment
+    // with it to load modules, and that is not a dev server.
     const cliDiscovery = (config as ResolvedConfig & { vitehubCliDiscovery?: unknown }).vitehubCliDiscovery === true
-    if (!seed || config.command !== "serve" || previewing || cliDiscovery || !normalizeAgentOptions(agent)) return
-    const { acquireDevModelEmulator } = await import("./internal/model-emulation-dev.ts")
-    const url = await acquireDevModelEmulator(modelEmulatorOwner, seed, config.logger)
-    modelEmulatorAcquired = true
-    // The miniflare dev runner gives the Worker its Wrangler vars, not process.env.
-    const nitro = nitroInstance
-    if (nitro?.options.dev && (nitro.options.devServer?.runner || process.env.NITRO_DEV_RUNNER) === "miniflare") {
-      const cloudflare = nitro.options.cloudflare ??= {}
-      const wrangler = cloudflare.wrangler ??= {}
-      wrangler.vars = { ...wrangler.vars, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: url }
+    if (config.command !== "serve" || cliDiscovery || !normalizeAgentOptions(agent)) return
+    const server = {}
+    const emulate = agent?.models?.emulate
+    let acquiring: Promise<string | undefined> | undefined
+    let released: Promise<void> | undefined
+    const release = () => released ??= import("./internal/model-emulation-dev.ts").then(({ releaseDevModelEmulator }) => releaseDevModelEmulator(server, config.root))
+    const acquire = async () => {
+      const { acquireDevModelEmulator } = await import("./internal/model-emulation-dev.ts")
+      const url = await acquireDevModelEmulator(server, config.root, emulate, config.logger)
+      // The miniflare dev runner gives the Worker its Wrangler vars, not process.env.
+      const nitro = nitroInstance
+      if (url && nitro?.options.dev && (nitro.options.devServer?.runner || process.env.NITRO_DEV_RUNNER) === "miniflare") {
+        const cloudflare = nitro.options.cloudflare ??= {}
+        const wrangler = cloudflare.wrangler ??= {}
+        wrangler.vars = { ...wrangler.vars, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: url }
+      }
+      return url
     }
-  }
-  async function stopModelEmulation(): Promise<void> {
-    if (!modelEmulatorAcquired) return
-    modelEmulatorAcquired = false
-    const { releaseDevModelEmulator } = await import("./internal/model-emulation-dev.ts")
-    await releaseDevModelEmulator(modelEmulatorOwner)
+    for (const environment of Object.values(config.environments)) {
+      const create = environment.dev.createEnvironment
+      environment.dev.createEnvironment = async (...args) => {
+        try {
+          await (acquiring ??= acquire())
+          const created = await create(...args)
+          const close = created.close.bind(created)
+          created.close = async () => {
+            try {
+              await close()
+            }
+            finally {
+              await release()
+            }
+          }
+          return created
+        }
+        catch (error) {
+          await release()
+          throw error
+        }
+      }
+    }
   }
   const frameworkOptions = getInternalAgentOptions(options)
   const agent: AgentOptions | undefined = options
@@ -3242,7 +3268,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       },
     },
     config(config, environment) {
-      previewing = environment?.isPreview === true
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
@@ -3472,7 +3497,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       build.runtimeCapabilities = standaloneRuntimeCapabilities
       await writeGeneratedAgentOutputs(config)
-      await startModelEmulation(config)
+      ownDevModelEmulation(config)
       const configs = (scheduledBuildConfigsByRoot.get(config.root) ?? []).filter(previous => previous !== config)
       configs.push(config)
       scheduledBuildConfigsByRoot.set(config.root, configs)
@@ -3692,7 +3717,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (rejectedBuilds.has(buildEnvironment(this))) return
         await closeDiscoveryWatcher?.()
         setChannelSimulation(false)
-        await stopModelEmulation()
         if (providerOutputEnvironment.defers(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? this?.environment?.config ?? resolved

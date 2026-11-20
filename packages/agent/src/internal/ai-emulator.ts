@@ -11,6 +11,8 @@ export type AiEmulatorSeed = Omit<AiSeedConfig, "baseUrl" | "port">
 export interface AiEmulator {
   /** Origin of the bound loopback listener, such as `http://127.0.0.1:41234`. */
   url: string
+  /** Replaces the seed that `POST /_ai/reset` restores, and resets the rules, budgets, and calls to it. */
+  reseed: (seed: AiEmulatorSeed) => void
   close: () => Promise<void>
 }
 
@@ -46,13 +48,22 @@ export async function startAiEmulator(seed: AiEmulatorSeed): Promise<AiEmulator>
     const address = server.address() as AddressInfo
     const url = `http://${address.address}:${address.port}`
     const runtime = createServer(aiPlugin, { baseUrl: url, port: address.port })
-    seedFromConfig(runtime.store, url, seed)
+    // seedFromConfig validates the whole seed before it changes the store, so a rejected seed keeps the current one.
+    const reseed = (next: AiEmulatorSeed) => {
+      try {
+        seedFromConfig(runtime.store, url, next)
+      }
+      catch (error) {
+        if (error instanceof AiConfigError) throw agentDiagnostics.AGENT_EMULATOR_RULES_INVALID({ detail: error.message, cause: error })
+        throw error
+      }
+    }
+    reseed(seed)
     app = runtime.app
-    return { url, close }
+    return { url, reseed, close }
   }
   catch (error) {
     await close()
-    if (error instanceof AiConfigError) throw agentDiagnostics.AGENT_EMULATOR_RULES_INVALID({ detail: error.message, cause: error })
     throw error
   }
 }
