@@ -5,7 +5,7 @@ import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
 import { resolveRuntimeBlobSecrets, resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
-import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
+import { createDriver as createCloudflareR2NativeDriver, getCloudflareDevFallback, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { blobRuntimeEnv, getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
@@ -35,8 +35,8 @@ const driverModules = {
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare") {
-    // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
-    if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
+    const local = getCloudflareDevFallback(config)
+    if (local) return { ...await importRuntimeDriverModule(local), name: config.driver }
     const nativeDriver = createCloudflareR2NativeDriver(config)
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {
