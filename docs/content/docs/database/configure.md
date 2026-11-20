@@ -320,7 +320,8 @@ A self-hosted Node server, for example in Docker, often has only `.output`, with
 | --- | --- | --- |
 | Postgres | Migrates on start | Migrates on start |
 | Local SQLite file (`file:` URL) | Does not migrate | Migrates on start |
-| Remote libSQL, D1 over HTTP | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
+| D1 over HTTP (`cloudflare.http`) | Does not migrate | Migrates on start, in Wrangler's `d1_migrations` table |
+| Remote libSQL | Does not migrate | `DATABASE_MIGRATE_ON_START_UNSUPPORTED` |
 
 A build whose host is not Node, or is unknown, does not migrate on start by default. In Nuxt without a preset, ViteHub waits for the preset that Nitro detects. With `migrateOnStart: true`, another host fails the build with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Development never migrates on start: run `vitehub database migrate`.
 
@@ -361,6 +362,8 @@ export default defineConfig({
 ::
 
 The build copies each migrations folder into the server output, so the output needs no folder. A Nitro plugin applies them, and Nitro loads it before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
+
+A D1 over HTTP database uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`) instead, with the same file names as `vitehub database migrate` and `wrangler d1 migrations apply`, so any of them can migrate next. The build writes new names to `d1-migrations.json`: commit it. The server sends each migration and its row in one request, so D1 keeps neither when the migration fails. When several servers start together, a migration that another server applied first is skipped. `backup` cannot copy a D1 database.
 
 When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it. To accept the loss for one start of a built server, such as a Docker container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1` in its environment:
 
@@ -414,7 +417,7 @@ export default defineConfig({
 - Each copy is `<file name>-<UTC time>-before-<last pending migration><extension>`, for example `backups/app-2026-11-13T08-00-00-123Z-before-20261113080000_add_tags.sqlite`.
 - `true` puts the copies in a `backups` folder beside the database file and keeps the 3 newest copies of that file. Set `{ keep: 5, dir: '/var/backups/app' }` to change them. A custom `dir` adds a stable hash of the source path after the file name, so same-named databases retain their copies independently. A relative `dir` starts at the server's working directory, like a `file:` URL. Other files in the folder stay.
 - When the copy fails, for example because the folder is not writable, the server stops before it applies a migration, with `DATABASE_MIGRATION_BACKUP_FAILED`.
-- `backup` works only for local SQLite files. A Postgres database, a remote libSQL URL, or an in-memory database fails the build, or the start for a URL from the environment, with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. Back up those databases with their own tools, such as `pg_dump`.
+- `backup` works only for local SQLite files. A Postgres database, D1 over HTTP, a remote libSQL URL, or an in-memory database fails the build, or the start for a URL from the environment, with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. Back up those databases with their own tools, such as `pg_dump`.
 
 To restore, stop the server, replace the database file with a copy, and deploy the build that matches it. `ensureMigrations()` makes the same copy when it applies migrations.
 
