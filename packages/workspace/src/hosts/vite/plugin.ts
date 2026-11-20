@@ -291,6 +291,16 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   return configs
 }
 
+/**
+ * The Definitions that the config loads to find their Cloudflare Artifacts stores. A build loads all of them to learn
+ * which stores it bundles. `vite dev` and CLI calls (`serve`) load them only on the Cloudflare host, because only a
+ * Cloudflare server binds Artifacts. Loading runs app code outside Nitro, so its Nitro runtime imports would print
+ * Nitro's "stub implementation" warning on every command.
+ */
+function definitionsToLoad(definitions: DiscoveredWorkspaceDefinition[], command: string | undefined, hosting: string | undefined): DiscoveredWorkspaceDefinition[] {
+  return command !== "serve" || getHostingProvider(hosting) === "cloudflare" ? definitions : []
+}
+
 async function resolveCloudflareArtifactsConfigs(
   config: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
@@ -831,7 +841,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
   const storeUsage: WorkspaceDefinitionStoreUsage | undefined = options.command === "build" ? new Set() : undefined
-  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, hosting ? options.command : undefined, hosting), roots.projectRoot, {
     aliases: options.aliases,
     env: options.env,
     hosting,
@@ -903,6 +913,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
   let server: ViteDevServer | undefined
   let serverDirs: string[] | undefined
   let contributions: CollectedWorkspaceContribution[] = []
+  let hasArtifacts = false
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
     const definitions = discoverDefinitions(roots, serverDirs, contributions)
@@ -938,6 +949,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       getWorkspaces: () => manifest.workspaces,
     },
     async config(config, env) {
+      hasArtifacts = false
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const workspaceOptions = publicOptions
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
@@ -970,22 +982,40 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
+        const aliases = config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined
         // Dev regenerates the plugin when definitions change, so it keeps every hosted store.
         const storeUsage: WorkspaceDefinitionStoreUsage | undefined = env?.command === "build" ? new Set() : undefined
-        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
-          aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
+        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, env?.command, resolvedHosting), roots.projectRoot, {
+          aliases,
           hosting: resolvedHosting,
           definitionOverrides,
           storeUsage,
         })
         if (normalized.store.driver !== "github" && storeUsage?.has("github")) assertGitHubStoreAvailable?.()
-        const usesCloudflareArtifacts = artifacts.length > 0
-        const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
+        hasArtifacts = artifacts.length > 0
+        const usesCloudflareRuntime = hasArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, definitionOverrides, storeUsage)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, roots.projectRoot, env?.command === "serve")
         if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
+        if (env?.command === "serve" && definitions.length && getHostingProvider(resolvedHosting) !== "cloudflare") {
+          const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+          nitro.modules = [...modules, {
+            async setup({ options }: { options: NitroConfig & { preset?: string } }) {
+              if (getHostingProvider(options.preset) !== "cloudflare") return
+              const configs = await resolveDefinitionCloudflareArtifactsConfigs(definitions, roots.projectRoot, {
+                aliases,
+                definitionOverrides,
+                hosting: options.preset,
+              })
+              hasArtifacts ||= configs.length > 0
+              for (const artifactConfig of configs) configureCloudflareArtifacts(options, artifactConfig)
+              configureCloudflareNitroRuntime(options)
+              await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, true, definitionOverrides)
+            },
+          }]
+        }
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
       }
@@ -1145,11 +1175,10 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         const roots = projectRoot && viteRoot
           ? { projectRoot, viteRoot }
           : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
-        const artifacts = resolvedOptions
-          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
-              aliases: resolved?.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
-            })
-          : []
+        const reportsArtifacts = hasArtifacts || (resolved?.command === "build" && resolvedOptions
+          && (await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
+            aliases: resolved.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
+          })).length > 0)
         return {
           definitions: [{
             kind: "workspace",
@@ -1161,7 +1190,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
               return inspectWorkspaceDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
             },
           }],
-          providerOutput: artifacts.length > 0
+          providerOutput: reportsArtifacts
             ? [{
                 description: "Generated Cloudflare Workspace artifacts config",
                 owner: "workspace",

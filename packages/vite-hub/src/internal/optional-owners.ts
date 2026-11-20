@@ -28,7 +28,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/connections"
     | "@vite-hub/content"
     | "@vite-hub/database"
-    | "@vite-hub/decisions"
+    | "@vite-hub/choices"
     | "@vite-hub/device"
     | "@vite-hub/email"
     | "@vite-hub/forge"
@@ -75,7 +75,7 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
-  "decisions": ["@vite-hub/decisions"],
+  "choices": ["@vite-hub/choices"],
   // `vite-hub/device`: stored reads in the browser.
   "device": ["@vite-hub/device"],
   "email": features.email.packages,

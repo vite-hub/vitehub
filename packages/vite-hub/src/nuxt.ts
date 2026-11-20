@@ -510,24 +510,33 @@ function restartOnSyncDefinitions(nuxt: NuxtLike, projectRoot: string): void {
 }
 
 /**
- * Adds the client plugin that forgets the synced rows after a sign-out of ViteHub Auth, so the next person on the device
- * does not see them. The plugin goes to `.vitehub/sync/`, because Nuxt clears its build directory after modules run.
+ * Adds the client plugin that names the user of ViteHub Auth to Sync, and forgets the synced rows after a sign-out, so
+ * the next person on the device does not see them. The queued writes stay for the account that made them, and go out
+ * when it signs in again. `signOut()` waits for the plugin. The plugin goes to `.vitehub/sync/`, because Nuxt clears its
+ * build directory after modules run.
  */
 async function addSyncSignOutPlugin(nuxt: NuxtLike, projectRoot: string): Promise<void> {
   const src = join(projectRoot, ".vitehub/sync/nuxt-sign-out.mjs")
-  await writeFileIfChanged(src, [
-    `import { defineNuxtPlugin } from "#imports"`,
-    `import { onSignOut } from "vite-hub/auth/vue"`,
-    `import { clearSync } from "vite-hub/sync/client"`,
-    ``,
-    `export default defineNuxtPlugin({`,
-    `  name: "vite-hub:sync-sign-out",`,
-    `  setup() {`,
-    `    onSignOut(() => clearSync())`,
-    `  },`,
-    `})`,
-    ``,
-  ].join("\n"))
+  await writeFileIfChanged(src, `import { defineNuxtPlugin, watch } from "#imports"
+import { onSignOut, useUserSession } from "vite-hub/auth/vue"
+import { clearSync, setSyncUser } from "vite-hub/sync/client"
+
+export default defineNuxtPlugin({
+  name: "vite-hub:sync-sign-out",
+  dependsOn: ["vitehub:auth"],
+  setup() {
+    const session = useUserSession()
+    // A session read that failed names nobody, so an offline reload keeps the user.
+    watch(() => session.ready.value && !session.error.value ? session.user.value?.id ?? null : undefined, (id) => {
+      if (id !== undefined) setSyncUser(id)
+    }, { immediate: true, flush: "sync" })
+    onSignOut(async () => {
+      await clearSync({ keepWrites: true })
+      setSyncUser(null)
+    })
+  },
+})
+`)
   const plugins = (nuxt.options.plugins ??= [])
   if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
@@ -1635,7 +1644,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.observability && options.observability !== true && options.observability.browserErrors) await installBrowserErrorsNuxt(nuxt, projectRoot)
   await installStaleChunkReloadNuxt(nuxt, projectRoot)
-  if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
+  if (isPackageInstalled("@vite-hub/choices")) addVueImports(nuxt, "vite-hub/choices/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
     if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])

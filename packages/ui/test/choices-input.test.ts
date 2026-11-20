@@ -3,7 +3,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h, ref, type Ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useChoices } from "../../decisions/src/vue.ts";
+import { useChoices } from "../../choices/src/vue.ts";
 import { FilterSearch } from "../src/components/filter-search.ts";
 import {
   ChoicesInput,
