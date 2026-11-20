@@ -371,8 +371,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass `defineRelations()` the same table objects that the schema of the database holds. When a layer replaces a table, define the relations of that table in the same layer.",
     },
     DATABASE_MIGRATIONS_OLD_LAYOUT: {
-      why: ({ database, dir }: { database?: string, dir: string }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} use the layout of Drizzle Kit 0.x, with \`meta/_journal.json\`. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
-      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied.",
+      why: ({ database, dir, layout }: { database?: string, dir: string, layout: "journal" | "flat" }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} ${layout === "journal" ? "use the layout of Drizzle Kit 0.x, with `meta/_journal.json`" : "are flat `.sql` files, as Wrangler writes them"}. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
+      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied, and D1 keeps the file names that Wrangler applied.",
     },
     DATABASE_RESERVED_SCHEMA_KEY: {
       why: ({ key, owner }: { key: string, owner: string }) => `${owner} uses the reserved schema key "${key}".`,

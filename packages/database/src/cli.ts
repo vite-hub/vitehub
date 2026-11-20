@@ -18,6 +18,9 @@ import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "./runtime/local-path.ts"
 import { runsOnPglite } from "./runtime/postgres-env.ts"
+import { canDrizzleKitConvert, readOldMigrationsLayout } from "./internal/migrations-layout.ts"
+
+import type { OldMigrationsLayout } from "./internal/migrations-layout.ts"
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
 type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
@@ -113,10 +116,10 @@ function writeUpUsage(context: ViteHubCliContext): void {
   context.stdout.write([
     `Usage: ${upUsage}`,
     "",
-    "Converts migrations folders of Drizzle Kit 0.x, with `meta/_journal.json`, to the",
-    "layout of Drizzle Kit 1.0: one `<timestamp>_<name>/migration.sql` folder per",
-    "migration. It runs `drizzle-kit up` on the migrations folder of each Database",
-    "Definition. Folders that already use the 1.0 layout stay as they are. Applied",
+    "Converts migrations folders of Drizzle Kit 0.x, with `meta/_journal.json`, and",
+    "folders of hand-written `.sql` files to the layout of Drizzle Kit 1.0: one",
+    "`<timestamp>_<name>/migration.sql` folder per migration. A complete 0.x folder goes",
+    "through `drizzle-kit up`. Folders that already use the 1.0 layout stay as they are. Applied",
     "migrations stay applied: `vitehub database migrate` and Wrangler keep their ledger rows.",
     "On SQLite, the snapshots record the unique indexes of 0.x `.unique()` columns as",
     "the UNIQUE constraints of the Definitions, so the next generate keeps the tables.",
@@ -629,7 +632,7 @@ async function runDrizzleKit(
   }
   const config = await getConfig?.({ strict: feature === "generate" })
   // Drizzle Kit 1.0 cannot generate or migrate next to a 0.x journal, so stop before it changes anything.
-  if (config && !writeOldLayoutDiagnostics(config, context, only)) return 1
+  if (config && !writeOldLayoutDiagnostics(config, context, only, feature)) return 1
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
@@ -766,29 +769,37 @@ async function runDrizzleKit(
   return 0
 }
 
-/** The Databases whose migrations folder has the layout of Drizzle Kit 0.x, one entry per folder. */
+/** The Databases whose migrations folder has a layout that Drizzle Kit 1.0 cannot read, one entry per folder. */
 function listOldLayoutFolders(config: ResolvedDBViteConfig) {
-  const folders = new Map<string, ResolvedDrizzleDatabaseConfig>()
+  const folders = new Map<string, { database: ResolvedDrizzleDatabaseConfig, layout: OldMigrationsLayout }>()
   for (const name of config.databaseNames) {
     const database = config.databases?.[name]
     if (!database) continue
     const dir = resolve(config.rootDir, database.migrationsDir)
-    if (!folders.has(dir) && existsSync(join(dir, "meta", "_journal.json"))) folders.set(dir, database)
+    const layout = folders.has(dir) ? undefined : readOldMigrationsLayout(dir)
+    if (layout) folders.set(dir, { database, layout })
   }
-  return [...folders].map(([dir, database]) => ({ database, dir }))
+  return [...folders].map(([dir, folder]) => ({ ...folder, dir }))
 }
 
-/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each 0.x migrations folder, or for the one of `only`. Returns false when there is one. */
-function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext, only?: string): boolean {
-  const folders = listOldLayoutFolders(config).filter(({ database }) => !only || database.name === only)
-  for (const { database, dir } of folders) {
-    const diagnostic = databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database: database.name, dir: relative(config.rootDir, dir) || dir })
+/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each old migrations folder, or for the one of `only`. Returns false when there is one. */
+function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext, only?: string, feature?: "generate" | "migrate"): boolean {
+  // D1 HTTP applies flat `.sql` files itself, as Wrangler does. Drizzle Kit skips them everywhere else.
+  const d1Http = (database: ResolvedDrizzleDatabaseConfig) => database.dialect === "sqlite" && !!database.cloudflare?.http && database.cloudflare.databaseId !== undefined
+  const folders = listOldLayoutFolders(config)
+    .filter(({ database, layout }) => (!only || database.name === only) && !(feature === "migrate" && layout === "flat" && d1Http(database)))
+  for (const { database, dir, layout } of folders) {
+    const diagnostic = databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database: database.name, dir: relative(config.rootDir, dir) || dir, layout })
     context.stderr.write(`${formatRuntimeDiagnosticError(diagnostic)}\n`)
   }
   return !folders.length
 }
 
-/** Converts the 0.x migrations folder of each Database with `drizzle-kit up`. Returns the exit code. */
+/**
+ * Converts the old migrations folder of each Database to one folder per migration. A clean Drizzle Kit 0.x folder goes
+ * through `drizzle-kit up`. Flat `.sql` files that no complete journal covers, such as hand-written Wrangler files, move
+ * to folders by ViteHub. Returns the exit code.
+ */
 async function runUp(args: string[], context: ViteHubCliContext, getConfig?: ResolvedDBViteConfigProvider): Promise<number> {
   if (args.length) {
     context.stderr.write(`[vitehub] Unknown option: ${args[0]}\n`)
@@ -818,8 +829,14 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
     return 1
   }
   const { bin } = drizzleKit
-  for (const { database, dir } of folders) {
+  for (const { database, dir, layout } of folders) {
     const folder = relative(projectRoot, dir) || dir
+    const configFile = config.databaseNames.length > 1 ? config.generatedDrizzleConfigFilesByDatabase[database.name]! : config.generatedDrizzleConfigFile
+    if (layout === "flat" || !canDrizzleKitConvert(dir)) {
+      const result = await convertFlatMigrations(context, { bin, configFile: resolve(projectRoot, configFile), database, dir, projectRoot })
+      if (result !== 0) return result
+      continue
+    }
     // D1 and libSQL folders are SQLite folders. Kit converts the snapshots by dialect, not by driver.
     const dialect = database.dialect === "postgresql" ? "postgresql" : "sqlite"
     const result = await context.spawn(process.execPath, [bin, "up", "--dialect", dialect, "--out", dir], {
@@ -834,10 +851,44 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
     }
     context.stdout.write(`[vitehub] Database "${database.name}": converted ${folder} to the layout of Drizzle Kit 1.0. Commit the new folders.\n`)
     if (dialect === "sqlite") {
-      const configFile = config.databaseNames.length > 1 ? config.generatedDrizzleConfigFilesByDatabase[database.name]! : config.generatedDrizzleConfigFile
       await recordConvertedUniques(context, { bin, configFile: resolve(projectRoot, configFile), database: database.name, migrationsDir: dir, projectRoot })
     }
   }
+  return 0
+}
+
+/**
+ * Moves each flat `.sql` file to its own migration folder, with a breakpoint between its statements, and removes a
+ * Drizzle Kit 0.x `meta/` folder. The newest folder gets the snapshot of the current Database Definitions, so the next
+ * `generate` writes only later changes. D1 keeps the file names that Wrangler applied in `d1-migrations.json`. Changes
+ * nothing when Drizzle Kit cannot read the Definitions.
+ */
+async function convertFlatMigrations(
+  context: ViteHubCliContext,
+  { bin, configFile, database, dir, projectRoot }: { bin: string, configFile: string, database: ResolvedDrizzleDatabaseConfig, dir: string, projectRoot: string },
+): Promise<number> {
+  const { d1MigrationNamesFile, planFlatMigrationFolders } = await import("./internal/d1-migrations.ts")
+  const { addStatementBreakpoints } = await import("./internal/migration-sql.ts")
+  const moves = planFlatMigrationFolders(dir)
+  const snapshot = await readSchemaSnapshot(context, { bin, configFile, projectRoot })
+  if (!snapshot) {
+    context.stderr.write(`[vitehub] Database "${database.name}": drizzle-kit could not write the snapshot of the current Database Definitions, so ${relative(projectRoot, dir) || dir} stays as it was. See the drizzle-kit output above.\n`)
+    return 1
+  }
+  for (const { file, folder } of moves) {
+    await mkdir(join(dir, folder))
+    await writeFile(join(dir, folder, "migration.sql"), addStatementBreakpoints(await readFile(join(dir, file), "utf8")))
+    await rm(join(dir, file))
+  }
+  if (moves.length) await writeFile(join(dir, moves.at(-1)!.folder, "snapshot.json"), JSON.stringify(snapshot, null, 2))
+  await rm(join(dir, "meta"), { force: true, recursive: true })
+  if (database.cloudflare) {
+    const namesFile = join(dir, d1MigrationNamesFile)
+    const recorded = existsSync(namesFile) ? JSON.parse(await readFile(namesFile, "utf8")) as Record<string, string> : {}
+    const names = Object.fromEntries([...Object.entries(recorded), ...moves.map(move => [move.folder, move.file] as const)].sort(([a], [b]) => a.localeCompare(b)))
+    await writeFile(namesFile, `${JSON.stringify(names, null, 2)}\n`)
+  }
+  context.stdout.write(`[vitehub] Database "${database.name}": converted ${moves.length} SQL ${moves.length === 1 ? "file" : "files"} in ${relative(projectRoot, dir) || dir} to migration folders. Commit the new folders.\n`)
   return 0
 }
 

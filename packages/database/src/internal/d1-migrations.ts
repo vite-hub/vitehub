@@ -160,6 +160,41 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   })
 }
 
+/** A flat Wrangler migration file and the Drizzle Kit 1.0 folder that `vitehub database up` moves it to. */
+export interface FlatMigrationMove {
+  /** The flat file name, such as `0000_init.sql`. Wrangler keeps it in its ledger, so `d1-migrations.json` keeps it too. */
+  file: string
+  /** The folder, such as `20261029101500_0000_init`. It keeps the file name, which other ledgers match too. */
+  folder: string
+}
+
+function folderTimestamp(millis: number): string {
+  return new Date(millis).toISOString().replace(/\D/g, "").slice(0, 14)
+}
+
+/**
+ * Plans one migration folder per flat `.sql` file, in Wrangler's order. A file that a Drizzle Kit 0.x journal lists
+ * keeps the second of its journal entry, as `drizzle-kit up` does, so a 0.x ledger row still matches it. The other
+ * files take the seconds around them, one second apart, or the seconds before `now` when the journal lists none.
+ */
+export function planFlatMigrationFolders(migrationsDir: string, now = Date.now()): FlatMigrationMove[] {
+  const files = listD1Migrations(migrationsDir).filter(file => file.source === join(migrationsDir, file.name)).map(file => file.name)
+  const journalFile = join(migrationsDir, "meta", "_journal.json")
+  const journal = existsSync(journalFile) ? JSON.parse(readFileSync(journalFile, "utf8")) as { entries?: Array<{ tag?: unknown, when?: unknown }> } : {}
+  const anchors = new Map((journal.entries ?? [])
+    .filter(entry => typeof entry.when === "number")
+    .map(entry => [`${String(entry.tag)}.sql`, Math.floor(entry.when as number / 1000) * 1000]))
+  const listed = files.map(file => anchors.get(file))
+  const first = listed.findIndex(second => second !== undefined)
+  // Files before the first listed one count back from it. Without a listed file, the last one takes the second of `now`.
+  const start = first < 0 ? Math.floor(now / 1000) * 1000 - (files.length - 1) * 1000 : listed[first]! - first * 1000
+  const seconds: number[] = []
+  for (const [index, second] of listed.entries()) {
+    seconds.push(index <= Math.max(first, 0) ? start + index * 1000 : Math.max(second ?? 0, seconds[index - 1]! + 1000))
+  }
+  return files.map((file, index) => ({ file, folder: `${folderTimestamp(seconds[index]!)}_${file.slice(0, -".sql".length)}` }))
+}
+
 /** Writes `d1-migrations.json` when it does not list every migration folder yet. Returns the migrations. */
 export function recordD1MigrationNames(migrationsDir: string): D1MigrationFile[] {
   const files = listD1Migrations(migrationsDir)

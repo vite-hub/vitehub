@@ -9,13 +9,15 @@ import type { Client, InStatement, InValue, ResultSet, Transaction, TransactionM
  */
 export function createTestDatabaseClient(root: string, migrationsDir: string): Client {
   const ready = (async () => {
-    const [{ createClient }, { existsSync }, { resolve }] = await Promise.all([
+    const [{ createClient }, { existsSync }, { resolve }, { readOldMigrationsLayout }] = await Promise.all([
       import("@libsql/client"),
       import("node:fs"),
       import("node:path"),
+      import("../internal/migrations-layout.ts"),
     ])
     const migrationsFolder = resolve(root, migrationsDir)
-    if (existsSync(resolve(migrationsFolder, "meta/_journal.json"))) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ dir: migrationsFolder })
+    const layout = readOldMigrationsLayout(migrationsFolder)
+    if (layout) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ dir: migrationsFolder, layout })
     const client = createClient({ url: ":memory:" })
     if (existsSync(migrationsFolder)) {
       // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
