@@ -96,16 +96,6 @@ export async function emulatedLanguageModel(modelId: string, api: ModelApi, cont
 }
 
 /**
- * Whether a model already sends its requests to the AI emulator: a model from `emulatedLanguageModel()`, or a wrapper
- * of one that keeps its provider, such as `wrapLanguageModel()`.
- */
-export function isEmulatedModel(model: unknown): boolean {
-  if (languageModelRoute(model)?.gateway === emulatedGateway) return true
-  const provider: unknown = typeof model === "object" && model !== null ? Reflect.get(model, "provider") : undefined
-  return typeof provider === "string" && provider.startsWith(`${emulatedGateway}.`)
-}
-
-/**
  * The emulated form of a model object. A model from `languageModel()` or the ChatGPT plan keeps its model API and ID.
  * Any other model object calls its own provider, so it fails instead.
  */

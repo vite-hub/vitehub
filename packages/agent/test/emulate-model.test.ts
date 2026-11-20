@@ -207,6 +207,11 @@ describe("VITEHUB_MODELS=emulate", () => {
   })
 
   describe("a model that replaces the Driver model", () => {
+    const emulatorNamedGateway = defineAiGateway({
+      name: "emulate",
+      apiKey: () => { throw credentialRead("gateway apiKey") },
+      baseURL: { "openai-compatible": "https://real.invalid/v1" },
+    })
     const rawModel = () => {
       const fetch = vi.fn<typeof globalThis.fetch>()
       return { fetch, model: createOpenAI({ apiKey: "real", baseURL: "https://real.invalid/v1", fetch }).responses("gpt-5.1") }
@@ -218,7 +223,7 @@ describe("VITEHUB_MODELS=emulate", () => {
     }
 
     it.each(Object.keys(overrides) as (keyof typeof overrides)[])("from %s goes to the emulator", async (name) => {
-      const execution = overrides[name](languageModel(realGateway, "override-model", { api: "chat" }))
+      const execution = overrides[name](languageModel(emulatorNamedGateway, "override-model", { api: "chat" }))
       const [error, result] = await runAgent(defineAgent({ runtime: false, driver: { instructions: "Answer briefly.", model: "anthropic/claude-sonnet-4.5", execution } as never }), { prompt: "Hello" })
       expect(error).toBeUndefined()
       expect(result?.text).toBe("Hello from chat.")
