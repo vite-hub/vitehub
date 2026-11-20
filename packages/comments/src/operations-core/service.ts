@@ -7,6 +7,7 @@ import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { foldName } from "../fold-name.ts"
 import { guestIdPrefix } from "../identity.ts"
+import { replyMessageId } from "../reply-id.ts"
 
 import type {
   CommentsAuthorizeContext,
@@ -422,15 +423,6 @@ export interface ReplyInput {
   attachments?: readonly string[]
   /** A retry with the same key in the same thread gets the message of the first call. */
   requestId?: string
-}
-
-/**
- * The id of the message that a reply with `requestId` stores in a thread. Every retry gets the same id, so the primary
- * key of the messages refuses a second message.
- */
-async function replyMessageId(threadId: string, requestId: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([threadId, requestId]))))
-  return `message_${Array.from(digest.subarray(0, 16), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 /** The message that an earlier reply with this `requestId` stored in the thread. A retry gets it back before the reply checks. */

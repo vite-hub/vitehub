@@ -273,6 +273,9 @@ export interface SetupAddPlanned {
 
 /** Plans `vitehub add` without writing anything. Throws `SetupFailure` when the change needs input or is not possible. */
 export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv, rerun: SetupRerun = rerunCommand): Promise<SetupAddPlanned> {
+  if (args.options.observability && Object.hasOwn(args.options.observability, "logs")) {
+    throw setupFailure(cliErrorDiagnostics.SETUP_LOGS_OPTION_MOVED(), setupExitCodes.conflict)
+  }
   const status = setupStatus(project, env)
   const host = status.host.name
   if (host === "unknown") {

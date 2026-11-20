@@ -267,17 +267,16 @@ describe("hubSandboxTask", () => {
     ])
     expect(facade).toContain("setSandboxTaskRuntimeConfig")
     expect(facade).toContain("setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)")
-    expect(facade).toContain("setSandboxTaskRuntimeDevelopment(true)")
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     const facadePackageImports = [
-      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toEqual([
       "@vite-hub/sandbox/task/runtime/state",
-      "@vite-hub/sandbox/_internal/task/runtime",
+      "@vite-hub/sandbox/internal/task/runtime",
     ])
     expect(facade).toContain('from "./sandbox-task-registry.mjs"')
     expect(facade).toContain(`from ${JSON.stringify(providerLoaderAlias)}`)
@@ -286,7 +285,7 @@ describe("hubSandboxTask", () => {
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
-    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/_internal/task/runtime/providers/vercel")
+    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/internal/task/runtime/providers/vercel")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
@@ -314,7 +313,6 @@ describe("hubSandboxTask", () => {
     const { default: definition } = await registry["__proto__"]!()
     expect(definition.options).toEqual({ timeout: 5000 })
     expect(definition.bundle.modules[definition.bundle.entry]).toContain("prototype sandbox")
-    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"), "utf8")).resolves.toContain("setSandboxTaskRuntimeDevelopment(false)")
   })
 
   it("loads only the selected generated Definition payload", async () => {
@@ -830,8 +828,8 @@ describe("hubSandboxTask", () => {
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
     const exportsModule = rollupPlugin.load.handler("\0virtual:vitehub-sandbox-task-cloudflare-exports")
-    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
-    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare"])
+    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
+    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare"])
     expect(ids.filter(id => rollupPlugin.load.filter.id.test(id))).toEqual(["\0virtual:vitehub-sandbox-task-cloudflare-exports"])
     expect(exportsModule).toContain("import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")

@@ -7,12 +7,11 @@ navigation.order: 263
 icon: i-vscode-icons-file-type-markdown
 ---
 
-Every docs page has a raw Markdown version without the site shell. Use it to
-give one page to a chat tool or a coding agent.
+Every docs page has a raw Markdown version without the site shell. Use it to give one page to a chat tool or a coding agent.
 
 ## Use the page actions
 
-**Copy page** sits next to each page title. Its arrow opens more actions.
+**Copy page** sits next to each page title, and its arrow opens more actions.
 
 | Action | Result |
 | --- | --- |
@@ -30,7 +29,7 @@ give one page to a chat tool or a coding agent.
 Read https://vitehub.dev/raw/docs/kv.md from the ViteHub documentation. Use it as context to answer my questions and to help me apply it in my project.
 ```
 
-The chat tool fetches the published page from `vitehub.dev`. On a local or preview copy of the docs, **Copy page** and **View as Markdown** use that copy's raw page.
+The chat tool fetches the published page from `vitehub.dev`. On a local or preview copy of the docs, **Copy page** and **View as Markdown** use the raw page of that copy.
 
 ## Build a raw URL
 
@@ -44,7 +43,7 @@ Add `/raw` before the path and `.md` after it.
 
 For example, `/docs/getting-started/ai-resources/markdown-pages` becomes `/raw/docs/getting-started/ai-resources/markdown-pages.md`.
 
-Raw pages turn site components into plain Markdown. A callout starts with a quoted label such as `> **Tip**`, a tab label becomes a heading, and an interactive preview becomes a short note that links to the rendered page.
+Raw pages turn site components into plain Markdown. A callout starts with a quoted label, such as `> **Tip**`. A tab label becomes a heading, and an interactive preview becomes a short note that links to the rendered page.
 
 ## Give an agent one page
 
@@ -57,11 +56,11 @@ Start with the compact index, pick one raw page, and keep its URL with the conte
 4. Keep the URL in the final implementation report.
 ```
 
-Add a second page only when the first links to a required concept or reference. Small context makes docs drift easier to find. Pick pages from the links in `https://vitehub.dev/llms.txt`.
+Add a second page only if the first links to a required concept or reference. Small context makes docs drift easier to find. Pick pages from the links in `https://vitehub.dev/llms.txt`.
 
 ## Paste context into another tool
 
-Copy the section with its source URL, so the other tool knows where it came from and can fetch the current page for more context.
+Copy the section with its source URL. The other tool then knows where the text came from and can fetch the current page for more context.
 
 ```txt [Prompt context]
 Source: https://vitehub.dev/raw/docs/agents/instructions.md
@@ -71,7 +70,7 @@ Source: https://vitehub.dev/raw/docs/agents/instructions.md
 
 ## Read local source
 
-Agents that contribute to this repository can read `docs/content/docs/` directly. When you build your own app, use the public raw URL so the context stays portable.
+Agents contributing to this repository can read `docs/content/docs/` directly. In your own app, use the public raw URL so the context stays portable.
 
 ::note
 Raw pages describe the current published docs. If an example disagrees with your installed exports or types, follow the installed package and report the difference.

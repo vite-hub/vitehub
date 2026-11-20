@@ -14,8 +14,17 @@ icon: i-lucide-circle-alert
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 
+realtime.onReset(({ reason }) => {
+  if (reason === 'source-changed')
+    toast.add({ title: 'The editor reset because the stored page changed' })
+})
+
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error?.code === 'REALTIME_REQUEST_FAILED' && error.data.status === 409) {
+    toast.add({ title: 'Checkpoint failed (HTTP 409)', description: error.why })
+    return
+  }
   if (error) {
     toast.add({ title: 'Not published', description: error.why })
     return
@@ -24,7 +33,7 @@ async function publish() {
 }
 ```
 
-`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. Check the code first to read the typed `error.data`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
 
 Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
@@ -65,7 +74,9 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`.
+
+HTTP `409` does not prove that the editor reset. A read-only or still-syncing room can also return `409`. To detect a reset caused by a change to the stored document, listen to `realtime.onReset()` and check for `reason === 'source-changed'`.
 
 ## Room request errors
 
