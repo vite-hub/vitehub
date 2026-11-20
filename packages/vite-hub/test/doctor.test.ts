@@ -452,7 +452,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { blob } from "vite-hub/blob"',
         "export default defineEventHandler(async (event) => {",
         '  if ((await kv.get("a")) === null) return',
-        '  for (const key of await kv.keys()) console.log(key)',
+        '  for (const key of await kv.list()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
         '  return blob.get("a.txt")',
         "})",

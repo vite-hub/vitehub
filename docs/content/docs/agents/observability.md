@@ -6,7 +6,7 @@ navigation.order: 50
 navigation.kind: Guides
 ---
 
-Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on Agent telemetry and installs `useObservability()`; without it, `observability` registers only Evlog and the [Logs](/docs/logs) source in `observability.logs`.
+Set observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog. `service` turns on Agent telemetry and installs `useObservability()`; without it, `observability` registers only Evlog. [Logs](/docs/logs) has its own `logs` key.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
