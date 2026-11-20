@@ -6,6 +6,7 @@ export type {
   FsLiteKVStoreConfig,
   InferredKVStoreConfig,
   KVAtomicOperation,
+  KVClearOptions,
   KVDriver,
   KVDriverAtomicOperations,
   KVDriversWith,
