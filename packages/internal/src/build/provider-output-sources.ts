@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
@@ -9,7 +9,7 @@ import type { Rolldown } from "vite"
 
 import { createImportPath } from "./paths.ts"
 import { importRolldown } from "./rolldown.ts"
-import { isPublishedPackagePath, publishedPackagePaths } from "./runtime-package-files.ts"
+import { copyRetainedSourceTree, isPublishedPackagePath, publishedPackagePaths, unlessGone } from "./runtime-package-files.ts"
 import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
@@ -321,26 +321,21 @@ async function linkDependencies(
   target: string,
   resolveLinkTarget: (source: string) => string = source => source,
 ): Promise<void> {
+  const entries = await unlessGone(() => readdir(source))
+  if (!entries) return
   await mkdir(target, { recursive: true })
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    if (entry.name === ".bin" || entry.name === ".pnpm") continue
-    const sourceEntry = resolve(source, entry.name)
-    const targetEntry = resolve(target, entry.name)
-    // An entry can disappear after `readdir()`, such as a package that another install removes. Skip it.
-    let resolvedSourceEntry: string
-    try {
-      resolvedSourceEntry = realpathSync(sourceEntry)
-      if (!statSync(resolvedSourceEntry).isDirectory()) continue
-    }
-    catch (error) {
-      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
-      throw error
-    }
-    if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
+  for (const entry of entries) {
+    if (entry === ".bin" || entry === ".pnpm") continue
+    const sourceEntry = resolve(source, entry)
+    const targetEntry = resolve(target, entry)
+    const sourceType = await unlessGone(() => lstat(sourceEntry))
+    if (!sourceType) continue
+    if (entry.startsWith("@") && sourceType.isDirectory()) {
       await linkDependencies(sourceEntry, targetEntry, resolveLinkTarget)
       continue
     }
+    const resolvedSourceEntry = await unlessGone(() => realpath(sourceEntry))
+    if (!resolvedSourceEntry || !(await unlessGone(() => stat(resolvedSourceEntry)))?.isDirectory()) continue
     if (existsSync(targetEntry)) continue
     await symlink(resolveLinkTarget(resolvedSourceEntry), targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
@@ -1085,7 +1080,10 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       }
       return false
     }
-    const nestedDependencyRoots = new Map<string, string>()
+    const nestedDependencyRoots = new Map([...referencedPackages].map(sourcePackage => [
+      resolve(retainedRoot, relative(root, sourcePackage), "node_modules"),
+      resolve(sourcePackage, "node_modules"),
+    ]))
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedContainer = resolve(temporaryRoot, "source")
     const stagedRoot = resolve(stagedContainer, relative(captureRoot, root))
@@ -1139,36 +1137,31 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         }
         return true
       }
-      await cp(root, stagedRoot, {
-        recursive: true,
-        // A folder can disappear while the tree is copied, such as a temporary test folder. Skip it.
-        filter: source => existsSync(source) && shouldCopySource(resolve(source)),
-      })
+      await copyRetainedSourceTree(root, stagedRoot, source => shouldCopySource(resolve(source)))
       const escapedMaterializedSources = materializedSources
         .filter(source => !pathContains(root, source))
         .filter((source, _, sources) => !sources.some(parent => parent !== source
-          && statSync(parent).isDirectory()
-          && pathContains(parent, source)))
+          && pathContains(parent, source)
+          && statSync(parent, { throwIfNoEntry: false })?.isDirectory()))
       for (const source of escapedMaterializedSources) {
         const retainedSource = resolve(stagedContainer, relative(captureRoot, source))
         await mkdir(dirname(retainedSource), { recursive: true })
-        await cp(realpathSync(source), retainedSource, { filter: path => !isLocalSecretFile(path), recursive: statSync(source).isDirectory() })
+        const sourceTarget = await unlessGone(() => realpath(source))
+        if (sourceTarget) await copyRetainedSourceTree(sourceTarget, retainedSource, path => !isLocalSecretFile(path))
       }
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
-        const sourceTarget = realpathSync(source)
+        const sourceTarget = await unlessGone(() => realpath(source))
+        if (!sourceTarget) continue
         await rm(retainedSource, { force: true, recursive: true })
-        await cp(sourceTarget, retainedSource, {
-          recursive: statSync(source).isDirectory(),
-          filter(candidate) {
-            const physicalCandidate = resolve(candidate)
-            const logicalCandidate = resolve(source, relative(sourceTarget, physicalCandidate))
-            const retained = materializedSources.some(path => pathContains(logicalCandidate, path)
-              || pathContains(path, logicalCandidate)
-              || pathContains(physicalCandidate, path)
-              || pathContains(path, physicalCandidate))
-            return retained && shouldCopySource(logicalCandidate)
-          },
+        await copyRetainedSourceTree(sourceTarget, retainedSource, candidate => {
+          const physicalCandidate = resolve(candidate)
+          const logicalCandidate = resolve(source, relative(sourceTarget, physicalCandidate))
+          const retained = materializedSources.some(path => pathContains(logicalCandidate, path)
+            || pathContains(path, logicalCandidate)
+            || pathContains(physicalCandidate, path)
+            || pathContains(path, physicalCandidate))
+          return retained && shouldCopySource(logicalCandidate)
         })
       }
       await rebaseCapturedAbsoluteSourceLinks(stagedContainer, captureRoot, retainedContainer)

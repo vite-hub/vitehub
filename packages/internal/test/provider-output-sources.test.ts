@@ -1,14 +1,19 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, realpathSync, rmSync } from "node:fs"
 import { cp, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, sep } from "node:path"
 
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { providerOutputAliasSources, publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>()
+  return { ...actual, existsSync: vi.fn(actual.existsSync) }
+})
 
 const tempDirs: string[] = []
 
@@ -505,6 +510,38 @@ it("retains only the published files of a referenced monorepo package with a fil
   }
   expect(existsSync(retainedPath(join(kitDir, "src")))).toBe(false)
   expect(existsSync(retainedPath(join(kitDir, "test")))).toBe(false)
+})
+
+it("keeps sibling sources when an enumerated directory vanishes before copying", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-vanished-"))
+  tempDirs.push(rootDir)
+  const vanished = join(rootDir, "vanished")
+  const handler = join(rootDir, "handler.mjs")
+  await mkdir(vanished)
+  await writeFile(join(vanished, "fixture.txt"), "temporary\n")
+  await writeFile(handler, 'export const value = "retained"\n')
+  const originalExists = (await vi.importActual<typeof import("node:fs")>("node:fs")).existsSync
+  let removed = false
+  vi.mocked(existsSync).mockImplementation(path => {
+    if (path === join(vanished, ".git")) {
+      rmSync(vanished, { force: true, recursive: true })
+      removed = true
+    }
+    return originalExists(path)
+  })
+  try {
+    const retained = await retainProviderOutputSources({
+      artifactDir: join(rootDir, ".vitehub", "sources"),
+      paths: [handler],
+      roots: [rootDir],
+    })
+    expect(removed).toBe(true)
+    expect(existsSync(retained.resolve(vanished))).toBe(false)
+    await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "retained" })
+  }
+  finally {
+    vi.mocked(existsSync).mockReset()
+  }
 })
 
 it("retains configured roots beneath nested generated output directories", async () => {
@@ -2455,14 +2492,14 @@ it("snapshots workspace packages imported by bare name", async () => {
   const rootDir = join(workspace, "apps", "web")
   const handler = join(rootDir, "server", "workflow.mjs")
   const packageDir = join(workspace, "packages", "fixture-package")
-  const packageEntry = join(packageDir, "index.mjs")
+  const packageEntry = join(packageDir, "dist", "index.mjs")
   const nestedPackageDir = join(workspace, "packages", "nested-package")
   const nestedPackageEntry = join(nestedPackageDir, "index.mjs")
   const nestedDependencyLink = join(packageDir, "node_modules", "nested-package")
   const dependencyLink = join(workspace, "node_modules", "fixture-package")
   await Promise.all([
     mkdir(dirname(handler), { recursive: true }),
-    mkdir(packageDir, { recursive: true }),
+    mkdir(dirname(packageEntry), { recursive: true }),
     mkdir(nestedPackageDir, { recursive: true }),
     mkdir(dirname(nestedDependencyLink), { recursive: true }),
     mkdir(dirname(dependencyLink), { recursive: true }),
@@ -2471,7 +2508,7 @@ it("snapshots workspace packages imported by bare name", async () => {
     writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
     writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n"),
     writeFile(handler, 'export { value } from "fixture-package"\n'),
-    writeFile(join(packageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"fixture-package\",\"type\":\"module\"}\n"),
+    writeFile(join(packageDir, "package.json"), '{"exports":"./dist/index.mjs","files":["dist"],"name":"fixture-package","type":"module"}\n'),
     writeFile(packageEntry, 'export { value } from "nested-package"\n'),
     writeFile(join(nestedPackageDir, "package.json"), "{\"exports\":\"./index.mjs\",\"name\":\"nested-package\",\"type\":\"module\"}\n"),
     writeFile(nestedPackageEntry, 'export const value = "captured"\n'),

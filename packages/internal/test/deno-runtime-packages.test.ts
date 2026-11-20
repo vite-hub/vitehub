@@ -1403,6 +1403,38 @@ load("@img/sharp-linux-x64/sharp.node")
     expect(existsSync(join(root, ".output/node_modules/kit/test/.content-cms-1"))).toBe(false)
   })
 
+  it.each([
+    { files: ["./"], privateFilePublished: true },
+    { files: ["dist/**/*", "!dist/private.mjs"], privateFilePublished: false },
+  ])("stages the npm publish list for $files", async ({ files, privateFilePublished }) => {
+    const workspace = await temporaryDirectory("vitehub-deno-npm-packlist-")
+    const root = join(workspace, "apps/api")
+    const linked = join(workspace, "packages/kit")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(linked, "package.json"), { exports: { "./*": "./dist/*.mjs" }, files, name: "kit", version: "1.0.0" })
+    await mkdir(join(linked, "dist"), { recursive: true })
+    await writeFile(join(linked, "dist/index.mjs"), 'export { value } from "./.generated.mjs"\n')
+    await writeFile(join(linked, "dist/.generated.mjs"), 'export const value = "staged"\n')
+    await writeFile(join(linked, "dist/private.mjs"), 'export const value = "private"\n')
+    await writeFile(join(linked, "README.md"), "# kit\n")
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(linked, join(root, "node_modules/kit"), "dir")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    const server = join(root, ".output/server/index.mjs")
+    await writeFile(server, 'export { value } from "kit/index"\n')
+
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "kit/index": true }) })
+
+    const packed = ["README.md", "dist/.generated.mjs", "dist/index.mjs", "package.json"]
+    if (privateFilePublished) packed.push("dist/private.mjs")
+    const staged = join(root, ".output/node_modules/kit")
+    const stagedFiles = await readdir(staged, { recursive: true, withFileTypes: true })
+    expect(stagedFiles.filter(entry => entry.isFile()).map(entry =>
+      relative(staged, join(entry.parentPath, entry.name)).replaceAll("\\", "/"),
+    ).sort()).toEqual(packed.sort())
+    await expect(import(pathToFileURL(server).href)).resolves.toMatchObject({ value: "staged" })
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await temporaryDirectory("vitehub-deno-package-cycle-")
     const plainDir = join(root, "node_modules/plain")
