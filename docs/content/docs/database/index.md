@@ -128,7 +128,7 @@ export default defineEventHandler(async (event) => {
 
 ::product-features
   :::product-feature-item{title="Tables in one file" icon="i-lucide-file-code-2" to="/docs/database/configure#define-a-database"}
-  Write your tables with Drizzle in `src/database.ts`. ViteHub finds it and makes migrations.
+  Write your tables with Drizzle in `src/database.ts`. ViteHub finds the file and makes migrations.
   :::
 
   :::product-feature-item{title="Query from any route" icon="i-lucide-code-2" to="/docs/database/server-api#use-it-at-runtime"}
@@ -148,7 +148,7 @@ export default defineEventHandler(async (event) => {
   :::
 
   :::product-feature-item{title="Seed, query, and reset" icon="i-lucide-terminal" to="/docs/database/configure#seed-data"}
-  `vitehub seed` adds starting rows. `vitehub database sql` runs a query, and `drop` or `reset` empties the database.
+  `vitehub seed` adds starting rows, `vitehub database sql` runs a query, and `drop` or `reset` empties the database.
   :::
 ::
 
