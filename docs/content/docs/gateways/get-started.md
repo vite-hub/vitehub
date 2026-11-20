@@ -111,13 +111,14 @@ import { ask, typesafe } from 'vite-hub/gateways'
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
 
-const answers = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', {
     groceries: 'Food and household shopping.',
     eatingOut: 'Restaurants and cafes.',
   }),
   recurring: ask.if('Is it a recurring payment?'),
 })
+if (error) throw error
 
 answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1

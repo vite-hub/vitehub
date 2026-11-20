@@ -29,7 +29,7 @@ export function forwardWorkspaceHistoryMerge(options: WorkspaceMergeOptions, com
 
 export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommitOptions): WorkspaceHistoryCommitOptions {
   const forwardFiles = (files: Record<string, WorkspaceFile> = {}) => Object.fromEntries(Object.entries(files).map(([path, file]) => [path, { content: file.content, mediaType: file.mediaType, metadata: file.metadata }]))
-  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata: options.metadata }
+  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, onHeadConflict: options.onHeadConflict, startFrom: options.startFrom, message: options.message, metadata: options.metadata }
   const forwarded: WorkspaceHistoryCommitOptions = options.changes
     ? { ...base, changes: { put: forwardFiles(options.changes.put), delete: [...options.changes.delete ?? []] } }
     : { ...base, files: forwardFiles(options.files) }
@@ -90,6 +90,11 @@ export function normalizeHistoryPath(path: string): string {
 
 export function historyConflict(ref: string, expected: string | null, actual: string | null, details: Record<string, unknown> = {}) {
   return workspaceConflict(`[vitehub] History ref "${ref}" changed before the commit.`, { details: { ...details, ref, expected, actual } })
+}
+
+export function rejectHistoryHead(options: WorkspaceHistoryCommitOptions | WorkspaceStoreHistoryCommitOptions, error: unknown): never {
+  options.onHeadConflict?.(error)
+  throw error
 }
 
 interface HistoryFileInput {
@@ -171,7 +176,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const commit = readHistoryCommit(options)
     const metadata = copyJsonWorkspaceMetadata("history revision", options.metadata)
     const current = await retained.head({ ref })
-    if ((current?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, current?.id ?? null)
+    if ((current?.id ?? null) !== options.ifHead) rejectHistoryHead(options, historyConflict(ref, options.ifHead, current?.id ?? null))
     // A missing ref that the Store starts from another ref begins with the files of that ref.
     if (options.startFrom !== undefined && (typeof options.startFrom !== "string" || !options.startFrom || options.ifHead !== null || !store.history?.forksFrom)) {
       throw workspaceError("[vitehub] History commit startFrom needs a revision id, ifHead null, and a Store that starts missing refs from another ref.")
@@ -245,7 +250,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
       }
     }
     // Keep grant validation and the Store commit on the revision reviewed before write hooks ran.
-    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
+    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, onHeadConflict: options.onHeadConflict, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
     const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
       ? { ...base, files: desired }
       : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }
