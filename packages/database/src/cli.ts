@@ -726,6 +726,8 @@ async function runDrizzleKit(
       continue
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
+    // Drizzle Kit runs each part of a migration with one libSQL `execute()`, which runs only its first statement.
+    if (feature === "migrate" && run.database?.dialect === "sqlite") await addMigrationBreakpoints(run.database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
     if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && await hasUnrecordedUniques(migrationsDir)) {
       // A folder that `drizzle-kit up` or an older ViteHub converted still lists each `.unique()` column as an index.
@@ -1000,6 +1002,24 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
 }
 
 /** Reads the pending migrations before `migrate` and refuses the ones that lose data. Returns the exit code. */
+/**
+ * Adds `--> statement-breakpoint` between the statements of each SQLite migration that has a part with several, such as
+ * a custom migration written by hand, so Drizzle Kit runs every statement. Drizzle's ledger keys a migration by its
+ * folder name, so the new hash does not run an applied migration again.
+ */
+async function addMigrationBreakpoints(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
+  const [{ readMigrations }, { addStatementBreakpoints }] = await Promise.all([import("./internal/migration-journal.ts"), import("./internal/migration-sql.ts")])
+  const migrationsDir = resolve(projectRoot, database.migrationsDir)
+  for (const { tag } of readMigrations(migrationsDir, database.name)) {
+    const file = join(migrationsDir, tag, "migration.sql")
+    const sql = await readFile(file, "utf8")
+    const split = addStatementBreakpoints(sql)
+    if (split === sql) continue
+    await writeFile(file, split)
+    context.stdout.write(`[vitehub] Database "${database.name}": added --> statement-breakpoint between the statements of ${relative(projectRoot, file)}, so Drizzle runs each one. Commit the change.\n`)
+  }
+}
+
 async function checkPendingMigrations(
   database: ResolvedDrizzleDatabaseConfig | undefined,
   projectRoot: string,

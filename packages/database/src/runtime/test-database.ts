@@ -9,11 +9,12 @@ import type { Client, InStatement, InValue, ResultSet, Transaction, TransactionM
  */
 export function createTestDatabaseClient(root: string, migrationsDir: string): Client {
   const ready = (async () => {
-    const [{ createClient }, { existsSync }, { resolve }, { readOldMigrationsLayout }] = await Promise.all([
+    const [{ createClient }, { existsSync }, { resolve }, { readOldMigrationsLayout }, { migrationParts }] = await Promise.all([
       import("@libsql/client"),
       import("node:fs"),
       import("node:path"),
       import("../internal/migrations-layout.ts"),
+      import("../internal/migration-sql.ts"),
     ])
     const migrationsFolder = resolve(root, migrationsDir)
     const layout = readOldMigrationsLayout(migrationsFolder)
@@ -23,7 +24,8 @@ export function createTestDatabaseClient(root: string, migrationsDir: string): C
       // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
       const { readMigrationFiles } = await import("drizzle-orm/migrator")
       for (const migration of readMigrationFiles({ migrationsFolder })) {
-        await client.migrate(migration.sql.filter(statement => statement.trim()))
+        // libSQL runs only the first statement of a part, so a hand-written part is cut at its statements.
+        await client.migrate(migration.sql.flatMap(part => migrationParts(part, "sqlite")))
       }
     }
     return client

@@ -546,6 +546,55 @@ describe("vitehub database migrate", () => {
     expect(result.stdout).not.toContain("no pending migrations")
   }, 120_000)
 
+  it("applies every statement of a custom migration written without breakpoints", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await nextSecond()
+    await expect(project.run("generate", ["--custom", "--name", "seed"])).resolves.toMatchObject({ exitCode: 0 })
+    const [, seed] = await migrationTags(migrationsDir)
+    const file = join(migrationsDir, seed!, "migration.sql")
+    // Written by hand as one script, as Wrangler and the SQLite shell run it. The trigger body has its own semicolon.
+    await writeFile(file, [
+      await readFile(file, "utf8"),
+      "CREATE TABLE `note_events` (`note_id` integer);",
+      "CREATE TRIGGER `notes_insert` AFTER INSERT ON `notes` BEGIN INSERT INTO `note_events` (`note_id`) VALUES (NEW.`id`); END;",
+      "INSERT INTO `notes` (`id`, `title`) VALUES (1, 'Groceries');",
+      "INSERT INTO `notes` (`id`, `title`) VALUES (2, 'Rent');",
+      "",
+    ].join("\n"))
+    const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
+
+    // Migrate on start runs the statements that the build reads.
+    const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
+    expect(shipped.databases.default.migrations[1].statements).toHaveLength(4)
+    // Test mode applies the folder to an in-memory database.
+    const testClient = createTestDatabaseClient(project.rootDir, "migrations")
+    try {
+      await expect(testClient.execute("SELECT note_id FROM note_events ORDER BY note_id")).resolves.toMatchObject({ rows: [{ note_id: 1 }, { note_id: 2 }] })
+    }
+    finally {
+      testClient.close()
+    }
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain("INSERT INTO `notes` (`id`, `title`) VALUES (2, 'Rent');")
+    await expect(readFile(file, "utf8")).resolves.not.toContain("--> statement-breakpoint")
+
+    const migrated = await project.run("migrate")
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain(`[vitehub] Database "default": added --> statement-breakpoint between the statements of migrations/${seed}/migration.sql, so Drizzle runs each one. Commit the change.\n`)
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await expect(client.execute("SELECT note_id FROM note_events ORDER BY note_id")).resolves.toMatchObject({ rows: [{ note_id: 1 }, { note_id: 2 }] })
+    }
+    finally {
+      client.close()
+    }
+    expect((await readFile(file, "utf8")).split("--> statement-breakpoint")).toHaveLength(4)
+  }, 120_000)
+
   it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })

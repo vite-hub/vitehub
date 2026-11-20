@@ -348,7 +348,7 @@ export async function readMigrationPlan(
       const ledger = await readD1Ledger(createD1Query(target, fail, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
         .filter(file => !ledger.applied.has(file.name))
-        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries))
+        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries, database.dialect))
       const adopted = ledger.adopted.map(migration => ({ from: migration.from, name: migration.tag }))
       return [undefined, { adopted, applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
@@ -373,7 +373,7 @@ export async function readMigrationPlan(
     }
     const pending = entries
       .filter(entry => !applied.has(entry.tag) && !adopted.has(entry.tag))
-      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
+      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries, database.dialect))
     return [undefined, {
       adopted: [...adopted].map(([name, from]) => ({ from, name })),
       applied: entries.length - pending.length,
@@ -467,7 +467,7 @@ export async function migratePostgresDatabases(
       if (target?.kind !== "postgres") throw invariantError("`vitehub database migrate` passes only Postgres databases to migratePostgresDatabases()")
       const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
-      return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
+      return { client, database: { migrations: readStartMigrations(database.migrationsDir, database.dialect), name: database.name } }
     })
     await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
   }
