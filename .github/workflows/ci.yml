@@ -499,8 +499,10 @@ jobs:
         run: |
           if [ "$FULL_SUITE" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BASE_REF...HEAD" -- packages/agent packages/gateways .github/workflows/ci.yml .github/actions/setup; then
-            echo "This change does not touch the Agent package, the gateways, or CI."
+          # The workspace files pin the T3 provider runtime, the AI emulator, and their dependencies. CODEX_VERSION and
+          # the README pin live in this file and in packages/agent.
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/agent packages/gateways package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the Agent package, the gateways, the workspace dependencies, or CI."
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
