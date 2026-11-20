@@ -543,7 +543,15 @@ RUN                                          STATUS     SCHEDULED AT            
 srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
 ```
 
-`list`, `start`, and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
+`list` shows every Schedule of the server: each Static Schedule Definition with its cron, then the Schedules that code started. An app with only cron Schedules lists them without a KV store:
+
+```txt [Output]
+SCHEDULE       CRON
+morning-brief  0 9 * * 1-5 (Europe/Copenhagen)
+pr-upkeep      */15 * * * *
+```
+
+`start` and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
 
 ```bash [Terminal]
 pnpm vitehub schedule start reminder --at 2026-11-08T09:00:00Z

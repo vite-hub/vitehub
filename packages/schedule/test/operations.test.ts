@@ -6,7 +6,7 @@ import { defineSchedule } from "../src/index.ts"
 import { scheduleOperations } from "../src/operations.ts"
 import { executeStaticSchedule } from "../src/runtime/execute.ts"
 import { summarizeScheduleRun } from "../src/runtime/operations.ts"
-import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
+import { resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 import { createMemoryStartedScheduleStore, installStartedSchedules } from "../src/runtime/started.ts"
 import { scheduleErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
@@ -207,6 +207,34 @@ describe("schedule operations", () => {
     expect(effect).toHaveBeenCalledTimes(1)
   })
 
+  it("list the cron Schedules of an app that starts none, without a store", async () => {
+    setScheduleRuntimeRegistry({
+      "digest": async () => ({ default: defineSchedule({ cron: "0 9 * * 1-5", timeZone: "Europe/Copenhagen", handler: () => {} }) }),
+      "pr-upkeep": async () => defineSchedule({ cron: "*/15 * * * *", handler: () => {} }),
+    })
+    // SAFETY: The operation formats its own output, which the call below returned.
+    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+
+    const listed = await call("list", {})
+    expect(listed).toEqual({
+      ok: true,
+      value: {
+        definitions: [{ cron: "0 9 * * 1-5", name: "digest", timeZone: "Europe/Copenhagen" }, { cron: "*/15 * * * *", name: "pr-upkeep" }],
+        schedules: [],
+      },
+    })
+    expect(listed.ok && format(listed.value)).toBe("SCHEDULE   CRON\ndigest     0 9 * * 1-5 (Europe/Copenhagen)\npr-upkeep  */15 * * * *\n")
+    expect(await call("list", { name: "pr-upkeep" })).toMatchObject({ ok: true, value: { definitions: [{ name: "pr-upkeep" }], schedules: [] } })
+  })
+
+  it("say that an app without Schedules has none", async () => {
+    // SAFETY: The operation formats its own output, which the call below returned.
+    const format = scheduleOperations.find(operation => operation.name === "schedule.list")?.cli?.format as (output: unknown) => string
+    const listed = await call("list", {})
+    expect(listed).toEqual({ ok: true, value: { definitions: [], schedules: [] } })
+    expect(listed.ok && format(listed.value)).toBe("No Schedules.\n")
+  })
+
   it("start, list, and cancel the Schedules that code starts", async () => {
     installStartedSchedules({ registry: { reminder: async () => defineSchedule({ handler: () => {} }) }, store: createMemoryStartedScheduleStore() })
 
@@ -219,7 +247,7 @@ describe("schedule operations", () => {
     expect(listed.ok && format(listed.value)).toContain(`${id}  reminder  once at 2026-11-08T09:00:00.000Z`)
 
     expect(await call("cancel", { id })).toMatchObject({ ok: true, value: { schedule: { id } } })
-    expect(await call("list", { name: "reminder" })).toMatchObject({ ok: true, value: { schedules: [] } })
+    expect(await call("list", { name: "reminder" })).toEqual({ ok: true, value: { definitions: [], schedules: [] } })
     expect(await call("cancel", { id })).toMatchObject({ code: "SCHEDULE_NOT_FOUND", ok: false, status: 404 })
     expect(await call("start", { cron: "0 9 * * *", name: "daily" })).toMatchObject({ code: "SCHEDULE_NOT_STARTABLE", ok: false, status: 404 })
   })
