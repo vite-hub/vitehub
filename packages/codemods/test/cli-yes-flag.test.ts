@@ -71,4 +71,29 @@ describe("cli-yes-flag", () => {
     })
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("cli-yes-flag")
   })
+
+  it("reports multiline workflow commands without rewriting workflow data", async () => {
+    const workflow = `env:
+  EXAMPLE: |
+    run: vitehub database drop --force
+jobs:
+  test:
+    steps:
+      - run: >-
+          vitehub database generate
+          --non-interactive
+      - run: vitehub connections revoke mail --confirm mail
+          --confirm calendar
+      - run: vitehub database reset --force # a simple command
+`
+    const path = ".github/workflows/ci.yml"
+    const cwd = await project({ [path]: workflow })
+    const { result } = await runCodemod("cli-yes-flag", { cwd, dryRun: false })
+
+    expect(result.followUps).toEqual([
+      { file: path, message: expect.stringContaining("CI=1") },
+      { file: path, message: expect.stringContaining("same Connection") },
+    ])
+    expect(await readFile(join(cwd, path), "utf8")).toBe(workflow.replace("--force # a simple command", "--yes # a simple command"))
+  })
 })

@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import MagicString from "magic-string"
 import { glob } from "tinyglobby"
+import { isMap, isScalar, isSeq, parseDocument } from "yaml"
 
 import type { FileEdit, FollowUp } from "../types.ts"
 
@@ -68,6 +70,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function rewriteWorkflow(source: string, transform: (command: string) => string, report: (command: string) => void): string {
+  const document = parseDocument(source)
+  if (document.errors.length) {
+    report(source)
+    return source
+  }
+  const jobs = document.get("jobs", true)
+  if (!isMap(jobs)) return source
+  const edited = new MagicString(source)
+  for (const { value: job } of jobs.items) {
+    if (!isMap(job)) continue
+    const steps = job.get("steps", true)
+    if (!isSeq(steps)) continue
+    for (const step of steps.items) {
+      if (!isMap(step)) continue
+      const run = step.get("run", true)
+      if (!isScalar(run) || typeof run.value !== "string") continue
+      const range = run.range
+      let command = run.value
+      if (range && run.type === "PLAIN" && !run.anchor && !command.includes("\n") && source.slice(range[0], range[1]) === command) {
+        const next = transform(command)
+        if (next !== command) edited.update(range[0], range[1], next)
+        command = next
+      }
+      report(command)
+    }
+  }
+  return edited.toString()
+}
+
 export async function rewriteCliCalls(cwd: string, rewrite: Rewrite, manual: (command: string) => string | undefined) {
   const files = (await glob(callerPatterns, { cwd, dot: true, ignore: ignoredPatterns })).sort()
   const edits: FileEdit[] = []
@@ -81,7 +113,7 @@ export async function rewriteCliCalls(cwd: string, rewrite: Rewrite, manual: (co
       return next
     })
     const report = (source: string, label = "") => {
-      for (const line of source.split("\n")) {
+      for (const line of source.replace(/\\\r?\n/g, "").split("\n")) {
         if (line.trimStart().startsWith("#")) continue
         const message = manual(line)
         if (message) followUps.push({ file, message: label + message })
@@ -115,8 +147,7 @@ export async function rewriteCliCalls(cwd: string, rewrite: Rewrite, manual: (co
       report(after)
     }
     else {
-      after = before.replace(/^([ \t]*(?:- )?run:[ \t]+)((?:pnpm |npx )?vitehub[\w ./@=+-]*)$/gm, (_, key: string, value: string) => key + transform(value, false))
-      report(after)
+      after = rewriteWorkflow(before, command => transform(command, false), report)
     }
     if (after !== before) edits.push({ after, before, path: file })
   }
