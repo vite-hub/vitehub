@@ -185,6 +185,16 @@ describe("member endpoints", () => {
     expect(endpoint).toMatchObject({ owner: "user_ana", kind: "url", host: "relay.t3.codes" })
   })
 
+  it("refuses a send to a host outside the current `hosts`, and records no delivery", async () => {
+    await connect()
+    const [error] = await sendToMemberEndpoint("user_ana", {}, { event: "comments.send", key: "narrowed", hosts: ["relay.t3.codes"] })
+    expect(error).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
+    expect(error?.message).toContain("is not relay.t3.codes")
+    expect(received).toHaveLength(0)
+    expect((await client.execute("SELECT * FROM vitehub_webhook_deliveries")).rows).toHaveLength(0)
+    expect((await sendToMemberEndpoint("user_ana", {}, { event: "comments.send", key: "allowed", hosts: [publicHost] }))[1]).toMatchObject({ status: "sent" })
+  })
+
   it("stores no plaintext URL or secret, and returns only the host", async () => {
     const endpoint = await connect()
     expect(endpoint).toEqual({ id: expect.stringMatching(/^whe_/), owner: "user_ana", ownerName: null, ownerEmail: null, name: "Launch plan thread", kind: "url", agent: "t3", host: publicHost, disabledAt: null, disabledBy: null, createdAt: expect.any(Number), updatedAt: expect.any(Number) })

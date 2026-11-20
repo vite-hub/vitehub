@@ -27,7 +27,7 @@ interface EndpointLike {
 export interface CommentSendWebhooks {
   createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
   getMemberEndpoint: (owner: string) => Promise<Result<EndpointLike | null, string>>
-  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
+  sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
   checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
   sealWebhooksText: (label: string, text: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
   unsealWebhooksText: (label: string, sealed: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
@@ -337,7 +337,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       text: commentSendText({ id, asks, quotes, grant, expiresAt }),
       data,
     }
-    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key })
+    // The current `hosts`, so an endpoint that an older, wider list allowed gets nothing.
+    const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, hosts })
     if (error || delivered.status === "failed") {
       const reason = error ? error.why : "The agent's receiver did not take the send."
       await store.setSendState(id, ["sent"], "failed", Date.now(), { error: reason, delivery: delivered?.id ?? null })

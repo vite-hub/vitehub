@@ -152,6 +152,7 @@ export type SendToMemberEndpointErrorCode =
   | "WEBHOOKS_KEY_INVALID"
   | "WEBHOOKS_KEY_UNSET"
   | "WEBHOOKS_STORE_FAILED"
+  | "WEBHOOKS_URL_REFUSED"
   | "WEBHOOKS_WAKE_FAILED"
 
 /**

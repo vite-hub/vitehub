@@ -17,6 +17,12 @@ function refuse(reason: string): [RefusedError, undefined] {
   return [webhooksErrors.WEBHOOKS_URL_REFUSED({ reason }), undefined]
 }
 
+/** Why the host of `url` is outside `hosts`, or `undefined` when `hosts` lists it. A host does not match its subdomains. */
+export function outsideHosts(url: URL, hosts: readonly string[]): string | undefined {
+  const host = url.hostname.toLowerCase().replace(/\.$/, "")
+  return hosts.some(allowed => allowed.toLowerCase() === host) ? undefined : `its host is not ${hosts.join(" or ") || "allowed"}`
+}
+
 type IPv4 = readonly [number, number, number, number]
 
 function parseIPv4(host: string): IPv4 | undefined {
@@ -134,9 +140,8 @@ export async function checkWebhookUrl(url: string, options: CheckWebhookUrlOptio
   if (parsed.protocol !== "https:") return refuse("it does not use https")
   if (parsed.username || parsed.password) return refuse("it holds a user name or a password")
   const host = parsed.hostname.toLowerCase().replace(/\.$/, "")
-  if (options.hosts && !options.hosts.some(allowed => allowed.toLowerCase() === host)) {
-    return refuse(`its host is not ${options.hosts.join(" or ") || "allowed"}`)
-  }
+  const outside = options.hosts && outsideHosts(parsed, options.hosts)
+  if (outside) return refuse(outside)
   if (host === "localhost" || host.endsWith(".localhost")) return refuse("it names a loopback address")
   const literal = privateAddress(host)
   if (literal) return refuse(`it names ${literal}`)

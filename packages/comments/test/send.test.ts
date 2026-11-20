@@ -345,6 +345,21 @@ describe("sends", () => {
     expect(deliveries[0]!.body.text).toContain("comments_get_send")
   })
 
+  it("sends nothing to an endpoint whose host left `hosts`", async () => {
+    const hosts = ["relay.t3.codes", "hooks.example.com"]
+    const { call, comment, connect, page } = await setup({ hosts })
+    await comment("ana", "First")
+    await connect("ana", "https://hooks.example.com/t3")
+    expect(deliveries).toHaveLength(1)
+    // The app narrows `hosts` and deploys: the endpoint that the wider list allowed gets nothing.
+    hosts.splice(1)
+    await comment("ana", "Second")
+    const refused = (await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data
+    expect(refused).toMatchObject({ status: "failed" })
+    expect(refused.reason).toContain("is not relay.t3.codes")
+    expect(deliveries).toHaveLength(1)
+  })
+
   it("lets the member's agent read the send with comments_get_send", async () => {
     const { comments, comment, connect } = await setup()
     const thread = await comment("bob", "Swap the photos")

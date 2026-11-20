@@ -1,6 +1,6 @@
 import { webhooksErrors } from "./errors.ts"
 import { sealEndpoint, unsealEndpoint } from "./sealing.ts"
-import { checkWebhookUrl } from "./url-guard.ts"
+import { checkWebhookUrl, outsideHosts } from "./url-guard.ts"
 import { createDeliveryId, deliverMemberClaim, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
@@ -46,6 +46,11 @@ export interface SendToMemberEndpointOptions {
    * sending, or sent delivery of the same endpoint returns that delivery and posts nothing.
    */
   key: string
+  /**
+   * The hosts that the endpoint's URL may use now, such as the current `hosts` of the app. A URL endpoint on another
+   * host gets `WEBHOOKS_URL_REFUSED` and no delivery, so narrowing the list also stops endpoints that it allowed before.
+   */
+  hosts?: readonly string[]
 }
 
 /**
@@ -250,6 +255,8 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     if (endpoint.sealed !== null) {
       const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
       if (keyError) return [keyError, undefined]
+      const outside = options.hosts && outsideHosts(new URL(opened.url), options.hosts)
+      if (outside) return [webhooksErrors.WEBHOOKS_URL_REFUSED({ reason: outside }), undefined]
       target = opened
     }
     const now = Date.now()
