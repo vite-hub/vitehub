@@ -1,3 +1,5 @@
+import { isMotionOff } from "../layer.ts";
+import { prefersReducedMotion } from "../reduced-motion.ts";
 import type { MotionEffect } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { createSpring, springs } from "../spring.ts";
@@ -17,21 +19,16 @@ const quarter = 90;
 interface Turn {
   /** The angle of the icon, in quarter turns. */
   spring: Spring;
-  /** The angle that the stylesheet gives the icon in each state, closed (false) and open (true). */
-  rest: Map<boolean, number>;
   /** The angle of the icon's own `transform` in the current state. The layer writes `rotate` on top of it. */
   base: number;
 }
 
 const turns = new WeakMap<Element, Turn>();
+const pending = new WeakMap<HTMLElement, Map<Element, number>>();
 
 /** The element that holds the chevron: the `<summary>` of a `<details>`, or the trigger itself. */
 function triggerOf(element: HTMLElement): HTMLElement | null {
   return element instanceof HTMLDetailsElement ? element.querySelector<HTMLElement>(":scope > summary") : element;
-}
-
-function isOpen(element: HTMLElement): boolean {
-  return element instanceof HTMLDetailsElement ? element.open : element.getAttribute("aria-expanded") === "true";
 }
 
 function degrees(value: string): number {
@@ -79,28 +76,22 @@ function icons(trigger: HTMLElement): Array<HTMLElement | SVGElement> {
 }
 
 function turnOf(icon: HTMLElement | SVGElement): Turn {
-  let turn = turns.get(icon);
+  const turn = turns.get(icon);
   if (turn) return turn;
   const current: Turn = {
-    rest: new Map(),
     base: 0,
     spring: createSpring(0, (value, velocity) => {
+      if (isMotionOff(icon)) {
+        current.spring.stop();
+        writeMotionStyle(icon, { rotate: null });
+        return;
+      }
       const settled = velocity === 0 && value === current.spring.target;
       writeMotionStyle(icon, { rotate: settled ? null : `${(value * quarter - current.base).toFixed(2)}deg` });
     }, springs.snappy),
   };
   turns.set(icon, current);
-  turn = current;
-  return turn;
-}
-
-/** Keeps the angle of each icon in the state that the disclosure has now, before a press changes it. */
-function remember(trigger: HTMLElement, open: boolean): void {
-  for (const icon of icons(trigger)) {
-    const turn = turns.get(icon);
-    if (turn?.spring.active) continue;
-    turnOf(icon).rest.set(open, measure(icon).total);
-  }
+  return current;
 }
 
 export const disclosure: MotionEffect = {
@@ -112,24 +103,45 @@ export const disclosure: MotionEffect = {
     const owner = element.tagName === "SUMMARY" ? element.parentElement : element.matches("[aria-expanded]") ? element : null;
     if (!owner || !(owner instanceof HTMLDetailsElement || owner.matches("[aria-expanded]"))) return;
     const trigger = triggerOf(owner);
-    if (trigger) remember(trigger, isOpen(owner));
+    if (!trigger) return;
+    const angles = new Map<Element, number>();
+    for (const icon of icons(trigger)) {
+      if (isMotionOff(icon) || transitionsTurn(icon)) continue;
+      const spring = turns.get(icon)?.spring;
+      angles.set(icon, spring?.active ? spring.target * quarter : measure(icon).total);
+    }
+    if (!angles.size) return;
+    pending.set(owner, angles);
+    return {
+      release() {
+        setTimeout(() => {
+          if (pending.get(owner) === angles) pending.delete(owner);
+        });
+      },
+    };
   },
   state(element, { attribute }) {
-    if (attribute !== "open" && attribute !== "aria-expanded") return;
-    if (attribute === "open" && !(element instanceof HTMLDetailsElement)) return;
+    if (attribute !== (element instanceof HTMLDetailsElement ? "open" : "aria-expanded")) return;
+    const angles = pending.get(element);
+    pending.delete(element);
     const trigger = triggerOf(element);
     if (!trigger) return;
-    const open = isOpen(element);
     for (const icon of icons(trigger)) {
+      const previous = turns.get(icon);
+      const sampled = angles?.get(icon);
+      if (isMotionOff(icon) || sampled === undefined || prefersReducedMotion() || transitionsTurn(icon)) {
+        if (previous?.spring.active) {
+          previous.spring.stop();
+          writeMotionStyle(icon, { rotate: null });
+        }
+        continue;
+      }
       const turn = turnOf(icon);
-      const from = turn.spring.active ? turn.spring.value * quarter : turn.rest.get(!open);
+      const from = turn.spring.active ? turn.spring.value * quarter : sampled;
       const { total, base } = measure(icon);
-      turn.rest.set(open, total);
       turn.base = base;
-      // A disclosure that changed without a press before, such as on the first load, has no old angle: it is in its
-      // place at once.
-      if (from === undefined || Math.abs(total - from) < 0.5 || transitionsTurn(icon)) {
-        if (!turn.spring.active) writeMotionStyle(icon, { rotate: null });
+      if (Math.abs(total - from) < 0.5) {
+        if (turn.spring.active) turn.spring.set(total / quarter);
         continue;
       }
       if (!turn.spring.active) turn.spring.set(from / quarter);
