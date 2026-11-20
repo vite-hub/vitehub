@@ -866,7 +866,7 @@ function applyCloudflareCompatibilityDate(options: NitroCompatibilityDateOptions
 }
 
 export function applyCloudflareNodeCompatOptOut(cloudflare: Record<string, unknown>, rootDir: string): void {
-  if (cloudflare.nodeCompat !== true) return
+  if (cloudflare.nodeCompat === false) return
   const inline = isRecord(cloudflare.wrangler) ? cloudflare.wrangler.compatibility_flags : undefined
   const project = readProjectWranglerConfig(rootDir)?.compatibility_flags
   if ([inline, project].some(flags => Array.isArray(flags) && flags.includes("no_nodejs_compat"))) cloudflare.nodeCompat = false
@@ -898,7 +898,7 @@ function deploymentNitroModule(
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
     if (plan.host === "cloudflare") {
       applyCloudflareCompatibilityDate(nitro.options)
-      if (nitro.options.cloudflare) applyCloudflareNodeCompatOptOut(nitro.options.cloudflare, nitro.options.rootDir)
+      applyCloudflareNodeCompatOptOut(nitro.options.cloudflare ??= {}, nitro.options.rootDir)
     }
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
