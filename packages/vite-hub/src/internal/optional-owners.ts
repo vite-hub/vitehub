@@ -118,12 +118,6 @@ export type OptionalFeature = keyof typeof optionalFeaturePackages
 const rangeRequiredPeers: ReadonlySet<string> = new Set(["drizzle-orm"])
 
 /**
- * Packages that a feature loads when the app installed them, without needing them. The check reads their version then.
- * The default Agent Invocation journal imports Drizzle.
- */
-const featurePackagesWhenInstalled: Partial<Record<OptionalFeature, readonly string[]>> = { agent: ["drizzle-orm"] }
-
-/**
  * The results of `isPackageInstalled` in this process. Each lookup resolves from `vite-hub` itself, so the package name
  * is the key. A dev start asks for the same packages two or three times, and most of them are missing.
  */
@@ -296,8 +290,8 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
 
 /**
  * Throws when an enabled feature misses one of its packages, or has a ViteHub package or a peer that needs its range,
- * such as drizzle-orm, outside the range of `vite-hub`, and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
- * provider needs, from `hostFeaturePackages`.
+ * such as drizzle-orm, outside the range of `vite-hub`, and warns when another installed package is outside its range.
+ * `hostPackages` adds the packages that the host or a provider needs, from `hostFeaturePackages`.
  */
 export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}, reportVersionError = true): void {
   const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
@@ -307,8 +301,7 @@ export function assertFeaturePackages(features: readonly OptionalFeature[], host
     const missing = features.filter(isMissing)
     if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  const installedExtras = features.flatMap(feature => (featurePackagesWhenInstalled[feature] ?? []).filter(isPackageInstalled))
-  checkPackageVersions([...features.flatMap(feature => packagesOf(feature, hostPackages)), ...installedExtras], reportVersionError)
+  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)), reportVersionError)
 }
 
 /**

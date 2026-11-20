@@ -52,7 +52,9 @@ pnpm add vite-hub
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
+
+Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
 You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 

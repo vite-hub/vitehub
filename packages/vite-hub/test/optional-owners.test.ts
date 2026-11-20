@@ -261,15 +261,14 @@ describe("assertFeaturePackages version check", () => {
     }
   })
 
-  it.each([["database"], ["agent"]] as const)("stops the %s build for drizzle-orm outside its range, every time it checks", async (feature) => {
-    // The Agent feature does not need drizzle-orm, but its default Invocation journal imports it when it is installed.
+  it("stops the database build for drizzle-orm outside its range, every time it checks", async () => {
     const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "drizzle-orm": "^99.0.0" }, version: "9.9.9" }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const printed = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const error = { code: "VITE_HUB_PEER_VERSION_UNSUPPORTED", why: expect.stringContaining(`drizzle-orm ${installedPackageVersion("drizzle-orm")} is installed, but vite-hub 9.9.9 supports drizzle-orm@^99.0.0.`) }
-      expect(() => assertFeaturePackages([feature])).toThrow(expect.objectContaining(error))
-      expect(() => assertFeaturePackages([feature])).toThrow(expect.objectContaining(error))
+      expect(() => assertFeaturePackages(["database"])).toThrow(expect.objectContaining(error))
+      expect(() => assertFeaturePackages(["database"])).toThrow(expect.objectContaining(error))
       expect(warn).not.toHaveBeenCalled()
       expect(String(printed.mock.calls[0]![0])).toContain("pnpm add 'drizzle-orm@^99.0.0'")
     }
