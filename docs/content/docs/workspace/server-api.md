@@ -183,6 +183,7 @@ await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 It removes the ref and its revisions, and the file bytes that no other ref has. It returns `false` when the ref does not exist. With `ifHead`, it throws `WORKSPACE_CONFLICT` and deletes nothing when a commit moved the ref. `main` cannot be deleted, because the working tree follows it (`WORKSPACE_DEFAULT_REF_DELETE`).
 
 - On the Blob + Database Store, a commit that runs at the same time and adds the same bytes uploads them again. If the call stops before it finishes, the next `deleteRef()` call deletes the bytes that it left.
+- On the Blob + Database Store, a commit that failed, such as one with a stale `ifHead`, keeps no revision, so it does not keep the bytes of the deleted ref.
 - On the GitHub Store, it deletes the branch. GitHub deletes a branch without a condition, so `ifHead` compares the head just before the delete. GitHub refuses to delete the default branch of the repository.
 
 ### Conflicts

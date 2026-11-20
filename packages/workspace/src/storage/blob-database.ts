@@ -420,15 +420,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       await register()
       await uploadAll()
       // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-      const [, , changed] = await this.#db.batch([
+      const [, changed] = await this.#db.batch([
         this.#db.insert(refs).select(sql`
           select ${workspaces.workspace}, ${ref}, null, 0
-          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-        `).onConflictDoNothing(),
-        this.#db.insert(revisions).select(sql`
-          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
-            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
-            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
           from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
         `).onConflictDoNothing(),
         this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
@@ -442,7 +436,15 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           sql`not ${missingObjects}`,
           this.#active(workspace),
         )).returning({ head: refs.head }),
-        this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
+        // Only a commit that moved the ref adds its revision. A revision row of a commit that lost would keep its objects
+        // in use, so `deleteRef()` could not delete them.
+        this.#db.insert(revisions).select(sql`
+          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
+            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
+            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 1
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+            and exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})
+        `).onConflictDoUpdate({ target: [revisions.workspace, revisions.id], set: { committed: true } }),
       ])
       if (changed.length) break
       if (await this.#isDeleted()) this.#deleted()
@@ -470,7 +472,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       await this.#removeUnusedObjects(workspace, [])
       return false
     }
-    // The objects of every revision on the ref, also of commits that lost a race for its head.
+    // The objects of every revision on the ref, also of the rows that earlier versions kept for commits that lost.
     const digests = (await this.#db.values<[string]>(sql`
       select distinct json_extract(file.value, '$.digest')
       from ${revisions}, json_each(${revisions.entries}) as file
@@ -498,9 +500,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       eq(objects.workspace, workspace),
       sql`(${objects.digest} in (select value from json_each(${JSON.stringify(digests)})) and ${objects.size} >= 0
         or ${objects.size} < 0 and ${objects.size} > ${mark + 10 * 60_000})`,
+      // Earlier versions kept the revision row of a commit that lost, with `committed` false. It does not keep an object.
       sql`not exists (
         select 1 from ${revisions}, json_each(${revisions.entries}) as file
-        where ${revisions.workspace} = ${workspace} and json_extract(file.value, '$.digest') = ${objects.digest}
+        where ${revisions.workspace} = ${workspace} and ${revisions.committed} = 1 and json_extract(file.value, '$.digest') = ${objects.digest}
       )`,
     )).returning({ digest: objects.digest })
     if (!marked.length) return

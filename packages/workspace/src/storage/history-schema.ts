@@ -33,7 +33,8 @@ const revisions = sqliteTable("workspace_history_revisions", {
   files: integer("files").notNull(),
   bytes: integer("bytes").notNull(),
   entries: text("entries", { mode: "json" }).$type<Record<string, HistoryManifestFile>>().notNull(),
-  // False until the ref head moves to this revision. Losing candidates stay false.
+  // A commit adds its row only when it moves the ref head. Earlier versions also kept the rows of losing commits, with
+  // false here. Readers skip them.
   committed: integer("committed", { mode: "boolean" }).notNull().default(false),
 }, table => [
   primaryKey({ columns: [table.workspace, table.id] }),

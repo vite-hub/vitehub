@@ -259,7 +259,7 @@ which commit to `main`. Only committed history is durable; keep drafts on a ref.
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
 objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
-one ref and the objects that no other revision uses.
+one ref and the objects that no other revision uses. A failed commit keeps no revision.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).

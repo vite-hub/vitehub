@@ -102,6 +102,56 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     expect(interrupt).toBeUndefined()
     expect(await (await writer.history.open(revision.id)).readFile("rsvp.ts")).toBe("export default {}")
   })
+
+  it("frees the bytes that a failed commit on another ref also had", async () => {
+    const { blob, database } = await historyDatabase()
+    const writer = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const base = await writer.history.commit({ ifHead: null, files: { "app.vue": { path: "app.vue", content: "<NuxtPage />" } } })
+    await writer.history.commit({ ref: "run-42", ifHead: null, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })
+
+    // The commit on `main` checks its head, then another process moves `main` while it uploads.
+    let interrupt: (() => Promise<void>) | undefined = async () => {
+      await createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" }).history.commit({ ifHead: base.id, files: { "app.vue": { path: "app.vue", content: "<NuxtPage /> v2" } } })
+    }
+    const racing = new Proxy(blob, {
+      get(target, key) {
+        if (key !== "head") return Reflect.get(target, key)
+        return async (pathname: string) => {
+          const run = interrupt
+          interrupt = undefined
+          await run?.()
+          return await target.head(pathname)
+        }
+      },
+    })
+    const loser = createBlobDatabaseWorkspaceStore({ blob: racing, database, workspace: "meetups" })
+    await expect(loser.history.commit({ ifHead: base.id, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    expect(interrupt).toBeUndefined()
+    expect(await objectCount(blob)).toBe(3)
+
+    expect(await writer.history.deleteRef!({ ref: "run-42" })).toBe(true)
+    // `main` keeps its two versions of `app.vue`. No revision has the bytes of `rsvp.ts`.
+    expect(await objectCount(blob)).toBe(2)
+    expect(await database.values(sql.raw("select count(*) from workspace_history_revisions where committed = 0"))).toEqual([[0]])
+  })
+
+  it("frees bytes that an uncommitted revision row from an earlier version still lists", async () => {
+    const { blob, database } = await historyDatabase()
+    const writer = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const base = await writer.history.commit({ ifHead: null, files: { "app.vue": { path: "app.vue", content: "<NuxtPage />" } } })
+    const run = await writer.history.commit({ ref: "run-42", ifHead: null, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })
+    // Earlier versions inserted the revision row before they moved the ref, and kept it when the ref did not move.
+    await database.run(sql`
+      insert into workspace_history_revisions (workspace, id, ref, parent_id, sequence, created_at, message, metadata, files, bytes, entries, committed)
+      select workspace, 'lost-candidate', 'main', ${base.id}, 2, created_at, null, null, files, bytes, entries, 0
+      from workspace_history_revisions where id = ${run.id}
+    `)
+    expect(await objectCount(blob)).toBe(2)
+
+    expect(await writer.history.deleteRef!({ ref: "run-42" })).toBe(true)
+    expect(await objectCount(blob)).toBe(1)
+    expect(await (await writer.history.open(base.id)).readFile("app.vue")).toBe("<NuxtPage />")
+  })
 })
 
 describe("history.deleteRef() on the GitHub Store", () => {

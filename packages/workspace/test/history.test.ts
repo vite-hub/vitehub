@@ -275,10 +275,9 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(losers[0]!.reason).toMatchObject({ details: { expected: first.id, actual: winners[0]!.value.id } })
     expect((await store.history.list()).revisions.map(revision => revision.id)).toEqual([winners[0]!.value.id, first.id])
     expect(await store.history.usage()).toEqual({ bytes: 15, objects: 2 })
+    // The losing candidate keeps no revision row, so its bytes do not count as in use.
     const candidates = await database.select().from(workspaceHistorySchema.workspaceHistoryRevisions)
-    const losing = candidates.find(candidate => !candidate.committed)!
-    expect(losing).toBeDefined()
-    await expect(store.history.open(losing.id)).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
+    expect(candidates.map(candidate => [candidate.id, candidate.committed]).sort()).toEqual([[first.id, true], [winners[0]!.value.id, true]].sort())
     await store.delete()
     expect((await blob.list())[1]?.blobs).toEqual([])
   })
@@ -286,7 +285,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
   it("preserves the previous head if manifest insertion fails in the atomic batch", async () => {
     const { store, database } = await setup(driver)
     const first = await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "base" }) })
-    await database.run(sql.raw("CREATE TRIGGER reject_publication BEFORE UPDATE OF committed ON workspace_history_revisions BEGIN SELECT RAISE(ABORT, 'publication failed'); END"))
+    await database.run(sql.raw("CREATE TRIGGER reject_publication BEFORE INSERT ON workspace_history_revisions BEGIN SELECT RAISE(ABORT, 'publication failed'); END"))
     await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toThrow()
     expect(await store.history.head()).toEqual(first)
     expect((await store.history.list()).revisions).toEqual([first])
