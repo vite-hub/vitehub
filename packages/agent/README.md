@@ -138,6 +138,7 @@ Trusted code can scope extra tools and Agent Capabilities to one Invocation with
 - Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
 - A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
+- The AI SDK adapter drops hosted provider tools, such as `openai.web_search` from `webSearch({ mode: "model" })`, because the emulator rejects them. It filters the tools of every call, so hosted tools from Capabilities, `runAgent(..., { tools })`, and `prepareCall` never reach the emulator. For each dropped tool it records an `agent.diagnostic.warning` observation with `diagnostic.code: "AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED"`, `tool.id`, and `tool.name`. A tool choice that only a dropped tool can satisfy becomes `"auto"` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`.
 
 Provider Drivers check the switch at the start of `runProvider()` in `src/provider-agent.ts`, before they read `driver.credentials`, `driver.env`, or a gateway:
 

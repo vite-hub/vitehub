@@ -4583,9 +4583,19 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
       fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
     },
+    AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED: {
+      why: ({ source, tool }: { source: "gateway" | "switch", tool: string }) => `[vitehub] ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "The Agent model uses the emulate() gateway"}, so the Agent ran without the hosted provider tool "${tool}". The AI emulator rejects hosted tools, such as the web search of webSearch({ mode: "model" }).`,
+      fix: ({ source }: { source: "gateway" | "switch", tool: string }) => source === "switch"
+        ? "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or unset `VITEHUB_MODELS` to run with the hosted tool. The run continues without it."
+        : "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or set the Agent model to one that supports hosted tools, such as `'openai/gpt-5.1'`, instead of `languageModel(emulate(), id)`. The run continues without it.",
+    },
     AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
       why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
       fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
+    },
+    AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED: {
+      why: ({ choice, source }: { choice: string, source: "gateway" | "switch" }) => `[vitehub] The Agent tool choice is ${choice}, but ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "the Agent model uses the emulate() gateway"} and the AI emulator rejects the hosted tool that it needs. The run uses tool choice "auto".`,
+      fix: "Use `webSearch({ mode: 'tool', provider })`, which gives the emulator a `web_search` tool that the tool choice can name. The run continues with tool choice \"auto\".",
     },
     AGENT_MODELS_INVALID: {
       why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
