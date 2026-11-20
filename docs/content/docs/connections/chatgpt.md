@@ -94,7 +94,7 @@ Inspection shows the email, granted and missing scopes, plan status, token expir
 Sign out with:
 
 ```sh
-pnpm vitehub connections revoke chatgpt --confirm chatgpt
+pnpm vitehub connections revoke chatgpt
 ```
 
 Sign-out sends the refresh token and client ID to OpenAI, and keeps the registration and host ID for the next sign-in. A failed sign-out reports the error and keeps the grant for a retry.

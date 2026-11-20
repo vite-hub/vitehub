@@ -70,7 +70,7 @@ Workarounds in the app, with the finding behind each:
 - `nitro.cloudflare.wrangler.assets.run_worker_first` for the docs pages and `/api/_docs/*`: without it the static prerendered pages answer first, so the Console preview pane stays blank and `Accept: text/markdown` gets HTML.
 - `linkChecker.excludeLinks`: the Worker renders `/blog`, `/changelog`, `/_vitehub`, and `/media/` at request time, so the build output has no file for them.
 - `h3` in `dependencies`: the Workflow Worker bundle of the Agent resolves `h3` from the generated `.nuxt` folder, where pnpm does not hoist it.
-- `workspace: {}` in `server/agents/docs/agent.ts`: it says that the Agent owns the pages Workspace of `docsAssistant`, so the build bundles the pages for the Worker.
+- `workspace: {}` in `server/agents/docs/agent.ts`: it says that the Agent owns the pages Workspace of `docsAssistant`. The Worker reads the pages from the files that the docs build packed.
 - `agents`, `@vite-hub/schedule`, `@vite-hub/shell`, and `@vite-hub/workflow` in `dependencies`: the Worker bundle imports them on paths that this app does not use (the docs MCP server on Workers, the Console Schedule route, the Workspace shell), and `wrangler deploy` fails when they are missing.
 - `NODE_OPTIONS=--max-old-space-size=6144` in the build script: the Nitro bundle runs out of the default heap.
 

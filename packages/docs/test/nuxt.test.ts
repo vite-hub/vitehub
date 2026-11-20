@@ -616,6 +616,8 @@ describe("docs Nuxt setup", () => {
     }
     else {
       const files = await devFiles(nitro, options.buildDir);
+      expect(files.has("docs-0", "guide/start.md")).toBe(true);
+      expect(files.has("docs-0", "draft.md")).toBe(false);
       expect(await files.read("docs-0", "guide/start.md")).toBe("---\ntitle: Start\n---\nFrom a Source");
       expect(await files.read("docs-0", "draft.md")).toBeNull();
       expect(await files.read("docs-agent", "docs_0/guide/start.md")).toContain("Rewritten.");
