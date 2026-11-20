@@ -1423,7 +1423,7 @@ describe("agent Vite plugin", () => {
         build: { outDir: "dist/client" },
         command: "build",
         plugins: [],
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
