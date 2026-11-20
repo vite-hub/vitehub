@@ -4421,6 +4421,18 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.",
       fix: "Set `vitehub({ agent: { shutdown: { drainMs } } })` to a number of milliseconds, 0 or more, such as `45_000`.",
     },
+    AGENT_EMULATOR_CLOSED: {
+      why: "[vitehub] The AI emulator of emulateModels() is closed.",
+      fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
+    },
+    AGENT_EMULATOR_PACKAGES_MISSING: {
+      why: "[vitehub] emulateModels() needs the optional packages emulate and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D emulate@0.14.0 @emulators/ai@0.14.0`. Read `error.cause` for the import failure.",
+    },
+    AGENT_EMULATOR_RULES_INVALID: {
+      why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,
+      fix: "Fix the rule field that the message names. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. See https://emulate.dev/docs/ai.",
+    },
     AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED: {
       why: "[vitehub] Execution budgets require AI SDK wrapLanguageModel support.",
       fix: "Upgrade the `ai` package to a version that exports `wrapLanguageModel`, or turn the execution budget off.",

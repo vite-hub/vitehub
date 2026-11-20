@@ -147,6 +147,22 @@ Provider Drivers check the switch at the start of `runProvider()` in `src/provid
 
 `VITEHUB_TEST_REAL_CODEX=1 vp test run test/emulate-codex.test.ts` runs real Codex against the emulator. Install `@openai/codex@0.169.0` in this package or put that `codex` on `PATH` first. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
 
+## Emulated models in tests
+
+`emulateModels(seed?)` from `@vite-hub/agent/test` starts the upstream AI emulator (`createEmulator({ service: "ai", port: 0 })` from `emulate`) on a free loopback port. Model requests get answers from scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes, then restores both values, so every model Driver Agent reaches it with no change to its model, as [Run on the AI emulator](#run-on-the-ai-emulator) describes.
+
+```ts fragment
+await using ai = await emulateModels({
+  rules: [{ id: "hello", match: { textContains: "Hello" }, reply: [{ type: "text", text: "Hi." }] }],
+})
+const [error, result] = await runAgent(agent, { prompt: "Hello" })
+const calls = await ai.calls() // calls[0].matched.id === "hello"
+```
+
+The seed is the upstream `AiSeedConfig` of `@emulators/ai`, and `strict` defaults to `true`: a request that no rule matches fails with HTTP 400, and the error cause contains the missing rule as YAML. `rules()`, `setRules(rules)`, `calls()`, and `reset()` call the emulator's `/_ai/rules`, `/_ai/calls`, and `/_ai/reset` routes. ViteHub keeps no copy of the calls. `setRules()` keeps the other seed settings. `close()` and `await using` stop the emulator.
+
+`emulate` and `@emulators/ai` are optional peer dependencies, pinned to `0.14.0`. Without them, `emulateModels()` throws `AGENT_EMULATOR_PACKAGES_MISSING`. A rule that the emulator rejects throws `AGENT_EMULATOR_RULES_INVALID`, and a call after `close()` throws `AGENT_EMULATOR_CLOSED`. See [Test an Agent](https://vitehub.dev/docs/agents/testing#run-the-model-driver-without-an-ai-key).
+
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.

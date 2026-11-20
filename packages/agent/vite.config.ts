@@ -52,6 +52,8 @@ export default defineConfig({
         /^evlog(?:\/|$)/,
         /^posthog-node$/,
         /^evalite/,
+        /^emulate$/,
+        /^@emulators\//,
         /^vitest/,
       ],
       onlyBundle: false,

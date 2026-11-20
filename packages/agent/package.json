@@ -301,11 +301,13 @@
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
+    "@emulators/ai": "0.14.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "emulate": "0.14.0",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -339,6 +341,9 @@
     "@chat-adapter/teams": {
       "optional": true
     },
+    "@emulators/ai": {
+      "optional": true
+    },
     "@vercel/functions": {
       "optional": true
     },
@@ -349,6 +354,9 @@
       "optional": true
     },
     "drizzle-orm": {
+      "optional": true
+    },
+    "emulate": {
       "optional": true
     },
     "@vite-hub/email": {

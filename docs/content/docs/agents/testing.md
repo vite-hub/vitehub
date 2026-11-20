@@ -16,6 +16,7 @@ host.
 | Check | What it proves | What it does not prove |
 | --- | --- | --- |
 | `runAgent()` test | Input validation, interception, custom `run` logic, and results. | Model quality, provider credentials, or host routes. |
+| `emulateModels()` test | The model Driver sends real HTTP requests, calls tools, and reads tool results, with no AI key. | Model quality or the answers of a real provider. |
 | Agent Eval | A repeatable answer, tool choice, refusal, or usage limit. | Workflow recovery, provider startup on the deployed host, or deployment wiring. |
 | `agent dev` smoke test | Discovery, the route, host runtime, and one real Invocation. | Behavior across many prompts. |
 | Provider status | The provider executable and authentication path (local credentials or a gateway) are ready. | A successful Agent turn or tool result. |
@@ -75,6 +76,98 @@ const [error, result] = await runAgent(agent, { prompt: 'Ada' }, { runtimeContex
 Pass a test Runtime Context with the parts the Agent uses. Fake network and
 storage at your app's boundary. Do not fake the Capability lifecycle when you
 test Capability setup or cleanup.
+
+## Run the model Driver without an AI key
+
+`emulateModels()` starts the [AI emulator](https://emulate.dev/docs/ai) in the
+test process. The emulator answers model requests from rules that you write,
+not from a model. Your Agent sends real OpenAI or Anthropic HTTP requests, so
+the test covers the Driver, the gateway, and the tool loop.
+
+Install the emulator packages as dev dependencies:
+
+```bash pm
+pnpm add -D emulate@0.14.0 @emulators/ai@0.14.0
+```
+
+The Agent keeps its model. `emulateModels()` sets `VITEHUB_MODELS=emulate`, so
+ViteHub sends the requests of a model ID or a `languageModel()` model to the
+emulator, and reads no AI key. Read
+[Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+```ts [server/agents/weather.ts]
+import { jsonSchema, tool } from 'ai'
+import { defineAgent, defineCapability } from 'vite-hub/agent'
+
+export default defineAgent({
+  runtime: false,
+  driver: { model: 'openai/gpt-5.1' },
+  capabilities: [defineCapability({
+    id: 'weather',
+    tools: () => ({
+      getWeather: tool({
+        description: 'Get the weather of a city.',
+        inputSchema: jsonSchema<{ city: string }>({ type: 'object', properties: { city: { type: 'string' } }, required: ['city'], additionalProperties: false }),
+        execute: async ({ city }) => ({ city, celsius: 20 }),
+      }),
+    }),
+  })],
+})
+```
+
+Write one rule for the tool call and one rule for the turn after the tool
+result:
+
+```ts [server/agents/weather.test.ts]
+import { expect, it } from 'vitest'
+import { runAgent } from 'vite-hub/agent'
+import { emulateModels } from '@vite-hub/agent/test'
+import weather from './weather'
+
+it('calls the weather tool and answers from its result', async () => {
+  await using ai = await emulateModels({
+    rules: [
+      {
+        id: 'weather-call',
+        match: { textContains: 'weather', hasToolResult: false },
+        reply: [{ type: 'tool_call', name: 'getWeather', arguments: { city: 'Paris' } }],
+      },
+      {
+        id: 'weather-answer',
+        match: { hasToolResult: true },
+        reply: [{ type: 'text', text: 'It is 20 C in Paris.' }],
+      },
+    ],
+  })
+
+  const [error, result] = await runAgent(weather, { prompt: 'What is the weather in Paris?' })
+
+  expect(error).toBeUndefined()
+  expect(result?.text).toBe('It is 20 C in Paris.')
+  const calls = await ai.calls()
+  expect(calls.map(call => call.matched?.id)).toEqual(['weather-call', 'weather-answer'])
+})
+```
+
+- `await using` closes the emulator at the end of the test. It also restores
+  `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS`.
+- Strict mode is on. A request that no rule matches fails, and
+  `error.cause` contains the missing rule as YAML. Copy it into `rules`.
+- `ai.calls()` lists each request and the rule that answered it.
+  `ai.rules()` shows the rules and the `times` budget that each rule has left.
+- `ai.setRules(rules)` replaces the rules. `ai.reset()` restores the first
+  rules and clears the calls.
+- Each call starts a new emulator on a free port, so two test files do not
+  share rules.
+
+Pick the right tool for the question:
+
+- Use `MockLanguageModelV3` from `ai/test` for logic in your own code. It runs
+  in memory and is faster.
+- Use `emulateModels()` for the HTTP request, the gateway, and the tool loop of
+  the model Driver.
+- Use an [Eval](/docs/agents/evals) for model quality. An Eval on the emulator
+  scores your rules, not a model.
 
 ## Score model behavior with an Eval
 
