@@ -2,6 +2,8 @@
 // entries for rows that leave a scope, list values in `where`, subsets, a ledger of mutation ids, 409 for another
 // account, table versions and defaults, actions with results, resets below the compaction floor, and live streams of
 // several stores at `syncLiveRoute`.
+import { createHash } from "node:crypto"
+
 import { syncLiveRoute, syncRoute } from "../src/protocol.ts"
 
 import type { SyncKey, SyncLivePull, SyncLiveRequest, SyncMutation, SyncMutationResult, SyncPullResponse, SyncPushRequest, SyncRow, SyncScope, SyncValues, SyncWireError } from "../src/protocol.ts"
@@ -21,6 +23,7 @@ export interface FakeActionContext {
 export interface FakeSyncServer {
   /** The signed-in user, as the cookie would tell. `null` is a visitor without a session. */
   user: string | null
+  authUser?: string | null
   /** The `where` of the definition for a user. Default: `{ ownerId: user }`. */
   where: (user: string) => SyncValues
   /** The fingerprint of the table. A client with another one gets a reset. */
@@ -64,7 +67,7 @@ export interface FakeSyncServer {
 }
 
 export function accountOf(user: string): string {
-  return `account-${user}`
+  return createHash("sha256").update(`account\n${user}`).digest("hex").slice(0, 32)
 }
 
 /** The scope id of resolved values. */
@@ -155,7 +158,11 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       if (init?.method !== "POST") {
         const query = url.searchParams
         const cursor = query.has("cursor") ? Number(query.get("cursor")) : undefined
-        return json(pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined, query.get("paged") === "1", query.get("after") ?? undefined))
+        const answer = pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined, query.get("paged") === "1", query.get("after") ?? undefined)
+        if (query.get("claim") === "1" && server.authUser !== undefined) {
+          answer.authAccount = server.authUser === null ? null : accountOf(server.authUser)
+        }
+        return json(answer)
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
       if (body.account !== account) return error(409, { code: "SYNC_ACCOUNT_CHANGED", message: "The writes were made for another account." })
