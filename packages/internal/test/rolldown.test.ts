@@ -1741,7 +1741,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })
-  it("drops the dynamic imports of code that tree-shaking removes", async () => {
+  it.each([false, true])("drops the dynamic imports of code that tree-shaking removes (minify: %s)", async (minify) => {
     const rootDir = await createTempDir()
     const packageDir = join(rootDir, "node_modules", "agent-kit")
     const entry = join(rootDir, "entry.mjs")
@@ -1755,16 +1755,20 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
       // Only unused code imports the registry, like the Agent runtime that a Schedule bundle does not call.
       writeFile(join(packageDir, "run.mjs"), 'import registry from "#agent-registry"\nexport const runAgent = name => registry[name]()\n'),
       writeFile(registry, 'export default {\n  agent: () => import("./agent.mjs"),\n  host: () => import("./host.mjs"),\n}\n'),
-      writeFile(join(rootDir, "agent.mjs"), 'import { named } from "agent-kit"\nexport default named("UNUSED_AGENT")\n'),
+      writeFile(join(rootDir, "agent.mjs"), 'import { named } from "agent-kit"\nimport config from "./config.json"\nexport default named(config.agent)\n'),
+      writeFile(join(rootDir, "config.json"), '{"agent":"UNUSED_AGENT"}'),
       writeFile(join(rootDir, "host.mjs"), 'import { named } from "agent-kit"\nexport default named("UNUSED_HOST")\n'),
-      writeFile(join(rootDir, "job.mjs"), 'import { named } from "agent-kit"\nexport default named("job")\n'),
-      writeFile(entry, 'export const load = async () => (await import("./job.mjs")).default\n'),
+      writeFile(join(rootDir, "job\u2028config.mjs"), 'import { named } from "agent-kit"\nexport default named("job")\n'),
+      writeFile(entry, 'import config from "./config.json"\nconst unused = () => config.agent\nexport const load = async () => (await import("./job\\u2028config.mjs")).default\n'),
     ])
 
     const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     await bundleEsmEntry(entry, outfile, {
       alias: { "#agent-registry": registry },
       format: "esm",
+      minifyIdentifiers: minify,
+      minifySyntax: minify,
+      minifyWhitespace: minify,
       platform: "node",
       workingDir: rootDir,
     })
@@ -1776,5 +1780,19 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     // SAFETY: This bundle exports the loader of the job module.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { load: () => Promise<string> }
     await expect(loaded.load()).resolves.toBe("named job")
+  })
+
+  it("inlines a live self-import when the entry is written to a different filename", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'export const value = "entry"\nexport const load = async () => (await import("./entry.mjs")).value\n')
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, { platform: "node" })
+
+    // SAFETY: This bundle exports the self-import loader.
+    const loaded = await import(pathToFileURL(outfile).href) as { load: () => Promise<string> }
+    await expect(loaded.load()).resolves.toBe("entry")
   })
 })

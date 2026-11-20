@@ -4,16 +4,17 @@ import { createRequire, isBuiltin } from "node:module"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import type { Rolldown } from "vite"
+import type { ESTree, Rolldown } from "vite"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
-import type { Node } from "./scan-module.ts"
+import { moduleLanguage, walk } from "./ast-walk.ts"
 
 type Plugin = Rolldown.Plugin
 type PluginContext = Rolldown.PluginContext
 type ResolvedId = Rolldown.ResolvedId
 type ImportKind = Rolldown.ImportKind
+type Node = ESTree.Node
 
 export interface BundleEsmEntryOptions {
   alias?: Record<string, string> | ViteAlias[]
@@ -148,13 +149,16 @@ interface ResolveRequest {
   kind: ImportKind | undefined
 }
 
+/**
+ * Resolves `specifier` from a resolveId hook without running that hook again. `flag` in `custom` also skips the hook in
+ * resolutions that other plugins start from this one. `skipSelf` is still needed: when two equal resolutions run at the
+ * same time, Rolldown 1.2 can give one of them no `custom`, and the hook would then wait on its own resolution.
+ */
 function resolveFrom(context: PluginContext, specifier: string, request: ResolveRequest, workingDir: string, flag: string): Promise<ResolvedId | null> {
   return context.resolve(specifier, importerFor(request.importer, workingDir), {
     custom: { ...request.custom, [flag]: true },
     isEntry: request.isEntry,
     kind: request.kind,
-    // Rolldown 1.2 can give a nested resolution the custom options of another resolution in flight
-    // (rolldown/rolldown#11180). Then the flag is lost, and each alias lookup starts new lookups until memory runs out.
     skipSelf: true,
   })
 }
@@ -418,7 +422,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
     async resolveId(source, importer, extra) {
       if (source === markdownTemplateRuntimeSpecifier && importer?.startsWith(markdownTemplatePrefix)) {
         if (!frameworkRuntime) return fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
-        return await this.resolve("vite-hub/markdown-template", importer.slice(markdownTemplatePrefix.length), { kind: extra.kind })
+        return await this.resolve("vite-hub/markdown-template", importer.slice(markdownTemplatePrefix.length), { custom: extra.custom, kind: extra.kind })
       }
       if (extra.custom?.[skipMarkdownTemplateResolve]) return
       const markdownTemplate = parseMarkdownTemplateRequest(source)
@@ -529,8 +533,9 @@ function createOptionalImportPlugin(): Plugin {
       order: "post",
       filter: { code: /\bimport\s*(?:\(|\/)/ },
       async handler(code, id) {
-        const { scanModule, walk } = await import("./scan-module.ts")
-        const module = scanModule(code, id)
+        // A dynamic import, so a package whose `vite` peer is optional can bundle this file and still load without Vite.
+        const { parseSync } = await import("vite")
+        const module = parseSync(id, code, { lang: moduleLanguage(id), preserveParens: false, sourceType: "module" })
         if (module.errors.length) return
         const parents = new WeakMap<Node, Node>()
         const handled: { source: string, start: number, end: number }[] = []
@@ -581,7 +586,7 @@ function createEmptyModulesPlugin(ids: Set<string>): Plugin {
   return {
     name: "vitehub-empty-unused-chunks",
     load(id) {
-      if (ids.has(id)) return { code: "", moduleSideEffects: false }
+      if (ids.has(id)) return { code: "", moduleSideEffects: false, moduleType: "js" }
     },
   }
 }
@@ -659,6 +664,7 @@ export async function bundleEsmEntry(
   })
   const generate = async (bundle: Rolldown.RolldownBuild, codeSplitting: boolean) => (await bundle.generate({
     banner: banner || undefined,
+    chunkFileNames: codeSplitting ? "chunk-[hash].js" : undefined,
     codeSplitting,
     format,
     // Syntax and identifier minification can change function and class names.
@@ -675,10 +681,10 @@ export async function bundleEsmEntry(
     // Rolldown keeps the targets of dynamic imports in code that tree-shaking removed (rolldown/rolldown#11213,
     // rolldown/rolldown#11692). With code splitting off, it inlines them, so a Schedule that never runs an Agent still
     // gets the whole Agent registry. Generate with code splitting first: no used chunk loads the chunks of those targets.
-    // A bundle without dynamic imports is one chunk, and is the result.
+    // A single chunk can be used as-is unless it imports itself by its generated filename.
     output = await generate(bundle, true)
     const chunks = output.filter(file => file.type === "chunk")
-    if (chunks.length > 1) {
+    if (chunks.length > 1 || chunks.some(chunk => chunk.dynamicImports.includes(chunk.fileName))) {
       options.signal?.throwIfAborted()
       const unusedModules = findUnusedChunkModules(chunks)
       if (unusedModules.size) {
