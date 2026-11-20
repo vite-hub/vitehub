@@ -31,6 +31,7 @@
       "@vite-hub/browser": ["../../packages/browser/src/index.ts"],
       "@vite-hub/browser/*": ["../../packages/browser/src/*"],
       "@vite-hub/sandbox": ["../../packages/sandbox/src/index.ts"],
+      "@vite-hub/sandbox/internal/toolchain": ["../../packages/sandbox/src/internal/host-toolchain.ts"],
       "@vite-hub/sandbox/*": ["../../packages/sandbox/src/*"],
       "@vite-hub/cli": ["../../packages/cli/src/index.ts"],
       "@vite-hub/connections": ["../../packages/connections/src/index.ts"],

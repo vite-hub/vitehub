@@ -304,8 +304,6 @@ const config: KnipConfiguration = {
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
         "@better-auth/cimd",
         "@chat-adapter/slack",
-        // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
-        "@takumi-rs/core",
         // Nuxt UI installs `@nuxt/icon` by name, and Nuxt resolves it from the app first, so this pins the copy that loads.
         "@nuxt/icon",
         // On Cloudflare, the MCP endpoint of `@nuxtjs/mcp-toolkit` imports `agents/mcp`.
