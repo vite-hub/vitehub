@@ -260,7 +260,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     return head;
   });
   // Route the forges GitHub provider through the gh-shaped `command` fake: `["api", "-X", METHOD, path, ...fields]`.
-  const singleRecord = /^repos\/[^/]+\/[^/]+(?:\/pulls\/\d+(?:\/merge(?:-async(?:\/[^/]+)?)?)?|\/git\/ref\/.+|\/git\/trees\/.+|\/collaborators\/[^/]+\/permission|\/actions\/runs\/\d+|\/actions\/jobs\/\d+|\/issues\/comments\/\d+|\/branches\/.+|\/compare\/.+)?$/;
+  const singleRecord = /^repos\/[^/]+\/[^/]+(?:\/pulls\/\d+(?:\/merge(?:-async(?:\/[^/]+)?)?)?|\/git\/ref\/.+|\/git\/trees\/.+|\/git\/blobs\/.+|\/issues\/\d+|\/collaborators\/[^/]+\/permission|\/actions\/runs\/\d+|\/actions\/jobs\/\d+|\/issues\/comments\/\d+|\/branches\/.+|\/compare\/.+)?$/;
   const { provider } = await githubForge(async (request: GitHubTestRequest) => {
     const path = `${request.path.slice(1)}${request.url.search}`;
     const input = request.path === "/graphql" ? request.variables : request.body;
@@ -2449,6 +2449,56 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("reopens a fork PR instead of updating it when the base changed its files after its checks ran", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      const result = await command(args, request);
+      if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
+      return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {
+        const value = JSON.parse(line);
+        return JSON.stringify(value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value);
+      }).join("\n"), stderr: "" };
+    });
+    try {
+      await f.reconcile();
+      const writes = f.command.mock.calls.map(([args]) => args).filter(args => args.includes("PATCH") && args.includes("repos/acme/app/pulls/12"));
+      expect(writes).toEqual([["api", "-X", "PATCH", "repos/acme/app/pulls/12", "state=closed"], ["api", "-X", "PATCH", "repos/acme/app/pulls/12", "state=open"]]);
+      expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes("update-branch")))).toBe(false);
+      expect(f.events).toHaveBeenCalledWith("babysitter.fork_checks.reopened", expect.objectContaining({ head_sha: "a".repeat(40) }));
+      expect(f.passes).toHaveLength(0);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([["repair-bot", true], ["other[bot]", false]] as const)("recovers an interrupted reopen only if the closer %s is the host", async (login, recovered) => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    let reopenFails = true;
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("state=open") && reopenFails) throw new Error("HTTP 502: Bad Gateway");
+      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date().toISOString(), closed_by: { login, type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
+      const result = await command(args, request);
+      if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
+      return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {
+        const value = JSON.parse(line);
+        return JSON.stringify(value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value);
+      }).join("\n"), stderr: "" };
+    });
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith("babysitter.fork_checks.reopen_failed", expect.objectContaining({ reason: expect.stringContaining("502") }));
+      reopenFails = false;
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60_000);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.events).toHaveBeenCalledWith(recovered ? "babysitter.fork_checks.reopen_recovered" : "babysitter.fork_checks.reopen_abandoned", expect.objectContaining({ pullRequest: 12 }));
+      expect(f.command.mock.calls.filter(([args]) => args.includes("PATCH") && args.includes("state=open"))).toHaveLength(recovered ? 2 : 1);
+    } finally { await f.runtime.inbox.close(); }
+  }, 30_000);
+
   it("merges the base into a stacked head through the merges API when GitHub refuses update-branch", async () => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
@@ -2485,7 +2535,28 @@ describe("Babysitter preset runtime", () => {
   });
 
   describe("merge.forkHeadBranches", () => {
-    type ForkOptions = { review?: "approved" | "stale" | "changes" | "reader"; github?: "same" | "changed"; ref?: "missing" | "foreign" | "head" };
+    /**
+     * Git trees by SHA. "changed": the PR edits a push workflow. "base-moved": the base edited a workflow
+     * that runs only on pull requests and pushes to main after the PR branched. "retired": the base deleted a push workflow that the PR still has.
+     */
+    const gitTrees = (github: string): Record<string, Record<string, ["tree" | "blob", string]>> => {
+      const headGithub = { same: "g-base", changed: "g-changed", "base-moved": "g-old", retired: "g-retired" }[github] ?? "g-base";
+      return {
+        ["a".repeat(40)]: { ".github": ["tree", headGithub], src: ["tree", "src"] },
+        main: { ".github": ["tree", github === "base-moved" ? "g-moved" : "g-base"], src: ["tree", "src"] },
+        "g-base": { workflows: ["tree", "w-base"] },
+        "g-changed": { workflows: ["tree", "w-changed"] },
+        "g-old": { workflows: ["tree", "w-old"] },
+        "g-moved": { workflows: ["tree", "w-moved"] },
+        "g-retired": { workflows: ["tree", "w-retired"] },
+        "w-base": { "preview.yml": ["blob", "preview"] },
+        "w-changed": { "preview.yml": ["blob", "preview-edited"] },
+        "w-old": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "main-only"] },
+        "w-moved": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "ci-new"] },
+        "w-retired": { "preview.yml": ["blob", "preview"], "deploy.yml": ["blob", "deploy"] },
+      };
+    };
+    type ForkOptions = { review?: "approved" | "stale" | "changes" | "reader"; github?: "same" | "changed" | "base-moved" | "retired"; ref?: "missing" | "foreign" | "head" };
     const forkFixture = async (options: ForkOptions = {}) => {
       const f = await fixture(false, false, {
         merge: { strategy: "direct", forkHeadBranches: { "acme/app": "preview/pr-{number}" } },
@@ -2509,8 +2580,12 @@ describe("Babysitter preset runtime", () => {
         }
         if (path.startsWith("repos/acme/app/collaborators/")) return { stdout: JSON.stringify({ permission: path.includes("/maintainer/") ? "write" : "read" }), stderr: "" };
         if (path.startsWith("repos/acme/app/git/trees/")) {
-          const changed = options.github === "changed" && path.endsWith(f.pr().head.sha);
-          return { stdout: JSON.stringify({ tree: [{ path: ".github", type: "tree", sha: changed ? "9".repeat(40) : "8".repeat(40) }, { path: "src", type: "tree", sha: "7".repeat(40) }] }), stderr: "" };
+          const tree = gitTrees(options.github ?? "same")[path.slice("repos/acme/app/git/trees/".length)] ?? {};
+          return { stdout: JSON.stringify({ tree: Object.entries(tree).map(([name, [type, sha]]) => ({ path: name, type, sha })) }), stderr: "" };
+        }
+        if (path.startsWith("repos/acme/app/git/blobs/")) {
+          const workflow = path.endsWith("/main-only") ? "on:\n  push:\n    branches: [main]\n  pull_request:\n" : path.endsWith("/deploy") ? "on: workflow_call\n" : "on:\n  push:\n    branches: ['**']\n";
+          return { stdout: JSON.stringify({ content: Buffer.from(workflow).toString("base64"), encoding: "base64" }), stderr: "" };
         }
         if (path === "repos/acme/app/git/ref/heads/preview/pr-12") {
           if (ref) return { stdout: JSON.stringify({ ref: "refs/heads/preview/pr-12", object: { type: "commit", sha: ref } }), stderr: "" };
@@ -2557,11 +2632,21 @@ describe("Babysitter preset runtime", () => {
       } finally { await f.runtime.inbox.close(); }
     });
 
+    it("pushes a fork head whose push workflows match the base after the base changed another workflow", async () => {
+      const f = await forkFixture({ github: "base-moved" });
+      try {
+        await reviewAndRetry(f);
+        expect(refWrites(f)).toEqual([["api", "-X", "POST", "repos/acme/app/git/refs", "ref=refs/heads/preview/pr-12", `sha=${"a".repeat(40)}`]]);
+        expect(skipped(f)).toEqual([]);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
     it.each([
       ["an approval of an older head", { review: "stale" }, "no approval of aaaaaaa by a reviewer with write access"],
       ["an approval by a reader", { review: "reader" }, "no approval of aaaaaaa by a reviewer with write access"],
       ["a change request", { review: "changes" }, "changes requested"],
-      ["changed workflow files", { github: "changed" }, ".github differs from main"],
+      ["an edited push workflow", { github: "changed" }, ".github/workflows/preview.yml can run on push and differs from main"],
+      ["a reusable workflow the base deleted", { github: "retired" }, ".github/workflows/deploy.yml can run on push and differs from main"],
       ["a branch the host did not create", { ref: "foreign" }, "branch exists and the host did not create it"],
     ] as const)("does not push a fork head with %s", async (_name, options, reason) => {
       const f = await forkFixture(options);

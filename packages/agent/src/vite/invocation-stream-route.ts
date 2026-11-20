@@ -1,5 +1,5 @@
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
-import { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 
@@ -20,16 +20,21 @@ export function isAgentDevLoopDiscoveryRequest(req: IncomingMessage): boolean {
   return req.method === "GET" && new URL(req.url || "/", "http://localhost").searchParams.get("inspect") !== "1"
 }
 
+function isPublicDiscovery(req: IncomingMessage): boolean {
+  return isAgentDevLoopDiscoveryRequest(req) && req.headers[workspaceDevTokenHeader] === undefined
+}
+
 /** Registers the Dev Loop endpoint. The Agent runtime that answers it loads on the first request, not when the dev server starts. */
 export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer, runtimeOptions: AgentDevRuntimeOptions = {}): Promise<void> {
   const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
   await refreshWorkspaceDevToken(server.config.root, tokenOptions)
   registerViteHubDevEndpoint(server, {
     // Inspection, streams, Capability CLI calls, Workspace commands, and Channel replay run Agent code or return Agent data.
-    authorize: async req => isAgentDevLoopDiscoveryRequest(req) || await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)
+    authorize: async req => isPublicDiscovery(req) || await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)
       ? undefined
       : new Response("Forbidden Agent Dev Loop token.", { status: 403 }),
     handle: (req, res, grant) => {
+      const authorized = !isPublicDiscovery(req)
       let closed = req.aborted || res.destroyed
       const onClose = () => { closed = true }
       req.once("aborted", onClose)
@@ -37,7 +42,7 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
       void import("./invocation-stream-endpoint.ts")
         .then(({ handleAgentInvocationStreamEndpoint }) => {
           // The handler installs its own cancellation listener synchronously at handoff.
-          if (!closed && !res.destroyed) handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions)
+          if (!closed && !res.destroyed) handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions, authorized)
         })
         .catch(() => {
           if (closed || res.destroyed) return
