@@ -2,12 +2,12 @@
 title: AI Gateways
 layout: landing
 navigation.title: Overview
-description: Send AI model requests through one gateway object, and ask typed TypeSafe Jev questions, from Agents, Decisions, or your own server code.
+description: Send AI model requests through one gateway object, and ask typed TypeSafe Jev questions, from Agents, Choices, or your own server code.
 navigation.order: 1
 icon: i-lucide-waypoints
 ---
 
-::product-hero{tagline="One object knows where AI requests go and how to sign them. Agents, Decisions, and your routes share it."}
+::product-hero{tagline="One object knows where AI requests go and how to sign them. Agents, Choices, and your routes share it."}
   :::code-tree
   ```ts [server/api/answer.get.ts]
   import { generateText } from 'ai'

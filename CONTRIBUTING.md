@@ -31,6 +31,8 @@ From a clean checkout, let Corepack select pnpm from `package.json` and install 
 corepack pnpm install --frozen-lockfile
 ```
 
+The install then builds the packages that the docs site uses and runs `nuxi prepare`. When one of these steps fails on your machine, the install still finishes and prints the failed command. Fix the package, then run `corepack pnpm --dir docs run postinstall`. That retry exits nonzero if preparation fails again. In CI (`CI` is set), the failure stops the install.
+
 Check the contributor tools without running tests:
 
 ```sh
