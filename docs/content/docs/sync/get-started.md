@@ -1,13 +1,13 @@
 ---
 title: Build a todo list that works offline
-description: Sync a todo table to the browser with ViteHub. Rows show at once, writes wait offline, and a reload keeps them.
+description: Sync a todo table to the browser with ViteHub. Rows show right away, edits queue offline, and reloads keep your data.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-You need a ViteHub app with Vue or Nuxt from [Installation](/docs/getting-started/installation). Run the commands from its root.
+Start with a Vue or Nuxt app from [Installation](/docs/getting-started/installation) and run commands from its root.
 
 ::tutorial-step{title="Install Sync"}
 ## Install Sync
@@ -24,7 +24,7 @@ pnpm add -D drizzle-kit@1.0.0-rc.5
 ::tutorial-step{title="Write the table"}
 ## Write the table
 
-Sync needs a SQLite table with one text primary key. The browser makes the keys with `crypto.randomUUID()`, so a new row has its key before the server sees it.
+Sync needs a SQLite table with one text primary key. The browser makes keys with `crypto.randomUUID()`, so a new row has its key before the server sees it.
 
 ```ts [server/databases/default.ts] fragment
 import { defineDatabase } from 'vite-hub/database'
@@ -47,7 +47,7 @@ If your app already has `server/databases/default.ts`, add `todos` to its `schem
 ::tutorial-step{title="Sync the table"}
 ## Sync the table
 
-Create `server/sync/todos.ts`. The file name is the Sync name. `where` returns the rows that the caller may see. `{}` is every row. By default, a caller without a user cannot write, so `write: import.meta.dev` lets visitors write on the dev server only. A production build of this step is read-only:
+Create `server/sync/todos.ts`. The file name is the Sync name. `where` returns the rows that the caller can see. `{}` matches every row. By default, a caller without a user cannot write, so `write: import.meta.dev` lets visitors write on the dev server only. A production build of this step is read-only:
 
 ```ts [server/sync/todos.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -60,7 +60,7 @@ export default defineSync({
 })
 ```
 
-The folder `server/sync/` turns Sync and the Database on. Sync adds its own tables to the default Database. Write and apply the migration:
+The folder `server/sync/` turns on Sync and the Database. Sync adds its own tables to the default Database. Generate and apply the migration:
 
 ```bash [commands/migrate]
 vitehub database generate
@@ -72,7 +72,7 @@ vitehub database migrate
 ::tutorial-step{title="Show the rows"}
 ## Show the rows
 
-Nuxt imports `useSync()` for you. In a Vue app without Nuxt, import it from `vite-hub/sync/vue`.
+Nuxt auto-imports `useSync()`. In a Vue app without Nuxt, import it from `vite-hub/sync/vue`.
 
 ```vue [app/pages/todos.vue] fragment
 <script setup lang="ts">
@@ -103,39 +103,39 @@ function add() {
 </template>
 ```
 
-Start the dev server with `pnpm dev` and open `/todos`. Add a todo. It shows at once, and the server stores it a moment later. Open `/todos` in a second browser too: a todo that you add in one shows in the other within about a second.
+Start the dev server with `pnpm dev` and open `/todos`. Add a todo. It appears immediately and saves to the server in the background. Open `/todos` in a second browser too, and any todo you add in one shows up in the other within about a second.
 
 ::
 
 ::tutorial-step{title="Go offline"}
 ## Go offline
 
-Open the browser's developer tools, go to **Network**, and set it to **Offline**. Add two todos and tick one. The page shows them, and `todos.queued` counts 3.
+Open the browser's developer tools, select **Network**, and switch to **Offline**. Add two todos and check one off. The page updates immediately, and `todos.queued` reports `3`.
 
-Reload the page while you are still offline. The todos are still there: the rows and the queued writes are in IndexedDB.
+Reload the page while offline. Your todos stay on screen because the rows and queued writes live in IndexedDB.
 
-Set the network back to **No throttling**. The client sends the 3 writes in order, and `todos.queued` goes to 0. Open the page in a second tab: it shows the same rows.
+Set the network back to **No throttling**. The client sends the 3 writes in order, and `todos.queued` drops to `0`. Open the page in a second tab to confirm it shows the same rows.
 
 ::
 
 ::tutorial-step{title="Inspect it"}
 ## Inspect it
 
-List the synced tables, and the last changes of one:
+List your synced tables and the latest changes for `todos`:
 
 ```bash [commands/inspect]
 vitehub sync list
 vitehub sync changes todos
 ```
 
-A change shows the key, `put`, `delete` or `move`, and the time. It does not show row data.
+Each entry prints the key, `put`, `delete`, or `move`, and the time. It does not show row data.
 
 ::
 
 ::tutorial-step{title="Give each person their rows"}
 ## Give each person their rows
 
-Turn on [Auth](/docs/auth). Then return the rows of the signed-in person, refuse a visitor, and remove `write`. Without it, only a signed-in person writes:
+Turn on [Auth](/docs/auth), then return only the signed-in user's rows, reject anonymous visitors, and remove `write`. Without `write`, only signed-in users can write:
 
 ```ts [auth/server/sync/todos.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -147,14 +147,16 @@ export default defineSync({
 })
 ```
 
-Each person now sees only their own todos. A new todo gets `ownerId` from the server, and the browser shows it with that value at once. A sign-out of ViteHub Auth clears the synced rows, so the next person on the device does not see them. With another sign-in, call `clearSync()` after the sign-out. See [Vue](/docs/sync/vue#accounts-and-sign-out).
+Each user now sees only their own todos. The server sets `ownerId` on new todos, and the browser shows that value right away.
+
+Clear the local rows at sign-out so the next person on the device cannot see them. ViteHub Auth does this automatically in Nuxt. In a Vue app without Nuxt, register `onSignOut(() => clearSync())` once. With custom auth, call `clearSync()` after sign-out succeeds. See [Vue](/docs/sync/vue#accounts-and-sign-out).
 
 ::
 
 ::tutorial-step{title="Share rows with a team"}
 ## Share rows with a team
 
-To share todos in a team, give the table a `teamId` column, keep who is in which team in a `members` table, and return the caller's teams as a list:
+To share todos across a team, add a `teamId` column to the table, track memberships in a `members` table, and return the caller's teams as an array:
 
 ```ts [teams/server/sync/todos.ts] fragment
 import { defineSync } from 'vite-hub/sync'
@@ -173,8 +175,8 @@ export default defineSync({
 })
 ```
 
-If your app has its own sign-in instead of Auth, return the person from `identify`, such as `identify: async ({ request }) => { const session = await getSession(request); return session ? { id: session.userId } : null }`. `where` then gets that user, and joining a team does not hold back the writes that wait.
+If your app uses custom sign-in instead of Auth, return the user from `identify`, such as `identify: async ({ request }) => { const session = await getSession(request); return session ? { id: session.userId } : null }`. `where` receives that user, and joining a team does not hold back waiting writes.
 
-A new todo must say its team: `todos.insert({ title, teamId: 'design' })`. A todo of another team is refused with `SYNC_OUT_OF_SCOPE`. When a person moves a todo to another team with `todos.update(id, { teamId: 'web' })`, it leaves the devices of the old team and shows on the devices of the new team. See [Server API](/docs/sync/server-api#where).
+New todos must specify their team: `todos.insert({ title, teamId: 'design' })`. Inserts for another team fail with `SYNC_OUT_OF_SCOPE`. Moving a todo to another team with `todos.update(id, { teamId: 'web' })` removes it from devices on the old team and syncs it to devices on the new team. See [Server API](/docs/sync/server-api#where).
 
 ::

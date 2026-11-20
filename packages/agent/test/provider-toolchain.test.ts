@@ -11,7 +11,7 @@ const inspectProvider = vi.hoisted(() => vi.fn())
 const prepareHostToolchain = vi.hoisted(() => vi.fn())
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore: vi.fn(), inspectProvider }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable: () => "/fake/codex" }))
-vi.mock("@vite-hub/sandbox/_internal/toolchain", () => ({ prepareHostToolchain }))
+vi.mock("@vite-hub/sandbox/internal/toolchain", () => ({ prepareHostToolchain }))
 
 import { codexDriver, defineAgent } from "../src/index.ts"
 import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
