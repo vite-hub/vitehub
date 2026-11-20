@@ -31,7 +31,7 @@ The Agent defaults to `gpt-6.1-sol`, as in OpenAI's current SIWC example. If tha
 Run `connections connect` again and inspect. The client and host IDs should remain the same. To check a full sign-out and returning sign-in:
 
 ```sh
-corepack pnpm vitehub connections revoke chatgpt --confirm chatgpt --url http://127.0.0.1:1456
+corepack pnpm vitehub connections revoke chatgpt --yes --url http://127.0.0.1:1456
 corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:1456
 corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:1456
 ```
