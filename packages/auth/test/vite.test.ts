@@ -818,32 +818,46 @@ describe("Auth tables in the app Database", () => {
     await expect(readFile(module, "utf8")).rejects.toThrow()
   })
 
-  it("adds the tables of plugins that a module imported by the Definition calls", async () => {
+  it("adds tables from used helper exports in the files that Vite selects", async () => {
     const root = await createTempProject()
-    // The shape of lesson-video: `server/auth.ts` spreads the plugins that `src/server/auth-plugins.ts` builds.
     await mkdir(join(root, "src", "server"), { recursive: true })
-    await writeFile(join(root, "src", "server", "auth-plugins.ts"), [
+    await writeFile(join(root, "src", "server", "auth-plugins.js"), [
       "import { stripe } from '@better-auth/stripe'",
-      "import type { BetterAuthPlugin } from 'better-auth'",
-      "export function authPlugins(stripeClient: unknown): BetterAuthPlugin[] {",
-      "  return [stripe({ stripeClient, stripeWebhookSecret: '', subscription: { enabled: true, plans: [] } }) as BetterAuthPlugin]",
+      "export function authPlugins(stripeClient) {",
+      "  return [stripe({ stripeClient, stripeWebhookSecret: '', subscription: { enabled: true, plans: [] } })]",
       "}",
       "",
     ].join("\n"))
-    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "src", "server", "auth-plugins.ts"), [
+      "import { username } from 'better-auth/plugins'",
+      "export const authPlugins = () => [username()]",
+    ].join("\n"))
+    await mkdir(join(root, "server", "plugins"), { recursive: true })
+    await writeFile(join(root, "server", "plugins", "index.mjs"), [
+      "export { accountProtection, loginByUsername } from './protection.js'",
+    ].join("\n"))
+    await writeFile(join(root, "server", "plugins", "protection.tsx"), [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "export const accountProtection = () => [twoFactor()]",
+      "export const loginByUsername = () => [username()]",
+    ].join("\n"))
     await writeFile(join(root, "server", "auth.ts"), [
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
-      "import { authPlugins } from '../src/server/auth-plugins.ts'",
+      "import { authPlugins } from '../src/server/auth-plugins'",
+      "import { accountProtection, loginByUsername } from './plugins'",
       "export default defineAuth(({ env }) => ({",
       "  database: authDatabase(),",
-      "  plugins: [...authPlugins(env.stripe)],",
+      "  plugins: [...authPlugins(env.stripe), ...accountProtection()],",
+      "  user: { additionalFields: { username: { type: 'string', required: true } } },",
       "}))",
       "",
     ].join("\n"))
     const { tables } = await contributions(root)
-    expect(tables[0]!.tables).toMatchObject({ subscription: "subscription", user: "user" })
-    expect(await readFile(join(root, ".vitehub", "auth", "schema.ts"), "utf8")).toContain("\"plugins\":[\"stripe\"]")
+    expect(tables[0]!.tables).toMatchObject({ subscription: "subscription", twoFactor: "two_factor", user: "user" })
+    const source = await readFile(join(root, ".vitehub", "auth", "schema.ts"), "utf8")
+    expect(source).toContain("\"plugins\":[\"stripe\",\"twoFactor\"]")
+    expect(source).toContain("\"username\":{\"type\":\"string\",\"required\":true}")
   })
 
   it("keeps the Auth tables of the latest migration as they are", async () => {

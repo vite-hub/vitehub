@@ -174,12 +174,14 @@ function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: 
   const imports: Array<[string, ModuleNeeds]> = []
   const need = (file: string, imported: string) => imports.push([file, imported === "*" ? "all" : new Set([imported])])
   const collectCalls = (node: Node, references?: Set<string>) => walk(node, (child) => {
+    if (child.type === "ImportDeclaration") return false
     if (child.type === "CallExpression" && child.callee.type === "Identifier" && bindings.pluginFactories.has(child.callee.name)) plugins.add(bindings.pluginFactories.get(child.callee.name)!)
     if (child.type === "Identifier") references?.add(child.name)
   })
   if (needs === "all") {
-    collectCalls(module.program)
-    for (const { file, imported } of bindings.imports.values()) need(file, imported)
+    const references = new Set<string>()
+    collectCalls(module.program, references)
+    for (const [name, { file, imported }] of bindings.imports) if (references.has(name)) need(file, imported)
     for (const [, target] of bindings.exports) if ("file" in target) need(target.file, target.imported)
     return { plugins: [...plugins], imports }
   }
