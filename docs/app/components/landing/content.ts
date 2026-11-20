@@ -93,9 +93,9 @@ export const agentStory = {
       'import { kv } from "vite-hub/kv"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const [error, keys] = await kv.keys()',
+      '  const [error, page] = await kv.list()',
       "  if (error) throw error",
-      "  return keys",
+      "  return page.keys",
       "})",
     ],
     notes: [
