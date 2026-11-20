@@ -312,6 +312,7 @@ describe("hubAuth", () => {
     await writeFile(join(root, "server/route.ts"), [
       "import { defineAuth } from '@vite-hub/auth'",
       "import { requireAuth, requireAuthorization, useAuth, withAuth, withAuthorization, withAnonymousAuthorization } from '@vite-hub/auth/server'",
+      "import type { AccessAuthorize } from '@vite-hub/runtime'",
       "import type { ConsoleAuthorizeContext } from '../../../../vite-hub/src/console/auth-types.ts'",
       "import type { H3Event } from 'h3'",
       "export async function handler(event: H3Event) {",
@@ -328,6 +329,9 @@ describe("hubAuth", () => {
       "  void user.notAField",
       "  const other = defineAuth({ database: 'memory' })",
       "  const broad = (value: unknown) => true",
+      "  const appPolicy: AccessAuthorize = ({ user }) => typeof user.plan === 'string'",
+      "  // @ts-expect-error The explicit Definition may not satisfy an app policy that requires plan.",
+      "  await requireAuthorization(event, appPolicy, other)",
       "  // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
       "  const explicitPlan: string = (await requireAuth(event, other)).user.plan",
       "  // @ts-expect-error The explicit Definition does not guarantee the app's plan.",
@@ -376,6 +380,7 @@ describe("hubAuth", () => {
     const withoutRegistry = diagnosticsFor([join(root, "server/route.ts")]).join("\n")
     expect(withoutRegistry).toMatch(/banUser/)
     expect(withoutRegistry).toMatch(/Type 'unknown' is not assignable/)
+    expect(withoutRegistry).toMatch(/Unused '@ts-expect-error' directive/)
 
     await resolvePluginConfig(hubAuth(), root)
     const consumerFiles = [join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")]
