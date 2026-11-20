@@ -479,7 +479,7 @@
   --vh-primitive-icon-motion: translateY(-1.5px);
 }
 
-.vh-primitive-icon[data-icon="decisions"] {
+.vh-primitive-icon[data-icon="choices"] {
   --vh-primitive-icon-motion: translate(1px, -1px);
 }
 

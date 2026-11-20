@@ -365,29 +365,29 @@ Errors go to stderr, or to `{ "error": { "code", "message" } }` on stdout with `
 The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.delete`, in the `kv` Console section. They run in the Nitro runtime and answer through the Console RPC, so you need access to the `kv` section. `kv.delete` is destructive: `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere. Scripts pass `--yes` (or `-y`). The Console KV page uses the same operations.
 
 
-## Run a Decision
+## Run Choices
 
-A Decision is a `defineChoices()` result that picks options from a text. `decisions list` finds files that call `defineChoices()`, loads them, and prints the exports that hold the result. It skips `node_modules`, `dist`, `build`, `coverage`, and dot folders. There is no registry: the file path is the address. A file that fails to load is listed with its error, and the command exits with status `1`.
+A Choices definition is a `defineChoices()` result that picks options from a text. `choices list` finds files that call `defineChoices()`, loads them, and prints the exports that hold the result. It skips `node_modules`, `dist`, `build`, `coverage`, and dot folders. There is no registry: the file path is the address. A file that fails to load is listed with its error, and the command exits with status `1`.
 
 ```sh
-pnpm vitehub decisions list
+pnpm vitehub choices list
 ```
 
 ```txt [Output]
 FILE                              EXPORT    NAME
 server/utils/forecast-choices.ts  forecast  forecast
 
-Run one with: vitehub decisions run server/utils/forecast-choices.ts "<text>"
+Run one with: vitehub choices run server/utils/forecast-choices.ts "<text>"
 ```
 
-`decisions run <file> <text>` loads the file, calls `resolve()` with the text, and prints the selection as JSON. It calls the definition's gateway, so it reads the app's keys, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the project's `.env` files. `--inspect` prints the questions and state that `resolve()` would send, without a model call.
+`choices run <file> <text>` loads the file, calls `resolve()` with the text, and prints the selection as JSON. It calls the definition's gateway, so it reads the app's keys, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the project's `.env` files. `--inspect` prints the questions and state that `resolve()` would send, without a model call.
 
 ```sh
-pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
-pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
+pnpm vitehub choices run server/utils/forecast-choices.ts "nord parts except vak supply"
+pnpm vitehub choices run server/utils/forecast-choices.ts "nord parts" --inspect
 ```
 
-The first command's output, with the offline gateway of the [Decisions tutorial](/docs/decisions/get-started):
+The first command's output, with the offline gateway of the [Choices tutorial](/docs/choices/get-started):
 
 ```json [Output]
 {
@@ -401,9 +401,9 @@ The first command's output, with the offline gateway of the [Decisions tutorial]
 | `--export <name>` | The export to run when the file has more than one `defineChoices()` export. |
 | `--context <json>` | The `context` for `options` functions, such as `'{"tenantId":"t1"}'`. |
 | `--inspect` | Print the plan of `inspect()` instead of calling the gateway. |
-| `--json` | `decisions list` only: print the files as JSON. |
+| `--json` | `choices list` only: print the files as JSON. |
 
-A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so imports must use relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not work. See [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
+A Choices error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so imports must use relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not work. See [Choices server API](/docs/choices/server-api) for `resolve()` and `inspect()`.
 
 ## Check and move translations
 

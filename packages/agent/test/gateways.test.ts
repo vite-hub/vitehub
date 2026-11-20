@@ -237,7 +237,7 @@ describe("gateway Server Env from server files", () => {
       await mkdir(join(root, "server", "utils"), { recursive: true })
       await writeFile(join(root, "server", "channels", "airtable", "duplicates.ts"), [
         `import { defineChannel } from "vite-hub/channels"`,
-        `import { defineChoices } from "vite-hub/decisions"`,
+        `import { defineChoices } from "vite-hub/choices"`,
         `import { vercel } from "vite-hub/gateways"`,
         `export const duplicates = defineChoices({ gateway: vercel(), groups: { duplicate: { label: "Duplicate", multiple: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] } } })`,
         `export default defineChannel({})`,

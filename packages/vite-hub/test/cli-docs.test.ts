@@ -9,7 +9,7 @@ import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createCmsCliContributor } from "@vite-hub/cms/vite";
 import { createContentCliContributor } from "@vite-hub/content/cli";
-import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
+import { createChoicesCliNamespace } from "@vite-hub/choices/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
@@ -110,7 +110,7 @@ describe("CLI documentation contract", () => {
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createDecisionsCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
+    const runtimeNamespaces = [createChoicesCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),
