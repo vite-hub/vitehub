@@ -1,5 +1,6 @@
 // The root entry and the generated access middleware import this module. Keep it free of Better Auth imports.
 import { ownAccessHandlerMeta, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { AuthRequestInput } from "./types.ts"
 
@@ -10,17 +11,16 @@ import type { AuthRequestInput } from "./types.ts"
  */
 export const authAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = ownAccessHandlerMeta
 
-function matchedRouteMeta(input: AuthRequestInput): object | undefined {
-  if (!("context" in input) || !(input.context instanceof Object)) return undefined
-  const route: unknown = Reflect.get(input.context, "matchedRoute")
-  const meta: unknown = route instanceof Object ? Reflect.get(route, "meta") : undefined
-  return meta instanceof Object ? meta : undefined
+function matchedRouteMeta(input: AuthRequestInput): Record<string, unknown> | undefined {
+  if (!("context" in input) || !isRecord(input.context)) return undefined
+  const route = input.context.matchedRoute
+  return isRecord(route) && isRecord(route.meta) ? route.meta : undefined
 }
 
 /** Whether Nitro routed the request event to a handler with `authAccessHandlerMeta`. A plain Request has no route. */
 export function routedToAccessHandler(input: AuthRequestInput): boolean {
   const meta = matchedRouteMeta(input)
-  return meta !== undefined && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
+  return meta?.vitehubAuthAccess === authAccessHandlerMeta.vitehubAuthAccess
 }
 
 /**
@@ -33,5 +33,5 @@ export function routedToAccessHandler(input: AuthRequestInput): boolean {
 export function checksOwnAccess(input: AuthRequestInput): boolean {
   if (routedToAccessHandler(input)) return true
   const meta = matchedRouteMeta(input)
-  return meta !== undefined && Reflect.get(meta, "vitehubOwnAccess") === ownAccessRouteMeta.vitehubOwnAccess
+  return meta?.vitehubOwnAccess === ownAccessRouteMeta.vitehubOwnAccess
 }
