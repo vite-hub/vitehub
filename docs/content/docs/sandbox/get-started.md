@@ -14,7 +14,7 @@ In this tutorial, you create a package that takes an image's width and height an
 Each Sandbox Task is a separate package project with its own `package.json`, not another server route.
 
 > [!NOTE] Before you start
-> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You also need a Vercel project with Sandbox access. The Sandbox runs on Vercel rather than your computer, so each run can cost money.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. The dev server runs the package on your computer. To run the built app, you need a Vercel project with Sandbox access. Each run on Vercel can cost money.
 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
@@ -63,7 +63,7 @@ export default defineConfig({
 
 - `host: 'vercel'` runs the Sandbox on Vercel. The `node` host has no Sandbox provider, so `sandboxTask: true` fails during config on `node`.
 
-Export your Vercel keys in the terminal where you start the server, using the values from your Vercel project:
+If you run the built app, export your Vercel keys in the terminal where you start it, using the values from your Vercel project:
 
 ```bash [commands/credentials]
 export VERCEL_TOKEN='your-vercel-token'
@@ -140,7 +140,7 @@ export default defineEventHandler(async (event) => {
 - `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns `[error, result]`.
 - If the run fails, `error` is set. `toResponse(error)` answers with its status and `{ code, why, fix }`.
 
-Start the dev server in the terminal where you set your Vercel keys:
+Start the dev server on macOS, Linux, or WSL. It runs the package as a process on your computer and does not use the Vercel keys:
 
 ```bash [commands/dev]
 pnpm dev
@@ -160,7 +160,7 @@ The route returns:
 { "pixels": 786432, "format": "webp" }
 ```
 
-This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the route answers 504, and `error.data.code` is `SANDBOX_TASK_TIMEOUT`. The provider decides what the code in the Sandbox can reach, such as the network and files.
+This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the route answers 504, and `error.data.code` is `SANDBOX_TASK_TIMEOUT`. In dev, the process can access your filesystem and network. In a deployed app, the provider decides what the code can reach.
 
 ::
 
