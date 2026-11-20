@@ -2,7 +2,7 @@
 title: Sync
 layout: landing
 navigation.title: Overview
-description: Keep a local copy of a table in the browser. Writes show at once, work offline, and the server stays the authority for every row.
+description: Keep a local copy of a table in the browser. Writes show at once and work offline, and the server stays the authority for every row.
 navigation.order: 1
 icon: i-lucide-refresh-cw
 ---
@@ -53,28 +53,28 @@ icon: i-lucide-refresh-cw
 
 | Part | What it does |
 | --- | --- |
-| Local copy | The browser keeps the rows in IndexedDB. A reload shows them at once, then pulls what changed. |
-| Writes at once | `insert`, `update`, and `delete` change `rows` at once. Each write goes to a queue in IndexedDB before it is sent, so it survives offline time, a reload, and a crash. |
-| Order | One push at a time, with the writes in the order you made them. Two updates of one row apply in that order. |
-| Scope | `where` returns the rows that the caller may see, such as `{ ownerId: user.id }` or the caller's teams, `{ teamId: ['design', 'web'] }`. The server filters reads with it, writes its values into inserts, and refuses writes outside it. |
-| Moved rows | A row that is deleted or moves to another team leaves the devices of the old team, and reaches only the new team. |
+| Local copy | The browser caches rows in IndexedDB. Reloading renders cached rows right away, then pulls what changed. |
+| Writes at once | `insert`, `update`, and `delete` update `rows` immediately. Each write goes to a queue in IndexedDB before it is sent, so it survives offline time, a reload, and a crash. |
+| Order | Sync sends one push at a time in the order you made the edits, so sequential updates to a row apply in order. |
+| Scope | `where` returns the rows that the caller can see, such as `{ ownerId: user.id }` or the caller's teams, `{ teamId: ['design', 'web'] }`. The server filters reads with it, writes its values into inserts, and refuses writes outside it. |
+| Moved rows | A deleted row or a row moved to another team leaves devices on the old team and syncs only to the new team. |
 | Subsets | `useSync('comments', { where: { issueId } })` syncs a part of the rows, with its own local copy, on the columns that `subsets` lists. A second visit shows it from the device. |
-| Actions | Named writes with server logic, such as `cards.actions.rate({ id, stars })`, on the same queue and change log as row writes. `refuse(message)` stops one. |
-| Live | Each tab keeps one live stream open for all its synced tables, so other people's changes show within about a second. |
-| Account guard | Each write keeps the account that made it. After a sign-in as another person, old writes wait until their account signs in again. An app with its own sign-in returns the user from `identify`. |
-| Once only | Each write has an id. When an answer is lost and the client sends the write again, the server does not apply it twice. |
-| Fresh rows | The client pulls on start, when the page shows again, when the network comes back, and after each write, besides the live stream. Other tabs see a change at once. When the table changes, the browser drops its stored rows and keeps its queued writes. |
-| Inspection | `vitehub sync list` and `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |
+| Actions | Named writes with server logic, such as `cards.actions.rate({ id, stars })`, share the same queue and change log as row writes. Call `refuse(message)` to reject one. |
+| Live | Each tab keeps one live stream open for all synced tables so changes from others arrive within about a second. |
+| Account guard | Each write records the account that made it. If another person signs in, old writes wait until their account signs back in. Apps with custom auth return the user from `identify`. |
+| Once only | Each write has an ID. When a response is lost and the client sends the write again, the server does not apply it twice. |
+| Fresh rows | Alongside the live stream, the client pulls on start, when the page shows again, when the network comes back, and after each write. Other tabs update at once. When the table changes, the browser drops cached rows and keeps queued writes. |
+| Inspection | Inspect tables and changes via `vitehub sync list`, `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |
 
-The client needs no framework. Vue gets `useSync()`, and other frameworks use the same store through `createSync()`.
+The client needs no framework. Vue uses `useSync()`, and other frameworks use the same store through `createSync()`.
 
 ## Sync, Database, or Realtime
 
-Does each person or team work on their own rows in the browser? Then use Sync. Does only server code read and write the table? Then use [Database](/docs/database). Do people send short messages or show who is online in a room? Then use [Realtime](/docs/realtime).
+Use Sync when each person or team works on their own rows in the browser. Use [Database](/docs/database) when only server code reads and writes the table. Use [Realtime](/docs/realtime) when people send short messages or show who is online in a room.
 
 ## Next
 
-- [Get started](/docs/sync/get-started): a todo list that works offline.
-- [Server API](/docs/sync/server-api): every option of `defineSync()`, team scopes, subsets, actions, live pulls, and the CLI.
-- [Limits and errors](/docs/sync/limits-and-errors): what Sync does not do, and the `SYNC_*` codes.
-- [Vue](/docs/sync/vue): `useSync()`, failures, and sign-out.
+- [Get started](/docs/sync/get-started) builds an offline-ready todo list.
+- [Server API](/docs/sync/server-api) covers `defineSync()`, team scopes, subsets, actions, live pulls, and CLI commands.
+- [Limits and errors](/docs/sync/limits-and-errors) lists what Sync does not do and the `SYNC_*` codes.
+- [Vue](/docs/sync/vue) covers `useSync()`, error handling, and sign-out.

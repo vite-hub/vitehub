@@ -192,6 +192,12 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
 })
 
 describe("vitehub/valid-vitehub-options", () => {
+  it.each(["", "vitehub: { observability: { logs: false } },"])("reports obsolete Logs keys under Nuxt overrides (%s)", async (base) => {
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${base} $development: { vitehub: { observability: { logs: true }, logs: { evlog: { enabled: false } } } } })`,
+    }, "nuxt")).toEqual(Array(base ? 3 : 2).fill("VHUB0031"))
+  })
+
   it("accepts Worker vars and reports the removed secrets file", async () => {
     for (const [option, expected] of [["vars: true", []], ["vars: true, secretsFile: \".env\"", ["VHUB0031"]]] as const) {
       expect(await codes(validViteHubOptions, {
@@ -208,7 +214,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
+        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, observability: { logs: true }, contentImportBase: \"vite-hub/content\" })] })",
       ),
     })).toEqual(Array(7).fill("VHUB0031"))
   })
@@ -229,7 +235,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, observability: { logs: true }, env: { prefix: \"APP_\", server: {} } })] })",
+        "export default defineConfig({ plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, logs: true, observability: { service: \"shop\" }, env: { prefix: \"APP_\", server: {} } })] })",
       ),
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", env: { server: {} }, connections: false, queue: { driver: \"postgres\" } } })\n",
     }, "nuxt")).toEqual([])
