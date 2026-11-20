@@ -72,7 +72,12 @@ export interface MotionEffect {
   content?(element: HTMLElement | SVGElement, change: MotionContentChange): void;
 }
 
-const effects = new Map<string, MotionEffect>();
+interface EffectRegistration {
+  effect: MotionEffect;
+  removeFromShared?: () => void;
+}
+
+const effects = new Map<string, EffectRegistration>();
 const changeListeners = new Set<() => void>();
 
 /**
@@ -103,19 +108,30 @@ export function claimMotionLayer(layer: SharedMotionLayer): void {
   if (!Reflect.get(globalThis, sharedKey)) Reflect.set(globalThis, sharedKey, layer);
 }
 
+export function handOffMotionEffects(shared: SharedMotionLayer): void {
+  const registrations = [...effects.values()];
+  effects.clear();
+  for (const registration of registrations) registration.removeFromShared = shared.define(registration.effect);
+}
+
 /**
  * Adds an effect to the motion layer. Every installed layer runs it from the next interaction on. Returns a function
  * that removes it. When another copy of the module is the shared layer, the effect goes to that copy.
  */
 export function defineMotionEffect(effect: MotionEffect): () => void {
-  return otherMotionLayer()?.define(effect) ?? defineOwnEffect(effect);
+  const shared = otherMotionLayer();
+  if (!shared) return defineOwnEffect(effect);
+  handOffMotionEffects(shared);
+  return shared.define(effect);
 }
 
 export function defineOwnEffect(effect: MotionEffect): () => void {
-  effects.set(effect.name, effect);
+  const registration: EffectRegistration = { effect };
+  effects.set(effect.name, registration);
   for (const listener of changeListeners) listener();
   return () => {
-    if (effects.get(effect.name) !== effect) return;
+    if (registration.removeFromShared) return registration.removeFromShared();
+    if (effects.get(effect.name) !== registration) return;
     effects.delete(effect.name);
     for (const listener of changeListeners) listener();
   };
@@ -123,7 +139,7 @@ export function defineOwnEffect(effect: MotionEffect): () => void {
 
 /** The effects of the motion layer, in the order they were defined. */
 export function listMotionEffects(): MotionEffect[] {
-  return [...effects.values()];
+  return [...effects.values()].map(registration => registration.effect);
 }
 
 export function onMotionEffectsChange(listener: () => void): () => void {

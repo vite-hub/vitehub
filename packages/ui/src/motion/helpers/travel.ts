@@ -60,8 +60,7 @@ interface Running {
   y: Spring;
   scaleX: Spring;
   scaleY: Spring;
-  hold: boolean;
-  finish: (landed: boolean) => void;
+  stop(): void;
 }
 
 const running = new WeakMap<HTMLElement, Running>();
@@ -91,7 +90,7 @@ function measure(element: HTMLElement): { box: DOMRect; origin: { x: number; y: 
 export function travel(element: HTMLElement, options: TravelOptions): Travel {
   const previous = running.get(element);
   if (motionSkipped(element) || reduced()) {
-    previous?.finish(false);
+    previous?.stop();
     return { done: Promise.resolve(false), stop() {} };
   }
   const { box, origin } = measure(element);
@@ -110,8 +109,10 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
       scale: `${motion.scaleX.value} ${motion.scaleY.value}`,
     });
     if ([motion.x, motion.y, motion.scaleX, motion.scaleY].some(spring => spring.active)) return;
-    running.delete(element);
-    if (!motion.hold) writeMotionStyle(element, { translate: null, scale: null });
+    if (!options.to) {
+      running.delete(element);
+      writeMotionStyle(element, { translate: null, scale: null });
+    }
     finish(true);
   };
   // A travel in the middle of another one starts where the element is now, with its speed.
@@ -127,19 +128,6 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
     y: parts.y.made,
     scaleX: parts.scaleX.made,
     scaleY: parts.scaleY.made,
-    hold: Boolean(options.to),
-    finish,
-  };
-  if (previous) {
-    for (const key of ["x", "y", "scaleX", "scaleY"] as const) previous[key].stop();
-    previous.finish(false);
-  }
-  running.set(element, motion);
-  for (const key of ["x", "y", "scaleX", "scaleY"] as const) parts[key].made.to(target[key], { velocity: parts[key].velocity });
-  draw();
-
-  return {
-    done,
     stop() {
       if (running.get(element) !== motion) return;
       for (const key of ["x", "y", "scaleX", "scaleY"] as const) motion[key].stop();
@@ -148,4 +136,10 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
       finish(false);
     },
   };
+  previous?.stop();
+  running.set(element, motion);
+  for (const key of ["x", "y", "scaleX", "scaleY"] as const) parts[key].made.to(target[key], { velocity: parts[key].velocity });
+  draw();
+
+  return { done, stop: motion.stop };
 }
