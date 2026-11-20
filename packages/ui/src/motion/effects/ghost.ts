@@ -11,7 +11,7 @@ import { getMotionSlowFactor } from "../spring.ts";
 export function createGhost(source: HTMLElement, parent: Node, before: Node | null): HTMLElement {
   const ghost = source.cloneNode(true) as HTMLElement;
   for (const element of [ghost, ...ghost.querySelectorAll<HTMLElement>("*")]) {
-    for (const name of ["id", "role", "tabindex", "hidden", "inert", "data-ending-style", "data-starting-style", "aria-live"]) element.removeAttribute(name);
+    for (const name of ["id", "role", "tabindex", "hidden", "inert", "popover", "data-ending-style", "data-starting-style", "aria-live"]) element.removeAttribute(name);
   }
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("data-motion", "none");
