@@ -1,6 +1,7 @@
 import { webhooksErrors } from "./errors.ts"
 
 import type { Result } from "@vite-hub/runtime"
+import type { LookupAddress } from "node:dns"
 
 /** Options of `checkWebhookUrl()`. */
 export interface CheckWebhookUrlOptions {
@@ -84,18 +85,9 @@ function privateAddress(address: string): string | undefined {
   return v6 ? privateIPv6(v6) : undefined
 }
 
-type Lookup = (host: string) => Promise<readonly string[]>
-
-/**
- * Resolves a host name on runtimes with `node:dns`: Node, Bun, and Deno. Cloudflare Workers cannot resolve a name, so
- * there the host allowlist decides alone.
- */
-async function loadLookup(): Promise<Lookup | undefined> {
-  if (globalThis.navigator?.userAgent === "Cloudflare-Workers") return undefined
-  if (typeof process !== "object" || !process?.versions?.node) return undefined
-  const dns = await import("node:dns/promises").catch(() => undefined)
-  if (!dns) return undefined
-  return async host => (await dns.lookup(host, { all: true, verbatim: true })).map(entry => entry.address)
+export interface ResolvedWebhookUrl {
+  url: URL
+  addresses?: LookupAddress[]
 }
 
 /**
@@ -117,6 +109,11 @@ async function loadLookup(): Promise<Lookup | undefined> {
  * ```
  */
 export async function checkWebhookUrl(url: string, options: CheckWebhookUrlOptions = {}): Promise<Result<URL, "WEBHOOKS_URL_REFUSED">> {
+  const [error, resolved] = await resolveWebhookUrl(url, options)
+  return error ? [error, undefined] : [undefined, resolved.url]
+}
+
+export async function resolveWebhookUrl(url: string, options: CheckWebhookUrlOptions = {}): Promise<Result<ResolvedWebhookUrl, "WEBHOOKS_URL_REFUSED">> {
   if (typeof url !== "string" || !URL.canParse(url)) return refuse("it is not a URL")
   const parsed = new URL(url)
   if (parsed.protocol !== "https:") return refuse("it does not use https")
@@ -128,20 +125,22 @@ export async function checkWebhookUrl(url: string, options: CheckWebhookUrlOptio
   if (host === "localhost" || host.endsWith(".localhost")) return refuse("it names a loopback address")
   const literal = privateAddress(host)
   if (literal) return refuse(`it names ${literal}`)
-  if (parseIPv4(host) || host.startsWith("[")) return [undefined, parsed]
-  const lookup = await loadLookup()
-  if (!lookup) return [undefined, parsed]
-  let addresses: readonly string[]
+  if (parseIPv4(host) || host.startsWith("[")) return [undefined, { url: parsed }]
+  if (globalThis.navigator?.userAgent === "Cloudflare-Workers" || typeof process !== "object" || !process?.versions?.node) {
+    return [undefined, { url: parsed }]
+  }
+  let addresses: LookupAddress[]
   try {
-    addresses = await lookup(host)
+    const { lookup } = await import("node:dns/promises")
+    addresses = await lookup(host, { all: true, verbatim: true })
   }
   catch {
     return refuse("its host does not resolve")
   }
   if (!addresses.length) return refuse("its host does not resolve")
-  for (const address of addresses) {
+  for (const { address } of addresses) {
     const reason = privateAddress(address)
     if (reason) return refuse(`its host resolves to ${reason}`)
   }
-  return [undefined, parsed]
+  return [undefined, { url: parsed, addresses }]
 }

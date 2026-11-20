@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   custom,
-  fetch,
+  url as urlSource,
   file,
   github,
   mcpResources,
@@ -467,7 +467,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -498,7 +498,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -554,12 +554,12 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        hiddenInventory: fetch({
+        hiddenInventory: urlSource({
           url: "https://portal.example.com/runtime/hidden-inventory",
         }),
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               query: { region: "eu" },
               url: "https://portal.example.com/runtime/inventory-health",
             })
@@ -610,7 +610,7 @@ describe("Workspace Source Resolution", () => {
       sources: {
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               cookies: { auth_token: "secret" },
               querySchema,
               request: requestFactory,
@@ -672,7 +672,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
         portal: custom({
@@ -758,7 +758,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
@@ -779,7 +779,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
           workspacePath: "status/summary.json",
         }),
@@ -1387,6 +1387,7 @@ describe("Workspace Source Resolution", () => {
       async refs() { return await this.#history.refs() }
       async open(id: string) { return await this.#history.open(id) }
       async usage() { return await this.#history.usage() }
+      async diff(options: Parameters<WritableWorkspaceFacade["history"]["diff"]>[0]) { return await this.#history.diff(options) }
       async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
       async checkpoint() { return await this.#base.snapshot() }
       async rebase() {}
@@ -1397,6 +1398,7 @@ describe("Workspace Source Resolution", () => {
     const history = (resolved.workspace as WritableWorkspaceFacade).history
     await expect(history.checkpoint()).resolves.toMatchObject({})
     await expect(history.head()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    await expect(history.diff({ to: "revision" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
     await expect(history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
   })
 

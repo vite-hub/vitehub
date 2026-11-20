@@ -321,7 +321,7 @@ describe("vitehub database generate", () => {
     await expect(readFile(join(project.database.migrationsDir, added, "migration.sql"), "utf8")).resolves.toBe("ALTER TABLE `notes` ADD `body` text;")
   }, 120_000)
 
-  it("gives Drizzle Kit the terminal for its questions, unless CI or --non-interactive is set", async () => {
+  it("gives Drizzle Kit the terminal for its questions, unless CI is set", async () => {
     const project = await createProject()
     const spawn = vi.fn<typeof realSpawn>(async () => ({ exitCode: 0 }))
     const env = { ...process.env, CI: undefined }
@@ -331,18 +331,22 @@ describe("vitehub database generate", () => {
       await project.run("generate", [], env, spawn)
       await project.run("generate", [], { ...env, CI: "false" }, spawn)
       await project.run("generate", [], { ...env, CI: "true" }, spawn)
-      await project.run("generate", ["--non-interactive"], env, spawn)
     }
     finally {
       if (isTTY) Object.defineProperty(process.stdin, "isTTY", isTTY)
       else delete (process.stdin as { isTTY?: boolean }).isTTY
     }
-    expect(spawn.mock.calls.map(([, args, options]) => [options?.stdin, args.includes("--non-interactive")])).toEqual([
-      [undefined, false],
-      [undefined, false],
-      ["ignore", false],
-      ["ignore", false],
-    ])
+    expect(spawn.mock.calls.map(([, , options]) => options?.stdin)).toEqual([undefined, undefined, "ignore"])
+  })
+
+  it("fails for the removed --non-interactive and names what replaces it", async () => {
+    const project = await createProject()
+    const spawn = vi.fn<typeof realSpawn>(async () => ({ exitCode: 0 }))
+    const result = await project.run("generate", ["--non-interactive"], process.env, spawn)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("--non-interactive was removed")
+    expect(result.stderr).toContain("CI=1")
+    expect(spawn).not.toHaveBeenCalled()
   })
 })
 

@@ -1,7 +1,9 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
-import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { WorkspaceAuthor, WorkspaceSnapshot } from "@vite-hub/workspace"
+import type { ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
+
+import type { RealtimeRequestFailure } from "./error-diagnostics.ts"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -69,6 +71,7 @@ export interface RealtimeHistoryOptions {
   /** Digest of the save that the history entry must contain. */
   digest: string
   message?: string
+  /** The checkpoint requester, when identified. */
   user?: RealtimeUser
 }
 
@@ -105,6 +108,8 @@ export interface RealtimeHoldOptions {
 export interface RealtimeWorkspaceDocumentOptions {
   /** Workspace whose working tree stores the Markdown file at the document path. */
   workspace: string
+  /** Resolve an author's name and email approved for Git history. Return undefined to keep the Store's author. */
+  checkpointAuthor?: (user: RealtimeUser) => WorkspaceAuthor | undefined | Promise<WorkspaceAuthor | undefined>
 }
 
 /**
@@ -319,9 +324,6 @@ export type RealtimeResetReason = "source-changed" | "stale"
 
 export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeDefinition }>>
 
-/**
- * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
- */
 /** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
 export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_ABORTED"
@@ -332,12 +334,33 @@ export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_REQUESTS_OFF"
   | "REALTIME_ROOM_TIMEOUT"
 
+/**
+ * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
+ * When the server names why it refused the request, the code is that name, such as `REALTIME_SOURCE_CHANGED`. Other
+ * server and network errors are `REALTIME_REQUEST_FAILED`.
+ */
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"
+  | "REALTIME_INVALID_DOCUMENT"
   | "REALTIME_INVALID_RESPONSE"
   | "REALTIME_MISSING_DOCUMENT"
+  | "REALTIME_READ_ONLY"
   | "REALTIME_REQUEST_FAILED"
+  | "REALTIME_SOURCE_CHANGED"
+  | "REALTIME_SYNC_PENDING"
+
+export type { RealtimeRequestFailure }
+
+/** The error of `save()`, `history.checkpoint()`, and `refresh()`. Check `code` to read the typed `data`. */
+export type RealtimeRequestError =
+  | ResultError<Exclude<RealtimeRequestErrorCode, "REALTIME_REQUEST_FAILED">, undefined>
+  | ResultError<"REALTIME_REQUEST_FAILED", RealtimeRequestFailure>
+
+/** The `[error, data]` tuple of `save()`, `history.checkpoint()`, and `refresh()`. */
+export type RealtimeRequestResult<TData> =
+  | [error: RealtimeRequestError, data: undefined]
+  | [error: undefined, data: TData]
 
 /**
  * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why

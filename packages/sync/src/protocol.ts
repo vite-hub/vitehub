@@ -50,6 +50,13 @@ export interface SyncPullQuery {
    * that `where` allows, else the pull is refused with `SYNC_OUT_OF_SCOPE`.
    */
   where?: string
+  /**
+   * `1` asks for a full snapshot in pages of at most 500 rows, by key, so no answer holds the whole table. Each page
+   * has `after`. Without it, a snapshot is one answer with every row.
+   */
+  paged?: "1"
+  /** The `after` of the last snapshot page that the client holds. The server answers with the next page. */
+  after?: string
 }
 
 /** One store of a live stream: a Sync name, its subset, and what the client holds, as in a pull. */
@@ -60,6 +67,8 @@ export interface SyncLivePull {
   cursor?: number
   scope?: string
   version?: string
+  /** As `SyncPullQuery.paged`. The stream sends the first page of a snapshot, and the client pulls the others. */
+  paged?: boolean
 }
 
 /** The body of `POST /_vitehub/sync`: the stores that one live stream sends pulls for. */
@@ -78,6 +87,8 @@ export interface SyncPullResponse {
    * The client keeps such writes for when that account comes back.
    */
   account: string
+  /** The ViteHub Auth fingerprint when the definition chooses its own Sync account; `null` for a signed-out caller. */
+  authAccount?: string | null
   /**
    * A fingerprint of the table: its name, key and columns. It changes when the table changes, and the client then
    * drops the rows that it stored (the server also answers with a full snapshot).
@@ -106,6 +117,12 @@ export interface SyncPullResponse {
   deleted: SyncKey[]
   /** `true` when the server has more changes than one response holds. Pull again with the new `cursor`. */
   more: boolean
+  /**
+   * Only in a page of a paged snapshot (`SyncPullQuery.paged`): the key of the last row of the page, or `null` after
+   * the last page. Pass it back as `after` to get the next page. A page after the first has `reset: false` and keeps
+   * the `cursor` of the client, so the changes that happened during the snapshot come with the next pull.
+   */
+  after?: SyncKey | null
 }
 
 /**
@@ -130,7 +147,11 @@ export interface SyncPushRequest {
   version?: string
   /** The subset of the client, as in `SyncPullQuery.where`, but as an object. */
   where?: SyncValues
-  /** Applied in order, one after the other. At most 100. */
+  /** As `SyncPullQuery.paged`, for the pull in the answer. */
+  paged?: boolean
+  /** As `SyncPullQuery.after`, for the pull in the answer. */
+  after?: SyncKey
+  /** Applied in order, one after the other. At most 100. The answer can stop early, see `SyncPushResponse.results`. */
   mutations: SyncMutation[]
 }
 
@@ -148,6 +169,11 @@ export type SyncMutationResult =
 
 /** The answer to a push with status 200. */
 export interface SyncPushResponse {
+  /**
+   * The results of the first mutations of the push, in order. The server stops before a mutation that could pass its
+   * Database call budget, so a long push can get results for its first mutations only. The client sends the others
+   * again in its next push.
+   */
   results: SyncMutationResult[]
   pull: SyncPullResponse
 }

@@ -33,13 +33,13 @@ Plugin options are read once. Rebuild the runtime to change them.
 | Input | Behavior |
 | --- | --- |
 | Source definition, such as `glob()` or `defineSource()` | Opens a new Reader per load. Overlapping refreshes, snapshots, and document reads keep their selected revisions. |
-| Registered Source name | Opens `useSource(name)` for each load. |
+| Source name, such as `'docs'` for `server/sources/docs.ts` | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
 | Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
 | `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
-Registered names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
+Source names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
 
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
 
@@ -392,7 +392,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { roles: true }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.

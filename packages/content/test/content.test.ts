@@ -8,7 +8,8 @@ import { setTimeout as delay } from "node:timers/promises"
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import { clearSources, createSource, defineSource, github, registerSources, useSource } from "@vite-hub/source"
+import { defineSource, github, useSource } from "@vite-hub/source"
+import { clearSources, registerSourceLoaders, registerSources } from "@vite-hub/source/internal/registry"
 import type { SourceName } from "@vite-hub/source"
 
 import { contentSource, defineContent, defineContentHandler, renderContentHtml } from "../src/index.ts"
@@ -222,7 +223,7 @@ describe("contentSource", () => {
       },
     })
     registerSources({ docs })
-    const source = input === "definition" ? docs : input === "name" ? "docs" : () => createSource(docs)
+    const source = input === "definition" ? docs : input === "name" ? "docs" : () => useSource(docs)
     const content = defineContent({ access: "public", sources: { live: source } })
     const initial = await content.get("/", { fresh: true })
     expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
@@ -234,6 +235,22 @@ describe("contentSource", () => {
     expect(JSON.stringify(refreshed?.nodes)).toContain("Revision 2")
     expect(prepared).toContain("1")
     expect(prepared.at(-1)).toBe("2")
+  })
+
+  it("loads a Source file of a name on the first read", async () => {
+    let loads = 0
+    registerSourceLoaders({
+      docs: async () => {
+        loads++
+        return { default: defineSource({ name: "docs", getKeys: async () => ["index.md"], getItem: async key => ({ key, content: "# Lazy docs" }) }) }
+      },
+    })
+    const content = defineContent({ access: "public", sources: { docs: "docs" } })
+    expect(loads).toBe(0)
+
+    expect(JSON.stringify((await content.get("/", { fresh: true }))?.nodes)).toContain("Lazy docs")
+    await content.cache.refresh("docs")
+    expect(loads).toBe(1)
   })
 
   it("reads one known document on get instead of every Source item", async () => {
@@ -527,7 +544,7 @@ describe("contentSource", () => {
         return { content: `revision ${ctx.revision?.id}`, key }
       },
     })
-    const reader = createSource(definition)
+    const reader = useSource(definition)
     const source = contentSource({ items: () => reader.items() })
     await source.keys()
     await expect(source.getItem("index.md")).resolves.toBe("revision 1")
@@ -547,7 +564,7 @@ describe("contentSource", () => {
         return { key, data: { theme: "dark" as const } }
       },
     })
-    const reader = createSource(settings)
+    const reader = useSource(settings)
     expectTypeOf(await reader.get("settings.json")).toMatchTypeOf<{ data: { theme: "dark" } }>()
     const content = defineContent({ plugins: [json()], source: settings })
     await expect(content.get("/settings")).resolves.toEqual(expect.objectContaining({ data: { theme: "dark" } }))
@@ -1069,8 +1086,8 @@ describe("defineContentHandler", () => {
     const handbook = github({ repo: "acme/private" })
     registerSources({ handbook })
     const inputs = [
-      createSource(handbook),
-      () => createSource(handbook),
+      useSource(handbook),
+      () => useSource(handbook),
       "handbook" as SourceName,
     ]
     for (const input of inputs) {

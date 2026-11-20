@@ -35,8 +35,8 @@ function testKey(): string | undefined {
   return getViteHubTestMode()?.backend("webhooks:key", () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))))
 }
 
-async function endpointKey(): Promise<[KeyError, undefined] | [undefined, SealKey]> {
-  const value = readString(serverEnv(), webhooksKeyVariable) ?? testKey()
+async function endpointKey(developmentKey: string | undefined): Promise<[KeyError, undefined] | [undefined, SealKey]> {
+  const value = readString(serverEnv(), webhooksKeyVariable) ?? testKey() ?? developmentKey
   if (!value) return [webhooksErrors.WEBHOOKS_KEY_UNSET(), undefined]
   if (cached?.value !== value) {
     const raw = decodeViteHubBase64Key(value)
@@ -51,14 +51,14 @@ function additionalData(endpoint: { id: string, owner: string }): Uint8Array<Arr
   return new TextEncoder().encode(`vitehub:webhooks:endpoint:${JSON.stringify([endpoint.id, endpoint.owner])}`)
 }
 
-export async function sealEndpoint(endpoint: { id: string, owner: string }, target: EndpointTarget): Promise<[KeyError, undefined] | [undefined, string]> {
-  const [error, key] = await endpointKey()
+export async function sealEndpoint(endpoint: { id: string, owner: string }, target: EndpointTarget, developmentKey: string | undefined): Promise<[KeyError, undefined] | [undefined, string]> {
+  const [error, key] = await endpointKey(developmentKey)
   if (error) return [error, undefined]
   return [undefined, await sealWithKey(key, additionalData(endpoint), JSON.stringify({ url: target.url, secret: target.secret }))]
 }
 
-export async function unsealEndpoint(endpoint: { id: string, owner: string, sealed: string }): Promise<[KeyError, undefined] | [undefined, EndpointTarget]> {
-  const [error, key] = await endpointKey()
+export async function unsealEndpoint(endpoint: { id: string, owner: string, sealed: string }, developmentKey: string | undefined): Promise<[KeyError, undefined] | [undefined, EndpointTarget]> {
+  const [error, key] = await endpointKey(developmentKey)
   if (error) return [error, undefined]
   let text: string
   try {

@@ -4,7 +4,7 @@ import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
-import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, validateHistoryMessage } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -329,7 +329,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const workspace = await this.#key()
     await this.#assertActive()
     const current = await this.#ref(workspace, ref)
-    if ((current?.head ?? null) !== options.ifHead) throw this.#conflict(ref, options.ifHead, current?.head ?? null)
+    if ((current?.head ?? null) !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, current?.head ?? null))
     // A change commit starts from the head manifest. Unchanged objects are already registered and uploaded.
     const entries: Record<string, HistoryManifestFile> = Object.create(null)
     const removed = new Set<string>()
@@ -432,7 +432,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         const actual = (await this.#ref(workspace, name))?.head ?? null
         if (actual !== expected) throw this.#conflict(name, expected, actual)
       }
-      throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
+      rejectHistoryHead(options, this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null))
     }
     return publicRevision({ ...row, committed: true })
   }

@@ -133,7 +133,7 @@ export default defineConfig({
 
 Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, and the Agents in `server/agents/`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. The startup registry also installs the generated Agent State resolver and Capability loaders, so a fresh worker can restore persisted Channel deliveries without loading an Agent route first.
 
-- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
+- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow runs get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
 - A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, because no worker can run it. Move the Agent to `server/agents/`, or call `runAgent()` to run it without a Workflow.
 - A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)`, runs inline in the request process. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
 

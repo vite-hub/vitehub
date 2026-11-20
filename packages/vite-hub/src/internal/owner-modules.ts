@@ -202,7 +202,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "channels": "channels",
   "connections": "connections",
   "console/ui": "console ui",
-  "decisions": "decisions",
+  "choices": "choices",
   "device": "device",
   "email": "email",
   "forge": "forge",

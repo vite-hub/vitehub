@@ -2,7 +2,7 @@
 title: Rate Limit
 layout: landing
 navigation.title: Overview
-description: Add an API rate limiter to your server routes. Limit requests for each client or user, and reject the extra ones with HTTP 429 on Node or Cloudflare.
+description: Add an API rate limiter to your server routes. Limit requests per client or user, and reject the extra ones with HTTP 429 on Node or Cloudflare.
 seo.title: API rate limiter for Vite apps with ViteHub
 navigation.order: 1
 icon: i-lucide-gauge
@@ -121,7 +121,7 @@ export default defineEventHandler(async () => {
   :::
 
   :::product-feature-item{title="Count per user or per team" icon="i-lucide-users" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
-  Each client address has its own count. Pass `key` to count per user or team.
+  Each client IP address has its own count. Pass `key` to count per user or team.
   :::
 
   :::product-feature-item{title="Choose your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
@@ -133,11 +133,11 @@ export default defineEventHandler(async () => {
   :::
 
   :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
-  The build writes a file with each limit and what the host promises.
+  The build writes a file listing each limit and what the host guarantees.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
-  Memory counts reset on restart and are not shared between servers.
+  In-memory counts reset on restart and are not shared across servers.
   :::
 ::
 

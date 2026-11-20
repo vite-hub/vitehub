@@ -76,7 +76,7 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     fake.commit("main", { "content/posts/a.md": page("A") })
     const workspace = `preview-links-${process.pid}-${++workspaces}`
     registerWorkspace(workspace, {
-      store: { driver: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
       rules: { "**": { write: false } },
     })
     const content = defineContent({

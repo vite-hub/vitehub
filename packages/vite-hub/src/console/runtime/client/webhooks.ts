@@ -134,7 +134,7 @@ export async function readMemberEndpoints(signal?: AbortSignal): Promise<Console
       endpoints.push(...page)
       if (page.length < 500) return endpoints
       const last = page.at(-1)!
-      if (after?.id === last.id && after.createdAt === last.createdAt) throw new Error("The member endpoints page did not advance.")
+      if (after?.id === last.id && after.createdAt === last.createdAt) throw new ConsoleRequestError(502, "The member endpoints page did not advance.")
       after = { createdAt: last.createdAt, id: last.id }
     }
   }

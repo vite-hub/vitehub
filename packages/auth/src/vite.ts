@@ -9,6 +9,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveAuthViteConfig } from "./config.ts"
 import { authDeploymentEnv } from "./deployment-env.ts"
 import { authMemoryDatabaseError } from "./database-options.ts"
@@ -202,8 +203,9 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   const importBase = options.importBase ?? authPackageName
   const serverImport = `${importBase}/server`
   return [
-    `export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `export * from ${JSON.stringify(serverImport)}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
+    `export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "",
   ].join("\n")
 }
@@ -215,9 +217,14 @@ function renderAuthRouteHandler(): string {
   ].join("\n")
 }
 
+/** `access.public`, and the Auth route: sign-in and the OAuth callback must work without a session. */
+function accessPublicRoutes(config: ResolvedAuthViteConfig): string[] {
+  return [authRoutePattern(config.basePath), ...config.access.public ?? []]
+}
+
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
-  const publicRoutes = config?.access.public?.length ? `, ${JSON.stringify(config.access.public)}` : ""
+  const publicRoutes = config?.access.routes.length ? `, ${JSON.stringify(accessPublicRoutes(config))}` : ""
   return [
     `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
@@ -241,13 +248,17 @@ function authServerTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth-server.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { abilities?: string, client?: string, definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthAmbientTypes(options: { abilities?: string, client?: string, definition?: string, importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   const entries = [
     ...options.definition ? [`definition: typeof import(${JSON.stringify(options.definition)}).default`] : [],
     ...options.abilities ? [`abilities: typeof import(${JSON.stringify(options.abilities)}).default`] : [],
     ...options.client ? [`client: typeof import(${JSON.stringify(options.client)}).default`] : [],
   ]
   const registry = entries.length ? [`interface AuthRegistry { ${entries.join("; ")} }`] : []
+  if (options.definition) {
+    const session = `Pick<import(${JSON.stringify(options.importBase ?? authPackageName)}).AuthAuthorization<{ definition: typeof import(${JSON.stringify(options.definition)}).default }>, "user" | "session">`
+    registry.push(`interface AuthRegistry { sessionResult: ${session} }`)
+  }
   // The ServerEnv import makes this file a module, so its global names need `declare global`.
   if (options.serverEnv) {
     return [
@@ -274,8 +285,9 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`
   return [
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
-    `  export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
+    `  export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "}",
     "",
   ].join("\n")
@@ -288,6 +300,7 @@ async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthVite
       abilities: config?.abilities && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.abilities),
       client: options.client && typeImportSpecifier(dirname(authAmbientTypesPath(root)), options.client),
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
+      importBase: options.importBase,
       serverEnv: Boolean(options.serverEnv),
     })),
     writeFileIfChanged(authServerTypesPath(root), renderAuthServerTypes(options.importBase)),
@@ -363,7 +376,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   if (!dev && config.implicitMemory) modules.push(memoryDatabaseGuard)
   if (modules.length || Array.isArray(merged.modules)) merged.modules = modules
   if (config.access.routes.length > 0) {
-    const { routes, public: publicRoutes = [] } = config.access
+    const { routes } = config.access
+    const publicRoutes = accessPublicRoutes(config)
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
@@ -381,6 +395,9 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 }
 
 export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+  // `vitehub({ auth: { redirects } })` was the only object form. Its pages are in `access` of `server/auth.ts` now.
+  const configured: unknown = options
+  if (configured !== undefined && configured !== false) throw authErrorDiagnostics.AUTH_REDIRECTS_MOVED()
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined

@@ -98,7 +98,7 @@ function invalid(problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, un
  * ```
  */
 export async function createMemberEndpoint(options: CreateMemberEndpointOptions): Promise<Result<MemberEndpoint, CreateMemberEndpointErrorCode>> {
-  const { endpoints } = requireMemberEndpoints()
+  const { endpoints, developmentKey } = requireMemberEndpoints()
   const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
     ?? (options.ownerName === undefined ? undefined : text(options.ownerName, "ownerName", limits.name))
@@ -128,7 +128,7 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
     if (urlProblem) return invalid(urlProblem)
     const [refused, url] = await checkWebhookUrl(options.url, { hosts: options.hosts ?? memberEndpointHosts })
     if (refused) return [refused, undefined]
-    const [keyError, sealed] = await sealEndpoint(endpoint, { url: url.href, secret: options.secret })
+    const [keyError, sealed] = await sealEndpoint(endpoint, { url: url.href, secret: options.secret }, developmentKey)
     if (keyError) return [keyError, undefined]
     endpoint.host = url.host
     endpoint.sealed = sealed
@@ -249,7 +249,7 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     if (endpoint.disabledAt !== null) return [webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id }), undefined]
     let target: { url: string, secret: string } | undefined
     if (endpoint.sealed !== null) {
-      const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+      const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed }, installed.developmentKey)
       if (keyError) return [keyError, undefined]
       target = opened
     }

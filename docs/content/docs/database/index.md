@@ -128,7 +128,7 @@ export default defineEventHandler(async (event) => {
 
 ::product-features
   :::product-feature-item{title="Tables in one file" icon="i-lucide-file-code-2" to="/docs/database/configure#define-a-database"}
-  Write your tables with Drizzle in `src/database.ts`. ViteHub finds it and makes migrations.
+  Write your tables with Drizzle in `src/database.ts`. ViteHub finds the file and makes migrations.
   :::
 
   :::product-feature-item{title="Query from any route" icon="i-lucide-code-2" to="/docs/database/server-api#use-it-at-runtime"}
@@ -148,7 +148,7 @@ export default defineEventHandler(async (event) => {
   :::
 
   :::product-feature-item{title="Seed, query, and reset" icon="i-lucide-terminal" to="/docs/database/configure#seed-data"}
-  `vitehub seed` adds starting rows. `vitehub database sql` runs a query, and `drop` or `reset` empties the database.
+  `vitehub seed` adds starting rows, `vitehub database sql` runs a query, and `drop` or `reset` empties the database.
   :::
 ::
 
@@ -159,7 +159,7 @@ Import `useDatabase` from `vite-hub/database` and select the discovered database
 
 For Postgres, set `dialect: 'postgresql'`. ViteHub connects with postgres.js, or with `pg` when the Definition sets `driver: 'node-postgres'`. Put read replica URLs in `connection.replicas` and read from them with `db.$replica`; writes and reads of your own writes use `db`. On D1, use `readReplication: true` instead.
 
-For starting rows, write `server/databases/<name>/seed.ts` and run `vitehub seed database`. Inspect data with `vitehub database sql "<query>"`. `vitehub database drop` and `vitehub database reset` delete every table; they ask first, and need `--force` without a terminal. Each command touches only the local database unless you pass `--remote`.
+For starting rows, write `server/databases/<name>/seed.ts` and run `vitehub seed database`. Inspect data with `vitehub database sql "<query>"`. `vitehub database drop` and `vitehub database reset` delete every table; they ask first, and need `--yes` without a terminal. Each command touches only the local database unless you pass `--remote`.
 
 Prove a migration, a typed read, a write, and a restart or remote-host read. Inspect generated schema and provisioning output before deployment.
 ::

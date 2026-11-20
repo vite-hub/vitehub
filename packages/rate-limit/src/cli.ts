@@ -38,6 +38,7 @@ const rateLimitDevTargetErrors = {
   invalidInlineTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   invalidTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   missingValue: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
+  unknownOption: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
 }
 
 const rateLimitCommands: readonly RateLimitCommand[] = [

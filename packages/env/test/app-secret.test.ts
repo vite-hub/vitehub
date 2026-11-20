@@ -136,7 +136,11 @@ describe("root app secret", () => {
     await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" })
     vi.stubEnv("VITEHUB_SECRET", "")
     vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
-    await expect(deriveSecret("app:session")).rejects.toMatchObject({ code: "ENV_REQUIRED_MISSING" })
+    await expect(deriveSecret("app:session")).rejects.toMatchObject({
+      code: "ENV_REQUIRED_MISSING",
+      details: { names: ["VITEHUB_SECRET"] },
+      message: "[vitehub] Required Env value is missing. Set VITEHUB_SECRET.",
+    })
   })
 
   it("generates a root secret and derives purpose secrets from the CLI", async () => {

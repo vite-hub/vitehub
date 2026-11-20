@@ -108,6 +108,10 @@ export default defineConfig({
 :::
 ::
 
+Keep `host: 'cloudflare'` in development too. With the Vite configurations above, `vite dev` runs Nitro on Node by default. ViteHub supplies Node stubs for `cloudflare:workers` and `cloudflare:email`, as it does in `nuxt dev`. The `cloudflare:workers` stub reads request bindings and `process.env`.
+
+In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment
@@ -150,6 +154,8 @@ pnpm build
 test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
 ```
+
+The Worker gets ViteHub's tested `compatibility_date`, `2026-04-20`, not the day of the build, because Wrangler refuses a date newer than its own workerd. To use another date, set `nitro({ compatibilityDate: '2026-11-01' })` in Vite, or `nitro: { compatibilityDate: '2026-11-01' }` in `nuxt.config.ts`. You can also set `compatibility_date` in a project Wrangler config or set `COMPATIBILITY_DATE` in the build environment or the project's `.env` file.
 
 Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub adds the types of that module to the app's TypeScript config, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, ViteHub adds its full types instead. You do not need a `declare module "cloudflare:workers"` file in the app.
 

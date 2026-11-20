@@ -35,16 +35,22 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
 
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
-    // throw them.
+    // throw them. `listAuthEvents()` and `aggregateAuthEvents()` return the event read errors as `[error, undefined]`.
     AUTH_EVENT_CALLBACK_FAILED: {
       why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
       fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
     },
     AUTH_EVENT_QUERY_INVALID: {
-      why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
+      why: ({ problem }: { problem: "input" | "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
-        : "Auth event windows must be positive and at most 366 days.",
-      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long.",
+        : problem === "window"
+          ? "Auth event windows must be positive and at most 366 days."
+          : "Auth event filters are not valid. `error.cause` tells which value failed.",
+      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long. Pass a known event `type`, a `limit` from 1 to 200, and the `nextCursor` of the previous page without changes.",
+    },
+    AUTH_EVENT_READ_FAILED: {
+      why: "The Auth event store failed to read the events.",
+      fix: "Read `error.cause` for the store error. Check that the database of `events.store` is reachable, then read again.",
     },
     AUTH_EVENT_RETENTION_INVALID: {
       why: "Auth event retention limits must be positive integers.",
@@ -57,6 +63,20 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_SIGN_OUT_REDIRECT_INVALID: {
       why: ({ redirectTo }: { redirectTo: string }) => `\`signOut()\` redirects only to a path of the app, not to ${JSON.stringify(redirectTo)}.`,
       fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
+    },
+
+    // Sign-in config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    AUTH_AFTER_SIGN_IN_INVALID: {
+      why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
+      fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
+    },
+    AUTH_REDIRECTS_MOVED: {
+      why: "`vitehub({ auth })` takes only `true` or `false`. The `redirects` option moved to the Auth Definition.",
+      fix: "Remove the object from `auth` in `vitehub()`. In `server/auth.ts`, set `access: { signIn: '/login', afterSignIn: '/' }`: `redirects.login` is now `signIn`, and `redirects.guest` is now `afterSignIn`. `vitehub migrate` moves them.",
+    },
+    AUTH_SIGN_IN_CALLBACK_URL_MOVED: {
+      why: "`defineAuth()` access.signIn.callbackURL moved to `access.afterSignIn`.",
+      fix: "Move the value to `access.afterSignIn`, for example `access: { signIn: { provider: 'github' }, afterSignIn: '/dashboard' }`. The page guard also sends signed-in users there from `auth: 'guest'` pages. `vitehub migrate` moves it.",
     },
 
     // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
@@ -86,7 +106,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0026: withFix("Set the option to a non-empty string, for example `provider: 'github'` or `method: 'GET'`."),
     AUTH_C0027: withFix("Start the path with `/`, for example `/admin/**` or `/auth`."),
-    AUTH_C0028: withFix("Set `access.signIn` to an object, for example `signIn: { provider: 'github' }`."),
+    AUTH_C0028: withFix("Set `access.signIn` to the inline path of a sign-in page, for example `signIn: '/login'`, or to a provider, for example `signIn: { provider: 'github' }`."),
     AUTH_C0029: withFix("Set `access.signIn.requestSignUp` to `true` or `false`, or remove it."),
     AUTH_C0030: withFix("Set `access.signIn.scopes` to an array of strings, for example `scopes: ['read:org']`."),
     AUTH_C0031: withFix("Write each entry of `access.routes` as a route string or an object, for example `'/admin/**'` or `{ route: '/api/admin/**', authorize }`."),
@@ -114,7 +134,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),
     AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not select it in a branch."),
     AUTH_C0055: withFix("Write `additionalFields` inline in `server/auth.ts`, with a literal `type` for each field, for example `user: { additionalFields: { login: { type: 'string', required: false } } }`."),
-    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change. For a plugin that adds a table or a column, call it in `server/auth.ts` so that the Auth Vite plugin adds its tables, or add its tables to the Database Definition. Then run `vitehub database generate`."),
+    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change. For a plugin that adds a table or a column, call it in `server/auth.ts` or in a file that `server/auth.ts` imports with a relative path, so that the Auth Vite plugin adds its tables, or add its tables to the Database Definition. Then run `vitehub database generate`."),
     AUTH_C0057: withFix("Unset `VITEHUB_ADMIN_EMAILS`. List each admin's social account in `VITEHUB_ADMINS`, for example `VITEHUB_ADMINS=github:22072217`."),
     AUTH_C0058: withFix("Write each `VITEHUB_ADMINS` entry as `<provider>:<account id>`, for example `github:22072217`. Run `gh api users/<login> --jq .id` to get a GitHub account id. For an app with only email sign-in, remove `VITEHUB_ADMINS`, then run `vitehub auth claim`."),
     AUTH_C0059: withFix("Run `vitehub auth claim` and set `VITEHUB_ADMIN_CLAIM` to the `sha256:` value that it prints. Do not set the code itself."),

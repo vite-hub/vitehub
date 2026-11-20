@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceDiff, WorkspaceDiffEntry, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryDiffOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -29,7 +29,7 @@ export function forwardWorkspaceHistoryMerge(options: WorkspaceMergeOptions, com
 
 export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommitOptions): WorkspaceHistoryCommitOptions {
   const forwardFiles = (files: Record<string, WorkspaceFile> = {}) => Object.fromEntries(Object.entries(files).map(([path, file]) => [path, { content: file.content, mediaType: file.mediaType, metadata: file.metadata }]))
-  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata: options.metadata }
+  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, onHeadConflict: options.onHeadConflict, startFrom: options.startFrom, message: options.message, metadata: options.metadata }
   const forwarded: WorkspaceHistoryCommitOptions = options.changes
     ? { ...base, changes: { put: forwardFiles(options.changes.put), delete: [...options.changes.delete ?? []] } }
     : { ...base, files: forwardFiles(options.files) }
@@ -53,7 +53,7 @@ function historyUnavailable() {
 }
 
 /** Forward history only when the caller can inspect the complete folder. */
-export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | undefined, complete: boolean): WorkspaceHistoryReader {
+export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | undefined, complete: boolean): WorkspaceHistoryReader & Pick<WorkspaceRetainedHistory, "diff"> {
   function requireHistory() {
     if (!complete) throw workspaceErrorDiagnostics.WORKSPACE_R0069({ message: "[vitehub] Retained folder history requires access to the complete Workspace." })
     if (!history) throw historyUnavailable()
@@ -68,6 +68,46 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
     refs: async () => await requireHistory().refs(),
     open: async id => await requireHistory().open(id),
     usage: async () => await requireHistory().usage(),
+    diff: async options => await diffWorkspaceRevisions(requireHistory(), options),
+  }
+}
+
+/** The files whose bytes or retained attributes changed from one revision to another. */
+async function diffWorkspaceRevisions(history: Pick<WorkspaceHistoryReader, "open">, options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff> {
+  const open = async (id: string) => {
+    const view = await history.open(id)
+    const files = new Map<string, WorkspaceEntry>()
+    for (const entry of await view.list("", { recursive: true })) {
+      if (entry.type === "file") files.set(entry.path, entry)
+    }
+    return { view, files }
+  }
+  const [from, to] = await Promise.all([options.from === undefined ? undefined : open(options.from), open(options.to)])
+  const sameBytes = async (path: string, before: WorkspaceEntry, after: WorkspaceEntry) => {
+    if (before.digest !== undefined && after.digest !== undefined) return before.digest === after.digest
+    const [left, right] = await Promise.all([from!.view.readFile(path, { encoding: "binary" }), to.view.readFile(path, { encoding: "binary" })])
+    return left.length === right.length && left.every((byte, index) => byte === right[index])
+  }
+  const entries: WorkspaceDiffEntry[] = []
+  for (const path of [...new Set([...from?.files.keys() ?? [], ...to.files.keys()])].sort()) {
+    const before = from?.files.get(path)
+    const after = to.files.get(path)
+    if (!before) entries.push({ path, type: "added", after: snapshotEntry(after!) })
+    else if (!after) entries.push({ path, type: "removed", before: snapshotEntry(before) })
+    else if (before.mediaType !== after.mediaType || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata) || !await sameBytes(path, before, after)) {
+      entries.push({ path, type: "modified", before: snapshotEntry(before), after: snapshotEntry(after) })
+    }
+  }
+  return { ...(options.from === undefined ? {} : { from: options.from }), to: options.to, entries }
+}
+
+function snapshotEntry({ digest, mediaType, metadata, size }: WorkspaceEntry): NonNullable<WorkspaceDiffEntry["before"]> {
+  return {
+    type: "file",
+    ...(digest === undefined ? {} : { digest }),
+    ...(mediaType === undefined ? {} : { mediaType }),
+    ...(metadata === undefined ? {} : { metadata }),
+    ...(size === undefined ? {} : { size }),
   }
 }
 
@@ -90,6 +130,11 @@ export function normalizeHistoryPath(path: string): string {
 
 export function historyConflict(ref: string, expected: string | null, actual: string | null, details: Record<string, unknown> = {}) {
   return workspaceConflict(`[vitehub] History ref "${ref}" changed before the commit.`, { details: { ...details, ref, expected, actual } })
+}
+
+export function rejectHistoryHead(options: WorkspaceHistoryCommitOptions | WorkspaceStoreHistoryCommitOptions, error: unknown): never {
+  options.onHeadConflict?.(error)
+  throw error
 }
 
 interface HistoryFileInput {
@@ -171,7 +216,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     const commit = readHistoryCommit(options)
     const metadata = copyJsonWorkspaceMetadata("history revision", options.metadata)
     const current = await retained.head({ ref })
-    if ((current?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, current?.id ?? null)
+    if ((current?.id ?? null) !== options.ifHead) rejectHistoryHead(options, historyConflict(ref, options.ifHead, current?.id ?? null))
     // A missing ref that the Store starts from another ref begins with the files of that ref.
     if (options.startFrom !== undefined && (typeof options.startFrom !== "string" || !options.startFrom || options.ifHead !== null || !store.history?.forksFrom)) {
       throw workspaceError("[vitehub] History commit startFrom needs a revision id, ifHead null, and a Store that starts missing refs from another ref.")
@@ -245,7 +290,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
       }
     }
     // Keep grant validation and the Store commit on the revision reviewed before write hooks ran.
-    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
+    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, onHeadConflict: options.onHeadConflict, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
     const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
       ? { ...base, files: desired }
       : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }
@@ -281,6 +326,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     refs: async () => await history().refs(),
     open: async id => await history().open(id),
     usage: async () => await history().usage(),
+    diff: async options => await diffWorkspaceRevisions(history(), options),
     commit,
   }
 }

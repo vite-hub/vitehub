@@ -101,13 +101,14 @@ import { ask, typesafe } from 'vite-hub/gateways'
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
 
-const answers = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', {
     groceries: 'Food and household shopping.',
     eatingOut: 'Restaurants and cafes.',
   }),
   recurring: ask.if('Is it a recurring payment?'),
 })
+if (error) throw error
 
 answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1
@@ -125,6 +126,8 @@ The answer types come from the questions:
 | `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
 | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
 
+`gateway.ask()` returns `[error, answers]`. A rejected key returns [`GATEWAYS_R0008`](/docs/gateways/limits-and-errors#gateways_r0008), and a provider that still fails after the retries returns [`GATEWAYS_R0009`](/docs/gateways/limits-and-errors#gateways_r0009). In a route, `return toResponse(error)` from `vite-hub/runtime` answers 503 or 502. A missing key or a question that the `ask` builders did not make throws.
+
 `options` takes `signal` to cancel the requests, and `onUsage`, which gets the `model`, `provider`, and token `usage` of each request. [Limits](/docs/gateways/limits-and-errors#limits) gives the size limit and the retries.
 
 ### Ask with any model
@@ -135,9 +138,10 @@ The answer types come from the questions:
 import { ask, askWithModel } from 'vite-hub/gateways'
 import { openai } from '@ai-sdk/openai'
 
-const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
 })
+if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 ```
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.

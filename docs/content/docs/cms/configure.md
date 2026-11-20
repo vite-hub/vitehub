@@ -22,7 +22,7 @@ export default defineContent({
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `access` | No policy | `'roles'` turns on the CMS role policy. Your own `authorize` overrides it. |
+| `roles` | No policy | `true` turns on the CMS role policy. Your own `authorize` overrides it. |
 | `database` | The Database named `default`, else the only Database, else a `default` Database that the preset adds | Database that gets the history tables and the editor sessions table. Required when the app has several Databases and none is named `default`. |
 | `blob` | `default` | Blob store for file contents. Not for the GitHub store. |
 | `workspace` | `content` | Name and store identity of the Workspace. It must not match a Workspace in `server/workspaces/`. |
@@ -33,7 +33,7 @@ export default defineContent({
 | `root` | `''` | GitHub store: the repository folder that collection paths start from. `''` is the root. |
 | `publish` | `commit` | GitHub store: how a publish reaches `branch`. `commit` commits to it. `pr` opens a pull request ([Pull request mode](#pull-request-mode)). |
 
-The build reads `server/content.ts` without running it. So import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it directly as `extends: cms` or `extends: [cms, { ... }]`, and write each option as a string literal. The [Server API](/docs/cms/server-api#option-values) lists the accepted values.
+The build reads `server/content.ts` without running it. Import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it directly as `extends: cms` or `extends: [cms, { ... }]`, and use literal options. Use the boolean literal `true` for `roles`. The [Server API](/docs/cms/server-api#option-values) lists the accepted values.
 
 The preset sets `workspace` in `defineContent()`, so do not pass `workspace` next to `extends`.
 
@@ -52,13 +52,13 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the `default` Database or the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
 | Features | `workspace`, `database`, and `blob`, when the ViteHub options leave them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files live under `vitehub/workspace-history/` in that store. |
-| `defineContent()` | `workspace: 'content'`. With `access: 'roles'`, also the CMS roles as `authorize` when the app sets none | `content.collection(name)` reads and writes that Workspace. `vitehub inspect definitions --kind cms` shows what decides access. |
+| `defineContent()` | `workspace: 'content'`. With `roles: true`, also the CMS roles as `authorize` when the app sets none | `content.collection(name)` reads and writes that Workspace. `vitehub inspect definitions --kind cms` shows what decides access. |
 
 The collections work as in [Document collections](/docs/content/configure#document-collections): saves go to the `draft` ref, `publish()` copies documents to `published`, and `/api/content/**` serves only published documents.
 
 ## Access
 
-Turn on CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Better Auth `admin` plugin with `admin(cmsAccess)` from `vite-hub/cms/access`, and give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. `admin` can do everything. `user`, the role of new users, can do nothing. Without `access: 'roles'` or `authorize`, every action is denied. [Roles and access](/docs/cms/access) explains the setup.
+Turn on CMS roles with `extends: [cms, { roles: true }]`. Install the Better Auth `admin` plugin with `admin(cmsAccess)` from `vite-hub/cms/access`, and give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. `admin` can do everything. `user`, the role of new users, can do nothing. Without `roles: true` or `authorize`, every action is denied. [Roles and access](/docs/cms/access) explains the setup.
 
 The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead, set `authorize` in `defineContent()`:
 
@@ -184,7 +184,7 @@ With the Blob + Database store, the Workspace keeps the only copy of each docume
 
 3. Delete the files from the repository, and any code that reads them.
 
-A new environment then starts with an empty Workspace. To copy documents into it, read each one from the deployed app with `vitehub content show`, then save it with `vitehub content edit --file`. If the repository must stay the source of the documents, use the [GitHub store](#github-store).
+A new environment then starts with an empty Workspace. To copy documents into it, read each one from the deployed app with `vitehub content get`, then save it with `vitehub content edit --file`. If the repository must stay the source of the documents, use the [GitHub store](#github-store).
 
 ## Migrate from manual wiring
 

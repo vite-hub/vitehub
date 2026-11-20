@@ -1,5 +1,6 @@
 // Pure decisions of the Sync client. The store calls them and does the side effects.
 import { syncErrors } from "../errors.ts"
+import { provisionalAccount } from "./account.ts"
 import { SyncError } from "./types.ts"
 
 import type { SyncErrorCode, SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncValues, SyncWireError } from "../protocol.ts"
@@ -54,9 +55,12 @@ function singleValues(values: SyncValues | undefined): SyncValues {
   return single
 }
 
-/** `true` when the write belongs to `account`, or was made before the first pull. */
+/**
+ * `true` when the write belongs to `account`, or was made before the first pull. A write of an account waits for the
+ * pull that tells the account, such as after `clearSync({ keepWrites: true })`.
+ */
 function isOwn(write: SyncNewWrite, account: string | undefined): boolean {
-  return write.account === null || account === undefined || write.account === account
+  return write.account === null || write.account === account
 }
 
 /** `true` when the write belongs to `account` and goes to the server. A refused write is not active. */
@@ -116,6 +120,7 @@ interface SyncViewPage {
 /** What `buildView` needs besides the rows and the writes. */
 interface SyncViewContext {
   meta: SyncMeta | undefined
+  active?: (write: SyncNewWrite) => boolean
   /** The subset of the store. */
   where: SyncValues
   /** The optimistic functions of actions, by name. */
@@ -194,7 +199,7 @@ function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly Sy
   // The rows of each other Sync name as the optimistic functions changed them, in order: `null` after a delete.
   const changes = new Map<string, Map<SyncKey, SyncRow | null>>()
   for (const write of writes) {
-    if (!isActive(write, account)) continue
+    if (!(context.active ? context.active(write) : isActive(write, account))) continue
     if (write.op !== "action") {
       apply(write)
       continue
@@ -302,14 +307,19 @@ function toMutation(write: SyncNewWrite, meta: SyncMeta | undefined): SyncMutati
  * The storage change for a pull. Writes made before the first pull take its account. Writes of another account stay as
  * they are, for when that account comes back. A new scope or table version drops the rows, not the writes.
  */
-function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: readonly SyncQueuedWrite[]): SyncStorageChange {
+function pullChange(meta: SyncMeta | undefined, pull: SyncPullResponse, writes: readonly SyncQueuedWrite[], claimant?: string | null): SyncStorageChange {
+  const provisional = claimant ? provisionalAccount(claimant) : null
   const update = writes.filter(write => write.account === null).map(write => ({ ...write, account: pull.account }))
+  const seqs = provisional ? writes.filter(write => write.account === provisional).map(write => write.seq) : []
+  // A page of a snapshot says where the next one starts. Other pulls, such as the one in a push answer, keep it.
+  const after = pull.after !== undefined ? pull.after ?? undefined : pull.reset ? undefined : meta?.after
   return {
-    meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults },
+    meta: { key: pull.key, cursor: pull.cursor, scope: pull.scope, account: pull.account, version: pull.version, defaults: pull.defaults, ...(after === undefined ? {} : { after }) },
     reset: pull.reset || (meta !== undefined && (meta.scope.id !== pull.scope.id || meta.version !== pull.version)),
     put: pull.rows.map(row => [String(row[pull.key]), row]),
     delete: pull.deleted,
     update,
+    ...(provisional && seqs.length ? { claim: { from: provisional, to: pull.account, seqs } } : {}),
   }
 }
 
@@ -339,10 +349,10 @@ function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMuta
  * update that is not on its way to storage (`storing`). `local` holds the writes of this tab that are not stored yet, so
  * no other tab and no push has them. An action in between stops the search, since its server code may read the row.
  */
-function mergeTarget(local: readonly SyncNewWrite[], key: SyncKey, account: string | undefined, storing: ReadonlySet<string>): Extract<SyncNewWrite, { op: "update" }> | undefined {
+function mergeTarget(local: readonly SyncNewWrite[], key: SyncKey, account: string | null | undefined, storing: ReadonlySet<string>): Extract<SyncNewWrite, { op: "update" }> | undefined {
   for (let index = local.length - 1; index >= 0; index--) {
     const write = local[index]!
-    if (!isActive(write, account)) continue
+    if (!isActive(write, account ?? undefined)) continue
     if (write.op === "action") return undefined
     if (write.key !== key) continue
     return write.op === "update" && !storing.has(write.id) ? write : undefined
