@@ -377,6 +377,36 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
   })
 
+  it("sets max_batch_size on the Cloudflare consumer from maxBatchSize", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: 5 })\n")
+    // A comment that names the option sets nothing.
+    await writeFile(join(root, "server", "queues", "mail.ts"), "// maxBatchSize stays at the Cloudflare default.\nexport default { handler: async () => undefined }\n")
+
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    await (hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<void>)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues.consumers", expect.arrayContaining([
+      { queue: "queue--6d61696c" },
+      { max_batch_size: 5, queue: "queue--73796e63" },
+    ]))
+  })
+
+  it.each([
+    ["a variable", "const size = 5\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: size })"],
+    ["a spread object", "const options = { maxBatchSize: 5 }\nexport default defineQueue({ handler: async () => undefined, ...options })"],
+    ["a value above 100", "export default defineQueue({ handler: async () => undefined, maxBatchSize: 200 })"],
+  ])("fails the Cloudflare build when it cannot read maxBatchSize from %s", async (_, source) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), `import { defineQueue } from 'vite-hub/queue'\n${source}\n`)
+
+    const config = hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await expect(config({ nitro: { preset: "cloudflare_module" }, root })).rejects.toMatchObject({ code: "QUEUE_MAX_BATCH_SIZE_INVALID" })
+  })
+
   it("maps the long Drop deployment to its existing legacy Queue", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-legacy-"))
     roots.push(root)

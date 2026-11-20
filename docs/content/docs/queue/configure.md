@@ -187,6 +187,7 @@ export default defineQueue<{ reportId: string }>({
 | --- | --- | --- | --- |
 | `cache` | `boolean` | All | Overrides QueueClient caching for this queue. |
 | `concurrency` | `number` | Cloudflare, Local, Postgres | How many jobs of this queue run at the same time: in one batch on Cloudflare, in one server process on local and postgres. Default `1`. Rounded down to an integer, at least `1`. |
+| `maxBatchSize` | `number` | Cloudflare | The most messages in one batch, from 1 to 100. Cloudflare's default is 10. Write it as a number in `export default defineQueue({ ... })`: the build reads it from the file and writes `max_batch_size` on the consumer. |
 | `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delay?: Duration } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
 | `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
 | `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
