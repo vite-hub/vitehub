@@ -53,7 +53,7 @@ The build bundles a call only when its options are literals: a string, or an obj
 
 `github()`, `mcpResources()`, and your own loaders can set a cache policy. `false` turns it off. GitHub applies it to its ref, archive, and metadata caches.
 
-The consumer of the Source reads `cache`. Today that is the Workspace, which keeps a copy of the Source content and refreshes it after `maxAge`. A reader from `createSource()` alone does not cache. To cache its reads, wrap it in [`cachedSource()`](/docs/source/server-api).
+The consumer of the Source reads `cache`. Today that is the Workspace, which keeps a copy of the Source content and refreshes it after `maxAge`. A reader from `useSource()` alone does not cache. To cache its reads, wrap it in [`cachedSource()`](/docs/source/server-api).
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ The consumer of the Source reads `cache`. Today that is the Workspace, which kee
 `defineSource()` takes a loader with `name`, `getKeys()`, and `getItem()`. It does not take reader objects or reader factories.
 
 ```ts
-import { createSource, defineSource } from 'vite-hub/source'
+import { defineSource, useSource } from 'vite-hub/source'
 
 const articles = defineSource({
   name: 'articles',
@@ -76,7 +76,7 @@ const articles = defineSource({
   },
 })
 
-const reader = createSource(articles)
+const reader = useSource(articles)
 const article = await reader.get('article_123')
 article.data.title
 article.metadata.version
@@ -96,13 +96,13 @@ article.metadata.version
 | `getItems(ctx)` | `function` | Optional. Reads all items at once. |
 | `getMeta(key, ctx)` | `function` | Optional. Reads metadata. |
 
-- `resolveRevision()` and `prepare()` run at most once per `createSource()` or `useSource()` reader, before its first operation.
+- `resolveRevision()` and `prepare()` run at most once per `useSource()` reader, before its first operation.
 - The revision goes into the shared context, and loaders that support revisions use it for later calls. Other loaders can see origin changes. A new reader resolves a new revision.
 - `getItems()` loads all items in one call. `getMeta()` returns metadata without loading content.
 
 ### Source context
 
-`createSource()` and `useSource(name, context?)` take a partial context and pass the full `SourceContext` to each loader method.
+`useSource(nameOrSource, context?)` takes a partial context and pass the full `SourceContext` to each loader method.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
