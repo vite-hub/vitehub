@@ -1,6 +1,7 @@
 import { recordAuxiliaryUsage } from "../internal/auxiliary-usage.ts"
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
-import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
+import { createTraceEventLog } from "@vite-hub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 import { safeAgentTelemetryMetadata } from "../internal/agent-telemetry.ts"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { isRuntimeObject } from "../internal/runtime-type.ts"

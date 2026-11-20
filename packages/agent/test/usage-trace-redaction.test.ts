@@ -3,7 +3,7 @@ import { traceAgentInvocationFinish, traceAgentStreamEvent, type AgentTraceConte
 import type { StreamEvent } from "../src/messages.ts"
 
 const { emitTraceEvent } = vi.hoisted(() => ({ emitTraceEvent: vi.fn() }))
-vi.mock("@vite-hub/runtime", () => ({ emitTraceEvent }))
+vi.mock("@vite-hub/runtime/internal/trace", () => ({ emitTraceEvent }))
 
 it.each([
   { model: "postgres://alice:hunter2@host/model", source: "token=hunter2", expectedModel: "postgres://[REDACTED]@host/model", expectedSource: "token=[REDACTED]" },

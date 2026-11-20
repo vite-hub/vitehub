@@ -19,7 +19,8 @@ import type { StreamEvent } from "../src/messages.ts"
 import type { UIMessage } from "ai"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, getViteHubErrorShape } from "@vite-hub/runtime"
+import { traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { github } from "@vite-hub/workspace"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.

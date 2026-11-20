@@ -14,7 +14,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
 import type { ShellDriver } from "@vite-hub/shell"
-import { createExecutionBudget } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(

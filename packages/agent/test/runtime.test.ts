@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createExecutionContext, createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
+import { createExecutionContext, createTraceEventLog, deriveTraceRuns, ViteHubError } from "@vite-hub/runtime"
+import { emitTraceEvent, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { chat, progressSummary, title } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
@@ -16268,7 +16269,7 @@ describe("agent message protocol", () => {
       const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
-      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace")
+      const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace/runtime")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ driver: "vercel" })

@@ -7,7 +7,7 @@ import {
   browserProviderError,
   toBrowserError,
 } from "./errors.ts"
-import { toResponse } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
 import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"

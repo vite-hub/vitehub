@@ -14,9 +14,10 @@ import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, Rate
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, githubWorkspaceInstallError, isGitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
-import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
-import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
+import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace/runtime";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/internal/node";
 import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";

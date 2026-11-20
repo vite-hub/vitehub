@@ -63,6 +63,34 @@ const authRemoved = new Map<string, string>([
 ].map(([name, fix]) => [name, `\`${name}\` is no longer public. ${fix}`]))
 const authPrivate = "ViteHub imports it in generated code. Remove the import."
 
+/** `[name, fix]` pairs for exports that moved to an `internal/*` entry that only ViteHub packages import. */
+function internalNames(entries: ReadonlyArray<readonly [names: readonly string[], fix: string]>): Map<string, string> {
+  return new Map(entries.flatMap(([names, fix]) => names.map(name => [name, `\`${name}\` is no longer public. ${fix}`] as const)))
+}
+const packageOnly = "Only ViteHub packages use it. Remove the import."
+const consoleLink = "Build a Console link with `hostedConsoleUrl(projectUrl, path)` from `vite-hub/runtime`."
+const runtimeRemoved = internalNames([
+  [["hostedConsoleOrigin", "normalizeConsolePath", "normalizeConsoleProjectUrl", "consoleInvocationUrl"], consoleLink],
+  [["deserializeResponse", "isResponse", "isSerializedResponse", "serializeResponse", "toResponse"], "Return a `Response` from the step, run, or Task. ViteHub stores it and gives it back."],
+  [["emitTraceEvent"], "Append to the log of the context with `context.traceLog?.append(event)`."],
+  [["createExecutionBudget", "createRuntimeWaitUntilController", "decodeRouteSegment", "encodeRouteSegment", "isExecutionBudgetExceededError", "isResolvable", "isTraceContentAttributeKey", "leaseTable", "resolveRuntimeValue", "runtimeErrorDiagnostics", "traceEventsToOpenTelemetryLogRecords", "traceEventsToOpenTelemetrySpans"], packageOnly],
+])
+const realtimeRemoved = internalNames([[[
+  "applyRealtimeAwarenessUpdate", "applyRealtimeSyncMessage", "assertRealtimeRoomStateQuota", "bindAwarenessIdentity", "claimAwarenessClientIds",
+  "compactRealtimeAwareness", "containsRealtimeState", "createRealtimeYDoc", "diffRealtimeYDoc", "encodeAwarenessState", "encodeSyncStep1",
+  "encodeSyncUpdate", "isRealtimeWorkspaceDocument", "readRealtimeRequestState", "readRealtimeWorkspaceDocument", "readRealtimeYDoc",
+  "realtimePersistenceDefaults", "realtimeRoomKey", "resolveRealtimeDefinition", "restoreRealtimeDocument", "RealtimeSyncOptions",
+], "The generated Realtime route uses it. Remove the import."]])
+const realtimeRootNames = new Set(["RealtimeDocumentConflict", "isRealtimeDocumentConflict", "readRealtimeStatus", "realtimeDocumentLayout"])
+const commentsRemoved = internalNames([[["builtinCommentSubjects", "commentsErrorDiagnostics", "commentsPageScope", "commentsRealtimeDefinition", "commentsRoute", "commentsRuntimeOf", "resolveCommentsRuntime"], "The generated Comments route uses it. Remove the import."]])
+const formsGuardNames = new Set(["guardRequest", "GuardedRequest", "GuardRequestOptions", "GuardRequestServices"])
+const formsRemoved = internalNames([[["isFormDefinition"], "A file in `server/forms/` default-exports `defineForm()`. ViteHub checks it."]])
+const workspaceFilesNames = new Set(["normalizeSafeWorkspacePath", "resolveWorkspaceStoreTarget", "WorkspaceStoreTarget"])
+const workspaceRemoved = new Map([
+  ...internalNames([[["assertModelWorkspaceGlobPattern", "modelWorkspaceGlobPatternLimits", "resolveWorkspaceAutoCommit", "WorkspaceGlobPatternLimits"], packageOnly]]),
+  ...[["invalidateWorkspaceStore", "resolveRegisteredWorkspaceDefinition"]].flat().map(name => [name, `\`${name}\` moved to \`vite-hub/workspace/runtime\`. Import it from there.`] as const),
+])
+
 function moves(): Move[] {
   return [
     { from: "vite-hub/runtime/h3", to: "vite-hub/runtime", renames: h3Renames, removed: h3Removed },
@@ -76,6 +104,16 @@ function moves(): Move[] {
     { from: "vite-hub/auth/runtime/server", privatePath: `\`vite-hub/auth/runtime/server\` is no longer public. ${authPrivate}` },
     { from: "vite-hub/auth/console", privatePath: `\`vite-hub/auth/console\` is no longer public. ${authPrivate}` },
     { from: "vite-hub/auth/console-runtime", privatePath: "`vite-hub/auth/console-runtime` is no longer public. Read users and sessions with `getAuthConsoleForRequest(request)` from `vite-hub/auth/server`." },
+    { from: "vite-hub/runtime", removed: runtimeRemoved },
+    { from: "@vite-hub/runtime", removed: runtimeRemoved },
+    { from: "vite-hub/realtime/server", to: "vite-hub/realtime", names: realtimeRootNames, removed: realtimeRemoved },
+    { from: "@vite-hub/realtime/server", to: "@vite-hub/realtime", names: realtimeRootNames, removed: realtimeRemoved },
+    { from: "vite-hub/comments", removed: commentsRemoved },
+    { from: "@vite-hub/comments", removed: commentsRemoved },
+    { from: "vite-hub/forms", removed: new Map([...formsRemoved, ...[...formsGuardNames].map(name => [name, `\`${name}\` moved to \`@vite-hub/forms/guard\`. Install \`@vite-hub/forms\` and import it from there.`] as const)]) },
+    { from: "@vite-hub/forms", to: "@vite-hub/forms/guard", names: formsGuardNames, removed: formsRemoved },
+    { from: "vite-hub/workspace", to: "vite-hub/workspace/files", names: workspaceFilesNames, removed: workspaceRemoved },
+    { from: "@vite-hub/workspace", to: "@vite-hub/workspace/files", names: workspaceFilesNames, removed: new Map([...workspaceRemoved].map(([name, message]) => [name, message.replace("vite-hub/workspace/runtime", "@vite-hub/workspace/runtime")])) },
   ]
 }
 
@@ -298,15 +336,15 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const runtimeContracts: Codemod = {
   name: "runtime-contracts",
-  description: "Import getRuntimeContext and getStandardContext from vite-hub/runtime, read checkRateLimit() as a Result, and move private runtime, logs, and Auth imports",
+  description: "Import getRuntimeContext and getStandardContext from vite-hub/runtime, read checkRateLimit() as a Result, and move private runtime, logs, Auth, Realtime, Comments, Forms, and Workspace imports",
   usage: "[dir]",
   async detect({ cwd }) {
     const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
     for (const file of files) {
       const source = await readFile(join(cwd, file), "utf8")
-      // An import of `vite-hub/auth/server` counts only when it names an export that is no longer public.
+      // An import of `vite-hub/auth/server` counts only when it names an export that moved or is no longer public.
       const move = moves().find(move => (source.includes(`"${move.from}"`) || source.includes(`'${move.from}'`))
-        && (move.to || move.privatePath || [...move.removed?.keys() ?? []].some(name => new RegExp(`\\b${name}\\b`).test(source))))
+        && ((move.to && !move.names) || move.privatePath || [...move.names ?? [], ...move.removed?.keys() ?? []].some(name => new RegExp(`\\b${name}\\b`).test(source))))
       if (move) return { reason: `${file} imports ${move.from}` }
       if (source.includes("checkRateLimit") && [...rateLimitModules].some(module => source.includes(module))) return { reason: `${file} calls checkRateLimit()` }
     }

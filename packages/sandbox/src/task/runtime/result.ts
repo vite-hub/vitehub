@@ -1,4 +1,5 @@
-import { toResponse, type ViteHubError } from '@vite-hub/runtime'
+import { type ViteHubError } from '@vite-hub/runtime'
+import { toResponse } from '@vite-hub/runtime/internal/response'
 
 /** Convert a sandbox value to the native Web Response contract. */
 export async function ok(value: unknown): Promise<Response> { return toResponse(value) }
