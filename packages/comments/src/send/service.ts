@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { commentsErrors } from "../errors.ts"
 import { createCommentSendStore } from "./store.ts"
 
@@ -141,7 +143,7 @@ function readFields(text: string): Record<string, unknown> {
 
 function stringField(fields: Record<string, unknown>, name: string): string {
   const value = fields[name]
-  if (typeof value !== "string") throw new TypeError(`Send expected the field \`${name}\` in its own stored JSON.`)
+  invariant(typeof value === "string", `the field \`${name}\` in the stored JSON of Send`)
   return value
 }
 

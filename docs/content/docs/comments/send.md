@@ -2,7 +2,7 @@
 title: Send comments to your agent
 description: One click in the comment pill hands the comments that wait for an answer to your own T3 Code thread, through a signed webhook.
 navigation.title: Send
-navigation.order: 6
+navigation.order: 11
 icon: i-lucide-send
 ---
 
@@ -86,6 +86,8 @@ Each send is one signed `POST`, with this body:
 - `read` opens the threads of this send for 24 hours. `GET read.url` with the header `authorization: Bearer <token>` returns exactly those threads, marked `ask` or `quote`, as you may read them. Reading sets the pill to **Working**.
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   send: {
     // The agent reads through your own MCP server: no read token.
