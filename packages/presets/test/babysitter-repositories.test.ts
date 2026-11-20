@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { babysitterRepositories } from "../src/babysitter/repositories.ts";
 import { PullRequestInbox } from "../src/babysitter/inbox/store.ts";
+import { deferred } from "./fixtures/deferred.ts";
 
 const installed = (repository: string, archived = false) => ({ repository, installationId: 1, archived });
 
@@ -23,7 +24,7 @@ describe("Babysitter repositories", () => {
   });
 
   it("replaces an aborted refresh and ignores its late result", async () => {
-    const first = Promise.withResolvers<ReturnType<typeof installed>[]>();
+    const first = deferred<ReturnType<typeof installed>[]>();
     const read = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce([installed("acme/new")]);
     const repositories = babysitterRepositories({}, read);
     const controller = new AbortController();

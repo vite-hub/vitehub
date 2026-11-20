@@ -669,6 +669,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const [, repository, number] = match;
       if ((await pullRequestInbox.get(repository, Number(number)))?.status !== "terminal") continue;
       try {
+        signal.throwIfAborted();
         const { provider } = await forge(repository, signal);
         signal.throwIfAborted();
         const ref = await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${value.branch}`, { signal }).then(response => response.data, (error: unknown) => {
@@ -1551,6 +1552,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
   async function evaluateWaits(step: (name: string, subject?: string) => void, signal: AbortSignal) {
+    signal.throwIfAborted();
     // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
     for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, true)) {
       step("waits", `${snapshot.repository}#${snapshot.number}`);
@@ -1803,6 +1805,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const key = `bootstrap-rest-v1:${repository}`;
       // SAFETY: This versioned key is written below only with an ISO timestamp object; absent keys return undefined.
       const previous = (await pullRequestInbox.meta(key)) as { at: string } | undefined;
+      signal.throwIfAborted();
       if (previous && Date.now() - Date.parse(previous.at) < 30 * 60_000) continue;
       // Failed bootstraps retry on the repair timer, not on every owner wake.
       const nextKey = `${key}:next`;
@@ -1864,6 +1867,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if ((await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now()) {
         signal.throwIfAborted();
         await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000);
+        signal.throwIfAborted();
         await recoverFailedCiWaits(step, signal);
       }
       await evaluateWaits(step, signal);

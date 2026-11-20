@@ -15,7 +15,7 @@ export function isWorkerBlocker(snapshot: Pick<Snapshot, "wait" | "lastResult">)
 
 export interface BabysitterStatusRecovery {
   flush(): Promise<void>;
-  recover(): Promise<void>;
+  recover(signal?: AbortSignal): Promise<void>;
   recordWorkerBlocker(snapshot: Snapshot, reason: string): Promise<void>;
 }
 

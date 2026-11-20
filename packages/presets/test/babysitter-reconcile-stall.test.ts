@@ -8,6 +8,7 @@ import { createBabysitterAdmission } from "../src/babysitter/admission.ts";
 import { probeChangedSnapshots } from "../src/babysitter/inbox/snapshot-sync.ts";
 import { createBabysitterRuntime } from "../src/babysitter/server.ts";
 import type { GitHubHost } from "../src/github/index.ts";
+import { deferred } from "./fixtures/deferred.ts";
 import { githubForge } from "./fixtures/github-forge.ts";
 
 const repository = "acme/app";
@@ -67,7 +68,7 @@ async function testRuntime(options: Partial<Parameters<typeof createBabysitterRu
 }
 
 it("takes a fresh built-in admission sample after a stall", async () => {
-  const first = Promise.withResolvers<{ reason: string }>();
+  const first = deferred<{ reason: string }>();
   const check = vi.fn().mockReturnValueOnce(first.promise).mockReturnValue(undefined);
   const admission = createBabysitterAdmission({ limits: { paused: false }, check });
   const runtime = await testRuntime({ admission: signal => admission(undefined, signal) });
@@ -86,7 +87,7 @@ it("takes a fresh built-in admission sample after a stall", async () => {
 });
 
 it("rejects without waiting for telemetry and contains a throwing event handler", async () => {
-  const summary = Promise.withResolvers<[]>();
+  const summary = deferred<[]>();
   const event = vi.fn((name: string) => {
     if (name === "babysitter.reconcile.stalled") throw new Error("event failed");
   });
@@ -110,7 +111,7 @@ it("keeps a replacement snapshot retry when a stopped probe gets its old respons
     const key = `snapshot-changed:${repository}:1`;
     await inbox.seed(repository, { number: 1, state: "open", head: { sha: "head" } });
     await inbox.setMeta(key, { fingerprint: "old", retryAt: 0 });
-    const response = Promise.withResolvers<unknown[]>();
+    const response = deferred<unknown[]>();
     const read = vi.fn(() => response.promise);
     const controller = new AbortController();
     const probing = probeChangedSnapshots(inbox, read, Date.now(), undefined, [], undefined, undefined, controller.signal);
