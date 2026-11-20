@@ -43,7 +43,7 @@ function singleOutline(shape: IconShape): SVGGeometryElement | undefined {
   const [path, ...rest] = shape.shapes;
   if (rest.length || !(path instanceof SVGPathElement)) return;
   const data = path.getAttribute("d") ?? "";
-  return (data.match(/[Mm]/g)?.length ?? 0) === 1 ? path : undefined;
+  return /^[Mm][^MmZz]+[Zz]\s*$/.test(data.trim()) ? path : undefined;
 }
 
 function start(icon: HTMLElement | SVGSVGElement): void {
@@ -57,11 +57,11 @@ function start(icon: HTMLElement | SVGSVGElement): void {
   const shape = iconShape(icon);
   const path = shape && singleOutline(shape);
   if (!shape || !path) return;
-  const sampled = shape.measure(() => {
-    const length = path.getTotalLength();
-    const bounds = path.getBBox();
+  const sampled = shape.measure(([geometry]) => {
+    const length = geometry!.getTotalLength();
+    const bounds = geometry!.getBBox();
     const outline = Array.from({ length: points }, (_, index): [number, number] => {
-      const point = path.getPointAtLength(length * index / points);
+      const point = geometry!.getPointAtLength(length * index / points);
       return [point.x, point.y];
     });
     return { outline, box: { top: bounds.y, height: bounds.height, center: bounds.x + bounds.width / 2 } };

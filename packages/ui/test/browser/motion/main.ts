@@ -6,6 +6,7 @@ import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
 import UButton from "@nuxt/ui/components/Button.vue";
 import UCheckbox from "@nuxt/ui/components/Checkbox.vue";
+import UIcon from "@nuxt/ui/components/Icon.vue";
 import URadioGroup from "@nuxt/ui/components/RadioGroup.vue";
 import USwitch from "@nuxt/ui/components/Switch.vue";
 import UTabs from "@nuxt/ui/components/Tabs.vue";
@@ -41,6 +42,8 @@ const saved = ref(false);
 const starred = ref(false);
 const pinned = ref(false);
 const cssSaved = ref(false);
+const inlineSaved = ref(false);
+const bold = ref(false);
 const view = ref("grid");
 const offOn = ref(false);
 const offChecked = ref(false);
@@ -155,6 +158,8 @@ const app = createApp({
       h(UButton, { "data-test": "pin", "variant": "ghost", "icon": "i-lucide-pin", "aria-label": "Pin", "aria-pressed": pinned.value, "class": buttonClass, "onClick": () => (pinned.value = !pinned.value) }),
       // An Iconify CSS icon, as `@nuxt/icon` renders one in CSS mode: a span that draws `--svg` as a mask.
       h("button", { "class": "plain", "data-test": "css-bookmark", "aria-label": "Save", "aria-pressed": String(cssSaved.value), "onClick": () => (cssSaved.value = !cssSaved.value) }, [h("span", { class: "iconify css-bookmark" })]),
+      h("button", { "class": "plain", "data-test": "inline-mask", "aria-label": "Save", "aria-pressed": String(inlineSaved.value), "onClick": () => (inlineSaved.value = !inlineSaved.value) }, [h(UIcon, { name: "i-lucide-bookmark", mode: "css" })]),
+      h(UButton, { "data-test": "bold", "icon": "i-lucide-bold", "aria-label": "Bold", "aria-pressed": bold.value, "onClick": () => (bold.value = !bold.value) }),
       // A segmented control: a choice of one of many, not a toggle. Its icons do not wobble.
       h("div", { class: "segments" }, ["grid", "list"].map(value => h(UButton, { "data-test": `view-${value}`, "variant": "ghost", "icon": value === "grid" ? "i-lucide-layout-grid" : "i-lucide-list", "aria-label": value, "aria-pressed": view.value === value, "onClick": () => (view.value = value) }))),
     ]),

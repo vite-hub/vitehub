@@ -100,7 +100,7 @@ function bind(check: Check, icon: HTMLElement | SVGSVGElement | undefined, fade:
   check.icon?.restore();
   if (check.fade && check.fade !== fade) writeMotionStyle(check.fade, { opacity: null });
   check.icon = icon && !check.reduced ? iconShape(icon) : undefined;
-  check.lengths = check.icon ? check.icon.measure(() => check.icon!.shapes.map(shape => shape.getTotalLength())) : [];
+  check.lengths = check.icon?.measure(shapes => shapes.map(shape => shape.getTotalLength())) ?? [];
   check.fade = fade;
   return !!check.icon || !!fade;
 }
@@ -123,6 +123,11 @@ export const check: MotionEffect = {
       if (!bind(check, icon, check.reduced ? styleable(check.indicator) : undefined)) return;
       draw(check, check.drawn.value);
       check.drawn.to(1, options);
+      return;
+    }
+    if (oldValue !== "true") {
+      check.drawn.set(0);
+      check.indicator = undefined;
       return;
     }
     const icon = findIcons(element)[0];
