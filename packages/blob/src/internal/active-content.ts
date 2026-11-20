@@ -32,3 +32,8 @@ export function attachmentDisposition(filename: string): string {
   const ascii = name.replace(/[^\u0020-\u007E]|["\\]/g, "_")
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeAttrValue(name)}`
 }
+
+/** The `Content-Disposition` of the `download` option of `serve()` and `sign()`: `true` names the file after `pathname`. */
+export function downloadDisposition(pathname: string, download: boolean | string | undefined): string | undefined {
+  return download === undefined || download === false ? undefined : attachmentDisposition(download === true ? pathname : download)
+}

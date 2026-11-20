@@ -215,6 +215,35 @@ describe("signed requests of the fs driver", () => {
     expect((await send(upload.url, { body: "1234", method: "PUT" })).status).toBe(200)
   })
 
+  it("serves a signed GET as a download with the bound file name", async () => {
+    await blob.put("reports/q3.pdf", "%PDF", { contentType: "application/pdf" })
+    const named = await sign("reports/q3.pdf", { download: "Q3 report.pdf", expiresIn: 60, method: "GET" })
+    const response = await send(named.url)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-disposition")).toBe("attachment; filename=\"Q3 report.pdf\"; filename*=UTF-8''Q3%20report.pdf")
+    expect((await send(named.url.replace("download=Q3", "download=Q4"))).status).toBe(403)
+
+    const fromPath = await sign("reports/q3.pdf", { download: true, expiresIn: 60, method: "GET" })
+    expect((await send(fromPath.url)).headers.get("content-disposition")).toBe("attachment; filename=\"q3.pdf\"; filename*=UTF-8''q3.pdf")
+  })
+
+  it("stores a signed PUT only when the body has the bound contentLength", async () => {
+    const upload = await sign("audio/source.mp3", { contentLength: 4, contentType: "audio/mpeg", expiresIn: 60, method: "PUT" })
+    expect(upload.headers).toEqual({ "Content-Type": "audio/mpeg" })
+
+    const declared = await send(upload.url, { body: "12345", headers: { ...upload.headers, "Content-Length": "5" }, method: "PUT" })
+    expect(await rejection(declared)).toMatchObject({ code: "BLOB_R0041", status: 403 })
+    for (const body of ["12345", "123"]) {
+      const response = await send(upload.url, { body, headers: upload.headers, method: "PUT" })
+      expect(await rejection(response), body).toMatchObject({ code: "BLOB_R0041", status: 403 })
+    }
+    expect((await blob.head("audio/source.mp3"))[1]).toBeNull()
+    expect((await send(upload.url.replace("content-length=4", "content-length=5"), { body: "12345", headers: upload.headers, method: "PUT" })).status).toBe(403)
+
+    expect((await send(upload.url, { body: "1234", headers: upload.headers, method: "PUT" })).status).toBe(200)
+    expect((await blob.head("audio/source.mp3"))[1]).toMatchObject({ contentType: "audio/mpeg", size: 4 })
+  })
+
   it("fails to sign without a root secret, createOnly, or a valid maxSize", async () => {
     vi.stubEnv("VITEHUB_SECRET", "")
     vi.stubEnv("NUXT_APP_SECRET", "")
@@ -229,6 +258,9 @@ describe("signed requests of the fs driver", () => {
     expect(createOnly).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause: { code: "BLOB_R0025" } })
     // SAFETY: A JavaScript caller can pass a size that the type rejects.
     await expect(blob.sign("notes.txt", { expiresIn: 60, maxSize: "8 megabytes" as BlobSize, method: "PUT" })).rejects.toMatchObject({ code: "BLOB_R0039" })
+    for (const contentLength of [-1, 1.5, Number.NaN, "4" as unknown as number]) {
+      await expect(blob.sign("notes.txt", { contentLength, expiresIn: 60, method: "PUT" })).rejects.toMatchObject({ code: "BLOB_SIGN_CONTENT_LENGTH_INVALID" })
+    }
   })
 
   it("does not let a hosted driver ignore maxSize", async () => {

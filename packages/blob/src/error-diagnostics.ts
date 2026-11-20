@@ -100,7 +100,11 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ limit, size }: { limit: number, size: number }) => `The file is ${size} bytes. The blob operations accept at most ${limit} bytes.`,
       fix: "Upload larger files from the application or with the tools of the provider.",
     },
-    // Option errors. `handleUpload()` throws them before it reads the request.
+    // Option errors. `sign()` and `handleUpload()` throw them before they call the provider or read the request.
+    BLOB_SIGN_CONTENT_LENGTH_INVALID: {
+      why: ({ contentLength }: { contentLength: unknown }) => `\`contentLength\` of \`blob.sign()\` is ${JSON.stringify(contentLength) ?? String(contentLength)}. It must be a whole number of bytes, 0 or more.`,
+      fix: "Pass the exact size of the file in bytes, such as `blob.sign(pathname, { method: \"PUT\", contentLength: file.size, expiresIn: \"15m\" })`, or omit `contentLength`.",
+    },
     BLOB_UPLOAD_MAX_FILES_INVALID: {
       why: ({ maxFiles }: { maxFiles: number }) => `\`maxFiles\` of \`handleUpload()\` is ${maxFiles}. It must be a positive integer.`,
       fix: "Pass `maxFiles` as a whole number of 1 or more, such as `blob.handleUpload(event, { maxFiles: 5 })`, or omit it to accept any number of files.",
@@ -167,7 +171,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0022: withFix("Run `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
     BLOB_R0023: withFix("Remove `blob: false` from the Vite config, or remove the `blob` calls from server code."),
     BLOB_R0024: withFix("Pass `expiresIn` as a positive whole number of seconds or as a duration, for example `blob.sign(pathname, { method: \"GET\", expiresIn: \"5m\" })`."),
-    BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare` binds `createOnly`, `fs` binds `maxSize`, `vercel` binds both, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
+    BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare` binds `createOnly` and an exact `contentLength`, `fs` binds `maxSize` and `contentLength`, `vercel` binds `createOnly` and `maxSize`, and drivers such as `s3` bind none of them. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
     BLOB_R0026: withFix("Call `store()` on the `blob` export, for example `blob.store(\"media\")`, not on a handle that `blob.store()` returned."),
     BLOB_R0028: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_R0029: withFix("Change the command as the message says. `vitehub blob <command> --help` lists the arguments and options."),
