@@ -236,8 +236,11 @@ function createAiGateway(definition: AiGatewayDefinition, { route, optional, mod
   return Object.freeze(gateway)
 }
 
-function preset(definition: AiGatewayDefinition, options: AiGatewayPresetOptions | undefined): AiGatewayDefinition {
-  const value: AiGatewayDefinition = { ...definition }
+/** A definition with a URL for each of `TRoutes`. */
+type AiRoutedGatewayDefinition<TRoutes extends AiGatewayRoute> = AiGatewayDefinition & { baseURL: Record<TRoutes, AiGatewayValue<string>> }
+
+function preset<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, options: AiGatewayPresetOptions | undefined): AiRoutedGatewayDefinition<TRoutes> {
+  const value: AiRoutedGatewayDefinition<TRoutes> = { ...definition }
   // A present apiKey replaces the preset variable even when it is undefined, so the invocation fails
   // instead of using another account from the environment.
   if (options && Object.hasOwn(options, "apiKey")) value.apiKey = options.apiKey
@@ -254,9 +257,9 @@ function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | u
 /** A gateway that routes model requests to `TRoutes` and has no `ask()`. */
 export type AiModelGateway<TRoutes extends AiGatewayRoute> = AiGateway<{ ask: false, routes: TRoutes }>
 
-function modelGateway<TRoutes extends AiGatewayRoute>(definition: AiGatewayDefinition, extras?: Omit<AiGatewayExtras, "route">): AiModelGateway<TRoutes> {
-  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. Each caller passes
-  // a baseURL with the TRoutes keys, and normalizeAiGateway keeps them.
+function modelGateway<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, extras?: Omit<AiGatewayExtras, "route">): AiModelGateway<TRoutes> {
+  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. The baseURL has
+  // the TRoutes keys, and normalizeAiGateway keeps them.
   return createAiGateway(definition, extras) as AiModelGateway<TRoutes>
 }
 
