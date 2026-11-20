@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { isDefinitionSourceFile } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -149,12 +150,15 @@ export interface WebhooksRegistryFeatures {
   queue: boolean
   /** Install the member endpoint store. */
   memberEndpoints: boolean
+  /** Read the generated key only in the project's development server. */
+  developmentKeyFile?: string
 }
 
 /** The generated module that installs the webhooks. The Queue handler and the Nitro plugin import it. */
 export function renderWebhooksRegistry(webhooks: readonly DiscoveredWebhook[], imports: WebhooksImports, features: WebhooksRegistryFeatures = { queue: true, memberEndpoints: false }): string {
   const stores = features.memberEndpoints ? "createDrizzleWebhookEndpointStore, createDrizzleWebhookStore" : "createDrizzleWebhookStore"
   return [
+    ...features.developmentKeyFile ? ["import { readFileSync } from \"node:fs\""] : [],
     `import { installWebhooks, selectDefaultDatabase } from ${JSON.stringify(imports.runtime)}`,
     `import { ${stores} } from ${JSON.stringify(imports.database)}`,
     `import { useDatabase } from ${JSON.stringify(imports.databases)}`,
@@ -167,6 +171,7 @@ export function renderWebhooksRegistry(webhooks: readonly DiscoveredWebhook[], i
     `  webhooks: { ${webhooks.map((webhook, index) => `${JSON.stringify(webhook.name)}: webhook${index}`).join(", ")} },`,
     "  store: createDrizzleWebhookStore(db),",
     ...features.memberEndpoints ? ["  endpoints: createDrizzleWebhookEndpointStore(db),"] : [],
+    ...features.developmentKeyFile ? [`  developmentKey: readFileSync(${JSON.stringify(features.developmentKeyFile)}, "utf8").trim(),`] : [],
     ...features.queue ? [`  wake: (wake, options) => dynamicQueue.send(${JSON.stringify(webhooksQueueName)}, wake, options),`] : [],
     "})",
     "",
@@ -234,18 +239,21 @@ export function webhooksDevelopmentKeyFile(projectRoot: string): string {
  * In `vite dev`, a missing `VITEHUB_WEBHOOKS_KEY` reads the key file of the project, or generates it, so member
  * endpoints survive a restart. A build never generates a key.
  */
-async function useDevelopmentKey(projectRoot: string, envDir: string, mode: string): Promise<void> {
+async function ensureDevelopmentKey(projectRoot: string, envDir: string | false, mode: string): Promise<string | undefined> {
   const { loadEnv } = await import("vite")
-  if (loadEnv(mode, envDir, "VITEHUB_WEBHOOKS_KEY").VITEHUB_WEBHOOKS_KEY) return
+  if (loadAllEnv(loadEnv, mode, envDir).VITEHUB_WEBHOOKS_KEY?.trim()) return undefined
   const file = webhooksDevelopmentKeyFile(projectRoot)
-  let key = await readFile(file, "utf8").then(value => value.trim(), () => "")
-  if (!key) {
-    const generated = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+  if (!existsSync(file)) {
     await mkdir(dirname(file), { recursive: true })
-    // `wx` keeps the key of a dev server that wrote it first.
-    key = await writeFile(file, `${generated}\n`, { flag: "wx", mode: 0o600 }).then(() => generated, async () => (await readFile(file, "utf8")).trim())
+    const generated = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    try {
+      await writeFile(file, `${generated}\n`, { flag: "wx", mode: 0o600 })
+    }
+    catch (error) {
+      if (!existsSync(file)) throw error
+    }
   }
-  process.env.VITEHUB_WEBHOOKS_KEY = key
+  return file
 }
 
 interface PluginContext {
@@ -342,9 +350,11 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
         const listed = webhooks.map(webhook => relative(root, webhook.file))
         if (listed.length && !options.queue) throw webhooksErrors.WEBHOOKS_QUEUE_OFF({ files: listed.join(", ") })
         if ((listed.length || uses.length) && !options.database) throw webhooksErrors.WEBHOOKS_DATABASE_OFF({ users: [...listed, ...uses].join(", ") })
-        const files = writeWebhooksFiles(root, webhooks, imports, features)
+        const developmentKeyFile = features.memberEndpoints && env.command === "serve"
+          ? await ensureDevelopmentKey(root, config.envDir === false ? false : resolve(config.root ?? root, config.envDir ?? "."), env.mode)
+          : undefined
+        const files = writeWebhooksFiles(root, webhooks, imports, { ...features, developmentKeyFile })
         if (!webhooks.length && !features.memberEndpoints) return
-        if (features.memberEndpoints && env.command === "serve") await useDevelopmentKey(root, resolve(root, config.envDir === false ? "." : config.envDir ?? "."), env.mode)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // The plugin installs the webhooks when the server starts, so `sendWebhook()` works in the first request.
         kit.addPlugin(files.plugin)

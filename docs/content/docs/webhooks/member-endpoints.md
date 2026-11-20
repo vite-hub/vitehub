@@ -64,7 +64,7 @@ export async function sendComments(userId: string, threads: Array<{ id: string, 
 ```
 
 - The receiver gets the same headers and signature as a [webhook delivery](/docs/webhooks/server-api#the-request): `x-hub-signature-256`, `x-vitehub-delivery`, and `x-vitehub-event`.
-- `key` makes the send idempotent. A send with the key of a pending, sending, or sent delivery returns that delivery and posts nothing. After a failure, the same key posts again.
+- `key` makes the send idempotent. A send with the key of a pending, sending, or sent delivery returns that delivery and posts nothing. After a delivery goes dead, the same key posts again. If the Queue rejects the retry, the call returns `WEBHOOKS_WAKE_FAILED` and marks the delivery dead.
 - `status` is `'sent'` for a 2xx answer, `'inbox'` for an inbox, `'failed'` when the post failed, and `'pending'` when the Queue tries again.
 
 The post runs in the request, so the app needs no Queue. When the app has `queue` on, a failed post goes to the `vitehub-webhooks` Queue, which tries it again as it does for a [webhook delivery](/docs/webhooks/limits-and-errors#delivery). Without Queue, a failed post is `failed` at once, and the delivery is `dead`.
@@ -91,7 +91,7 @@ It refuses a URL that:
 - names a loopback, private, link-local, or cloud metadata address, such as `127.0.0.1`, `10.0.0.1`, `169.254.169.254`, or `[::1]`;
 - on Node, Bun, and Deno, has a name that resolves to one of these addresses, or does not resolve.
 
-Webhooks never follows a redirect, because a redirect would send the signed body to another place.
+When Webhooks resolves a name before delivery, it connects only to an address it checked for that attempt. TLS still checks the original hostname. Webhooks never follows a redirect, because a redirect would send the signed body to another place.
 
 > [!WARNING]
 > Cloudflare Workers cannot resolve a host name, so there a name passes on `hosts` alone. Keep `hosts` to hosts that you trust, such as the default `relay.t3.codes`.

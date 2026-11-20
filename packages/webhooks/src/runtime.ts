@@ -4,13 +4,15 @@ import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
 import { readString, serverEnv, unsealEndpoint } from "./sealing.ts"
-import { checkWebhookUrl } from "./url-guard.ts"
+import { resolveWebhookUrl } from "./url-guard.ts"
 
+import type { LookupAddress } from "node:dns"
 import type { Duration, Result, ResultError } from "@vite-hub/runtime"
 import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
 import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhookEndpointStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
+import type { ResolvedWebhookUrl } from "./url-guard.ts"
 
 export { webhooksQueueName } from "./queue-name.ts"
 
@@ -45,6 +47,8 @@ export interface InstallWebhooksOptions {
   wake?: WebhookWakeSender
   /** Where member endpoints live: `createDrizzleWebhookEndpointStore()`. Without it, member endpoints are off. */
   endpoints?: WebhookEndpointStore
+  /** The project-local key that the generated development registry reads. */
+  developmentKey?: string
 }
 
 /** The webhooks of the running app. */
@@ -53,6 +57,7 @@ export interface InstalledWebhooks {
   store: WebhookDeliveryStore
   wake: WebhookWakeSender | undefined
   endpoints: WebhookEndpointStore | undefined
+  developmentKey: string | undefined
 }
 
 /** One webhook, as the CLI and the Console list it. It names the variables, never their values. */
@@ -100,7 +105,7 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
     }
     webhooks.set(name, definition)
   }
-  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints }
+  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints, developmentKey: options.developmentKey }
   Reflect.set(globalThis, installedKey, installed)
   if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
@@ -197,7 +202,7 @@ async function resolveMemberTarget(installed: InstalledWebhooks, id: string): Pr
   if (!endpoint) return [`No member endpoint has the id ${JSON.stringify(id)}.`, undefined]
   if (endpoint.disabledAt !== null) return [`The member endpoint ${id} is disabled.`, undefined]
   if (endpoint.sealed === null) return [`The member endpoint ${id} is an inbox, so it takes no posts.`, undefined]
-  const [error, target] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+  const [error, target] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed }, installed.developmentKey)
   if (error) return [error.message, undefined]
   return [undefined, { ...target, signature: "github", guard: true }]
 }
@@ -340,34 +345,62 @@ export type PostResult =
   | { ok: true, status: number }
   | { ok: false, status: number | null, failure: string, final: boolean }
 
+async function postWithCheckedAddresses(url: URL, addresses: LookupAddress[], body: string, headers: Record<string, string>, signal: AbortSignal): Promise<number> {
+  const { request } = await import("node:https")
+  return new Promise((resolve, reject) => {
+    const outgoing = request(url, {
+      agent: false,
+      method: "POST",
+      headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
+      signal,
+      lookup(_hostname, options, callback) {
+        const candidates = addresses.filter(address => !options.family || address.family === options.family)
+        const first = candidates[0]
+        if (!first) callback(new Error("No checked address matches the requested family."), "", 0)
+        else if (options.all) callback(null, candidates)
+        else callback(null, first.address, first.family)
+      },
+    }, (response) => {
+      const status = response.statusCode ?? 0
+      response.destroy()
+      resolve(status)
+    })
+    outgoing.on("error", reject)
+    outgoing.end(body)
+  })
+}
+
 /** Posts a claimed delivery once, signed, with a 10 second timeout and no redirects. */
 export async function postDelivery(claim: WebhookDelivery, target: Target): Promise<PostResult> {
+  let checked: ResolvedWebhookUrl | undefined
   if (target.guard) {
-    const [refused] = await checkWebhookUrl(target.url)
+    const [refused, resolved] = await resolveWebhookUrl(target.url)
     if (refused) return { ok: false, status: null, failure: refused.message, final: true }
+    checked = resolved
   }
   // The stored body is JSON text, so this gives the same bytes that the last send stored.
   const body = JSON.stringify(claim.body)
   try {
     const signed = await signWebhook(body, { provider: target.signature, secret: target.secret })
-    const response = await fetch(target.url, {
-      method: "POST",
-      body,
-      headers: {
-        ...signed,
-        "content-type": "application/json",
-        "user-agent": "ViteHub-Webhooks",
-        "x-vitehub-delivery": claim.id,
-        "x-vitehub-event": claim.event,
-        "x-vitehub-events": String(claim.count),
-      },
-      // A redirect would send the signed body to another place.
-      redirect: "manual",
-      signal: AbortSignal.timeout(webhookTimeoutMs),
-    })
-    // Free the connection. The answer body is not stored.
-    await response.body?.cancel().catch(() => {})
-    return response.ok ? { ok: true, status: response.status } : { ok: false, status: response.status, failure: `HTTP ${response.status}`, final: false }
+    const headers = {
+      ...signed,
+      "content-type": "application/json",
+      "user-agent": "ViteHub-Webhooks",
+      "x-vitehub-delivery": claim.id,
+      "x-vitehub-event": claim.event,
+      "x-vitehub-events": String(claim.count),
+    }
+    const signal = AbortSignal.timeout(webhookTimeoutMs)
+    let status: number
+    if (checked?.addresses) {
+      status = await postWithCheckedAddresses(checked.url, checked.addresses, body, headers, signal)
+    }
+    else {
+      const response = await fetch(checked?.url ?? target.url, { method: "POST", body, headers, redirect: "manual", signal })
+      await response.body?.cancel().catch(() => {})
+      status = response.status
+    }
+    return status >= 200 && status < 300 ? { ok: true, status } : { ok: false, status, failure: `HTTP ${status}`, final: false }
   }
   catch (error) {
     return { ok: false, status: null, failure: describeFailure(error), final: false }
