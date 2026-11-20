@@ -275,25 +275,27 @@ describe("clear with keepWrites", () => {
   it("settles an action whose terminal storage commit overlaps a clear", async () => {
     const h = setup()
     h.server.actions.complete = () => ({ answer: 42 })
-    const committed = Promise.withResolvers<void>()
-    const release = Promise.withResolvers<void>()
+    let markCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { markCommitted = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
     const { store } = h.open({ storage: {
       ...h.storage,
       async write(id, change) {
         const result = await h.storage.write(id, change)
         if (change.remove?.length) {
-          committed.resolve()
-          await release.promise
+          markCommitted()
+          await gate
         }
         return result
       },
     } })
     await store.refresh()
     const action = store.actions.complete({ id: "a" })
-    await committed.promise
+    await committed
     ;(store as unknown as SyncStoreWithReset<Todo>).forget(true)
     await h.storage.clear({ keepWrites: true })
-    release.resolve()
+    release()
     await until(() => action.state === "applied")
     await expect(action).resolves.toEqual({ answer: 42 })
     expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
