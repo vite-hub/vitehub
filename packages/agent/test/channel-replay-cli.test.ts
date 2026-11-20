@@ -89,13 +89,16 @@ describe("vitehub channels replay", () => {
     expect(channelReplayQueryHelp(undefined)).toEqual(["  This history query has no JSON Schema. Use --filter key=value."])
   })
 
-  it("replays through the dev server in batches and prints a resume cursor at the limit", async () => {
+  it.each([
+    { mode: "discovered", target: [] },
+    { mode: "explicit", target: ["--url", devServer.VITEHUB_DEV_SERVER_URL] },
+  ])("replays through the $mode dev target and prints a resume cursor", async ({ target }) => {
     const stdout = output()
     const { fetcher, requests } = replayFetch([
       { failed: 0, items: [{ key: "m1", status: "completed" }, { key: "m2", reason: "existing", status: "skipped" }], nextCursor: "c2", processed: 1, skipped: 1 },
       { failed: 0, items: [{ key: "m3", status: "completed" }], nextCursor: "c3", processed: 1, skipped: 0 },
     ])
-    const code = await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--limit", "3", "--folder", "inbox"], { env: devServer, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })
+    const code = await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--limit", "3", "--folder", "inbox", ...target], { env: devServer, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })
 
     expect(code).toBe(0)
     expect(requests[0]?.url).toBe("http://localhost:5173/__vitehub/agent/invocation-stream")
