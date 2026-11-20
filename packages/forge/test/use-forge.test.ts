@@ -98,6 +98,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   await github.stop()
 })
 
@@ -304,6 +305,40 @@ describe("useForge() with a token", () => {
 
     expect(() => useForge({ forge: "forgejo", env: { VITEHUB_GITHUB_TOKEN: "ghp" } }))
       .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The forgejo Forge has no credentials. It reads VITEHUB_FORGEJO_TOKEN." }))
+  })
+
+  it("reads the Gitea names and calls the Gitea API of the instance", async () => {
+    const requests: Array<{ authorization: string | null, url: string }> = []
+    const fetcher: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      requests.push({ authorization: request.headers.get("authorization"), url: request.url })
+      return Response.json({ id: 1, name: "web", owner: { login: "acme" } })
+    }
+    const forge = useForge({ forge: "gitea", env: { VITEHUB_GITEA_TOKEN: "gitea-token", VITEHUB_GITEA_BASE_URL: "https://git.example.test" }, fetch: fetcher })
+    expect(forge).toMatchObject({ kind: "gitea", auth: "token", baseUrl: "https://git.example.test" })
+
+    const [error, provider] = await forge.provider()
+    expect(error).toBeUndefined()
+    expect(provider!.forge).toBe("gitea")
+    await provider!.request("GET", "/repos/acme/web")
+    expect(requests).toEqual([{ authorization: "token gitea-token", url: "https://git.example.test/api/v1/repos/acme/web" }])
+
+    expect(() => useForge({ forge: "gitea", env: {} }))
+      .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The gitea Forge has no credentials. It reads VITEHUB_GITEA_TOKEN." }))
+  })
+
+  // `forges` sends no User-Agent of its own where `WorkerGlobalScope` exists, and GitHub refuses a request without one.
+  it.each(["github", "gitlab", "forgejo", "gitea"] as const)("sends a User-Agent from a %s provider on Cloudflare Workers", async (kind) => {
+    vi.stubGlobal("WorkerGlobalScope", class {})
+    const agents: Array<string | null> = []
+    const fetcher: typeof fetch = async (input, init) => {
+      agents.push(new Request(input, init).headers.get("user-agent"))
+      return Response.json({})
+    }
+    const name = kind.toUpperCase()
+    const [, provider] = await useForge({ forge: kind, env: { [`VITEHUB_${name}_TOKEN`]: "token", [`VITEHUB_${name}_BASE_URL`]: "https://forge.example.test" }, fetch: fetcher }).provider()
+    await provider!.request("GET", "/user")
+    expect(agents).toEqual(["vitehub"])
   })
 })
 

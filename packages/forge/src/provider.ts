@@ -8,11 +8,11 @@ import type { ForgeConditionalRequests } from "./conditional.ts"
 import type { Diagnostic } from "nostics"
 
 /** The Forges that ViteHub supports. */
-export type ForgeKind = "github" | "gitlab" | "forgejo"
+export type ForgeKind = "github" | "gitlab" | "forgejo" | "gitea"
 
 export interface ForgeConnection {
   forge: ForgeKind
-  /** GitHub: API base. GitLab and Forgejo: instance root. */
+  /** GitHub: API base. GitLab, Forgejo and Gitea: instance root. */
   baseUrl?: string
   /** Omitted: anonymous public reads. */
   token?: string
@@ -64,6 +64,10 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
     case "forgejo": {
       const { forgejo } = await import("forges/forgejo")
       return forgejo(options)
+    }
+    case "gitea": {
+      const { gitea } = await import("forges/gitea")
+      return gitea(options)
     }
   }
   throw forgeDiagnostics.FORGE_UNSUPPORTED()

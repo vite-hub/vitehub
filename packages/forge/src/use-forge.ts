@@ -23,8 +23,8 @@ export interface UseForgeOptions<TKind extends ForgeKind = "github"> {
   /** Default `"github"`. */
   forge?: TKind
   /**
-   * GitHub: the API base, for GitHub Enterprise Server. GitLab and Forgejo: the instance root.
-   * Default for GitLab and Forgejo: `VITEHUB_GITLAB_BASE_URL` or `VITEHUB_FORGEJO_BASE_URL`.
+   * GitHub: the API base, for GitHub Enterprise Server. GitLab, Forgejo and Gitea: the instance root.
+   * Default for GitLab, Forgejo and Gitea: `VITEHUB_GITLAB_BASE_URL`, `VITEHUB_FORGEJO_BASE_URL` or `VITEHUB_GITEA_BASE_URL`.
    */
   baseUrl?: string
   /** Default: the bindings of the active Cloudflare request, then `process.env`. */

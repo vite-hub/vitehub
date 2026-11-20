@@ -1,6 +1,6 @@
 ---
 title: Forge configuration
-description: Set the env of a GitHub App, a token, GitLab, or Forgejo, and see which ViteHub parts read the same names.
+description: Set the env of a GitHub App, a token, GitLab, Forgejo, or Gitea, and see which ViteHub parts read the same names.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -20,7 +20,8 @@ Forge has no `vitehub()` option. It reads its credentials from the env when you 
 | `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional. A JSON object that maps repository owners to installation IDs, such as `{"acme":123,"other":456}`. |
 | `VITEHUB_GITHUB_TOKEN` | A token to use when there is no App, such as `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions. |
 | `VITEHUB_GITLAB_TOKEN`, `VITEHUB_GITLAB_BASE_URL` | GitLab. |
-| `VITEHUB_FORGEJO_TOKEN`, `VITEHUB_FORGEJO_BASE_URL` | Forgejo and Gitea. |
+| `VITEHUB_FORGEJO_TOKEN`, `VITEHUB_FORGEJO_BASE_URL` | Forgejo. Without a base URL, Codeberg. |
+| `VITEHUB_GITEA_TOKEN`, `VITEHUB_GITEA_BASE_URL` | Gitea. Without a base URL, gitea.com. |
 
 When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. Otherwise it uses `VITEHUB_GITHUB_TOKEN`. `GH_TOKEN` and `GITHUB_TOKEN` are not read.
 
@@ -52,9 +53,10 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the [`f
 | `github.webhookSecret` | `VITEHUB_GITHUB_WEBHOOK_SECRET`, `FORGES_GITHUB_WEBHOOK_SECRET` |
 | `gitlab.baseUrl`, `gitlab.token`, `gitlab.webhookSecret` | `VITEHUB_GITLAB_*`, `FORGES_GITLAB_*` |
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
+| `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
 
 ## Who reads the same names
 
 - `useForge()` and the GitHub Channel read the same App credentials. See [Forge access for Git and Drivers](/docs/agents/channels#forge-access-for-git-and-drivers).
-- The [`forge()` Capability](/docs/agents/capabilities/forge) and the [GitLab and Forgejo Channels](/docs/agents/forge-channels) read the same names.
+- The [`forge()` Capability](/docs/agents/capabilities/forge) and the [GitLab and Forgejo Channels](/docs/agents/forge-channels) read the same names. They do not support Gitea yet. Use `useForge({ forge: 'gitea' })` from server code.
 - The Workspace GitHub store and GitHub Sources read only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). They do not mint App installation tokens. Set a token separately when these parts need private-repository access.
