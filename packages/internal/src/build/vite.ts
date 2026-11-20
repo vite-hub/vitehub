@@ -138,7 +138,7 @@ export function createNativePackageLoading() {
   let native = false
   return {
     nitro: {
-      setup(instance: { options: NitroPackageLoadingOptions }) {
+      setup(instance: { options: NitroPackageLoadingOptions }): void {
         nitro = instance
       },
     },
