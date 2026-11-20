@@ -3813,6 +3813,9 @@ function githubPullRequestServerEvent(command: GitHubPullRequestCommand, pullReq
   }
 }
 
+/** Input context key of the time a server send entered the queue, in milliseconds since the epoch. */
+const githubServerSendAcceptedAtKey = "githubServerSendAcceptedAt"
+
 /**
  * The Channel definition of a `githubPullRequestTrigger()`. Webhook deliveries reach it through the Channel's `webhook`
  * trigger. Server code reaches it with `sendChannelTrigger()`: `invoke` admits the send to the pull request's queue
@@ -3831,9 +3834,13 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
     [githubPullRequestTriggerKey]: trigger,
     async invoke(context, value): Promise<AgentTriggerInvokeResult> {
       const send = githubPullRequestTriggerSend(name, value)
-      const { repository, number } = send.pullRequest
-      const pullRequest = await readGitHubPullRequest(app, context, repository, number)
+      const { number } = send.pullRequest
+      const pullRequest = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
       if (pullRequest.state === "closed") return closed()
+      // Webhook deliveries name the repository as GitHub spells it. The send uses the same spelling, so both share
+      // the pull request's queue slot and branch events.
+      const base = isRecord(pullRequest.base) && isRecord(pullRequest.base.repo) ? pullRequest.base.repo : undefined
+      const repository = maybeString(base?.full_name) ?? send.pullRequest.repository
       const appOptions = app ? githubAppOptions(app) : undefined
       const login = appOptions?.identity?.login ?? ""
       const [owner = "", repo = ""] = repository.split("/")
@@ -3866,7 +3873,8 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
         }
       }
       return {
-        input: { context: { github: command, pullRequest: pullRequestContext } },
+        // Branch events after `acceptedAt` stop or annotate the run, as for a queued webhook delivery.
+        input: { context: { github: command, pullRequest: pullRequestContext, [githubServerSendAcceptedAtKey]: Date.now() } },
         run,
         // The same slot as a webhook delivery on this pull request, so runs on one pull request do not overlap.
         webhook: {
@@ -3879,38 +3887,63 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
     async prepare(context, accepted) {
       const command = githubCommandFromUnknown(accepted.input.context?.github)
       const stored = githubPullRequestRunContextFromUnknown(accepted.input.context?.pullRequest)
-      invariant(command && stored, "A server send of a GitHub pull request trigger stores its command and pull request.")
-      const pullRequest = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
-      if (pullRequest.state === "closed") return closed()
-      const triggerInput = await runGitHubPullRequestTrigger(context, { [name]: trigger }, { ...command, trigger: name }, async () => githubPullRequestServerEvent(command, pullRequest))
-      if (isResponse(triggerInput)) return triggerInput
-      const metadata = await githubPullRequestMetadata(app, context, command, options)
-      const refreshed = {
-        ...stored,
-        pullRequest: {
-          apiUrl: stored.pullRequest.apiUrl,
-          htmlUrl: stored.pullRequest.htmlUrl,
-          labels: stored.pullRequest.labels,
-          number: stored.pullRequest.number,
-          source: stored.pullRequest.source,
-          title: stored.pullRequest.title,
-          ...metadata,
-        },
+      if (!command || !stored) throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID({ trigger: name })
+      const pullRequestKey = `${command.repository}#${command.issueNumber}`
+      // A close webhook, or a push with `headMoves: 'cancel'`, aborts the run through this signal, as for a queued
+      // webhook delivery. The webhook queue releases it when the delivery ends.
+      let abortSignal: AbortSignal | undefined
+      if (options.reconcile && context.channelState) {
+        const { agentInvocationId } = await import("./invocations.ts")
+        const agentName = context.agentName || context.agentIdentity?.name
+        abortSignal = trackReconcileRun(context.channelState, pullRequestKey, () => agentInvocationId(accepted.run?.runId ?? command.deliveryId!, agentName))
       }
-      const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(command, triggerInput), refreshed, options.ci)
-      const finishEffects = githubPullRequestCommentFinishEffects(options)
-      return {
-        ...accepted.input,
-        ...triggerInput,
-        ...commandInput,
-        context: {
-          ...accepted.input.context,
-          ...triggerInput.context,
-          github: command,
-          pullRequest: refreshed,
-          // The queue does not store finish effects with a delivery, so the prepared input adds them again.
-          ...(finishEffects ? { [channelDeliveryFinishEffectsContextKey]: [finishEffects] } : {}),
-        },
+      const settle = (response: Response) => {
+        releaseReconcileRun(abortSignal)
+        return response
+      }
+      try {
+        const branch = options.reconcile ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, maybeNumber(accepted.input.context?.[githubServerSendAcceptedAtKey])) : {}
+        if (branch.closed) return settle(closed())
+        if (branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel") return settle(options.ignored?.("head_moved") || ignored("head_moved"))
+        const pullRequest = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+        if (pullRequest.state === "closed") return settle(closed())
+        const triggerInput = await runGitHubPullRequestTrigger(context, { [name]: trigger }, { ...command, trigger: name }, async () => githubPullRequestServerEvent(command, pullRequest))
+        if (isResponse(triggerInput)) return settle(triggerInput)
+        const metadata = await githubPullRequestMetadata(app, context, command, options)
+        const refreshed = {
+          ...stored,
+          pullRequest: {
+            apiUrl: stored.pullRequest.apiUrl,
+            htmlUrl: stored.pullRequest.htmlUrl,
+            labels: stored.pullRequest.labels,
+            number: stored.pullRequest.number,
+            source: stored.pullRequest.source,
+            title: stored.pullRequest.title,
+            ...metadata,
+          },
+        }
+        const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(command, triggerInput), refreshed, options.ci)
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        return {
+          ...accepted.input,
+          ...triggerInput,
+          ...commandInput,
+          ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
+          // The queue adds its own abort signal to the run.
+          ...(abortSignal ? { abortSignal } : {}),
+          context: {
+            ...accepted.input.context,
+            ...triggerInput.context,
+            github: command,
+            pullRequest: refreshed,
+            // The queue does not store finish effects with a delivery, so the prepared input adds them again.
+            ...(finishEffects ? { [channelDeliveryFinishEffectsContextKey]: [finishEffects] } : {}),
+          },
+        }
+      }
+      catch (error) {
+        releaseReconcileRun(abortSignal)
+        throw error
       }
     },
   }

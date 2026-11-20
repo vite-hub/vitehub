@@ -279,7 +279,8 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     await send("review-1", "pull_request_review", review(67))
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 5_000 })
 
-    const input = { pullRequest: { repository: "acme/app", number: 42 }, id: "wake-1", body: "Rebase on main." }
+    // GitHub spells the repository "acme/app". The send shares its queue slot with any other spelling.
+    const input = { pullRequest: { repository: "Acme/App", number: 42 }, id: "wake-1", body: "Rebase on main." }
     await expect(sendChannelTrigger("github", "reviewFeedback", input)).resolves.toEqual([undefined, { deliveryId: "reviewFeedback:wake-1", queued: true }])
     await expect(sendChannelTrigger("github", "reviewFeedback", input)).resolves.toEqual([undefined, { deliveryId: "reviewFeedback:wake-1", queued: false }])
     await new Promise(resolve => setTimeout(resolve, 300))
