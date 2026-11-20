@@ -53,7 +53,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
             }),
           } : {}),
         },
-        webhooks: { path: "/api/airtable/webhook", secretToken: false },
+        webhooks: { path: "/api/airtable/webhook", secret: false },
       }),
       ...(options.prefixedChannel ? {
         "airtable.eu": channelAdapter("airtable.eu", {
@@ -69,7 +69,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
               },
             }),
           },
-          webhooks: { path: "/api/airtable-eu/webhook", secretToken: false },
+          webhooks: { path: "/api/airtable-eu/webhook", secret: false },
         }),
       } : {}),
     },

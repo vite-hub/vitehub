@@ -4,11 +4,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { H3 } from 'h3'
 import { build, createServer } from 'vite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
 
 const roots: string[] = []
+// A string `secret` of a Channel names the server variable that holds the secret.
+beforeEach(() => {
+  vi.stubEnv('HOOKS_SECRET', 'secret')
+})
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -53,7 +57,7 @@ const intake = `import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import { defineChannel, webhook } from '@vite-hub/channels'
 import { label } from './label'
 export default defineChannel({
-  adapter: webhook({ kind: 'intake', path: '/api/intake/webhook', aliases: ['/hooks/intake'], header: 'x-test-secret', secret: 'secret', signature: 'token' }),
+  adapter: webhook({ kind: 'intake', path: '/api/intake/webhook', aliases: ['/hooks/intake'], header: 'x-test-secret', secret: 'HOOKS_SECRET', signature: 'token' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ channel: context.trigger.channelId, label: label() }) }) },
 })
 `
@@ -69,7 +73,7 @@ describe('standalone Channel folders', () => {
     const source = `import { defineChannel, webhook } from '@vite-hub/channels'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' }),
   on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
 })`
     const root = await app({ 'custom/server/channels/builds.ts': source, 'server/channels/ignored.ts': source })
@@ -110,7 +114,7 @@ export default defineChannel({
     const root = await app({ 'src/payments.channel.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks/payments' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET', path: '/hooks/payments' }),
   on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
 })
 ` })
@@ -187,7 +191,7 @@ export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\`, s
       [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import { defineChannel, webhook } from '@vite-hub/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },
 })
 `,

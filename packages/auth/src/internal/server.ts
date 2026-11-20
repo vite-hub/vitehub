@@ -603,8 +603,16 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   return { auth, event, options: resolved.options, refusal, request, session }
 }
 
+type CoreAuthorization = AuthAuthorization<unknown>
+
+function checkedAuthorization(request: CoreAuthorization["request"], session: Record<string, unknown>, user: Record<string, unknown> & { id: string }): CoreAuthorization {
+  // SAFETY: The guard read `getSession()` from the selected Auth instance.
+  // An alternate access identity reaches only route `authorize` callbacks, which read the plain access context.
+  return Object.freeze({ request, session, user }) as CoreAuthorization
+}
+
 type AuthCheck =
-  | { authorization: AuthAuthorization, response?: undefined }
+  | { authorization: CoreAuthorization, response?: undefined }
   | { authorization?: undefined, response: Response }
 
 function reject(response: Response): AuthCheck {
@@ -840,11 +848,7 @@ async function checkAuthRequest(
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
   if (isRuntimeResponse(identity)) return reject(identity)
   if (identity || session) {
-    const authorization: AuthAuthorization = Object.freeze({
-      request,
-      session: identity ? {} : session!.session,
-      user: identity ?? session!.user,
-    })
+    const authorization = checkedAuthorization(request, identity ? {} : session!.session, identity ?? session!.user)
     if (routeIndexes === undefined) return { authorization }
 
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
@@ -887,7 +891,7 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
   if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
-  const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
+  const authorization = checkedAuthorization(request, session.session, session.user)
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
   return rejection.response ? reject(rejection.response) : { authorization }
@@ -898,6 +902,16 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
  * Use it for resources that a signed-out caller can open, such as files shared by public link.
  * `false` returns `401` for a signed-out caller and `403` for a signed-in one. It never redirects to sign-in.
  */
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult, unknown>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
 export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
   authorize: AuthAnonymousAuthorize<TInput & ViteHubContext>,
   handler: AuthAnonymousGuardedHandler<TInput, TResult>,
@@ -912,14 +926,14 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
   return async (input) => {
     const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
-    const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
-      ? Object.freeze({ request, session: session.session, user: session.user })
+    const authorization: CoreAuthorization | AuthAnonymousAuthorization = session
+      ? checkedAuthorization(request, session.session, session.user)
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
     if (rejection.response) return sendSessionCookies(input, rejection.response)
-    return sendSessionCookies(input, await handler(input, authorization))
+    return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization | AuthAnonymousAuthorization))
   }
 }
 
@@ -927,6 +941,14 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
  * Wraps a server handler so it runs only with a signed-in Auth Session.
  * The handler receives the checked `authorization`. Otherwise the wrapper returns `401`, or starts `access.signIn` for HTML requests.
  */
+export function withAuth<TInput extends AuthRequestInput, TResult>(
+  handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuth<TInput extends AuthRequestInput, TResult>(
+  handler: AuthGuardedHandler<TInput, TResult, unknown>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
 export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
@@ -937,7 +959,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   return async (input) => {
     const { authorization, response } = await checkAuthRequest(input, definition ?? resolveDefaultDefinition())
     if (response) return sendSessionCookies(input, response)
-    return sendSessionCookies(input, await handler(input, authorization))
+    return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization))
   }
 }
 
@@ -946,6 +968,16 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
  * Returns `401` without a session, `403` when `authorize` returns `false`, and a custom `Response` as-is.
  * It never redirects to sign-in, so image and fetch requests receive a status code.
  */
+export function withAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  handler: AuthGuardedHandler<TInput, TResult>,
+  definition?: undefined,
+): (input: TInput) => Promise<TResult | Response>
+export function withAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  handler: AuthGuardedHandler<TInput, TResult, unknown>,
+  definition: AuthDefinition | undefined,
+): (input: TInput) => Promise<TResult | Response>
 export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   handler: AuthGuardedHandler<TInput, TResult>,
@@ -960,7 +992,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   return async (input) => {
     const { authorization, response } = await checkAuthorizeRequest(input, authorize, definition ?? resolveDefaultDefinition())
     if (response) return sendSessionCookies(input, response)
-    return sendSessionCookies(input, await handler(input, authorization))
+    return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization))
   }
 }
 
@@ -998,7 +1030,7 @@ async function rejectionError(response: Response, code = refusalCodes.get(respon
   })
 }
 
-async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>): Promise<AuthAuthorization> {
+async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>): Promise<CoreAuthorization> {
   const { authorization, response } = await check
   // A plain Fetch host gets the cookies on a copy of the refusal, so keep the code of the original.
   if (response) throw await rejectionError(sendSessionCookies(input, response), refusalCodes.get(response))
@@ -1016,7 +1048,9 @@ async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>):
  * })
  * ```
  */
-export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<AuthAuthorization> {
+export function requireAuth(event: AuthRequestInput, definition?: undefined): Promise<AuthAuthorization>
+export function requireAuth(event: AuthRequestInput, definition: AuthDefinition | undefined): Promise<CoreAuthorization>
+export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<CoreAuthorization> {
   return requireCheck(event, checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
 }
 
@@ -1028,8 +1062,18 @@ export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition
 export function requireAuthorization<TInput extends AuthRequestInput>(
   event: TInput,
   authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  definition?: undefined,
+): Promise<AuthAuthorization>
+export function requireAuthorization<TInput extends AuthRequestInput>(
+  event: TInput,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
+  definition: AuthDefinition | undefined,
+): Promise<CoreAuthorization>
+export function requireAuthorization<TInput extends AuthRequestInput>(
+  event: TInput,
+  authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   definition?: AuthDefinition,
-): Promise<AuthAuthorization> {
+): Promise<CoreAuthorization> {
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
@@ -1037,7 +1081,7 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
 }
 
 // One answer per request and Definition, so middleware and the handler share it.
-const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<AuthCaller, AuthCallerErrorCode>>>>()
+const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>>>>()
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
@@ -1056,7 +1100,9 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<A
  * })
  * ```
  */
-export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+export function requireCaller(event: AuthRequestInput, definition?: undefined): Promise<Result<AuthCaller, AuthCallerErrorCode>>
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition | undefined): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>>
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>> {
   const request = unwrapAuthRequest(event)
   let reads = callerReads.get(request)
   if (!reads) callerReads.set(request, reads = new WeakMap())
@@ -1070,7 +1116,7 @@ export function requireCaller(event: AuthRequestInput, definition: AuthDefinitio
   return read
 }
 
-async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>> {
   const request = unwrapAuthRequest(event)
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (token) {
@@ -1095,8 +1141,8 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   }
   const { session } = await readRequestSession(event, definition)
   if (!session) return [signedOutError(), undefined]
-  // SAFETY: Better Auth's `getSession()` returns the Auth user row of the session.
-  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user as AuthCallerUser })]
+  // SAFETY: Better Auth's `getSession()` returns the Session and the Auth user row of the app's Auth instance.
+  return [undefined, Object.freeze({ kind: "browser", session: session.session as CoreAuthorization["session"], user: session.user as AuthCallerUser })]
 }
 
 // One session read per request, however many abilities the handler checks.
@@ -1108,7 +1154,7 @@ function readAbilityAuthorization(input: AuthRequestInput): Promise<AuthAuthoriz
     pending = readRequestSession(input, resolveDefaultDefinition()).then(({ refusal, request, session }) => {
       if (refusal) throw authenticationRefusalError(refusal)
       return session
-        ? Object.freeze({ request, session: session.session, user: session.user })
+        ? checkedAuthorization(request, session.session, session.user) as AuthAuthorization
         : Object.freeze({ request, session: null, user: null })
     })
     // A failed read is not kept, so a later check reads again.

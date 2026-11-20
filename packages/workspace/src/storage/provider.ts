@@ -5,6 +5,7 @@ import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"
+import { assertNoGitHubRepositoryKey } from "../providers/github/shared.ts"
 import { createGitHubWorkspaceStore } from "../providers/github/store.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
@@ -105,6 +106,7 @@ export function resolveGitHubWorkspaceStore(
   env: Record<string, string | undefined> = process.env,
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
+  assertNoGitHubRepositoryKey(config)
   const branch = gitHubWorkspaceOption(config.branch)
     ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
   // An empty root is the repository root.
@@ -115,8 +117,7 @@ export function resolveGitHubWorkspaceStore(
     ...(config.database === undefined ? {} : { database: config.database }),
     driver: "github",
     ...(config.refs ? { refs: { ...config.refs } } : {}),
-    repository: gitHubWorkspaceOption(config.repository)
-      ?? gitHubWorkspaceOption(config.repo)
+    repo: gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),
     root: root ?? (input.runtime ? undefined : ".vitehub/workspaces/<workspace>"),
     token: input.runtime

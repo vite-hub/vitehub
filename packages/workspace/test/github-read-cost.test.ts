@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 function history() {
-  return createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
+  return createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
 }
 
 it("finds a deleted path and distinguishes it from a path with no history", async () => {

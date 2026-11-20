@@ -142,7 +142,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
-        workspace: { assets: false, store: { driver: "github", repository: "acme/workspaces" } },
+        workspace: { assets: false, store: { driver: "github", repo: "acme/workspaces" } },
       })],
       root: projectRoot,
     });
