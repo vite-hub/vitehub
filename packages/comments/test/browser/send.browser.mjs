@@ -189,5 +189,15 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
     await waitState(bob, "idle")
   })
 
+  await t.test("navigation drops the previous page's confirmation", async () => {
+    await segment(bob).locator("[data-action='send']").click()
+    await waitState(bob, "pairing")
+    assert.equal(await agentPairs(await bob.evaluate(() => navigator.clipboard.readText())), 200)
+    await waitState(bob, "confirm")
+    await bob.evaluate(() => history.pushState({}, "", "/another-page"))
+    await waitState(bob, "idle")
+    assert.equal(await segment(bob).locator("[data-action='allow']").count(), 0)
+  })
+
   assert.deepEqual(errors, [])
 })

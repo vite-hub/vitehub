@@ -159,6 +159,14 @@ const defaultImports: CommentsImports = {
 
 type DefinitionProperties = ReturnType<typeof objectProperties>
 
+function literalProperties(options: Parameters<typeof objectProperties>[0]): DefinitionProperties {
+  return objectProperties(options).flatMap((property) => {
+    if (property.node.type !== "SpreadElement") return [property]
+    const spread = unwrapExpression(property.node.argument)
+    return spread.type === "ObjectExpression" ? literalProperties(spread) : [property]
+  })
+}
+
 /** The properties of the options object that `server/comments.ts` passes to `defineComments()`, read without running the file. */
 async function readDefinitionProperties(file: string): Promise<DefinitionProperties | undefined> {
   const source = await readFile(file, "utf8").catch(() => "")
@@ -167,6 +175,7 @@ async function readDefinitionProperties(file: string): Promise<DefinitionPropert
   const bindings = new Set<string>()
   const factories = new Set(["defineComments"])
   let defaultCall: ReturnType<typeof unwrapExpression> | undefined
+  let hasNamedExport = false
   for (const statement of module.program.body) {
     if (statement.type === "ImportDeclaration" && statement.importKind !== "type" && ["vite-hub/comments", "@vite-hub/comments"].includes(statement.source.value)) {
       for (const specifier of statement.specifiers) {
@@ -178,27 +187,36 @@ async function readDefinitionProperties(file: string): Promise<DefinitionPropert
     // `export default defineComments({ … })`, or `export default comments`.
     if (statement.type === "ExportDefaultDeclaration") {
       const value = unwrapExpression(statement.declaration as Parameters<typeof unwrapExpression>[0])
-      if (value.type === "Identifier") bindings.add(value.name)
-      else if (value.type === "CallExpression" && value.callee.type === "Identifier") defaultCall = value
+      defaultCall = value
       continue
     }
-    if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
     if (statement.declaration?.type === "VariableDeclaration") {
       for (const declaration of statement.declaration.declarations) {
-        if (declaration.id.type === "Identifier" && declaration.id.name === "comments") bindings.add(declaration.id.name)
+        if (declaration.id.type === "Identifier" && declaration.id.name === "comments") {
+          hasNamedExport = true
+          bindings.add(declaration.id.name)
+        }
       }
     }
     for (const specifier of statement.specifiers) {
       const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
-      if (name === "comments" && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
+      if (name === "comments" && specifier.exportKind !== "type") {
+        hasNamedExport = true
+        if (!statement.source && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
+      }
     }
   }
   const propertiesOf = (call: ReturnType<typeof unwrapExpression>): DefinitionProperties | undefined => {
     if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) return
+    if (call.arguments.length === 0) return []
     const options = argumentExpression(call.arguments[0])
-    return options?.type === "ObjectExpression" ? objectProperties(options) : undefined
+    return options?.type === "ObjectExpression" ? literalProperties(options) : undefined
   }
-  if (defaultCall) return propertiesOf(defaultCall)
+  if (!hasNamedExport && defaultCall) {
+    if (defaultCall.type !== "Identifier") return propertiesOf(defaultCall)
+    bindings.add(defaultCall.name)
+  }
   for (const statement of module.program.body) {
     const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
     if (declaration?.type !== "VariableDeclaration") continue
@@ -239,9 +257,9 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
  */
 export async function readCommentsSend(file: string): Promise<boolean> {
   const properties = await readDefinitionProperties(file)
-  if (!properties) return false
+  if (!properties) return true
   const found = lastProperty(properties, "send")
-  if (found === undefined) return false
+  if (found === undefined) return properties.some(property => property.key === undefined)
   return found === null || (found.value !== false && found.value !== undefined && found.value !== null)
 }
 

@@ -27,12 +27,23 @@ export function createCommentSendTransport(options: CommentSendTransportOptions 
   const page = () => encodeURIComponent(typeof options.page === "function" ? options.page() : options.page ?? location.pathname)
   const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   const code = (value: string) => encodeURIComponent(value)
+  const pairingPages = new Map<string, string>()
   return {
     status: async () => (await request<CommentSendStatus>(`/send/status?page=${page()}`)).data,
-    startPairing: async () => (await request<CommentSendPairing>(`/send/start?page=${page()}`, post())).data,
+    startPairing: async () => {
+      const path = page()
+      const pairing = (await request<CommentSendPairing>(`/send/start?page=${path}`, post())).data
+      pairingPages.set(pairing.code, path)
+      return pairing
+    },
     pollPairing: async value => (await request<CommentSendPairingCheck>(`/send/pair/${code(value)}`)).data,
-    allow: async value => (await request<CommentSendResult>(`/send/allow?page=${page()}`, post({ code: value }))).data,
+    allow: async (value) => {
+      const path = pairingPages.get(value) ?? page()
+      pairingPages.delete(value)
+      return (await request<CommentSendResult>(`/send/allow?page=${path}`, post({ code: value }))).data
+    },
     cancel: async (value) => {
+      pairingPages.delete(value)
       await request(`/send/pair/${code(value)}`, { method: "DELETE" })
     },
     send: async () => (await request<CommentSendResult>(`/send?page=${page()}`, post())).data,

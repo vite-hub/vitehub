@@ -95,3 +95,9 @@ export async function unsealWebhooksText(label: string, sealed: string): Promise
     return [webhooksErrors.WEBHOOKS_KEY_INVALID({ problem: "it is not the key that sealed this text" }), undefined]
   }
 }
+
+export const sealedMemberBodyPrefix = "vitehub:sealed-member-body:"
+
+export function memberBodyLabel(webhook: string, event: string): string {
+  return `delivery:${JSON.stringify([webhook, event])}`
+}

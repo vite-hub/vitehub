@@ -381,7 +381,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
   /** Send, for signed-in people who may write, when the app turned it on. It counts the threads of the current page. */
-  const send = session?.send ? createCommentSend(createOverlaySendTransport(() => page.value)) : undefined
+  const send = computed(() => {
+    const path = page.value
+    return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
+  })
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
     (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
@@ -719,7 +722,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       })
       watch(() => state.counts.value.open, () => tick.value++)
       // A new comment, a reply, or another page changes how many threads Send carries.
-      if (send) watch([() => state.threads.value, page], () => void send.refresh().catch(() => undefined))
+      if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"
@@ -917,7 +920,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
       // Send N hands the threads that wait for an answer to the person's agent, and pairs one in place first.
-      send && canComment.value ? h(CommentSend, { client: send, key: "send" }) : null,
+      send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),
