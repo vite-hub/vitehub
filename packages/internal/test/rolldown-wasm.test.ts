@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 
 let tempDir: string | undefined
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 it("bundles a WebAssembly module import as its bytes", async () => {
-  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-esbuild-wasm-"))
+  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-rolldown-wasm-"))
   const entry = join(tempDir, "entry.mjs")
   const outfile = join(tempDir, "bundle.mjs")
   // The smallest valid WebAssembly module: the magic number and version 1.
@@ -29,7 +29,7 @@ it("bundles a WebAssembly module import as its bytes", async () => {
 })
 
 it("keeps a WebAssembly module import next to a bundle for other targets", async () => {
-  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-esbuild-wasm-"))
+  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-rolldown-wasm-"))
   const entry = join(tempDir, "entry.mjs")
   const outfile = join(tempDir, "out/bundle.mjs")
   await writeFile(join(tempDir, "empty.wasm"), new Uint8Array([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]))

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Buffer as NodeBuffer } from "node:buffer"
 import { runInNewContext } from "node:vm"
 import { Diagnostic } from "nostics"
+import { ViteHubError } from "../src/errors.ts"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 import { defineErrors, toResultError } from "../src/result.ts"
 
@@ -255,16 +256,49 @@ describe("durable Response representation", () => {
 })
 
 describe("toResponse with a ResultError", () => {
-  it("only applies the error response contract to prepared diagnostics", async () => {
-    const diagnostic = new Diagnostic({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", data: { count: 2 } })
+  it("never sends the stack, cause, or data of a plain Nostics diagnostic", async () => {
+    const diagnostic = new Diagnostic({
+      code: "EXAMPLE_DIAGNOSTIC",
+      why: "An ordinary diagnostic.",
+      fix: "Try again.",
+      data: { token: "secret data" },
+      cause: new Error("secret cause"),
+    })
     const response = toResponse(diagnostic)
-    expect(response.status).toBe(200)
-    // A plain Nostics diagnostic keeps its own serializer, which names the code `name`.
-    expect(await response.json()).toMatchObject({ name: "EXAMPLE_DIAGNOSTIC", data: { count: 2 } })
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", fix: "Try again." })
+    expect(text).not.toMatch(/secret|stack|at /)
 
     const result = toResponse(toResultError(diagnostic))
     expect(result.status).toBe(500)
-    expect(await result.json()).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic." })
+    expect(await result.json()).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", fix: "Try again." })
+  })
+
+  it("answers the status of a plain Nostics diagnostic", () => {
+    const diagnostic = Object.assign(new Diagnostic({ code: "EXAMPLE_DIAGNOSTIC", why: "Not found." }), { status: 404 })
+    expect(toResponse(diagnostic).status).toBe(404)
+  })
+
+  it("hides the message of an Error that is not a diagnostic", async () => {
+    const error = Object.assign(new Error("postgres://user:secret@db/app refused"), { code: "ECONNREFUSED", status: 404 })
+    const response = toResponse(error)
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toMatchObject({ code: "RUNTIME_HIDDEN_ERROR" })
+    expect(text).not.toMatch(/secret|ECONNREFUSED/)
+    expect(await toResponse(runInNewContext("new TypeError('secret')")).json()).toMatchObject({ code: "RUNTIME_HIDDEN_ERROR" })
+  })
+
+  it("keeps the public code and message of a ViteHubError", async () => {
+    const response = toResponse(new ViteHubError("EXAMPLE_PUBLIC", "The example failed.", { cause: new Error("secret cause"), details: { token: "secret" } }))
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toEqual({ code: "EXAMPLE_PUBLIC", why: "The example failed." })
+    expect(text).not.toMatch(/secret/)
   })
 
   const errors = defineErrors({

@@ -40,8 +40,13 @@ describe("diagnostic catalogs", () => {
     })
   })
 
-  it("reads the message that a call site passes to a numbered code", () => {
-    expect(code("BLOB_R0001")).toMatchObject({ why: null, sites: [expect.objectContaining({ file: "packages/blob/src/drivers/cloudflare-native.ts", message: "R2 binding \"<binding>\" not found" })] })
+  it("reads the messages that call sites pass to a numbered code", () => {
+    const { sites, why } = code("BLOB_R0001")
+    expect(why).toBeNull()
+    expect(sites).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file: "packages/blob/src/drivers/cloudflare-native.ts", message: "R2 binding \"<binding>\" not found in the dev runner. Add a local R2 binding or use the Node dev runner for the filesystem fallback." }),
+      expect.objectContaining({ file: "packages/blob/src/drivers/cloudflare-native.ts", message: "R2 binding \"<binding>\" not found" }),
+    ]))
   })
 
   it("reads the production shorthand catalogs", () => {

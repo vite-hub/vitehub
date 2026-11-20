@@ -15,7 +15,6 @@ export default defineConfig({
         "@vite-hub/env",
         "@vite-hub/markdown-template",
         "comark",
-        "esbuild",
         "vite",
       ],
       onlyBundle: false,

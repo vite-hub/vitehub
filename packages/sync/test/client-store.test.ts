@@ -8,7 +8,7 @@ import { createHarness, until } from "./client-harness.ts"
 
 import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { SyncPage } from "../src/client/store.ts"
+import type { SyncPage, SyncStoreWithReset } from "../src/client/store.ts"
 import type { SyncLocal, SyncStore } from "../src/client/types.ts"
 import type { FakeSyncServer } from "./client-fake-server.ts"
 import type { Harness, Tab, Todo, TodoActions } from "./client-harness.ts"
@@ -229,6 +229,132 @@ describe("start and pull", () => {
     h.server.offline = false
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", error: null })
+  })
+})
+
+describe("clear with keepWrites", () => {
+  it("settles a kept write in the tab that made it when another tab sends it", async () => {
+    const h = setup()
+    const one = h.open()
+    const two = h.open()
+    await one.store.refresh()
+    await two.store.refresh()
+    h.server.offline = true
+    const write = one.store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => one.store.getState().queued === 1)
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    h.server.offline = false
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    await until(() => write.state === "applied")
+    await expect(write).resolves.toMatchObject({ title: "Eggs" })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("delivers a kept action's result while its originating store stays paused", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    const one = h.open()
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    h.server.offline = true
+    const action = one.store.actions.complete({ id: "a" })
+    action.then(undefined, () => undefined)
+    await until(() => one.store.getState().status === "offline")
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    h.server.offline = false
+    await two.store.refresh()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("settles a kept action sent before the originating tab finishes storing it", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    let markStored!: () => void
+    const stored = new Promise<void>((resolve) => { markStored = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const one = h.open({ storage: {
+      ...h.storage,
+      async write(id, change) {
+        const result = await h.storage.write(id, change)
+        if (change.add?.length) {
+          markStored()
+          await gate
+        }
+        return result
+      },
+    } })
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    const action = one.store.actions.complete({ id: "a" })
+    action.then(undefined, () => undefined)
+    await stored
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    expect(action.state).toBe("queued")
+    release()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("settles an action whose terminal storage commit overlaps a clear", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    let markCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { markCommitted = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { store } = h.open({ storage: {
+      ...h.storage,
+      async write(id, change) {
+        const result = await h.storage.write(id, change)
+        if (change.remove?.length) {
+          markCommitted()
+          await gate
+        }
+        return result
+      },
+    } })
+    await store.refresh()
+    const action = store.actions.complete({ id: "a" })
+    await committed
+    ;(store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    release()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("rejects a kept handle when its in-flight storage write fails", async () => {
+    const h = setup()
+    let failWrite!: (error: Error) => void
+    const { store } = h.open({ storage: {
+      ...h.storage,
+      write(id, change) {
+        if (!change.add?.length) return h.storage.write(id, change)
+        return new Promise((_resolve, reject) => { failWrite = reject })
+      },
+    } })
+    await store.refresh()
+    const write = store.insert({ title: "Eggs" })
+    const rejected = expect(write).rejects.toMatchObject({ code: "SYNC_BAD_REQUEST", message: expect.stringContaining("disk full") })
+    ;(store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    const refresh = store.refresh()
+    failWrite(new Error("disk full"))
+    await rejected
+    await refresh
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
   })
 })
 

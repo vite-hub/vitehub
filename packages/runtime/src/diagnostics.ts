@@ -70,18 +70,27 @@ export interface RuntimeDiagnosticErrorOptions {
   maxStringLength?: number
 }
 
+/** Recognizes an `Error` from any realm, without reading its properties. */
+export function isNativeError(value: unknown): value is Error {
+  if (!isRuntimeObject(value)) return false
+  try {
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    return typeof nativeIsError === "function"
+      ? nativeIsError(value) === true
+      : value instanceof Error || (!(Symbol.toStringTag in value) && Object.prototype.toString.call(value) === "[object Error]")
+  }
+  catch {
+    return false
+  }
+}
+
 /**
  * Recognizes a live Nostics error across bundled copies. This does not make its fields safe for public responses.
  * nostics' own check matches only its own copy (https://github.com/vercel-labs/nostics/pull/40).
  */
 export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown> | ResultError {
-  if (!isRuntimeObject(error)) return false
+  if (!isNativeError(error)) return false
   try {
-    const nativeIsError: unknown = Reflect.get(Error, "isError")
-    const isError = typeof nativeIsError === "function"
-      ? nativeIsError(error) === true
-      : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
-    if (!isError) return false
     const message: unknown = Reflect.get(error, "message")
     const code: unknown = Reflect.get(error, "code")
     const name: unknown = Reflect.get(error, "name")

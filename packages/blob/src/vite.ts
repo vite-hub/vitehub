@@ -84,7 +84,7 @@ function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
   if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
   if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
   if (store.driver === "cloudflare" && store.localFallback) {
-    return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
+    return `Local. \`vite dev\` uses the dev runner's R2 binding, or the \`fs\` driver in ${store.localFallback.base} on Node without a binding. Miniflare requires a local R2 binding.`
   }
   return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
 }

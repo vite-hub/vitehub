@@ -1,5 +1,6 @@
+import { isNativeError, isRuntimeDiagnostic } from "./diagnostics.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { isPreparedResultError, type ResultError } from "./result.ts"
+import { getViteHubErrorShape } from "./errors.ts"
 
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
@@ -107,11 +108,14 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
 
 /**
  * Normalize a primitive value into the native Web Response contract.
- * A `ResultError` answers its `status`, or 500, with `{ code, why, fix }`, so a route can `return toResponse(error)`.
+ * An error answers with `{ code, why, fix }` and never with its `stack`, `cause`, or `data`:
+ * - A ResultError or other Nostics diagnostic answers its `status`, or 500, so a route can `return toResponse(error)`.
+ * - A `ViteHubError` answers 500 with its `code` and its message as `why`.
+ * - Any other `Error` answers 500 with `RUNTIME_HIDDEN_ERROR`, because its message can hold server details.
  */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
-  if (isPreparedResultError(value)) return errorResponse(value)
+  if (isNativeError(value)) return errorResponse(value)
   if (value === undefined) return new Response(null, { status: 204 })
   if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -124,9 +128,28 @@ export function toResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), { headers: jsonHeaders })
 }
 
-function errorResponse(error: ResultError): Response {
-  const { status } = error
-  return new Response(JSON.stringify({ code: error.code, why: error.why, fix: error.fix }), {
+function errorResponse(error: Error): Response {
+  let body: { code: string, why: string, fix: string | undefined } | undefined
+  let status: unknown
+  if (isRuntimeDiagnostic(error)) {
+    try {
+      body = { code: error.code, why: error.why, fix: error.fix }
+      status = Reflect.get(error, "status")
+    }
+    catch {
+      body = undefined
+    }
+  }
+  else {
+    const shape = getViteHubErrorShape(error)
+    if (shape) body = { code: shape.code, why: shape.message, fix: undefined }
+  }
+  if (!body || typeof body.code !== "string" || typeof body.why !== "string" || (body.fix !== undefined && typeof body.fix !== "string")) {
+    const hidden = runtimeErrorDiagnostics.RUNTIME_HIDDEN_ERROR()
+    body = { code: hidden.code, why: hidden.why, fix: hidden.fix }
+    status = 500
+  }
+  return new Response(JSON.stringify(body), {
     headers: jsonHeaders,
     status: typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500,
   })
