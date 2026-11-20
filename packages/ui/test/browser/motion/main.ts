@@ -20,6 +20,7 @@ import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotio
 import "./styles.css";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
+const inverted = new URLSearchParams(location.search).has("inverted");
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
@@ -89,6 +90,7 @@ customElements.define("motion-shadow-button", ShadowButton);
 // Drag a value: sliders and dividers. The plain ones follow the prototype: a slider whose thumb has the role, and a
 // panel edge that resizes a 120px to 220px panel.
 const volume = ref(40);
+const interval = ref([20, 80]);
 const sdkVolume = ref(40);
 const plainVolume = ref(40);
 const filesWidth = ref(150);
@@ -170,7 +172,7 @@ function dragRows(): VNode[] {
   const line = () => h("span", { class: "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--ui-border) group-hover:bg-(--ui-border-accented)" });
   return [
     row("USlider, ui-sdk slider, plain slider", [
-      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
+      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", inverted, "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
       h(SdkSlider, { "data-test": "sdk-slider", "class": "sdk-slider", "modelValue": sdkVolume.value, "onUpdate:modelValue": (value: number | number[]) => (sdkVolume.value = Number(value)) }, () => [
         h(SliderControl, { class: "sdk-slider-control" }, () => [
           h(SliderTrack, { class: "sdk-slider-track" }, () => [
@@ -180,6 +182,10 @@ function dragRows(): VNode[] {
         ]),
       ]),
       plainSlider(),
+      ...(inverted ? [
+        h(USlider, { "data-test": "interval", "class": "w-80", "aria-label": "Interval", "modelValue": interval.value }),
+        h("button", { "data-test": "set-interval", "onClick": () => (interval.value = [35, 65]) }, "Set interval"),
+      ] : []),
     ]),
     row("USplitter, a plain resize handle", [
       h("div", { class: "splitter-frame" }, [
