@@ -157,6 +157,7 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const inheritAgentLayerOptions = agent => agent",
     "export const markDiscoveredAgentName = () => {}",
     "export const withDiscoveredAgentName = agent => agent",
+    "export const withDeclaredAgentWorkspace = agent => agent",
     "export const resetPublicUrlAgentNames = () => {}",
     "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
     "export const workspaceDefinitionFromOptions = () => undefined",
@@ -1340,7 +1341,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
