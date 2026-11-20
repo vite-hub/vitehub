@@ -404,9 +404,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         if (error.code === "WEBHOOKS_ENDPOINT_INVALID") return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: error.why }), undefined]
         throw error
       }
-      if (result.status === "expired") return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
-      if (result.status === "used") return [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
       if (result.status === "refused") return [commentsErrors.COMMENTS_SEND_CODE_REFUSED({ reason: result.reason }), undefined]
+      if (result.status !== "paired") return [result.status === "used" ? commentsErrors.COMMENTS_SEND_CODE_USED() : commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       return [undefined, { status: "paired", agent: agentOf(result.pairing)! }]
     },
 
@@ -442,8 +441,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       })
       if (error) return [undefined, { status: "failed", reason: error.why }]
       // Only the member who copied the code may allow the agent that used it, and only once.
-      if (allowed.status === "not-owner") return forbidden()
-      if (allowed.status === "expired") return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
+      if (allowed.status !== "allowed") return allowed.status === "not-owner" ? forbidden() : [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       return [undefined, await deliver(caller, user, { id: allowed.endpoint.id, thread: allowed.pairing.address })]
     },
 

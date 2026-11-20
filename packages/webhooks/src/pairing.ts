@@ -124,7 +124,7 @@ export async function pairMemberEndpoint(input: unknown, options: { hosts?: read
   const code = field("code")
   const url = field("url")
   const inbox = field("inbox")
-  const invalid = (problem: string) => [webhooksErrors.WEBHOOKS_ENDPOINT_INVALID({ problem }), undefined] as const
+  const invalid = (problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, undefined] => [webhooksErrors.WEBHOOKS_ENDPOINT_INVALID({ problem }), undefined]
   if (typeof code !== "string" || !code || code.length > 64) return invalid("`code` must be the code of the setup prompt")
   if ((typeof url === "string") === (typeof inbox === "string")) return invalid("pass `url`, the agent's receiver URL, or `inbox`, \"Claude Code\" or \"Codex\"")
   const agent = typeof inbox === "string" ? inboxes[inbox] : "t3"
