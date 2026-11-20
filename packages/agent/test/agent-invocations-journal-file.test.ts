@@ -144,7 +144,7 @@ describe("vitehub agent invocations --database", () => {
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
     [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
-    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
+    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
   ])("rejects %j", async (args, message) => {
     const result = await run(args)
@@ -170,7 +170,7 @@ describe("vitehub agent invocations --database", () => {
     const { runAgentInvocationsCli: runWithoutSqlite } = await import("../src/internal/agent-invocations-cli.ts")
     const stderr = stream()
     expect(await runWithoutSqlite(["list", "--database", path], { env: {}, stderr, stdout: stream() })).toBe(1)
-    expect(stderr.output()).toContain("[AGENT_INVOCATIONS_NODE_SQLITE_MISSING] --database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.\n")
+    expect(stderr.output()).toContain("[AGENT_INVOCATIONS_NODE_SQLITE_MISSING] --database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.\n")
   })
 })
 

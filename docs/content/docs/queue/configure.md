@@ -8,14 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `host` picks the Queue Provider (the service that stores and delivers jobs).
+A file in `server/queues/` turns on Queue, so you do not add a `queue` option. Set `queue` to an object only to change the options below, or `queue: false` to keep Queue off. The `host` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -27,7 +27,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -38,7 +38,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
@@ -135,10 +135,10 @@ Turns Queue off. The server then has no Queue runtime, so `sendQueue()` throws `
 
 | Driver | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
-| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delaySeconds`. |
+| Cloudflare | `queue: { driver: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses the request's queue bindings. Supports `contentType` and `delay`. |
 | Vercel | `queue: { driver: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Needs `@vercel/queue` and `@vercel/functions` in the app. Supports idempotency, region, retention, and delay. |
-| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host without a Postgres Database. Supports `delaySeconds` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
-| Postgres | `queue: { driver: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node host with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit driver without a Postgres Database needs it. Every instance runs jobs. Supports `delaySeconds` and `idempotencyKey`. Install `postgres`. |
+| Local | `queue: { driver: 'local', base?: string }` | A Nitro plugin that runs stored jobs in the server process. | Default of the Node host without a Postgres Database. Supports `delay` and `idempotencyKey`. Jobs stay on one host. `pnpm dev` uses it for every driver, with that driver's rules. |
+| Postgres | `queue: { driver: 'postgres' }` | A Nitro plugin that starts workers in each server process and stops them when Nitro closes. | Default of the Node host with a Postgres Default Database. Uses the Default Database's connection. `QUEUE_POSTGRES_URL` overrides it, and an explicit driver without a Postgres Database needs it. Every instance runs jobs. Supports `delay` and `idempotencyKey`. Install `postgres`. |
 
 ViteHub has no Queue Provider for Deno. The local driver keeps jobs on one host, so read [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. For more than one Node server, use the postgres driver: see [Postgres delivery](/docs/queue/limits-and-errors#postgres-delivery). Check the [support matrix](/docs/frameworks-hosts/support-matrix) before you pick a host.
 
@@ -159,8 +159,10 @@ Create a Queue Definition (the file that handles one queue's jobs) in `server/qu
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
@@ -168,14 +170,15 @@ The file path gives the queue name. Runtime helpers call this file `welcome-emai
 
 ## Queue Definition options
 
-Pass options as the second argument to `defineQueue()`.
+Put the options next to `handler` in the object that you pass to `defineQueue()`.
 
 ```ts [server/queues/report.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ reportId: string }>(async (job) => {
-  await buildReport(job.payload.reportId)
-}, {
+export default defineQueue<{ reportId: string }>({
+  handler: async ({ payload }) => {
+    await buildReport(payload.reportId)
+  },
   concurrency: 5,
 })
 ```
@@ -184,9 +187,12 @@ export default defineQueue<{ reportId: string }>(async (job) => {
 | --- | --- | --- | --- |
 | `cache` | `boolean` | All | Overrides QueueClient caching for this queue. |
 | `concurrency` | `number` | Cloudflare, Local, Postgres | How many jobs of this queue run at the same time: in one batch on Cloudflare, in one server process on local and postgres. Default `1`. Rounded down to an integer, at least `1`. |
-| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delaySeconds?: number } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
+| `maxBatchSize` | `number` | Cloudflare | The most messages in one batch, from 1 to 100. Cloudflare's default is 10. Write it as a number in `export default defineQueue({ ... })`: the build reads it from the file and writes `max_batch_size` on the consumer. |
+| `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delay?: Duration } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
 | `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
 | `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
+
+On Cloudflare, write Queue options in an object literal without spreads or computed keys. If you keep a Wrangler consumer for the same queue, its `max_batch_size` must match `maxBatchSize` when you set that option. The build rejects a missing or different value and leaves the consumer's other settings, such as `max_retries`, alone.
 
 ## Contribute Queues from a package
 

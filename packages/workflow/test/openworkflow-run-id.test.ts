@@ -16,10 +16,10 @@ beforeEach(() => {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry({
     checkout: async () => ({
-      default: defineWorkflow("checkout", async (payload: { order: number }, context) => {
+      default: defineWorkflow<{ order: number }>({ handler: async ({ payload, ...context }) => {
         seenIds.push(context.id)
         return { order: payload.order }
-      }),
+      } }),
     }),
   })
 })
@@ -72,8 +72,8 @@ it("keeps the OpenWorkflow id for runs that start without an id", async () => {
 
 it("reports unknown for an id of another Workflow", async () => {
   setWorkflowRuntimeRegistry({
-    checkout: async () => ({ default: defineWorkflow("checkout", async () => "ok") }),
-    refund: async () => ({ default: defineWorkflow("refund", async () => "ok") }),
+    checkout: async () => ({ default: defineWorkflow({ handler: async () => "ok" }) }),
+    refund: async () => ({ default: defineWorkflow({ handler: async () => "ok" }) }),
   })
   await unwrap(startWorkflow("refund", undefined, { id: "shared-1" }))
 

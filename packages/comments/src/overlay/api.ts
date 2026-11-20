@@ -125,11 +125,3 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
     reopen: changed(rest.reopen),
   }
 }
-
-/** The file as Base64, the form that `comments.upload` takes. */
-export async function base64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ""
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  return btoa(binary)
-}

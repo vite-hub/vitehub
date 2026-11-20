@@ -104,25 +104,19 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           ["tags", "metadata"] as const
         ).find((option) => message[option] !== undefined);
         if (unsupportedOption) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare",
-              "UNSUPPORTED",
-              `Cloudflare Email does not support the ${unsupportedOption} option.`,
-            ),
-          };
+          return [emailProviderError(
+            "cloudflare",
+            "UNSUPPORTED",
+            `Cloudflare Email does not support the ${unsupportedOption} option.`,
+          ), undefined];
         }
         if (context.signal?.aborted) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare",
-              "CANCELLED",
-              "Cloudflare Email send was cancelled.",
-              { retryable: false },
-            ),
-          };
+          return [emailProviderError(
+            "cloudflare",
+            "CANCELLED",
+            "Cloudflare Email send was cancelled.",
+            { retryable: false },
+          ), undefined];
         }
         rejectTransportOwnedHeaders(message.headers);
         const unsupportedPayloads = [
@@ -131,14 +125,11 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
         ] as const;
         for (const [key, description] of unsupportedPayloads) {
           if (message[key] !== undefined) {
-            return {
-              data: null,
-              error: emailProviderError(
-                "cloudflare",
-                "UNSUPPORTED",
-                `Cloudflare Email does not support ${description}.`,
-              ),
-            };
+            return [emailProviderError(
+              "cloudflare",
+              "UNSUPPORTED",
+              `Cloudflare Email does not support ${description}.`,
+            ), undefined];
           }
         }
         validateAddresses("cloudflare", message);
@@ -150,33 +141,24 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           ...(message.bcc ? addresses(message.bcc) : []),
         ];
         if (!from || to.length === 0)
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare",
-              "INVALID_OPTIONS",
-              "from and to are required.",
-            ),
-          };
+          return [emailProviderError(
+            "cloudflare",
+            "INVALID_OPTIONS",
+            "from and to are required.",
+          ), undefined];
         if (recipients.length > 1)
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare",
-              "UNSUPPORTED",
-              "Cloudflare Email supports exactly one envelope recipient per message.",
-            ),
-          };
+          return [emailProviderError(
+            "cloudflare",
+            "UNSUPPORTED",
+            "Cloudflare Email supports exactly one envelope recipient per message.",
+          ), undefined];
         const customId = headerValue(message.headers, "message-id");
         if (customId !== undefined && !messageIdPattern.test(customId)) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare",
-              "INVALID_OPTIONS",
-              "Message-ID must use the <local@domain> form.",
-            ),
-          };
+          return [emailProviderError(
+            "cloudflare",
+            "INVALID_OPTIONS",
+            "Message-ID must use the <local@domain> form.",
+          ), undefined];
         }
         const id = customId ?? `<${crypto.randomUUID()}@vitehub.email>`;
         const raw = encodeCloudflareMimeMessage(message, id);
@@ -185,18 +167,15 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           new Constructor(addressValue(from).email, addressValue(recipients[0]!).email, raw),
           context.signal,
         );
-        return { data: { at: new Date(), driver: "cloudflare", id }, error: null };
+        return [undefined, { at: new Date(), driver: "cloudflare", id }];
       } catch (cause) {
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError(
-            "cloudflare",
-            "PROVIDER",
-            "Cloudflare Email send failed.",
-            { cause },
-          ),
-        };
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError(
+          "cloudflare",
+          "PROVIDER",
+          "Cloudflare Email send failed.",
+          { cause },
+        ), undefined];
       }
     },
   };

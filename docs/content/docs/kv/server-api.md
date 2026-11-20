@@ -86,7 +86,7 @@ The options work as in `get()` and `set()` and apply to every key. In `setMany()
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setMany()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`, `lock()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `getMany()`, `has()`, and `list()`. Write methods (`set()`, `setMany()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`, `lock()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -215,9 +215,8 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
 | `kv.delete(key)` | Deletes one key. |
 | `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
-| `kv.keys(base?)` | Lists keys under an optional base prefix. |
-| `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
-| `kv.clear(base?)` | Deletes keys under an optional base prefix. `kv.clear('users')` deletes `users:alice` but not `users-old:alice`. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
+| `kv.list({ prefix?, limit?, cursor? })` | Lists the keys that start with `prefix`, as text: `'user'` matches `users:alice`, and `'users:'` matches only the keys below `users`. Without `limit`, it returns every key and no cursor. With `limit`, it reads one page; pass the returned `cursor` to read the next page. |
+| `kv.clear({ prefix? })` | Deletes the keys that start with `prefix`, with the same text match as `list()`. `kv.clear({ prefix: 'users:' })` deletes `users:alice` but not `users-old:alice`. Without `prefix`, it deletes every key of the store. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
 | `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.

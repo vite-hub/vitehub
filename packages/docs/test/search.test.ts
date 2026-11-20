@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { defineContent } from "@vite-hub/content"
-import { createSource, glob } from "@vite-hub/source"
+import { useSource, glob } from "@vite-hub/source"
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
@@ -29,7 +29,7 @@ beforeAll(async () => {
     route: false,
     live: false,
     markdown: docsMarkdown({ examples }),
-    sources: { docs_0: () => createSource(glob({ include: ["**/*.md"] }), { rootDir: contentDir }) },
+    sources: { docs_0: () => useSource(glob({ include: ["**/*.md"] }), { rootDir: contentDir }) },
   })
   // One parse of the folder: a `glob()` Source reads every file again on each read of one page.
   const files = new Map((await content.instances.find(instance => instance.name === "docs_0")!.snapshot()).items.map(file => [file.meta.key, file]))

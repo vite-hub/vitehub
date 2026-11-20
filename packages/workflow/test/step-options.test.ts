@@ -22,8 +22,8 @@ const signals: AbortSignal[] = []
 /** The shape that the generated registry gives a folder Workflow: one step file with its exported options. */
 function folderWorkflow(options: WorkflowStepOptions, run: (input: unknown, context: { signal: AbortSignal }) => unknown): WorkflowDefinition {
   return {
-    options: { rootStep: false },
-    handler: async (payload, context) => await createWorkflowSteps(context, [{ name: "01.sync.ts", options, run }]).sync!(payload),
+    rootStep: false,
+    handler: async context => await createWorkflowSteps(context, [{ name: "01.sync.ts", options, run }]).sync!(context.payload),
   }
 }
 
@@ -131,8 +131,8 @@ describe("OpenWorkflow (SQLite)", () => {
     setWorkflowRuntimeRegistry({
       report: async () => ({
         default: {
-          options: { rootStep: false },
-          handler: async (_payload, context) => await context.step!.do!("slow", { retries: { delay: 0, limit }, timeout: 20 }, async () => {
+          rootStep: false,
+          handler: async context => await context.step!.do!("slow", { retries: { delay: 0, limit }, timeout: 20 }, async () => {
             attempts.push("slow")
             await delay(120)
             return "done"

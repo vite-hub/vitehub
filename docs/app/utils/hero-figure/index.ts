@@ -20,7 +20,7 @@ export const heroFigures = {
   "connections": () => import("./scenes/connections").then(m => mounter(m.default)),
   "content": () => import("./scenes/content").then(m => mounter(m.default)),
   "database": () => import("./scenes/database").then(m => mounter(m.default)),
-  "decisions": () => import("./scenes/decisions").then(m => mounter(m.default)),
+  "choices": () => import("./scenes/choices").then(m => mounter(m.default)),
   "email": () => import("./scenes/email").then(m => mounter(m.default)),
   "env": () => import("./scenes/env").then(m => mounter(m.default)),
   "forms": () => import("./scenes/forms").then(m => mounter(m.default)),

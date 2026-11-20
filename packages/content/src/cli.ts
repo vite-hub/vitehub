@@ -118,6 +118,7 @@ const contentDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const contentCommands: readonly ContentCliCommand[] = [
@@ -391,6 +392,16 @@ function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentC
   return 1
 }
 
+/** The JSON Schema subset that Content reads: `type`, `properties`, `required`, and `items`, each with its JSON type. */
+function isJsonSchema(value: unknown): value is JsonSchema {
+  if (!isRecord(value)) return false
+  const { type, properties, required, items } = value
+  return (type === undefined || typeof type === "string" || (Array.isArray(type) && type.every(entry => typeof entry === "string")))
+    && (properties === undefined || (isRecord(properties) && Object.values(properties).every(isJsonSchema)))
+    && (required === undefined || (Array.isArray(required) && required.every(entry => typeof entry === "string")))
+    && (items === undefined || isJsonSchema(items))
+}
+
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`
 }
@@ -535,12 +546,15 @@ async function runLocalCheck(parsed: ParsedContentArgs, context: ContentCliConte
   const { checkContentDirectory } = await import("./check-local.ts")
   let schema: JsonSchema | undefined
   if (parsed.schema !== undefined) {
+    let value: unknown
     try {
-      schema = JSON.parse(await readFile(resolve(context.cwd, parsed.schema), "utf8")) as JsonSchema
+      value = JSON.parse(await readFile(resolve(context.cwd, parsed.schema), "utf8"))
     }
     catch (error) {
       return writeFailure(parsed, context, { code: "CONTENT_R0069", message: `Could not read the JSON Schema ${parsed.schema}: ${error instanceof Error ? error.message : String(error)}` })
     }
+    if (!isJsonSchema(value)) return writeFailure(parsed, context, { code: "CONTENT_R0069", message: `Could not read the JSON Schema ${parsed.schema}: the file does not hold a JSON Schema object.` })
+    schema = value
   }
   try {
     const result = await checkContentDirectory({

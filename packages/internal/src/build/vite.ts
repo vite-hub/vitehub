@@ -3,8 +3,10 @@ import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "../cli.ts"
+
 import type { NuxtServerDirOptions } from "./paths.ts"
-import type { ConfigEnv, EnvironmentOptions } from "vite"
+import type { ConfigEnv, EnvironmentOptions, ViteDevServer } from "vite"
 
 export type { NuxtServerDirOptions } from "./paths.ts"
 
@@ -95,7 +97,7 @@ export interface ProviderOutputEnvironmentOwner {
   /** Install as the plugin's `buildApp` hook. */
   buildApp: (builder: { environments: Record<string, { isBuilt: boolean }> }) => Promise<void>
   /** Install as the plugin's `nitro` module. */
-  nitro: { name: string, setup: (nitro: { options: { static?: boolean } }) => void }
+  nitro: { name: string, setup: (nitro: { options: NitroPackageLoadingOptions & { static?: boolean } }) => void }
   /** Whether a later environment of the same Vite build writes Provider Output. */
   defers: (context: { environment?: object } | undefined) => boolean
 }
@@ -125,13 +127,31 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
   }
 }
 
+type NitroPackageLoadingOptions = { devServer?: { runner?: string } }
+
 /**
- * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
- * This is the Nitro environment of `vite dev`. Generated Nitro plugins give these packages the registries and the
- * `define` values that Vite gives to the code it transforms. Builds and other environments still inline the packages.
+ * Use one app's effective Nitro runner for both environment configuration and generated imports.
+ * `configureEnvironment` reads the runner after Nitro's `build:before` hooks and saves the decision for `load`.
  */
-export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
-  return env.command === "serve" && name === "nitro"
+export function createNativePackageLoading() {
+  let nitro: { options: NitroPackageLoadingOptions } | undefined
+  let native = false
+  return {
+    nitro: {
+      setup(instance: { options: NitroPackageLoadingOptions }): void {
+        nitro = instance
+      },
+    },
+    configureEnvironment(name: string, env: { command: string }): boolean {
+      if (name !== "nitro") return false
+      const runner = nitro?.options.devServer?.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
+      native = env.command === "serve" && (runner === "node-worker" || runner === "node-process")
+      return native
+    },
+    load(id: string, environmentName: string | undefined): string | undefined {
+      if (environmentName === "nitro" && native) return loadNativePackageModule(id)
+    },
+  }
 }
 
 // The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
@@ -144,8 +164,7 @@ const nativePackageDistFile = /\/node_modules\/@vite-hub\/(?:agent|connections|r
  * registries. This returns a module that lets Node load the file instead, so the app and the generated code share one
  * instance. Use it as the `load` hook result for the file. It returns nothing for other files and environments.
  */
-export function loadNativePackageModule(id: string, environmentName: string | undefined, command: string): string | undefined {
-  if (!environmentName || !loadsViteHubPackagesNatively(environmentName, { command })) return
+function loadNativePackageModule(id: string): string | undefined {
   // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
   const file = id.startsWith("file:") ? fileURLToPath(id) : id
   if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return
@@ -405,4 +424,43 @@ export function createViteHubEnvImportAliases(root: string): Record<string, stri
     [VITEHUB_ENV_SERVER_ID]: viteHubEnvServerModulePath(root),
     [VITEHUB_ENV_DESCRIPTION_ID]: viteHubEnvDescriptionModulePath(root),
   }
+}
+
+const publishedDevServers = new WeakSet<NonNullable<ViteDevServer["httpServer"]>>()
+
+/**
+ * Tell `vitehub` commands where this dev server listens: `.vitehub/dev-server.json` in the project root, removed when
+ * the server closes. A host that runs Vite in middleware mode has no listening server and writes nothing.
+ */
+export function publishViteHubDevServer(server: ViteDevServer): void {
+  const http = server.httpServer
+  // In middleware mode another server owns the listener and publishes it, as the Nuxt module does.
+  if (!http || server.config.server.middlewareMode || publishedDevServers.has(http)) return
+  publishedDevServers.add(http)
+  const root = resolve(server.config.root)
+  let publishedUrl: string | undefined
+  const write = () => {
+    const address = http.address()
+    if (!address || typeof address === "string") return
+    const host = address.address === "::" || address.address === "0.0.0.0" ? "localhost" : address.family === "IPv6" ? `[${address.address}]` : address.address
+    const url = server.resolvedUrls?.local[0] ?? `${server.config.server.https ? "https" : "http"}://${host}:${address.port}${server.config.base}`
+    try {
+      writeViteHubDevServerFile(root, { root, url })
+      publishedUrl = url
+    }
+    catch {
+      // A read-only project root only means commands must pass --url.
+    }
+  }
+  const remove = () => {
+    try {
+      if (publishedUrl && readViteHubDevServerFile(root)?.url === publishedUrl) removeViteHubDevServerFile(root)
+    }
+    catch {
+      // The file is advisory.
+    }
+  }
+  if (http.listening) write()
+  else http.once("listening", write)
+  http.once("close", remove)
 }

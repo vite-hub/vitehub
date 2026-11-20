@@ -1,16 +1,17 @@
-import { createExecutionContext } from "@vite-hub/runtime"
+import { createExecutionContext, formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { join } from "node:path"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { isRecord } from "@vite-hub/internal/object"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, runWorkspaceDevCommand } from "@vite-hub/workspace/server"
 
-import { agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
+import { agentDevLoopTokenScopeHeader, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { isAgentDevLoopDiscoveryRequest } from "./invocation-stream-route.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
@@ -25,6 +26,7 @@ import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
   createViteWorkspaceAgentLoader,
+  importViteDevModule,
   loadViteAgent,
   writeViteResponse as writeResponse,
 } from "./runtime-adapter.ts"
@@ -256,7 +258,7 @@ function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeCon
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
   if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
-  const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
+  const mod = await importViteDevModule(server, workspaceRegistryId) as { default?: unknown }
   return isWorkspaceRegistry(mod.default) ? mod.default : {}
 }
 
@@ -596,7 +598,7 @@ export async function resolveDevRuntimeCapabilities(
     name: definition.name,
     value: definition.packageName === false
       ? false
-      : (await server.ssrLoadModule(definition.packageName))[definition.importName],
+      : (await importViteDevModule(server, definition.packageName))[definition.importName],
   })))
   for (const { name, value } of resolved) capabilities[name] = value
   return capabilities
@@ -763,18 +765,22 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
 
 export { writeResponse }
 
-function errorResponse(error: unknown): Response {
-  if (error instanceof Response) return error
-  return new Response("Agent Invocation Stream endpoint failed.", {
+function errorResponse(error: unknown, authorized: boolean, tokenScope: Pick<AgentDevLoopDiscoveryResponse, "root" | "workspaceDevTokenServerId">): Response {
+  if (authorized && error instanceof Response) return error
+  return new Response(authorized ? redactInspectionText(formatRuntimeDiagnosticError(error)) : "Agent Invocation Stream endpoint failed.", {
+    headers: {
+      "Cache-Control": "no-store",
+      ...(!authorized ? { [agentDevLoopTokenScopeHeader]: encodeURIComponent(JSON.stringify(tokenScope)) } : {}),
+    },
     status: 500,
   })
 }
 
 /** Answers one Dev Loop request. The endpoint module loads this module on the first request. */
-export function handleAgentInvocationStreamEndpoint(server: ViteDevServer, req: IncomingMessage, res: ServerResponse, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, runtimeOptions: AgentDevRuntimeOptions): void {
+export function handleAgentInvocationStreamEndpoint(server: ViteDevServer, req: IncomingMessage, res: ServerResponse, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, runtimeOptions: AgentDevRuntimeOptions, authorized: boolean): void {
   const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
   void handleAgentInvocationStreamRequest(server, req, grant, tokenOptions, abort.signal, runtimeOptions)
-    .catch(errorResponse)
+    .catch((error: unknown) => errorResponse(error, authorized, { root: server.config.root, workspaceDevTokenServerId: tokenOptions.serverId }))
     .then(response => writeResponse(res, response))
     .finally(abort.dispose)
 }

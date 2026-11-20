@@ -747,6 +747,10 @@ export function toAgentStreamEvent(
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
+  if (type === "reasoning-delta" && typeof value.text === "string" && typeof value.id === "string" && /^reasoning(?:_summary)?_text:/.test(value.id)) {
+    // Only the provider Driver's reasoning event, by its `providerTextDeltaId` prefix. AI SDK reasoning chunks stay hidden.
+    return { ...(typeof value.id === "string" ? { id: value.id } : {}), text: value.text, type: "reasoning-delta" }
+  }
   if (type === "data" || type.startsWith("data-")) {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }

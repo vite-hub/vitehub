@@ -73,6 +73,7 @@ function useSync<TName extends SyncName, TWhere extends SyncSubsetOf<TName> = Sy
   return reactive({
     rows: computed(() => state.value.rows),
     status: computed(() => state.value.status),
+    complete: computed(() => state.value.complete),
     error: computed(() => state.value.error),
     queued: computed(() => state.value.queued),
     failures: computed(() => state.value.failures),

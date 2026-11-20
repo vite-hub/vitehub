@@ -63,7 +63,7 @@ describe("Nuxt Definition imports outside Nitro", () => {
       await writeFile(handlerFile, [
         bindings !== "none" ? "import { defineWorkflow } from 'vite-hub/workflow'" : "",
         bindings === "all" ? "import { kv } from 'vite-hub/kv'" : "",
-        "export default defineWorkflow('cleanup', async () => typeof kv.store('reports').get)",
+        "export default defineWorkflow({ handler: async () => typeof kv.store('reports').get })",
       ].join("\n"))
       await writeFile(registryFile, createWorkflowRegistryContents(registryFile, [{
         handler: handlerFile, name: "cleanup", source: "server-workflows",

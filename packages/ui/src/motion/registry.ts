@@ -21,8 +21,10 @@ export interface MotionStateChange {
 export interface MotionPress {
   /** The pointer moved while it was down, such as on a slider thumb. Not called for a key press. */
   move?(event: PointerEvent): void;
-  /** The pointer or the key went up, or the pointer left the element or was cancelled. */
+  /** The pointer or the key went up. Also called on cancellation if there is no `cancel` hook. */
   release(): void;
+  /** The pointer left, the press was interrupted, or reduced motion turned on. */
+  cancel?(): void;
 }
 
 /**
@@ -50,7 +52,12 @@ export interface MotionEffect {
 }
 
 const effects = new Map<string, MotionEffect>();
+const defaults = new Map<string, MotionEffect>();
 const changeListeners = new Set<() => void>();
+
+export function defineDefaultMotionEffect(effect: MotionEffect): void {
+  defaults.set(effect.name, effect);
+}
 
 /**
  * Adds an effect to the motion layer. Every installed layer runs it from the next interaction on. Returns a function
@@ -68,7 +75,7 @@ export function defineMotionEffect(effect: MotionEffect): () => void {
 
 /** The effects of the motion layer, in the order they were defined. */
 export function listMotionEffects(): MotionEffect[] {
-  return [...effects.values()];
+  return [...new Map([...defaults, ...effects]).values()];
 }
 
 export function onMotionEffectsChange(listener: () => void): () => void {

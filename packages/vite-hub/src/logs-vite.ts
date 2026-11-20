@@ -5,7 +5,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts";
-import type { ObservabilityLogsOptions } from "./observability-vite.ts";
+import type { LogsOptions } from "./observability-vite.ts";
 
 export function renderLogsPlugin(
   projectRoot: string,
@@ -31,8 +31,8 @@ export function renderLogsPlugin(
   ].join("\n");
 }
 
-/** Installs the log source of `observability.logs`. The observability plugin registers Evlog. */
-export function logsVitePlugin(options: ObservabilityLogsOptions): Plugin {
+/** Installs the log source of `vitehub({ logs })`. The observability plugin registers Evlog. */
+export function logsVitePlugin(options: LogsOptions): Plugin {
   return {
     name: "vite-hub/logs",
     async config(config, environment) {

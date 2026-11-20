@@ -624,12 +624,10 @@ describe("re-seeding", () => {
 
 describe("identity and authorization", () => {
   function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: {
-    auth?: true
-    authorize?: (context: RealtimeAuthorizeContext) => boolean
+    authorize?: true | ((context: RealtimeAuthorizeContext) => boolean)
     identify?: (context: RealtimeRequestContext) => RealtimeUser | null
   } = {}) {
     return liveDefinition(memory.adapter, {}, {
-      auth: extra.auth,
       authorize: extra.authorize ?? (({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"
         return mode === "read" || user?.id !== "viewer"
@@ -696,6 +694,7 @@ describe("identity and authorization", () => {
     const server = createTestServer(secured(memory))
 
     expect((await server.connect("secret", { headers: { "x-user": "ben" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.connect("secret")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("secret", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
     expect((await server.connect("page", { headers: { origin: "https://evil.example", "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
 
@@ -728,9 +727,9 @@ describe("identity and authorization", () => {
     expect(memory.adapter.load).not.toHaveBeenCalled()
   })
 
-  it("requires an identity when auth is true", async () => {
+  it("requires an identity when authorize is true", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     expect((await server.connect("page")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
@@ -738,7 +737,7 @@ describe("identity and authorization", () => {
 
   it("refuses a rejected upgrade instead of opening a socket without hooks", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     const { response } = await server.connect("page")
     const hooks = (response as Response & { crossws?: { open?: unknown, upgrade?: (request: Request) => unknown } }).crossws
@@ -954,7 +953,7 @@ describe("room authorities", () => {
     const idFromName = vi.fn((name: string) => ({ name }))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
     for (const search of ["?document=save", "?history=checkpoint"]) {
-      const request = new Request(`https://example.com/api/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
+      const request = new Request(`https://example.com/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
       Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName } } } } })
 
       const response = await handler.fetch(request)
@@ -1105,12 +1104,12 @@ describe("adapter seams for live documents", () => {
     expect(idFromName).toHaveBeenCalledWith("server")
     const sent = fetch.mock.calls[0]![0]
     expect(sent.method).toBe("POST")
-    expect(new URL(sent.url).pathname).toBe("/api/_vitehub/realtime/content/posts/2026/hello")
+    expect(new URL(sent.url).pathname).toBe("/_vitehub/realtime/content/posts/2026/hello")
     expect(sent.headers.get("x-vitehub-realtime-refresh")).toBe("1")
 
     const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch: forward }), idFromName } } } } })
     await handler.fetch(request)
     expect(forward.mock.calls[0]![0].headers.has("x-vitehub-realtime-refresh")).toBe(false)
@@ -1123,7 +1122,7 @@ describe("adapter seams for live documents", () => {
     scope.__env__ = { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } }
     try {
       await expect(refreshRealtimeDocument("content", "posts/hello")).resolves.toBe(true)
-      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/api/_vitehub/realtime/content/posts/hello")
+      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/_vitehub/realtime/content/posts/hello")
     }
     finally {
       delete scope.__env__
@@ -1166,11 +1165,11 @@ describe("adapter seams for live documents", () => {
       get [Symbol.toStringTag]() { return "DurableObjectNamespace" }
     }
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: new ForwardingNamespace() } } } })
     expect(await (await handler.fetch(request)).text()).toBe("forwarded")
 
-    const inherited = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const inherited = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(inherited, { runtime: { cloudflare: { env: { $DurableObject: Object.create({ get: () => ({ fetch: forward }), idFromName: (name: string) => ({ name }) }) } } } })
     await handler.fetch(inherited)
     expect(forward).toHaveBeenCalledOnce()
@@ -1179,9 +1178,9 @@ describe("adapter seams for live documents", () => {
   it("refreshes inside the Durable Object without identity, only for a room it has open", async () => {
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const sql = new FakeSql()
-    const server = createTestServer(liveDefinition(memory.adapter, {}, { auth: true, identify: () => null }), { durable: sql })
+    const server = createTestServer(liveDefinition(memory.adapter, {}, { authorize: true, identify: () => null }), { durable: sql })
     const internal = (path: string) => {
-      const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+      const request = new Request(`https://vitehub.internal/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
       Object.assign(request, { runtime: { cloudflare: { env: {}, context: { storage: { sql: sql.carrier } } } } })
       return server.handler.fetch(request)
     }

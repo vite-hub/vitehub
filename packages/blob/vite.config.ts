@@ -40,7 +40,7 @@ export default defineConfig({
     },
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "vue", "esbuild", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,

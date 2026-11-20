@@ -364,26 +364,30 @@ async function inspectContentSetup(options: ContentConsoleOptions): Promise<Vite
 }
 
 /**
- * Finds the Content module of the project, but only when it may define document collections. Discovery reads the
+ * Finds the Content module when it may define document collections or imports `github()`. Discovery reads the
  * `defineContent()` call without running it; anything it cannot follow, such as options imported from another file,
  * counts as maybe.
  */
-async function findContentCollectionsEntry(options: ContentConsoleOptions): Promise<string | undefined> {
+async function findContentConsoleEntry(options: ContentConsoleOptions): Promise<string | undefined> {
   const file = await findContentEntry(options)
   if (!file) return
-  return (await inspectContentEntry(file, options.contentImportBase)).collections ? file : undefined
+  const features = await inspectContentEntry(file, options.contentImportBase)
+  if (features.collections || features.github) return file
 }
 
 /**
  * Console section for Content. It edits the document collections of the default export of `server/content.ts`.
- * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
- * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
+ * Document actions check `content.can()` with the signed-in Console user. The dashboard also shows GitHub Source heads.
  */
 export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
   actions: { export: "createContentConsoleActions", module: ownModule(import.meta.url, "runtime/console") },
-  description: "Edit, publish, and restore Content documents.",
-  entry: options => findContentCollectionsEntry(options),
-  inspect: options => inspectContentSetup(options),
+  description: "Edit Content documents and inspect GitHub Sources.",
+  entry: findContentConsoleEntry,
+  async inspect(options, entry) {
+    const features = await inspectContentEntry(entry, options.contentImportBase)
+    if (features.github && !features.collections) return { sourceHeadsOnly: true }
+    return inspectContentSetup(options)
+  },
   icon: "i-vitehub-content",
   id: "content",
   label: "Content",

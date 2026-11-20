@@ -5,15 +5,16 @@ import { fileURLToPath } from "node:url"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
+import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
 
+import type { AuthPageGuardConfig } from "./nuxt-types.ts"
 import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-export type { AuthPageMeta, AuthPageMode, AuthRedirects } from "./nuxt-types.ts"
+export type { AuthPageMeta, AuthPageMode } from "./nuxt-types.ts"
 
 export interface AuthNuxtModuleOptions {
   auth?: AuthOptions
@@ -68,7 +69,7 @@ type NuxtComponent = {
   shortPath: string
 }
 
-const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+const composables = ["useAbility", "useAuthClient", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -140,7 +141,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": authConfig.definition.handler,
+          "#vitehub/auth/definition": await writeNuxtAuthDefinition(viteRoot, authConfig),
           ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }
@@ -161,15 +162,16 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  // The session bridge and page guard share the discovered Auth path and redirects.
-  const authOptions = resolveAuthOptions()
-  const redirects = authOptions ? authOptions.redirects : undefined
+  // The session bridge and page guard share the discovered Auth path and the sign-in pages of `access`.
+  const authConfig = resolveAuthOptions() === false ? undefined : resolveAuthConfig()
+  const signIn = authConfig?.access.signIn
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
-  nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
-    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
-    redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
-  }
+  nuxt.options.runtimeConfig.public.vitehubAuth = resolveAuthOptions() === false ? false : {
+    basePath: authConfig?.basePath ?? "/api/auth",
+    signInPage: signIn && "provider" in signIn ? null : signIn?.page ?? "/login",
+    afterSignIn: authConfig?.access.afterSignIn ?? "/",
+  } satisfies AuthPageGuardConfig
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {

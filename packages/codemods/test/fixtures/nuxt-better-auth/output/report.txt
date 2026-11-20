@@ -1,0 +1,38 @@
+nuxt-better-auth: moved 1 Auth config to server/auth.ts and 3 auth route rules to page meta, host "node".
+Dry run: no files were written.
+
+Files to change (12):
+  layers/billing/nuxt.config.ts
+  nuxt.config.ts
+  app/pages/admin.vue
+  app/pages/dashboard/index.vue
+  app/pages/index.vue
+  server/auth.config.ts (deleted)
+  server/auth.ts (new)
+  app/auth.config.ts (deleted)
+  app/auth.client.ts (new)
+  server/api/me.get.ts
+  server/api/notes/index.get.ts
+  package.json
+
+Manual follow-ups (9):
+  1. nuxt.config.ts:14 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  2. nuxt.config.ts:20 redirects.logout: Pass the page to signOut({ redirectTo }) from useUserSession().
+  3. nuxt.config.ts:22 preserveRedirect: The ViteHub page guard always adds ?redirect=<the page> to the login page.
+  4. app/pages/dashboard/index.vue:4 ViteHub's useUserSession() has refresh() in place of fetchSession(). It takes no options and reads the session again.
+  5. app/pages/dashboard/index.vue:5 ViteHub's useUserSession() has refresh() in place of fetchSession(). It takes no options and reads the session again.
+  6. app/pages/index.vue:4 ViteHub has no useSignIn() or useSignUp(). Call signIn.email(), signIn.social(), or signUp.email() from useUserSession(). They return { data, error }.
+  7. layers/billing/server/api/plan.get.ts:2 requireUserSession() with options matched user fields. Use requireAuthorization(event, ({ user }) => <your check>) from ViteHub Auth.
+  8. .env.example:1 ViteHub Auth does not read NUXT_BETTER_AUTH_SECRET. Rename it to BETTER_AUTH_SECRET to keep the same secret, so sessions stay valid.
+  9. .env.example:2 ViteHub Auth uses the request origin as baseURL. Set baseURL in server/auth.ts only if the app needs a fixed URL, such as for OAuth callbacks behind a proxy.
+
+Notes:
+  - ViteHub Auth mounts Better Auth at /api/auth, as the module did, and uses the same session cookie, so signed-in users stay signed in when the secret stays the same.
+  - The module derived its secret from NUXT_APP_SECRET when no Better Auth secret was set. ViteHub derives it from VITEHUB_SECRET. Set BETTER_AUTH_SECRET to the old value, or users sign in again.
+  - Route rules with auth became definePageMeta({ auth }) on each page. The page guard is for navigation only: protect API routes with access.routes or requireAuth(event). See https://vitehub.dev/docs/auth/protect-pages.
+  - Auth keeps users in the app Database with authDatabase(). Run `vitehub database generate`: when the Better Auth tables exist, ViteHub reads them from the latest migration snapshot and adds only what is missing.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and @vite-hub/auth and remove @nuxtjs/better-auth.
+  - Run `npx nuxi prepare`, then type-check the app.
+  - Sign up, sign in, and open a guarded page to check the migration.

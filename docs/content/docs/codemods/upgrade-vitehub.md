@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, and `choices-package`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -26,8 +26,11 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 | Former form | New form |
 | --- | --- |
+| `defineQueue(handler, { concurrency: 5 })` | `defineQueue({ handler, concurrency: 5 })` |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
+| `defineWorkflow("onboard-user", async (payload: Payload, { steps }) => {}, { native })` | `defineWorkflow<Payload>({ handler: async ({ payload, steps }) => {}, native })`. The file path is the name. |
+| `createWorkflow("welcome", async (payload: Payload) => {})` | `createWorkflow<Payload>("welcome", async ({ payload }) => {})` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
 | `server/databases/config.ts` and the files beside it | `server/databases/default/index.ts` and the same files in `server/databases/default/` |
 | `server/databases/migrations/` | `server/databases/default/migrations/` |
@@ -35,19 +38,25 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
+The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
+
 The report lists what it cannot change:
 
+- Queue calls with spread arguments or options the codemod cannot safely flatten, such as shared options objects.
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
+- Workflow handlers with parameters that it cannot rewrite, such as a rest parameter.
+- Referenced Workflow handlers. The codemod wraps a local handler when it can determine its parameters. It leaves other references and ambiguous `createWorkflow()` handlers for manual review.
+- Workflow option expressions and spreads. Make the options explicit and remove the old `id` option.
 - Dynamic imports of `server/content.ts`.
 - Helper files left in `server/databases/` that the new discovery reads as Databases.
 - Lines in `package.json` and host config files that name the former Database paths.
 
-The former forms fail with `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
+The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `WORKFLOW_C0015`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
 
 ## vitehub-options
 
-`vitehub()` is the only place for config, and `logs` is part of `observability`. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
 
 ```bash [Terminal]
 npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
@@ -57,15 +66,18 @@ npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
 | --- | --- |
 | `vitehub({ preset })`, `vitehub: { preset }` in `nuxt.config.ts` | `host` |
 | `sandbox: true` | `sandboxTask: true` |
-| `vitehub({ logs: true })` | `vitehub({ observability: { logs: true } })` |
-| `logs: { evlog, source }` | `observability: { evlog, logs: { source } }` |
+| `vitehub({ observability: { logs: true } })` | `vitehub({ logs: true })` |
+| `vitehub({ observability: { logs: false } })` | `vitehub({ observability: true, logs: false })` |
+| `logs: { evlog, source }` | `observability: { evlog }, logs: { source }` |
 | `defineConfig({ env: { server }, plugins: [vitehub()] })` | `vitehub({ env: { server } })` |
 | `defineConfig({ env, plugins: [hubEnv()] })` | `hubEnv({ ...declarations })` |
 | `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
 | A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKV()` |
 | `devtools`, `contentImportBase` | removed |
 
-The report lists what the codemod cannot move: `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+The codemod also moves Logs options in literal Nuxt environment overrides. It keeps Evlog enabled when local capture was conditional or disabled. If it cannot preserve whether Evlog starts, such as when a read-only source is set next to Evlog options without a `service`, it reports a manual follow-up instead of changing the config.
+
+The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
 
 Sandbox Task option objects move like the other keys: into `vitehub({ sandboxTask })`, the `vite-hub/nuxt` options, or an existing `hubSandboxTask()` call without arguments.
 
@@ -97,6 +109,26 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 - object keys and strings with an old name, for example in a `vi.mock()` factory,
 - Workflow handles that a file exports, because other files call their methods.
 
+## queue-durations
+
+Queue `delaySeconds` is now `delay`, and `retentionSeconds` is now `retention`. `delay` takes a duration string, such as `'60s'` or `'5m'`, as Workflow `delay` does. `retention` is a lifetime, so it takes a duration or a number of seconds, as KV `ttl` does:
+
+```bash [Terminal]
+npx @vite-hub/codemods queue-durations [dir] [--dry-run]
+```
+
+```diff [server/api/signup.post.ts]
+-await sendQueue('welcome-email', { email }, { delaySeconds: 60, retentionSeconds: 3600 })
++await sendQueue('welcome-email', { email }, { delay: '60s', retention: 3600 })
+```
+
+The codemod changes the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and the `send()` and `sendBatch()` methods of a client from `useQueue()`, and the `{ retry: { delaySeconds } }` that `onError` of `defineQueue()` returns. It rewrites calls tied to explicit Queue imports. It reports unbound calls, including Nuxt auto-imports, without editing them because they can refer to app utilities. It turns a number, or arithmetic on numbers such as `24 * 60 * 60`, into the same time in seconds, such as `'86400s'`. It keeps `delaySeconds` in Cloudflare's native `message.retry()` and `batch.retryAll()`. The report lists:
+
+- a `delay` value that is not a number in the code, such as a variable, which you write as a duration,
+- `delaySeconds` and `retentionSeconds` that are left, such as options in a variable.
+
+A send that still passes `delaySeconds` or `retentionSeconds` fails with `QUEUE_UNSUPPORTED_OPTION`, so a missed option does not send the job at once.
+
 ## result-tuples
 
 `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `runSchedule()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
@@ -116,6 +148,19 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
 ```
 
 `return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+
+These calls changed in the same way, and `result-tuples` reads them too:
+
+| Call | Before | Import |
+| --- | --- | --- |
+| `listAuthEvents()`, `aggregateAuthEvents()` | threw | `vite-hub/auth/server`, `vite-hub/auth/runtime/console` |
+| `runBrowserContent()` | threw | `vite-hub/browser` |
+| `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` | threw | `vite-hub/gateways` |
+| `runBrowser()`, `runSandboxTask()` | returned a `Response` | `vite-hub/browser`, `vite-hub/sandbox/task`, and their Nuxt auto-imports |
+
+`runBrowser()` and `runSandboxTask()` returned a `Response`, and now return the value of the handler as `data`. The codemod rewrites an explicitly imported call that a known route handler returns. It uses `return toResponse(error ?? data)` from `vite-hub/runtime` to keep the HTTP response. It reports other calls, including Nuxt auto-imports whose source it cannot confirm and calls whose result the code reads with `response.json()`.
+
+The codemod also lists a gateway that a file exports. i18n `save()` already returned `[error, data]`, so it needs no change. A custom gateway `ask()` that `defineChoices({ gateway })` gets must return `[undefined, answers]` now. Change it by hand.
 
 ## one-entry-imports
 
@@ -284,3 +329,227 @@ npx @vite-hub/codemods shell-driver [dir] [--dry-run]
 ```
 
 The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to `const { createJustBashProvider } = await import(...)`. The codemod changes only calls of the imported `createShellRuntime()` and `createWorkspaceTools()`, so a `provider` key of another API stays. The report lists a call whose options it cannot see, such as a variable or a spread object.
+
+## access-spellings
+
+`access-spellings` updates the access keys of Realtime and MCP definitions. Public access has one spelling, `access: 'public'`, and sign-in has one, `authorize`:
+
+```bash [Terminal]
+npx @vite-hub/codemods access-spellings [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `defineRealtime({ auth: true })` | `defineRealtime({ authorize: true })` |
+| `defineRealtime({ auth: false, authorize })` | `defineRealtime({ authorize })` |
+| `public: true` on `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` | `access: 'public'` |
+| `public: false` on an MCP definition | removed |
+
+```diff [server/realtime/docs.ts]
+ export default defineRealtime({
+-  auth: true,
++  authorize: true,
+   document: { workspace: 'docs' },
+ })
+```
+
+The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, including nested definitions and object literals with `satisfies` or `as`. It recognizes `defineRealtime()` without an import, as Nuxt auto-imports it. An MCP server keeps its own `mcp.auth` option. If a spread, computed key, or competing rule makes the effective access unclear, the codemod leaves the definition unchanged and reports it for manual migration.
+
+A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
+
+If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## auth-sign-in
+
+`auth-sign-in` moves the sign-in pages of Auth into `access` of `server/auth.ts`, where the Nuxt page guard reads them:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub({ auth: { redirects: { login } } })` | `access: { signIn }` |
+| `vitehub({ auth: { redirects: { guest } } })` | `access: { afterSignIn }` |
+| `access.signIn.callbackURL` | `access.afterSignIn` |
+
+```diff [server/auth.ts]
+ export default defineAuth({
+   access: {
+     routes: ['/dashboard/**'],
+-    signIn: { provider: 'github', callbackURL: '/dashboard' },
++    signIn: { provider: 'github' },
++    afterSignIn: '/dashboard',
+   },
+ })
+```
+
+The codemod removes legacy `auth.redirects` only after it can move the settings without changing their meaning. It leaves the files unchanged and reports values that need manual migration, such as conflicting environment overrides, URLs that are not app paths, dynamic Definition options, or a `redirects.login` page next to a provider in `access.signIn`. Keep one sign-in method: the path of your sign-in page, or the provider that the Auth route starts.
+
+## channels
+
+`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+
+```bash [Terminal]
+npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
+```diff [server/agents/support.ts]
+-import { http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/agent/channels'
+
+ export default defineAgent({
+-  channels: { portal: http({ route: true }), slack: slack() },
++  channels: { portal: channelAdapter('http', { route: true }), slack: slack() },
+ })
+```
+
+The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
+
+```diff [server/channels/portal.ts]
+ webhooks: {
+   secretHeader: 'x-hub-signature-256',
+-  secretToken: process.env.GITHUB_WEBHOOK_SECRET,
+-  signature: 'github-sha256',
++  secret: 'GITHUB_WEBHOOK_SECRET',
++  signature: 'github',
+ },
+```
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` | `secret: 'X'` |
+| `secretToken: () => …` | `secret: () => …` |
+| `'github-sha256'`, `'stripe-sha256'` | `'github'`, `'stripe'` |
+| `{ preset: 'hmac-sha256', … }` | `{ type: 'hmac-sha256', … }` |
+| `toleranceSeconds: 600` | `tolerance: '600s'` |
+
+A direct Server Env read, such as `useServerEnv().github.webhookSecret`, moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify and asks you to check secret strings on `stripe()` or with an old signature. Move any hard-coded secret to a server variable and set `secret` to its name. A `secretToken` string stays unchanged and the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED` until you migrate it.
+
+## auth-accessors
+
+`auth-accessors` moves server code to the one Auth accessor, `useAuth(event?)`:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `auth` from `vite-hub/auth/server` | `useAuth()` |
+| `getAuth()` from `vite-hub/auth/server` | `useAuth()` |
+| `await isGitHubOrgMember(token, 'acme')` from `vite-hub/auth` | `(!(await checkGitHubOrgMember(token, 'acme'))[0])` |
+
+```diff [server/api/roles.post.ts]
+-import { auth } from 'vite-hub/auth/server'
++import { useAuth } from 'vite-hub/auth/server'
+
+ export default defineHandler(async (event) => {
+-  return auth.api.listUsers({ query: {}, headers: event.req.headers })
++  return useAuth().api.listUsers({ query: {}, headers: event.req.headers })
+ })
+```
+
+The codemod also changes named imports from `#vitehub/auth/server`. It reports possible `auth` and `getAuth()` auto-imports in `server/` without editing them, because those names can come from your app. `useAuth()` without an event reads the app's Auth Definition, as `auth` did. In a route, pass the event yourself, `useAuth(event)`, so Auth reads the request's host and Cloudflare bindings.
+
+The report lists `useSession()` imports and possible app auto-imports. `useUserSession()` replaces it, with other names: `data.value`, `pending.value`, and `refresh()` replace `.value.data`, `.value.isPending`, and `.value.refetch()`. The codemod leaves membership imports unchanged if a call is not awaited or the organization may be empty. For an empty organization, keep returning `false` if your app relied on that result.
+
+## workspace-repo
+
+`workspace-repo` renames the `repository` option of a GitHub Workspace Store to `repo`, the one spelling that the Store reads:
+
+```bash [Terminal]
+npx @vite-hub/codemods workspace-repo [dir] [--dry-run]
+```
+
+```diff [server/workspaces/handbook.ts]
+ export default defineWorkspace({
+   store: {
+     driver: 'github',
+-    repository: 'acme/handbook',
++    repo: 'acme/handbook',
+   },
+ })
+```
+
+The codemod changes inline GitHub Stores in `defineWorkspace()` and `vitehub()` calls. If a Store sets both keys or uses spreads or computed keys, the report asks you to move the previously effective repository to `repo` by hand. Migrate separately declared Store options by hand as well. The Workspace `fetch()` Source is now `url()`; `renamed-apis` updates imports while keeping their local names.
+
+## kv-list-prefix
+
+`kv-list-prefix` moves the KV listing and clearing calls to one prefix option. `kv.keys()` is gone, and `kv.list()` reads every key when you set no `limit`. `{ prefix }` matches text, so the codemod adds a `:` to a literal base to keep the keys below it:
+
+```bash [Terminal]
+npx @vite-hub/codemods kv-list-prefix [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `const [error, keys] = await kv.keys('drafts')` | `const [error, { keys } = { keys: [] }] = await kv.list({ prefix: 'drafts:' })` |
+| `kv.clear('drafts')` | `kv.clear({ prefix: 'drafts:' })` |
+| `kv.store('sessions').clear('users:')` | `kv.store('sessions').clear({ prefix: 'users:' })` |
+
+The report lists a `keys()` call in another form, and a `keys()` or `clear()` call whose base is not a literal.
+
+## cli-yes-flag
+
+`cli-yes-flag` checks `package.json` scripts, `.github/workflows/*.{yml,yaml}`, and `*.sh` files for old ViteHub CLI prompt flags.
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-yes-flag [dir] [--dry-run]
+```
+
+For simple commands, it changes `database drop` and `database reset` from `--force` to `--yes`. It changes `connections revoke` from `--confirm <name>` to `--yes` only when the target and confirmation are the same literal name. For simple shell scripts, it replaces `database generate --non-interactive` with `CI=1 vitehub database generate` (keeping other arguments).
+
+The report lists commands it cannot safely change. If it lists a `database generate` command, set `CI=1` in the command's environment before you remove `--non-interactive` so it still cannot prompt.
+
+## cli-url-flag
+
+`cli-url-flag` changes `--server <url>` to `--url <url>` in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `--url` is the app URL in every command:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-url-flag [dir] [--dry-run]
+```
+
+```diff [package.json]
+-    "cancel": "vitehub agent invocations cancel --server http://localhost:3000"
++    "cancel": "vitehub agent invocations cancel --url http://localhost:3000"
+```
+
+A `--url` that names the Console, such as `http://localhost:3000/_vitehub`, now fails with the app URL to pass. A command without `--url` uses the dev server of the project instead of guessing `localhost:5173`.
+
+## cms-roles
+
+`cms-roles` renames the option of the `cms` Content preset that turns on the CMS role policy:
+
+```bash [Terminal]
+npx @vite-hub/codemods cms-roles [dir] [--dry-run]
+```
+
+```diff [server/content.ts]
+ export default defineContent({
+-  extends: [cms, { access: 'roles' }],
++  extends: [cms, { roles: true }],
+   collections,
+ })
+```
+
+The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
+
+## choices-package
+
+`choices-package` moves an app from the Decisions package to Choices. The package, the import path, the CLI command, and the docs now use one word:
+
+```bash [Terminal]
+npx @vite-hub/codemods choices-package [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `@vite-hub/decisions` in `package.json` | Keep an existing `@vite-hub/choices` constraint or choose a compatible version by hand |
+| `vite-hub/decisions` and `@vite-hub/decisions` in imports | `vite-hub/choices` and `@vite-hub/choices` |
+| `vite-hub/decisions/vue`, `@vite-hub/decisions/vue` | `vite-hub/choices/vue`, `@vite-hub/choices/vue` |
+| `vitehub decisions list` in a package script | `vitehub choices list` |
+
+Check the manual follow-ups before you install again. A Choices release may not match a Decisions version. Named CLI imports keep their local names; for other CLI references, use `listChoices` and `createChoicesCliNamespace` from `@vite-hub/choices/cli`. The diagnostic codes keep their `DECISIONS_` names.

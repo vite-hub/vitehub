@@ -1,28 +1,18 @@
 import { builtInEffects } from "./effects/index.ts";
+import { isMotionOff, optOut } from "./opt-out.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
-import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
+import { defineDefaultMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
 import type { MotionPress, MotionStateAttribute } from "./registry.ts";
-import { settleSprings } from "./spring.ts";
 
 type MotionRoot = Document | ShadowRoot;
 
-const optOut = "[data-motion=\"none\"]";
+export { isMotionOff } from "./opt-out.ts";
+
 const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
 let builtInsDefined = false;
-
-/** True when the element or one of its ancestors, also across shadow roots, has `data-motion="none"`. */
-export function isMotionOff(element: Element): boolean {
-  let node: Element | null = element;
-  while (node) {
-    if (node.closest(optOut)) return true;
-    const root = node.getRootNode();
-    node = root instanceof ShadowRoot ? root.host : null;
-  }
-  return false;
-}
 
 /** The innermost element on the event path that matches `selector` and is not inside `[data-motion="none"]`. */
 function find(path: EventTarget[], selector: string): HTMLElement | undefined {
@@ -35,7 +25,7 @@ function find(path: EventTarget[], selector: string): HTMLElement | undefined {
 }
 
 function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: EventTarget[]): void {
-  end(id);
+  end(id, true);
   if (prefersReducedMotion()) return;
   const started: Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }> = [];
   for (const effect of listMotionEffects()) {
@@ -47,7 +37,7 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
     if (!press) continue;
     const item: { element: HTMLElement; press: MotionPress; leave?: () => void } = { element, press };
     if (id !== "key") {
-      item.leave = () => end(id);
+      item.leave = () => end(id, true);
       element.addEventListener("pointerleave", item.leave, { once: true });
     }
     started.push(item);
@@ -57,13 +47,14 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
   if (started.some(item => item.press.move)) document.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
 }
 
-function end(id: number | "key"): void {
+function end(id: number | "key", cancelled = false): void {
   const items = presses.get(id);
   if (!items) return;
   presses.delete(id);
   for (const { element, press, leave } of items) {
     if (leave) element.removeEventListener("pointerleave", leave);
-    press.release();
+    if (cancelled && press.cancel) press.cancel();
+    else press.release();
   }
   if (![...presses.values()].some(list => list.some(item => item.press.move))) {
     document.removeEventListener("pointermove", onPointerMove, { capture: true });
@@ -76,7 +67,7 @@ function onPointerDown(event: PointerEvent): void {
 }
 
 function onPointerUp(event: PointerEvent): void {
-  end(event.pointerId);
+  end(event.pointerId, event.type === "pointercancel");
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -148,10 +139,10 @@ function startDocument(): void {
       document.removeEventListener("pointercancel", onPointerUp, options);
       document.removeEventListener("keydown", onKeyDown, options);
       document.removeEventListener("keyup", onKeyUp, options);
-      for (const id of presses.keys()) end(id);
+      for (const id of presses.keys()) end(id, true);
     },
     onReducedMotionChange((reduced) => {
-      if (reduced) settleSprings();
+      if (reduced) for (const id of presses.keys()) end(id, true);
     }),
     onMotionEffectsChange(() => {
       for (const [root, { observer }] of roots) observe(root, observer);
@@ -171,7 +162,7 @@ export function installMotion(root?: MotionRoot): () => void {
   if (typeof document === "undefined") return () => {};
   if (!builtInsDefined) {
     builtInsDefined = true;
-    for (const effect of builtInEffects) defineMotionEffect(effect);
+    for (const effect of builtInEffects) defineDefaultMotionEffect(effect);
   }
   const target = root ?? document;
   if (!roots.size) startDocument();
