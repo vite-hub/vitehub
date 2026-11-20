@@ -242,11 +242,11 @@ export const landingPrimitives = [
     icon: "i-vitehub-gateways",
   },
   {
-    id: "decisions",
-    name: "Decisions",
+    id: "choices",
+    name: "Choices",
     description: "Text to choices",
-    to: "/docs/decisions",
-    icon: "i-vitehub-decisions",
+    to: "/docs/choices",
+    icon: "i-vitehub-choices",
   },
   {
     id: "realtime",

@@ -527,8 +527,10 @@ else console.log(saved.digest)
 
 Save and checkpoint requests send the client's Yjs state. The server answers
 `409` with `REALTIME_SYNC_PENDING` until it has that state, and the composable
-retries. If a save or checkpoint finds the stored document changed, it
-re-seeds the room and answers `409` with `REALTIME_SOURCE_CHANGED`.
+retries 20 times before it returns that code. If a save or checkpoint finds the
+stored document changed, the server answers `409` and the call returns
+`REALTIME_SOURCE_CHANGED`, even if the room resets before the reply. Use
+`onReset()` to tell when the editor's document is replaced.
 
 When server code changes a stored document, for example in a route that an
 Agent calls, call `refreshRealtimeDocument(definition, documentId)` after the

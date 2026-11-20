@@ -568,6 +568,51 @@ describe("blob config", () => {
     })
   })
 
+  it("gives each named fs store without base its own folder", () => {
+    const stores = { avatars: { driver: "fs" as const }, default: { driver: "fs" as const }, exports: { driver: "fs" as const } }
+
+    expect(normalizeBlobOptions({ stores }, { env: {} })?.stores).toEqual({
+      avatars: { base: ".vitehub/data/blob-avatars", driver: "fs" },
+      default: { base: ".vitehub/data/blob", driver: "fs" },
+      exports: { base: ".vitehub/data/blob-exports", driver: "fs" },
+    })
+    // BLOB_FS_BASE moves every store, and named stores still get their own folder next to it.
+    expect(normalizeBlobOptions({ stores }, { env: { BLOB_FS_BASE: "/var/lib/app/blob" } })?.stores).toEqual({
+      avatars: { base: "/var/lib/app/blob-avatars", driver: "fs" },
+      default: { base: "/var/lib/app/blob", driver: "fs" },
+      exports: { base: "/var/lib/app/blob-exports", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ stores: { ...stores, avatars: { base: ".data/avatars", driver: "fs" } } }, { env: {} })?.stores?.avatars).toEqual({ base: ".data/avatars", driver: "fs" })
+  })
+
+  it.each(["/var/lib/app/blob/", "/var/lib/app/blob/."])("keeps named fs and R2 fallback roots beside %s", (base) => {
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        avatars: { driver: "fs" },
+        media: { driver: "cloudflare", binding: "MEDIA" },
+      },
+    }, { dev: true, env: { BLOB_FS_BASE: base } })
+
+    expect(config?.stores?.default).toMatchObject({ base })
+    expect(config?.stores?.avatars).toMatchObject({ base: "/var/lib/app/blob-avatars" })
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: "/var/lib/app/blob-media" } })
+  })
+
+  it.each(["media/avatars", "media\\avatars", "avatars."])("rejects %s as an implicit fs folder suffix", (name) => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs" } } }, { env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "cloudflare", binding: "MEDIA" } } }, { dev: true, env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs", base: "./my-files/" } } }, { env: {} })?.stores?.[name])
+      .toMatchObject({ base: "./my-files/" })
+  })
+
+  it("requires a folder name in BLOB_FS_BASE to generate a sibling folder", () => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, media: { driver: "fs" } } }, { env: { BLOB_FS_BASE: "/" } }))
+      .toThrow(/BLOB_FS_BASE must name a folder/)
+  })
+
   it("normalizes serving from a configured named Blob store", () => {
     expect(normalizeBlobOptions({
       serve: {

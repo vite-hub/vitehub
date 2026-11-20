@@ -102,7 +102,7 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/browser", "browser"],
     ["vite-hub/channels", "channels"],
     ["vite-hub/connections/google", "connections"],
-    ["vite-hub/decisions/vue", "decisions"],
+    ["vite-hub/choices/vue", "choices"],
     ["vite-hub/device", "device"],
     ["vite-hub/device/vue", "device"],
     ["vite-hub/email", "email"],
