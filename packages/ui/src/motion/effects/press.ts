@@ -35,27 +35,19 @@ function squash(element: HTMLElement): { target: HTMLElement | SVGElement; amoun
  * allowlist of `test/design-rules.test.ts` does. The transition would smear each frame of the spring, so that element
  * keeps its own press until its wave moves it onto the layer. Tailwind's plain `transition` class also animates `scale`.
  */
-function transitionsScale(style: CSSStyleDeclaration): boolean {
+function transitionsScale(element: Element): boolean {
+  const style = getComputedStyle(element);
   const durations = style.transitionDuration.split(",");
   return style.transitionProperty.split(",").some((property, index) =>
     /^\s*(?:scale|all)\s*$/.test(property) && Number.parseFloat(durations[index % durations.length]!) > 0);
 }
 
-function nearEdge(element: HTMLElement, event: PointerEvent, amount: number): boolean {
-  const { left, right, top, bottom, width, height } = element.getBoundingClientRect();
-  return Math.min(event.clientX - left, right - event.clientX) <= width * amount
-    || Math.min(event.clientY - top, bottom - event.clientY) <= height * amount;
-}
-
 export const press: MotionEffect = {
   name: "press",
   selector: pressSelector,
-  press(element, event) {
+  press(element) {
     const { target, amount } = squash(element);
-    const style = getComputedStyle(target);
-    if (transitionsScale(style) || style.display === "contents") return;
-    if (target === element && style.display === "inline") return;
-    if (target === element && "pointerId" in event && nearEdge(element, event, amount)) return;
+    if (transitionsScale(target)) return;
     let state = pressed.get(target);
     if (!state) {
       const current = { amount, spring: createSpring(0, (value) => {
@@ -67,6 +59,6 @@ export const press: MotionEffect = {
     state.amount = amount;
     const { spring } = state;
     spring.to(1, { preset: down });
-    return { release: () => spring.to(0, { preset: up }), cancel: () => spring.set(0) };
+    return { release: () => spring.to(0, { preset: up }) };
   },
 };

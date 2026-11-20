@@ -76,7 +76,8 @@ export function getMotionSlowFactor(): number {
 function frame(time: number): void {
   const step = Math.min(0.032, lastTime ? (time - lastTime) / 1000 : 0.016) / slowFactor;
   lastTime = time;
-  for (const [spring, queued] of [...live]) {
+  const batch = Array.from(live);
+  for (const [spring, queued] of batch) {
     if (live.get(spring) !== queued) continue;
     if (spring.tween) {
       const tween = spring.tween;
@@ -121,7 +122,8 @@ function start(spring: SpringState): void {
 
 function settleMovement(reduced: boolean): void {
   if (!reduced) return;
-  for (const [spring, queued] of [...live]) {
+  const batch = Array.from(live);
+  for (const [spring, queued] of batch) {
     if (live.get(spring) !== queued || spring.tween) continue;
     settle(spring);
     spring.frame(spring.value, 0);
