@@ -1,27 +1,18 @@
 import { builtInEffects } from "./effects/index.ts";
+import { isMotionOff, optOut } from "./opt-out.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { defineDefaultMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
 import type { MotionPress, MotionStateAttribute } from "./registry.ts";
 
 type MotionRoot = Document | ShadowRoot;
 
-const optOut = "[data-motion=\"none\"]";
+export { isMotionOff } from "./opt-out.ts";
+
 const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
 let builtInsDefined = false;
-
-/** True when the element or one of its ancestors, also across shadow roots, has `data-motion="none"`. */
-export function isMotionOff(element: Element): boolean {
-  let node: Element | null = element;
-  while (node) {
-    if (node.closest(optOut)) return true;
-    const root = node.getRootNode();
-    node = root instanceof ShadowRoot ? root.host : null;
-  }
-  return false;
-}
 
 /** The innermost element on the event path that matches `selector` and is not inside `[data-motion="none"]`. */
 function find(path: EventTarget[], selector: string): HTMLElement | undefined {

@@ -7,10 +7,13 @@ import type { Spring } from "../spring.ts";
 const down = { stiffness: 900, damping: 40 };
 const up = { stiffness: 380, damping: 14 };
 
-const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"];
+const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"];
 
-/** Everything a person presses: native controls and the roles of docs/design/motion.md, when they are enabled. */
-export const pressSelector = `:is(button, a[href], summary, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio]), ${roles.map(role => `[role=${role}]`).join(", ")}):not(:disabled, [aria-disabled="true"])`;
+/**
+ * Everything a person presses: native controls and the roles of docs/design/motion.md, when they are enabled. A switch
+ * is not squashed: the switch effect grows its knob instead.
+ */
+export const pressSelector = `:is(button, a[href], summary, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio]), ${roles.map(role => `[role=${role}]`).join(", ")}):not(:disabled, [aria-disabled="true"], [role=switch])`;
 
 // An icon: an SVG, an image, or an Iconify CSS icon such as Nuxt UI's `UIcon`. A switch thumb is not one.
 const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
