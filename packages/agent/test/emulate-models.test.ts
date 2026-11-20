@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from "vitest"
 import { emulate } from "@vite-hub/gateways"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
-import { emulateModels } from "../src/emulate-models.ts"
+import { emulateModels } from "../src/test/emulate-models.ts"
 
-import type { EmulatedModelRule } from "../src/emulate-models.ts"
+import type { EmulatedModelRule } from "../src/test/emulate-models.ts"
 
 const weatherRules: EmulatedModelRule[] = [
   { id: "weather-call", match: { textContains: "weather", tool: "getWeather", hasToolResult: false }, times: 1, reply: [{ type: "tool_call", name: "getWeather", arguments: { city: "Paris" } }] },
@@ -157,7 +157,7 @@ describe("emulateModels()", () => {
       throw new Error("Cannot find package '@emulators/ai'")
     })
     try {
-      const { emulateModels } = await import("../src/emulate-models.ts")
+      const { emulateModels } = await import("../src/test/emulate-models.ts")
       await expect(emulateModels()).rejects.toMatchObject({
         code: "AGENT_EMULATOR_PACKAGES_MISSING",
         message: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",

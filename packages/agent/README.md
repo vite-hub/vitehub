@@ -149,7 +149,7 @@ Provider Drivers check the switch at the start of `runProvider()` in `src/provid
 
 ## Emulated models in tests
 
-`emulateModels(seed?)` from `@vite-hub/agent/emulate-models` starts the upstream AI emulator on a free loopback port. Model requests get answers from scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes, then restores both values, so every model Driver Agent reaches it with no change to its model, as [Run on the AI emulator](#run-on-the-ai-emulator) describes. Only one scope can run in a test worker at a time.
+`emulateModels(seed?)` from `@vite-hub/agent/test/emulate-models` starts the upstream AI emulator on a free loopback port. Model requests get answers from scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes, then restores both values, so every model Driver Agent reaches it with no change to its model, as [Run on the AI emulator](#run-on-the-ai-emulator) describes. Only one scope can run in a test worker at a time.
 
 ```ts fragment
 await using ai = await emulateModels({

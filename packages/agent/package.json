@@ -80,11 +80,6 @@
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
     },
-    "./emulate-models": {
-      "types": "./dist/emulate-models.d.ts",
-      "import": "./dist/emulate-models.js",
-      "default": "./dist/emulate-models.js"
-    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -194,6 +189,11 @@
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js",
       "default": "./dist/test.js"
+    },
+    "./test/emulate-models": {
+      "types": "./dist/test/emulate-models.d.ts",
+      "import": "./dist/test/emulate-models.js",
+      "default": "./dist/test/emulate-models.js"
     },
     "./ui": {
       "types": "./dist/ui.d.ts",

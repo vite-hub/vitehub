@@ -5,7 +5,7 @@ import { expect, it } from "vitest"
 
 const cases = [
   { subpath: "test", name: "runAgentForTest", peersInstalled: false },
-  { subpath: "emulate-models", name: "emulateModels", peersInstalled: true },
+  { subpath: "test/emulate-models", name: "emulateModels", peersInstalled: true },
 ] as const
 
 it.each(cases)("typechecks the built /$subpath entry (emulator peers installed: $peersInstalled)", ({ subpath, name, peersInstalled }) => {

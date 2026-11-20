@@ -1,6 +1,6 @@
 import { once } from "node:events"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 import type { AddressInfo } from "node:net"
 import type { AiConfig, AiSeedConfig, CallRecord, DefaultKind, RuleSnapshot } from "@emulators/ai"

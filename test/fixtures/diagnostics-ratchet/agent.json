@@ -27,7 +27,6 @@
   "invariants": {
     "packages/agent/src/agent-layers.ts": 3,
     "packages/agent/src/channels.ts": 3,
-    "packages/agent/src/emulate-models.ts": 1,
     "packages/agent/src/index.ts": 4,
     "packages/agent/src/internal/agent-run.ts": 1,
     "packages/agent/src/internal/agent-structured-output.ts": 1,
@@ -44,6 +43,7 @@
     "packages/agent/src/provider-agent.ts": 3,
     "packages/agent/src/server/routes.ts": 3,
     "packages/agent/src/state/providers/cloudflare.ts": 1,
-    "packages/agent/src/stream-output.ts": 1
+    "packages/agent/src/stream-output.ts": 1,
+    "packages/agent/src/test/emulate-models.ts": 1
   }
 }

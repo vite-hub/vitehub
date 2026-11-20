@@ -121,7 +121,7 @@ result:
 ```ts [server/agents/weather.test.ts]
 import { expect, it } from 'vitest'
 import { runAgent } from 'vite-hub/agent'
-import { emulateModels } from '@vite-hub/agent/emulate-models'
+import { emulateModels } from '@vite-hub/agent/test/emulate-models'
 import weather from './weather'
 
 it('calls the weather tool and answers from its result', async () => {

@@ -61,7 +61,7 @@ export default defineConfig({
       "src/capabilities.ts",
       "src/channels.ts",
       "src/durability.ts",
-      "src/emulate-models.ts",
+      "src/test/emulate-models.ts",
       "src/index.ts",
       "src/messages.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",
