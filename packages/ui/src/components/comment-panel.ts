@@ -1,5 +1,6 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
+import { RollNumber } from "./motion.ts";
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
@@ -247,11 +248,10 @@ export const CommentPanel = defineComponent({
           color: "neutral",
           "data-slot": "comment-panel-filter",
           "data-state": status.value === value ? "on" : "off",
-          label: `${label} ${count}`,
           onClick: () => setStatus(value),
           size: "xs",
           variant: status.value === value ? "soft" : "ghost",
-        });
+        }, { default: () => [`${label} `, h(RollNumber, { value: count })] });
       const empty = state.status.value === "loading" && state.threads.value.length === 0
         ? "Loading comments."
         : state.status.value === "error"

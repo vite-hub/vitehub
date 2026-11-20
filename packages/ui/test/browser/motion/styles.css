@@ -5,6 +5,7 @@
 /* The classes of `vitehubTheme`, which theme.css reads from its built copy, and the "today" press of main.ts. */
 @source "../../../src/theme.ts";
 @source "./main.ts";
+@source "./text.ts";
 
 body {
   margin: 0;

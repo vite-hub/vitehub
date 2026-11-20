@@ -2,7 +2,7 @@ import { builtInEffects } from "./effects/index.ts";
 import { divider, rekaDragAttribute, rekaHandleSelector } from "./effects/divider.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
-import type { MotionPress, MotionStateAttribute } from "./registry.ts";
+import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
 type MotionRoot = Document | ShadowRoot;
@@ -117,6 +117,44 @@ function onKeyUp(event: KeyboardEvent): void {
   if (event.key === " " || event.key === "Enter") end("key");
 }
 
+// The changes of content in one batch of records, by element, for the `content` hook of effects.
+function collectContent(records: MutationRecord[], effects: MotionEffect[]): void {
+  const watching = effects.filter(effect => effect.content);
+  if (!watching.length) return;
+  const changes = new Map<HTMLElement | SVGElement, MotionContentChange & { texts: Map<Node, string | null> }>();
+  for (const record of records) {
+    if (record.type === "attributes") continue;
+    const element = record.type === "characterData" ? record.target.parentElement : record.target;
+    if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue;
+    let change = changes.get(element);
+    if (!change) {
+      change = { added: [], removed: [], oldText: undefined, texts: new Map() };
+      changes.set(element, change);
+    }
+    if (record.type === "characterData") {
+      if (!change.texts.has(record.target)) change.texts.set(record.target, record.oldValue);
+      continue;
+    }
+    change.added.push(...record.addedNodes);
+    change.removed.push(...record.removedNodes);
+  }
+  for (const [element, change] of changes) {
+    if (!element.isConnected) continue;
+    // A node that the batch added and removed again, such as a text that Vue wrote twice, is not part of the change.
+    const added = change.added.filter(node => !change.removed.includes(node));
+    const removed = change.removed.filter(node => !change.added.includes(node));
+    const texts = change.texts;
+    // The old text is known when the change replaced every child, as `textContent =` does, or changed its one text node.
+    let oldText: string | undefined;
+    const children = [...element.childNodes];
+    if (removed.length && children.every(node => added.includes(node))) oldText = removed.map(node => node.textContent ?? "").join("");
+    else if (texts.size === 1 && children.length === 1 && texts.has(children[0]!)) oldText = texts.get(children[0]!) ?? "";
+    for (const effect of watching) {
+      if (element.matches(effect.selector) && !isMotionOff(element)) effect.content!(element, { added, removed, oldText });
+    }
+  }
+}
+
 function onSplitterDrag(handle: HTMLElement): void {
   if (!splitterPointer || !handle.matches(rekaHandleSelector) || prefersReducedMotion()) return;
   const { event, path } = splitterPointer;
@@ -136,7 +174,9 @@ function onSplitterDrag(handle: HTMLElement): void {
 
 function onMutations(records: MutationRecord[]): void {
   const effects = listMotionEffects();
+  collectContent(records, effects);
   for (const record of records) {
+    if (record.type === "characterData") continue;
     if (record.type === "attributes") {
       const element = record.target;
       if (!(element instanceof HTMLElement)) continue;
@@ -165,14 +205,17 @@ function onMutations(records: MutationRecord[]): void {
   }
 }
 
-// The observer watches added elements only when an effect has an `enter` hook.
+// The observer watches added elements only when an effect has an `enter` or a `content` hook, and text only for `content`.
 function observe(root: MotionRoot, observer: MutationObserver): void {
   observer.disconnect();
+  const content = listMotionEffects().some(effect => effect.content);
   observer.observe(root, {
     attributes: true,
     attributeFilter: [...motionStateAttributes, ...(listMotionEffects().includes(divider) ? [rekaDragAttribute] : [])],
     attributeOldValue: true,
-    childList: listMotionEffects().some(effect => effect.enter),
+    childList: content || listMotionEffects().some(effect => effect.enter),
+    characterData: content,
+    characterDataOldValue: content,
     subtree: true,
   });
 }

@@ -43,14 +43,14 @@ When a component does something that is not in this list, add the interaction an
 ## How a component gets its motion
 
 1. **From the motion layer, by role.** `installMotion()` from `@vite-hub/ui/motion` attaches press, toggle, select, drag, and appear motion to elements by their role: `button`, `link`, `tab`, `radio`, `menuitem`, `option`, `switch`, `checkbox`, `slider`, `separator`, `tooltip`, and the items of a notifications `region` (toasts). `createViteHubUI()` installs it in the browser, and the Nuxt module does it through the same plugin, so every app that uses `@vite-hub/ui` has it. Nuxt UI, kit, and our own components already render those roles, so they move with no code of their own. A new component gets the same motion when it uses the right element or role, which it must do anyway for keyboard and screen reader users.
-2. **From a helper, for what only the component knows.** A label that changes, a count, progress, a list that changes, and a delete that can be undone are events of the component, not of an element. Call the helper for each: the label morph, the digit roll, the progress bar, the list mover, and hold to delete, all from `@vite-hub/ui`.
+2. **From a helper, for what only the component knows.** A label that changes, a count, progress, a list that changes, and a delete that can be undone are events of the component, not of an element. Call the helper for each: the label morph, the digit roll, the progress bar, the list mover, and hold to delete, all from `@vite-hub/ui`. See [From a helper](#from-a-helper).
 3. **Never by hand.** Do not write a local spring, a `setTimeout` letter loop, a `requestAnimationFrame` loop, or a CSS `transition`, `animation`, or `@keyframes` that imitates one of these effects. `test/design-rules.test.ts` fails on them outside the motion layer.
 
 A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it. A plain TypeScript surface, such as the page pill, imports `installMotion` from `@vite-hub/ui/motion` (it has no Vue) and passes its shadow root, so the layer also sees the state attributes inside it.
 
 ### What the layer does
 
-- **One listener, one observer.** `installMotion(root?)` adds one set of capture listeners on the document (`pointerdown`, `pointerup`, `pointercancel`, and `keydown`/`keyup` for Space and Enter) and one `MutationObserver` for `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `aria-valuenow`, `aria-valuetext`, `data-state`, `data-checked`, and `data-open`. The listeners read `event.composedPath()`, so they reach elements in shadow DOM. A second call adds nothing; each call returns its own uninstall.
+- **One listener, one observer.** `installMotion(root?)` adds one set of capture listeners on the document (`pointerdown`, `pointerup`, `pointercancel`, and `keydown`/`keyup` for Space and Enter) and one `MutationObserver` for `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `aria-valuenow`, `aria-valuetext`, `data-state`, `data-checked`, and `data-open`. When an effect has a `content` hook, as the label effect does, the observer also reports changes of children and text. The listeners read `event.composedPath()`, so they reach elements in shadow DOM. A second call adds nothing; each call returns its own uninstall.
 - **One frame loop.** Every spring runs in one shared `requestAnimationFrame` loop that stops when nothing moves. A spring that gets a new target keeps its speed. `springs.snappy` (stiffness 520, damping 34) moves and resizes. `springs.soft` (380, 20) wobbles and settles.
 - **Only its own properties.** The layer writes the separate CSS properties `scale`, `translate`, and `rotate`, and `filter`, `opacity`, or `clip-path` where an effect needs them, never `transform`, so it adds to a component's own transform. A check or an icon outline also changes SVG attributes (`stroke-dasharray`, `stroke-dashoffset`, `d`), or the `--svg` mask of an Iconify CSS icon. It removes what it wrote when the spring settles, and puts back the exact attribute values. A component must not set `scale`, `translate`, or `rotate` inline itself.
 - **Press.** On pointer down, or Space or Enter on the focused control, the pressed control squashes with a stiff spring (900, 40) and springs back past rest with a loose one (380, 14) on release. It squashes by 3% from 40px high, 4% from 32px, and 5% below. An icon-only control squashes its icon by 15% and keeps its background still. Disabled controls and `aria-disabled="true"` do not squash.
@@ -75,6 +75,21 @@ A surface that draws its own motion, such as a hero figure or a canvas, sets `da
 
 A loading spinner that turns forever (`animate-spin`, or `@keyframes` that only rotate) shows that work runs, so it is not hand-written motion. The same is true for a skeleton pulse (`animate-pulse`) and for any color or opacity fade. Rule 5 still applies when a spinner becomes a check: draw the stroke with the helper.
 
+### From a helper
+
+Each helper has a Vue component in `@vite-hub/ui` and a plain function in `@vite-hub/ui/motion` for a page without Vue:
+
+| Event | Vue | Function | What it does |
+| --- | --- | --- | --- |
+| A label changes | `<MorphText :text>` | `morphText(element, text)` | Rule 4. The shared start stays, the other old letters blur out in place, and the new letters type in 55ms apart with a 6px blur. The width follows with a spring (380, 34). |
+| An icon changes | `<SwapIcon :name :exit :enter>` | `swapIcon(container, icon, { exit, enter })` | Rule 5. The old icon blurs out, or leaves the way it points (`exit: "right"`). The new one blurs in, slides in, or draws its stroke (`enter: "draw"`, the default for a spinner). |
+| A number changes | `<RollNumber :value :format>` | `rollNumber(element, value, format?)` | Rule 6. Only the changed digits roll, up when the number grows and down when it shrinks. The width follows. |
+| An action finished | `v-ring="done"` | `ring(element)` | Rule 7. A 5px ring in `--ui-border-accented` grows and fades in 720ms. |
+
+A helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text in a visually hidden copy, and the moving letters are `aria-hidden`, so the accessible name is the new text at once. When the motion ends, the element holds plain text again. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
+
+**Every `UButton` gets the label morph and the icon swap from the layer.** The layer watches the text of `[data-slot=label]` in a button, and the children of its leading and trailing SVG icon, and morphs them when they change. So a button that changes `label` with state, such as `:label="loading ? 'Publishing' : 'Publish'"`, morphs with no code, and the spinner of `loading` draws in where the icon was. We chose the layer over a wrapper of `UButton` or the theme: the theme cannot run code, and a wrapper would need every app to use another component. With `@nuxt/icon` in CSS mode, an icon is a class that the layer does not watch, so a `UButton` icon changes at once there. Put a `SwapIcon` in the `leading` slot when the icon must swap in a Nuxt app, as `CopyButton` does.
+
 ## Adding a component
 
 1. List its interactions from the table above.
@@ -98,5 +113,7 @@ defineMotionEffect({
   state(element, { attribute, oldValue, value }) {},
   // The element was added to the page, such as a tooltip.
   enter(element) {},
+  // The children or the text of the element changed, such as the label of a button.
+  content(element, { added, removed, oldText }) {},
 });
 ```

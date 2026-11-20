@@ -110,7 +110,6 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "docs/app/components/landing/AgentStory.vue": { count: 2, wave: "W5" },
   "docs/app/components/landing/Closing.vue": { count: 4, wave: "W5" },
   "docs/app/components/landing/Hero.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/InstallCommand.vue": { count: 1, wave: "W5" },
   "docs/app/components/landing/Portability.vue": { count: 4, wave: "W5" },
   "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
   "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },

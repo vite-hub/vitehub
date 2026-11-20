@@ -36,8 +36,8 @@ const pricing = { id: "/pricing", kind: "page" };
 const about = { id: "/about", kind: "page" };
 
 const UButton = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, type: "button" }, typeof attrs.label === "string" ? attrs.label : undefined);
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? (typeof attrs.label === "string" ? attrs.label : undefined));
   },
 });
 const global = { components: { UButton, UIcon: defineComponent({ setup: () => () => h("span") }) } };
