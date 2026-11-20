@@ -4426,8 +4426,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
     },
     AGENT_EMULATOR_PACKAGES_MISSING: {
-      why: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",
-      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`. Read `error.cause` for the import failure.",
+      why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
     },
     AGENT_EMULATOR_RULES_INVALID: {
       why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,

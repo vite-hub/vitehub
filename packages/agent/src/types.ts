@@ -8,6 +8,7 @@ import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvoca
 import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
+import type { AiSeedConfig } from "@emulators/ai"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -2473,10 +2474,24 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
+/** The `ai` seed of the AI emulator, typed by upstream `@emulators/ai`: rules, `strict`, `timing`, and `models`. */
+export type AgentModelsEmulateSeed = Omit<AiSeedConfig, "baseUrl" | "port">
+
+export interface AgentModelsOptions {
+  /**
+   * In `vite dev`, start the AI emulator (`@emulators/ai`) on a free loopback port and run every model Driver Agent on
+   * it with no AI key. `true` uses the default answers; a seed object sets the rules.
+   * The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` in `vite dev` only. A build does not start the
+   * emulator. It needs the optional packages `emulate` and `@emulators/ai`.
+   */
+  emulate?: boolean | AgentModelsEmulateSeed
+}
+
 export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
+  models?: AgentModelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions

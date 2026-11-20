@@ -70,7 +70,93 @@ export default defineAgent({
 
 ### Run on the AI emulator
 
-Set `VITEHUB_MODELS=emulate` to run model-backed Agents with no AI key in dev and tests. ViteHub then sends each model request to the [AI emulator](/docs/gateways/configure#ai-emulator), which answers from rules that you write. The Agent files do not change.
+Model-backed Agents can run with no AI key in dev and tests. ViteHub sends each model request to the [AI emulator](/docs/gateways/configure#ai-emulator), which answers from rules that you write. The Agent files do not change.
+
+Set `agent.models.emulate` to start the emulator with `vite dev`. Install the two optional packages first:
+
+```sh
+pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: {
+      models: {
+        emulate: {
+          rules: [{ id: 'greet', match: { textContains: 'hello' }, reply: [{ type: 'text', text: 'Hello from the seeded rule.' }] }],
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      agent: {
+        models: {
+          emulate: {
+            rules: [{ id: 'greet', match: { textContains: 'hello' }, reply: [{ type: 'text', text: 'Hello from the seeded rule.' }] }],
+          },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: {
+      models: {
+        emulate: {
+          rules: [{ id: 'greet', match: { textContains: 'hello' }, reply: [{ type: 'text', text: 'Hello from the seeded rule.' }] }],
+        },
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+`vite dev` prints the emulator URL once, and the Agent answers from the rule:
+
+```sh
+[vitehub] AI emulator: http://127.0.0.1:35207. Agent models answer from its rules with no AI key (VITEHUB_MODELS=emulate). Open the URL to see the calls.
+```
+
+```sh
+pnpm vitehub agent dev --agent greeter --prompt 'hello there'
+Hello from the seeded rule.
+```
+
+- `emulate: true` uses the default answers of the emulator. A seed object sets `rules`, `strict`, `timing`, `random`, and `models`, typed by `AiSeedConfig` from `@emulators/ai`. See the [rule reference](https://emulate.dev/docs/ai).
+- The emulator listens on a free loopback port. The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` as Server Env. On the Cloudflare `miniflare` dev runner, it adds both as Wrangler vars.
+- A dev server restart keeps the URL and replaces the rules when you change them. When the dev server stops, the emulator stops and both variables go back to their earlier values. Dev servers in one Node.js process share one emulator.
+- `vite build` and `vite preview` do not start the emulator, and a build has no `@emulators/*` import.
+- Without the two packages, `vite dev` fails with `AGENT_EMULATOR_PACKAGES_MISSING`. A rule that the emulator rejects fails with `AGENT_EMULATOR_RULES_INVALID`. `emulateModels()` uses the same codes.
+
+To run the emulator yourself, start it and set the switch:
 
 ```sh
 npx emulate@0.14.0 start --service ai --port 4014

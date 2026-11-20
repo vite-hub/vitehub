@@ -2778,6 +2778,33 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       else env[channelSimulationEnv] = channelSimulationPreviousValue
     }
   }
+  // A dev server with `agent.models.emulate` owns a share of the AI emulator of this process until it closes.
+  const modelEmulatorOwner = {}
+  let modelEmulatorAcquired = false
+  let previewing = false
+  let nitroInstance: { options: { dev?: boolean, devServer?: { runner?: string }, cloudflare?: { wrangler?: { vars?: Record<string, unknown> } } } } | undefined
+  async function startModelEmulation(config: ResolvedConfig): Promise<void> {
+    const seed = agent?.models?.emulate
+    // SAFETY: Vite preserves this optional discovery flag from the inline config.
+    const cliDiscovery = (config as ResolvedConfig & { vitehubCliDiscovery?: unknown }).vitehubCliDiscovery === true
+    if (!seed || config.command !== "serve" || previewing || cliDiscovery || !normalizeAgentOptions(agent)) return
+    const { acquireDevModelEmulator } = await import("./internal/model-emulation-dev.ts")
+    const url = await acquireDevModelEmulator(modelEmulatorOwner, seed, config.logger)
+    modelEmulatorAcquired = true
+    // The miniflare dev runner gives the Worker its Wrangler vars, not process.env.
+    const nitro = nitroInstance
+    if (nitro?.options.dev && (nitro.options.devServer?.runner || process.env.NITRO_DEV_RUNNER) === "miniflare") {
+      const cloudflare = nitro.options.cloudflare ??= {}
+      const wrangler = cloudflare.wrangler ??= {}
+      wrangler.vars = { ...wrangler.vars, VITEHUB_MODELS: "emulate", VITEHUB_EMULATE_URL: url }
+    }
+  }
+  async function stopModelEmulation(): Promise<void> {
+    if (!modelEmulatorAcquired) return
+    modelEmulatorAcquired = false
+    const { releaseDevModelEmulator } = await import("./internal/model-emulation-dev.ts")
+    await releaseDevModelEmulator(modelEmulatorOwner)
+  }
   const frameworkOptions = getInternalAgentOptions(options)
   const agent: AgentOptions | undefined = options
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
@@ -3215,6 +3242,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       },
     },
     config(config, environment) {
+      previewing = environment?.isPreview === true
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
@@ -3444,6 +3472,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       build.runtimeCapabilities = standaloneRuntimeCapabilities
       await writeGeneratedAgentOutputs(config)
+      await startModelEmulation(config)
       const configs = (scheduledBuildConfigsByRoot.get(config.root) ?? []).filter(previous => previous !== config)
       configs.push(config)
       scheduledBuildConfigsByRoot.set(config.root, configs)
@@ -3472,6 +3501,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       setup(nitro: Parameters<ProviderOutputEnvironmentOwner["nitro"]["setup"]>[0]) {
         packageLoading.nitro.setup(nitro)
         providerOutputEnvironment.nitro.setup(nitro)
+        // SAFETY: Nitro passes its instance; the emulator reads only the dev runner and Cloudflare options.
+        nitroInstance = nitro as typeof nitroInstance
       },
     },
     buildStart() {
@@ -3661,6 +3692,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (rejectedBuilds.has(buildEnvironment(this))) return
         await closeDiscoveryWatcher?.()
         setChannelSimulation(false)
+        await stopModelEmulation()
         if (providerOutputEnvironment.defers(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? this?.environment?.config ?? resolved
