@@ -85,8 +85,8 @@ export interface DocsModuleOptions {
   dir?: string
   /**
    * Pages from folders and Content Sources, replacing `dir`: a folder relative to the app root, a Source such as
-   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The app-owned
-   * docsAssistant Workspace is configured separately.
+   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The docs assistant
+   * reads the same pages.
    */
   sources?: DocsSourceInput[]
   /** Section metadata overrides, keyed by section id. */
