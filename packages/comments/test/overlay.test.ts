@@ -444,7 +444,8 @@ describe("the Comments overlay on the comment parts", () => {
     const retry = [...shadow.querySelectorAll<HTMLButtonElement>(".toast button")].find(button => button.textContent === "Retry")!
     retry.click()
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
-    expect(shadow.querySelector(".toast")).toBeNull()
+    expect(shadow.querySelector(".toasts .toast")).toBeNull()
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")).toBeNull())
     await clickPage(shadow, 60, 20)
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
     await type(composer(shadow, "Comment")!, "On abc")
