@@ -394,6 +394,30 @@ describe("sends", () => {
     expect(deliveries[0]!.body.text).toContain("comments_get_send")
   })
 
+  it("sends to the agent paired from `send.address`, and else to the one paired last", async () => {
+    const otherThread = "t3-thread://v2/6f5c40a4-eb77-4249-a83a-c0d4f680b208/mcp:other:0c9f"
+    let address: string | null = threadLink
+    const { call, comment, connect, page } = await setup({ hosts: ["relay.t3.codes", "hooks.example.com"], address: () => address })
+    const sentTo = () => new URL(deliveries.at(-1)!.url).pathname
+    await comment("ana", "First")
+    await connect("ana", "https://hooks.example.com/a", threadLink)
+    expect(sentTo()).toBe("/a")
+    await comment("ana", "Second")
+    await connect("ana", "https://hooks.example.com/b", otherThread)
+    // Allow sends to the agent it just paired, whatever `send.address` says.
+    expect(sentTo()).toBe("/b")
+
+    await comment("ana", "Third")
+    expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: threadLink })
+    expect(sentTo()).toBe("/a")
+
+    address = "t3-thread://v2/6f5c40a4-eb77-4249-a83a-c0d4f680b208/mcp:gone:1a2b"
+    await comment("ana", "Fourth")
+    expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: otherThread })
+    expect(sentTo()).toBe("/b")
+    expect(deliveries).toHaveLength(4)
+  })
+
   it("sends nothing to an endpoint whose host left `hosts`", async () => {
     const hosts = ["relay.t3.codes", "hooks.example.com"]
     const { call, comment, connect, page } = await setup({ hosts })

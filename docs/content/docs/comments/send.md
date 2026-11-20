@@ -66,6 +66,21 @@ After the pairing, **Send N** sends at once. The pill shows **Sending**, **Sent*
 
 A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last.
 
+### Send to the thread that wrote the page
+
+You can pair several T3 threads. Each pairing that gave its thread URL is kept apart, and pairing the same thread again replaces only that one. A send goes to the agent you paired last, unless `send.address` names another: return the thread URL that wrote the page, and a member who paired from that thread sends there.
+
+```ts [server/comments.ts]
+export const comments = defineComments({
+  send: {
+    // The T3 thread that published the document, as your app stored it.
+    address: async ({ subject }) => (await documentOf(subject.id))?.thread,
+  },
+})
+```
+
+When the member never paired that thread, the send goes to the agent they paired last.
+
 ## What your agent gets
 
 Each send is one signed `POST`, with this body:
