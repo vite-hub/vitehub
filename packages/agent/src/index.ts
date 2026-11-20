@@ -244,6 +244,7 @@ import type {
   AgentUsage,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
+  ExternalAgentOptions,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
@@ -444,6 +445,7 @@ export type {
   AgentAskQuestions,
   AgentAskQuestionsResolver,
   AgentDriver,
+  ExternalAgentOptions,
   AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
@@ -1195,6 +1197,14 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
 }
 installAgentChannelItemReservation(reserveAgentChannelItem)
 
+/** An Agent with `driver: "external"` runs outside the app. Fail before ViteHub writes an activity or a journal record. */
+function assertAgentRunsInApp(agent: unknown, context: Pick<AgentRuntimeContext, "agentIdentity">): void {
+  if (!hasAgentDefinition(agent)) return
+  // SAFETY: defineBaseAgent sets this private Driver kind on every Agent Definition.
+  if ((agent as { [baseAgentDriverKind]?: AgentDriverKind })[baseAgentDriverKind] !== "external") return
+  throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUN({ agent: agentInvocationName(agent, context) ?? "agent" })
+}
+
 async function runAgentAsWorkflow<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1205,6 +1215,7 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
+  assertAgentRunsInApp(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
@@ -2240,7 +2251,9 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runEvents, uiMessageStream, version, workspace } = options
+  if (driver.kind === "external" && options.runtime) throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUNTIME()
+  const runtime = options.runtime ?? (driver.kind === "external" ? false : defaultAgentWorkflowRuntime())
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
@@ -2865,6 +2878,8 @@ type ConfiguredWorkspaceDefinition<TDefinition, TCapabilities = ConfiguredAgentS
   : never
 
 export interface DefineAgent {
+  (options: ExternalAgentOptions): AgentDefinition
+
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -3258,7 +3273,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "run" || driver.kind === "ask") return agent
+  if (driver.kind === "run" || driver.kind === "ask" || driver.kind === "external") return agent
   // An explicitly declared Workspace instruction Source remains authoritative for
   // Provider Drivers, even when a colocated instructions.md is present.
   const workspaceOptions = (agent as AgentDefinition & {
@@ -8374,7 +8389,7 @@ function invocationCancellationDriver(definition: unknown): AgentInvocationCance
   const driver = internal?.[baseAgentDriver]
   const provider = isRuntimeRecord(driver) && typeof driver.provider === "string" ? driver.provider : undefined
   const kind = internal?.[baseAgentDriverKind] ?? "model"
-  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" ? "run" : kind }
+  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" || kind === "external" ? "run" : kind }
   if (provider) cancellationDriver.provider = provider
   return agentInvocationCancellationDriver(cancellationDriver)
 }
@@ -8389,6 +8404,7 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  assertAgentRunsInApp(agent, context)
   await loadAgentHost()
   // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
   context = withForgeAccess(agent.channels, context)

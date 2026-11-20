@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/static/v1?label=AI+SDK&amp;message=v7&amp;color=blue">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, application-owned `driver.run` logic, or `driver: "external"` for an Agent that a process outside the app runs.
 
 Keep the three pieces separate:
 
@@ -104,6 +104,21 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
 See [AI gateways](../../docs/content/docs/gateways/index.md).
+
+## External Agents
+
+`driver: "external"` defines an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner. The Agent keeps its description, Workspace, and Invocation journal. Write its runs with `importAgentSession()` from `@vite-hub/agent/sessions`. It has no runtime: `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`.
+
+```ts
+// server/agents/coding-agent.ts
+import { defineAgent } from "@vite-hub/agent";
+
+export default defineAgent({
+  description: "Codex or Claude Code, building Nuxt projects from a product spec.",
+  workspace: "meetups",
+  driver: "external",
+});
+```
 
 ## Direct invocations
 
