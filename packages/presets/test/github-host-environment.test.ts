@@ -60,7 +60,12 @@ it("mints a new App token when the cached one expires within the requested lifet
   const now = Date.now()
   const clock = vi.spyOn(Date, "now").mockReturnValue(now)
   let minted = 0
-  vi.stubGlobal("fetch", async () => Response.json({ token: `app-token-${++minted}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() }))
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    if (path === "/app") return Response.json({ id: 7, slug: "token-lifetime-bot" })
+    if (path.startsWith("/users/")) return Response.json({ id: 70 })
+    return Response.json({ token: `app-token-${++minted}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+  })
   try {
     const host = createGitHubHost({ credentials: () => ({ appId: 7, installationId: 9, owner: "acme", privateKey }) })
     const access: unknown = Reflect.get(host.channel(), Symbol.for("vitehub.agent.forgeAccess"))
@@ -75,3 +80,34 @@ it("mints a new App token when the cached one expires within the requested lifet
     vi.unstubAllGlobals()
   }
 });
+
+it("commits and comments as the bot of its GitHub App without a configured identity", async () => {
+  const { generateKeyPairSync } = await import("node:crypto")
+  const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ format: "pem", type: "pkcs8" }).toString()
+  const requests: string[] = []
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const path = new URL(input instanceof Request ? input.url : input).pathname
+    requests.push(path)
+    if (path === "/app") return Response.json({ id: 294442778, slug: "quiver-bot" })
+    if (path === "/users/quiver-bot%5Bbot%5D") return Response.json({ id: 294442779, login: "quiver-bot[bot]" })
+    return Response.json({ token: "app-token", expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+  })
+  try {
+    const host = createGitHubHost({ credentials: () => ({ appId: 294442778, installationId: 9, owner: "quiverdk", privateKey }) })
+    const bot = { login: "quiver-bot[bot]", email: "294442779+quiver-bot[bot]@users.noreply.github.com" }
+
+    const { env } = await host.access({ repository: "quiverdk/portal" })
+    expect(env).toMatchObject({ GIT_AUTHOR_NAME: bot.login, GIT_AUTHOR_EMAIL: bot.email, GIT_COMMITTER_NAME: bot.login, GIT_COMMITTER_EMAIL: bot.email })
+    expect(host.identity()).toBe(bot.login)
+    expect(host.appId?.()).toBe(294442778)
+
+    const access: unknown = Reflect.get(host.channel(), Symbol.for("vitehub.agent.forgeAccess"))
+    if (typeof access !== "function") throw new Error("The host channel has no forge access.")
+    await expect(access({}, { repository: "quiverdk/portal" })).resolves.toEqual({ token: "app-token", identity: bot })
+    // The App's identity is read once.
+    expect(requests.filter(path => path === "/app")).toHaveLength(1)
+  }
+  finally {
+    vi.unstubAllGlobals()
+  }
+})

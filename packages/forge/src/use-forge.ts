@@ -69,6 +69,8 @@ export interface ForgeAppIdentity {
   id: number
   slug: string
   login: string
+  /** The bot's commit email, such as `41898282+my-app[bot]@users.noreply.github.com`. GitHub links these commits to the App. */
+  email: string
 }
 
 /** The `forges` provider of one Forge. A GitHub provider also has `graphql()`. */

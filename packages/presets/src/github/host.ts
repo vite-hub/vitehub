@@ -11,7 +11,7 @@ import { promisify } from "node:util"
 import { invariant } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppCredentials, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -34,11 +34,18 @@ export interface GitHubHostCredentialContext {
   signal: AbortSignal
 }
 
+/** The GitHub user or App bot that commits and comments for the host. */
+export interface GitHubHostIdentity { appId?: number, email?: string, login?: string }
+
 export interface GitHubHostOptions {
   credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>
   /** A `fetch` for Forge requests, for tests and runtimes without a global one. */
   fetch?: typeof fetch
-  identity?: { appId?: number, email?: string, login?: string }
+  /**
+   * Commit author and comment owner. Default: the GitHub App bot of the App credentials, such as
+   * `my-app[bot]` with its noreply email. Set it for a token without an App.
+   */
+  identity?: GitHubHostIdentity
   maxBuffer?: number
   /** Forge request timeout in milliseconds. Default 60000. */
   timeout?: number
@@ -169,7 +176,6 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     installations: Object.fromEntries(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id])),
   }
   const installations = new Map<string, number>()
-  let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
   const installation = async (repository: string, signal?: AbortSignal) => {
     signal?.throwIfAborted()
@@ -195,26 +201,26 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     /** Sends one App webhook delivery again. */
     redeliver: (id: string, signal?: AbortSignal): Promise<void> => client.redeliver(id, signal),
     /** The App bot's login and noreply email, used as the commit author. */
-    async identity(): Promise<{ appId: number, login: string, email: string }> {
-      identity ??= (async () => {
-        const { id: appId, login } = await client.app().catch((error: unknown) => {
-          const status = forgeErrorStatus(error)
-          if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
-          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
-          throw error
-        })
-        const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
-        const user = await provider.users.get(login).catch(() => undefined)
-        return { appId, login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
-      })()
-      identity.catch(() => { identity = undefined })
-      return await identity
+    async identity(): Promise<Required<GitHubHostIdentity>> {
+      return await appIdentity(client)
     },
   }
 }
 
 function tokenKey(token: string): string {
   return `token:${createHash("sha256").update(token).digest("base64url")}`
+}
+
+/** The App's bot login, its immutable ID, and its noreply commit email. `@vite-hub/forge` caches it per App. */
+async function appIdentity(client: GitHubAppCredentials, signal?: AbortSignal): Promise<Required<GitHubHostIdentity>> {
+  const { id: appId, login, email } = await client.app(signal).catch((error: unknown) => {
+    if (signal?.aborted) throw abortError(signal.reason)
+    const status = forgeErrorStatus(error)
+    if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
+    if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
+    throw error
+  })
+  return { appId, login, email }
 }
 
 function owner(repository: string): string {
@@ -264,7 +270,8 @@ async function waitForCaller<T>(promise: Promise<T>, options: GitHubHostCheckout
 export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const checkoutScope = new AsyncLocalStorage<GitHubHostAccess & { path: string }>()
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
-  const identity = options.identity ?? {}
+  // Without a configured identity, the host commits and comments as the bot of its App credentials.
+  let appBot: Required<GitHubHostIdentity> | undefined
   const rateLimits = new Map<string, GitHubHostRateLimit>()
 
   /** Record the rate limit headers of each Forge response, keyed by credential and resource. */
@@ -304,13 +311,28 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
+  async function appBotIdentity(appId: number, privateKey: string, signal?: AbortSignal): Promise<Required<GitHubHostIdentity>> {
+    appBot = await appIdentity(githubAppCredentials({ appId, privateKey, userAgent: options.userAgent }), signal)
+    return appBot
+  }
+
+  /** The configured identity, or else the bot of the App that unscoped credentials name. */
+  async function hostIdentity(): Promise<GitHubHostIdentity> {
+    if (options.identity) return options.identity
+    const config = await credentials({})
+    const appId = String(config.appId || "").trim()
+    const privateKey = secret(config.privateKey)?.trim().replace(/\\n/g, "\n") || ""
+    return appId && privateKey ? await appBotIdentity(positiveInteger(appId, "GitHub App appId"), privateKey) : {}
+  }
+
   function fallbackToken(config: GitHubHostCredentials): string {
     const configured = secret(config.token)?.trim()
     if (!configured) throw presetsErrorDiagnostics.PRESETS_GITHUB_AUTH_MISSING()
     return configured
   }
 
-  async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess & { credentialKey: string }> {
+  /** `commits: false` is for API calls only: they need no commit identity, so the App's identity is not read. */
+  async function scopedAccess(input: GitHubHostAccessOptions, commits = true): Promise<GitHubHostAccess & { credentialKey: string }> {
     const config = await credentials({ repository: input.repository, signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
@@ -320,6 +342,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const repositoryOwner = input.repository ? owner(input.repository) : undefined
     let token: string
     let credentialKey: string
+    let identity = options.identity ?? {}
 
     if (appValues.some(Boolean)) {
       if (!appValues.every(Boolean)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_CREDENTIALS_INCOMPLETE()
@@ -343,6 +366,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_MISSING({ cause: error })
           throw error
         }
+        if (commits && !options.identity) identity = await appBotIdentity(numericAppId, privateKey, input.signal)
       }
     }
     else {
@@ -393,7 +417,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   async function forge(input: GitHubHostForgeOptions = {}): Promise<GitHubProvider> {
     const operation = controlledOperation(input)
     try {
-      const auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
+      const auth = await scopedAccess({ repository: input.repository, signal: operation.signal }, false)
       return await forgeProvider({
         forge: "github",
         token: auth.token,
@@ -597,18 +621,20 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   const host: GitHubHost = {
     identity() {
-      return identity.login?.trim() || undefined
+      return (options.identity ?? appBot)?.login?.trim() || undefined
     },
     appId() {
-      return identity.appId
+      return (options.identity ?? appBot)?.appId
     },
     channel(channelOptions = {}) {
-      const login = host.identity()
       return github({
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
+          identity: async () => {
+            const { login, appId, email } = await hostIdentity()
+            return login?.trim() ? { login: login.trim(), ...(appId ? { appId } : {}), ...(email ? { email } : {}) } : undefined
+          },
         },
       })
     },

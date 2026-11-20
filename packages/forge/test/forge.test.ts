@@ -146,10 +146,12 @@ describe("internal Forge client", () => {
   it("resolves app metadata and installation ids", async () => {
     const fixture = fixtureFetch([
       { request: { method: "GET", url: "https://api.github.com/app" }, response: { status: 200, body: { id: 12, slug: "vitehub" } } },
+      { request: { method: "GET", url: "https://api.github.com/users/vitehub%5Bbot%5D" }, response: { status: 404, body: { message: "Not Found" } } },
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" }, response: { status: 200, body: { id: 33 } } },
     ])
     const credentials = githubAppCredentials({ appId: 12, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
-    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]" })
+    // Without the bot user's ID, the commit email keeps the plain noreply form.
+    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]", email: "vitehub[bot]@users.noreply.github.com" })
     await expect(credentials.installation("acme/app")).resolves.toBe(33)
   })
 

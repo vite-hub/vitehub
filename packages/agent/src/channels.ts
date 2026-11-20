@@ -274,6 +274,9 @@ type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
 type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
   AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>
 
+/** The GitHub user or App bot that a github() Channel App commits and comments as. */
+export interface GitHubAppIdentity { login: string, appId?: number, email?: string }
+
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
@@ -281,10 +284,10 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
    */
   token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
   /**
-   * Trusted identity of the host's authenticated GitHub user or App. Provider Drivers and the `git()` Capability
-   * commit as `login` with `email`.
+   * Trusted identity of the host's authenticated GitHub user or App, or a function that resolves it. Provider Drivers
+   * and the `git()` Capability commit as `login` with `email`.
    */
-  identity?: { login: string, appId?: number, email?: string }
+  identity?: GitHubAppValue<GitHubAppIdentity | undefined, TRuntimeConfig>
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -2046,7 +2049,8 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
-  if (options.identity) return options.identity
+  const configured = await resolveGithubAppOption(options.identity, context)
+  if (configured) return configured
   const forge = await githubAppForge(options, context)
   const [error, identity] = await forge.app(signal ? { signal } : {})
   if (!error) return { appId: identity.id }
@@ -2063,7 +2067,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
   context: GitHubAppContext<TRuntimeConfig>,
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
-  const configured = githubAppOptions(app)?.identity
+  const configured = await resolveGithubAppOption(githubAppOptions(app)?.identity, context)
   if (configured?.appId) return configured
   try {
     return await forgeIdentity(provider, { kind: "token" })
@@ -4455,7 +4459,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
       const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
       if (!token) return undefined
-      const identity = app?.identity
+      const identity = await resolveGithubAppOption(app?.identity, context as AgentCallbackContext<TRuntimeConfig>)
       return {
         token,
         baseUrl: app?.apiBaseUrl,

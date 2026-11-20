@@ -17,8 +17,11 @@ export interface GitHubAppCredentials {
   ): Promise<{ token: string, expiresAt: Date }>
   /** GET /repos/{repository}/installation with the app JWT. */
   installation(repository: string, signal?: AbortSignal): Promise<number>
-  /** GET /app. */
-  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
+  /**
+   * GET /app, and GET /users/{login} for the bot user's noreply `email`, the commit email that GitHub links to the
+   * App. Cached per App: an App's identity does not change.
+   */
+  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string, email: string }>
   /**
    * Every repository that the App's installations can access, from `GET /app/installations` and
    * `GET /installation/repositories`, all pages. Suspended installations are skipped.
@@ -68,6 +71,7 @@ const appProviders = new Map<string, Promise<ForgeProvider>>()
 // Weak keys keep token retention bounded by the 128 cached providers.
 const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
 const appProviderLimit = 128
+const appIdentities = new Map<string, Promise<{ id: number, slug: string, login: string, email: string }>>()
 const fetchIds = new WeakMap<typeof fetch, number>()
 let nextFetchId = 0
 
@@ -112,6 +116,23 @@ function positiveId(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
+async function appIdentity(input: GitHubAppInput): Promise<{ id: number, slug: string, login: string, email: string }> {
+  const provider = await appProvider(input)
+  const response = await provider.request<unknown>("GET", "/app")
+  const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
+  const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
+  if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
+  if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
+  const login = `${slug}[bot]`
+  // The App JWT reaches only /app endpoints, so read the public bot user without credentials. GitHub links a commit to
+  // the bot only through `<user id>+<login>@users.noreply.github.com`; without the user ID, keep the plain noreply form.
+  const { github } = await import("forges/github")
+  const userId = await github({ ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.fetch ? { fetch: input.fetch } : {}), userAgent: input.userAgent ?? "vitehub" })
+    .request<unknown>("GET", `/users/${encodeURIComponent(login)}`)
+    .then(user => positiveId(isRecord(user.data) ? user.data.id : undefined), () => undefined)
+  return { id, slug, login, email: userId ? `${userId}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
+}
+
 /**
  * GitHub App credentials. App providers are cached per API base, App, private key, user agent,
  * fetch function, and installation, so installation tokens are minted once and reused until they expire.
@@ -152,13 +173,15 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       }
     },
     async app(signal) {
-      const provider = await withSignal(appProvider(input), signal)
-      const response = await provider.request<unknown>("GET", "/app", { signal })
-      const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
-      const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
-      if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
-      return { id, slug, login: `${slug}[bot]` }
+      const key = appProviderKey(input, "")
+      let identity = appIdentities.get(key)
+      if (!identity) {
+        identity = appIdentity(input)
+        identity.catch(() => appIdentities.delete(key))
+        appIdentities.set(key, identity)
+        if (appIdentities.size > appProviderLimit) appIdentities.delete(appIdentities.keys().next().value!)
+      }
+      return await withSignal(identity, signal)
     },
     async repositories(signal) {
       const provider = await withSignal(appProvider(input), signal)
