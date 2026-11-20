@@ -273,7 +273,7 @@ async function runResources(args: string[], context: InspectContext, plugins: re
     context.stdout.write([
       `Usage: ${resourcesUsage}`,
       "",
-      "Lists the host resources that Definitions and stores map to: D1, KV, R2, Queues, Workflows, Schedule cron triggers, Vercel Blob, and the Sandbox Durable Object and Container.",
+      "Lists the host resources that Definitions and stores map to: D1, KV, R2, Queues, Workflows, Schedule cron triggers, Vercel Blob, the Agent state Durable Object, and the Sandbox Durable Object and Container.",
       "Shows each resource name, its id, and where the id came from: config, env, Provision State, generated provider output, or the host binds it by name.",
       "Reads local config and files only. It never calls a provider API.",
       "",
