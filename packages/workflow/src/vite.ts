@@ -19,7 +19,7 @@ import { workflowDeploymentEnv } from "./deployment-env.ts"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
-import { inspectWorkflowDefinitions } from "./inspect.ts"
+import { inspectWorkflowDefinitions, inspectWorkflowResources } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
 import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
@@ -35,7 +35,7 @@ import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
 export { createWorkflowTypes } from "./internal/registry-types.ts"
-export { inspectWorkflowDefinitions, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
+export { inspectWorkflowDefinitions, inspectWorkflowResources, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
 
 interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
@@ -601,6 +601,12 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "index.mjs") }]
           return []
           })(),
+          // The build binds each Workflow on Cloudflare. The names match the generated Wrangler config.
+          resources: () => {
+            if (options?.driver !== "cloudflare") return []
+            const projectRoot = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
+            return inspectWorkflowResources({ binding: options.binding, name: options.name, projectRoot, rootDir: projectRoot, serverDirs })
+          },
         }
       },
       workflow: {
