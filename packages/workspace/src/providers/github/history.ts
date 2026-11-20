@@ -1139,6 +1139,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   // GitHub deletes a branch without a condition, so `ifHead` compares the head just before the delete.
   const deleteRef = async (deleteOptions: WorkspaceHistoryDeleteRefOptions): Promise<boolean> => {
     const { ref, ifHead } = readHistoryDeleteRef(deleteOptions)
+    if (toBranch(ref) === options.branch) throw workspaceErrorDiagnostics.WORKSPACE_DEFAULT_REF_DELETE()
     const { branch } = resolveRef(ref)
     const head = await readCurrentHead(client(), branch)
     if (ifHead !== undefined && head !== ifHead) throw historyConflict(ref, ifHead, head, { repository: options.repository })

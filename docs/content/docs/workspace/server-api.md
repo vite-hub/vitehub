@@ -39,7 +39,7 @@ This reuses the saved snapshots of Sources with `materialize: 'startup'` when th
 
 ### Check a Workspace name
 
-`useWorkspace()` accepts only the names of your Workspace Definitions. When the name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to a Workspace name:
+When a name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to `ValidatedWorkspaceName`, which `useWorkspace()` and `useWorkspaceFiles()` accept alongside generated names. The check confirms runtime registration, not membership in the generated `WorkspaceName` union:
 
 ```ts [server/api/projects/[project]/files.get.ts]
 import { defineHandler, getRouterParam, HTTPError } from 'h3'
@@ -180,10 +180,10 @@ const head = await workspace.history.head({ ref: runId })
 await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 ```
 
-It removes the ref and its revisions, and the file bytes that no other ref has. It returns `false` when the ref does not exist. With `ifHead`, it throws `WORKSPACE_CONFLICT` and deletes nothing when a commit moved the ref. `main` cannot be deleted, because the working tree follows it (`WORKSPACE_DEFAULT_REF_DELETE`).
+It removes the ref or returns `false` when the ref does not exist and no `ifHead` was supplied. A head that does not match `ifHead` throws `WORKSPACE_CONFLICT`. Deleting `main` or the Store's working ref throws `WORKSPACE_DEFAULT_REF_DELETE`, including through a GitHub ref alias.
 
-- On the Blob + Database Store, a commit that runs at the same time and adds the same bytes uploads them again. If the call stops before it finishes, the next `deleteRef()` call deletes the bytes that it left.
-- On the GitHub Store, it deletes the branch. GitHub deletes a branch without a condition, so `ifHead` compares the head just before the delete. GitHub refuses to delete the default branch of the repository.
+- The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup stops after the transaction commits, retry `deleteRef()` to finish deleting those bytes.
+- The GitHub Store only deletes the branch. Its commits and their bytes may still be readable by SHA. GitHub checks `ifHead` before sending the delete request, so it can still delete a branch whose head moves between the check and the delete. GitHub also refuses to delete the repository's default branch.
 
 ### Conflicts
 
@@ -197,10 +197,10 @@ It removes the ref and its revisions, and the file bytes that no other ref has. 
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
 | `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
-| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. Each entry has the `before` and `after` file with `size`, `digest`, and `metadata`. Without `from`, every file of `to` is `added`. |
+| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
-| `history.deleteRef({ ref, ifHead? })` | `true` after it deleted the ref, its revisions, and the bytes that only it had, or `false` when the ref does not exist. |
+| `history.deleteRef({ ref, ifHead? })` | `true` after deleting the ref, or `false` when the ref does not exist and no `ifHead` was supplied. Only Blob + Database deletes the revisions and their unshared bytes. |
 
 - Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` and `deleteRef` need write mode.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.

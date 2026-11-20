@@ -214,7 +214,8 @@ await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head
 ```
 
 `history.diff({ from, to })` lists the files that were added, modified, or removed
-between two revisions, also on different refs:
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
 
 ```ts fragment
 const [published, saved] = await Promise.all([
@@ -227,14 +228,19 @@ if (saved) {
 }
 ```
 
-`history.deleteRef({ ref, ifHead? })` deletes a ref, its revisions, and the file bytes
-that no other ref has. It returns `false` when the ref does not exist, and it cannot
-delete `main`:
+`history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
+does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
+working ref:
 
 ```ts fragment
 const head = await workspace.history.head({ ref: runId })
 await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 ```
+
+Blob + Database checks `ifHead` atomically with ref deletion and also removes the
+ref's revisions and bytes that no other revision uses. GitHub only deletes the
+branch, so commits and bytes may still be readable by SHA. Its `ifHead` check
+happens before a separate, unconditional delete request.
 
 Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
 before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.

@@ -13,6 +13,7 @@ import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createFakeGitHub } from "./fake-github.ts"
+import { blobError } from "../../blob/src/errors.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 
@@ -102,6 +103,98 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     expect(interrupt).toBeUndefined()
     expect(await (await writer.history.open(revision.id)).readFile("rsvp.ts")).toBe("export default {}")
   })
+
+  it("does not publish against another writer's registration before its upload", async () => {
+    const { blob, database } = await historyDatabase()
+    const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    await store().history.commit({ ref: "old", ifHead: null, files })
+
+    const enteredHead = Promise.withResolvers<void>()
+    const resumeHead = Promise.withResolvers<void>()
+    const primary = Object.create(blob) as BlobStorage
+    primary.head = vi.fn(blob.head.bind(blob)).mockImplementationOnce(async key => {
+      const result = await blob.head(key)
+      enteredHead.resolve()
+      await resumeHead.promise
+      return result
+    })
+    const commit = store(primary).history.commit({ ref: "primary", ifHead: null, files })
+    await enteredHead.promise
+    await store().history.deleteRef!({ ref: "old" })
+
+    const enteredPut = Promise.withResolvers<void>()
+    const resumePut = Promise.withResolvers<void>()
+    const secondary = Object.create(blob) as BlobStorage
+    secondary.put = vi.fn(blob.put.bind(blob)).mockImplementationOnce(async (...args) => {
+      enteredPut.resolve()
+      await resumePut.promise
+      return await blob.put(...args)
+    })
+    const other = store(secondary).history.commit({ ref: "secondary", ifHead: null, files })
+    await enteredPut.promise
+    resumeHead.resolve()
+    try {
+      const result = await commit
+      expect(await (await store().history.open(result.id)).readFile("run.ts")).toBe("results")
+    }
+    finally {
+      resumePut.resolve()
+      await other
+    }
+  })
+
+  it("does not let a stalled cleanup delete replacement bytes after a retry", async () => {
+    const { blob, database } = await historyDatabase()
+    const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    await store().history.commit({ ref: "old", ifHead: null, files })
+    const entered = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const stalled = Object.create(blob) as BlobStorage
+    stalled.delete = vi.fn(blob.delete.bind(blob)).mockImplementationOnce(async (...args) => {
+      entered.resolve()
+      await resume.promise
+      return await blob.delete(...args)
+    })
+    const cleanup = store(stalled).history.deleteRef!({ ref: "old" })
+    await entered.promise
+    const future = Date.now() + 11 * 60_000
+    const clock = vi.spyOn(Date, "now").mockReturnValue(future)
+    try {
+      expect(await store().history.deleteRef!({ ref: "old" })).toBe(false)
+      const result = await store().history.commit({ ref: "new", ifHead: null, files })
+      resume.resolve()
+      expect(await cleanup).toBe(true)
+      expect(await (await store().history.open(result.id)).readFile("run.ts")).toBe("results")
+    }
+    finally {
+      clock.mockRestore()
+      resume.resolve()
+      await cleanup
+    }
+  })
+
+  it("retries catalog and Blob cleanup across failures without losing the candidates", async () => {
+    const { blob, database } = await historyDatabase()
+    const store = () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    const run = await store().history.commit({ ref: "old", ifHead: null, files })
+    await database.run(sql`create trigger fail_mark before update on workspace_history_objects begin select raise(abort, 'injected catalog failure'); end`)
+    try {
+      await expect(store().history.deleteRef!({ ref: "old" })).rejects.toThrow()
+      expect((await store().history.head({ ref: "old" }))?.id).toBe(run.id)
+    }
+    finally {
+      await database.run(sql`drop trigger fail_mark`)
+    }
+    vi.spyOn(blob, "delete").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "delete", "test"), undefined])
+    await expect(store().history.deleteRef!({ ref: "old" })).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
+    await expect(store().history.head({ ref: "old" })).resolves.toBeNull()
+    expect(await objectCount(blob)).toBe(1)
+    expect(await store().history.deleteRef!({ ref: "old" })).toBe(false)
+    expect(await objectCount(blob)).toBe(0)
+  })
 })
 
 describe("history.deleteRef() on the GitHub Store", () => {
@@ -128,7 +221,22 @@ describe("history.deleteRef() on the GitHub Store", () => {
     expect(fake.head("run-42")).toBe(run)
     expect(await workspace.history.deleteRef({ ref: "run-42", ifHead: run })).toBe(true)
     expect(fake.head("run-42")).toBeUndefined()
+    expect(await (await workspace.history.open(run)).readFile("rsvp.ts")).toBe("export default {}")
     expect((await workspace.history.refs()).map(ref => ref.name)).toEqual(["main"])
     expect(await workspace.history.deleteRef({ ref: "run-42" })).toBe(false)
+  })
+
+  it.each([
+    { branch: "main", refs: { published: "main" }, ref: "published" },
+    { branch: "working-tree", refs: undefined, ref: "working-tree" },
+  ])("keeps the working branch $branch when deleting $ref", async ({ branch, refs, ref }) => {
+    fake.state.defaultBranch = "trunk"
+    fake.commit("trunk", { "README.md": "Repository default" })
+    const head = fake.commit(branch, { "app.vue": "<NuxtPage />" })
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token", root: "", branch, ...(refs ? { refs } : {}) }, "meetups")
+
+    await expect(store.history.deleteRef!({ ref })).rejects.toMatchObject({ code: "WORKSPACE_DEFAULT_REF_DELETE" })
+    expect(fake.head(branch)).toBe(head)
+    expect(fake.writes()).toHaveLength(0)
   })
 })
