@@ -5,7 +5,7 @@ import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError, isExecutionAuthority, isRuntimeDiagnostic, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
-import { readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
+import { isCompatibleAgentDevServerRoot, readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
