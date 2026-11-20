@@ -46,6 +46,28 @@ function reader(responses: { files?: string[][]; compare?: { ahead: number; file
 const live = { head: { sha: head }, base: { ref: "main" } };
 
 describe("Babysitter base freshness", () => {
+  it("dates a fork's pull_request run by its start and ignores its push runs, using the newest run of each check", async () => {
+    const fork = snapshot();
+    fork.pr = { ...fork.pr!, head: { ...fork.pr!.head!, repo: { full_name: "contributor/app" } } };
+    fork.checks = {
+      "check_run:1": { id: 1, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-17T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/70/job/1" },
+      "check_run:2": { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-18T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/77/job/2" },
+      "check_run:3": { id: 3, name: "preview", head_sha: head, status: "completed", conclusion: "success", started_at: "2026-10-16T10:00:00Z", app: { id: 5 }, html_url: "https://github.com/acme/app/actions/runs/78/job/3" },
+    };
+    const base = reader({ files: [["src/a.ts"]], compare: { ahead: 1, files: ["src/b.ts"] } });
+    const read: BaseFreshnessReader = {
+      rest: base.rest,
+      async page(path, s) {
+        if (path.endsWith("/actions/runs/77")) return { event: "pull_request", pull_requests: [], created_at: "2026-10-18T10:00:00Z" };
+        if (path.endsWith("/actions/runs/78")) return { event: "push", pull_requests: [], created_at: "2026-10-16T10:00:00Z" };
+        if (path.endsWith("/actions/runs/70")) throw new Error("the older run must not be read");
+        return await base.page(path, s);
+      },
+    };
+    expect(await staleBaseOverlap(read, fork, live, signal)).toEqual([]);
+    expect(base.paths).toContain(`repos/acme/app/compare/${tested}...main?per_page=100`);
+  });
+
   it("returns the files that both the PR and the base changed after the checks ran", async () => {
     const read = reader({ files: [["src/a.ts", null as unknown as string], ["src/b.ts", "src/old-b.ts"]], compare: { ahead: 2, files: ["src/old-b.ts", "README.md", null] } });
     expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/old-b.ts"]);

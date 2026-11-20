@@ -51,7 +51,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead, runsOnPush } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -527,11 +527,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   /**
    * Closes and reopens a fork PR, so its `pull_request` workflows run again on the merge with the current
    * base. The host cannot update a fork branch: GitHub refuses App pushes to forks. At most hourly per PR.
+   * The host records the close before it sends it, so `recoverForkReopens` reopens a PR that a restart
+   * or a GitHub error left closed.
    */
   async function reopenForkPullRequest(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal): Promise<boolean> {
-    const key = `fork-reopen:${repository}#${number}`;
-    if ((await pullRequestInbox.metaNumber(key) ?? 0) > Date.now() - 60 * 60_000) return false;
-    await pullRequestInbox.setMeta(key, Date.now());
+    const key = forkReopenKey(repository, number);
+    const previous = await pullRequestInbox.meta(key);
+    if (isRuntimeRecord(previous) && (previous.closing === true || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
     const { provider } = await forge(repository, signal);
     try {
       const live = (await provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal })).data;
@@ -539,26 +541,71 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerEvent("babysitter.fork_checks.reopen_skipped", { ...owner, reason: "head changed" });
         return false;
       }
+    } catch (error) {
+      await noteForgeQuota(error, "fork-reopen");
+      return false;
+    }
+    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: true });
+    try {
       await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "closed" }, signal });
+      // The PR is closed now. Reopen it even when the run is aborting.
+      await reopenPullRequest(repository, number);
     } catch (error) {
       await noteForgeQuota(error, "fork-reopen");
       schedulerEvent("babysitter.fork_checks.reopen_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
       return false;
     }
-    // The PR is closed now. Reopen it even when the run is aborting.
-    let failure: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: false });
+    schedulerEvent("babysitter.fork_checks.reopened", { ...owner, head_sha: head });
+    return true;
+  }
+
+  async function reopenPullRequest(repository: string, number: number): Promise<void> {
+    const { provider } = await forge(repository, new AbortController().signal);
+    for (let attempt = 0; ; attempt++) {
       try {
         await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
-        schedulerEvent("babysitter.fork_checks.reopened", { ...owner, head_sha: head });
-        return true;
+        return;
       } catch (error) {
-        failure = error;
+        if (attempt >= 2) throw error;
         await new Promise(resolve => setTimeout(resolve, 2_000 * (attempt + 1)));
       }
     }
-    schedulerEvent("babysitter.fork_checks.reopen_failed", { ...owner, reason: `left closed: ${(failure instanceof Error ? failure.message : String(failure)).slice(0, 180)}` });
-    return false;
+  }
+
+  const forkReopenKey = (repository: string, number: number) => `fork-reopen:${repository}#${number}`;
+
+  /**
+   * Finishes a close and reopen that a restart or a GitHub error interrupted. A PR that is still closed
+   * is reopened only when a bot closed it while the host's close was in flight, never when a person did.
+   */
+  async function recoverForkReopens(signal: AbortSignal): Promise<void> {
+    for (const [key, value] of await pullRequestInbox.metaEntries("fork-reopen:")) {
+      signal.throwIfAborted();
+      const match = /^fork-reopen:(.+)#(\d+)$/.exec(key);
+      if (!match || !isRuntimeRecord(value) || value.closing !== true || Number(value.at) > Date.now() - 2 * 60_000) continue;
+      const [, repository, number] = match;
+      const owner = { repository, pullRequest: Number(number) };
+      try {
+        const { provider } = await forge(repository, signal);
+        const issue = (await provider.request<unknown>("GET", `/repos/${repository}/issues/${number}`, { signal })).data;
+        if (!isRuntimeRecord(issue)) continue;
+        const closedBy = isRuntimeRecord(issue.closed_by) ? issue.closed_by : undefined;
+        const ours = issue.state === "closed" && String(closedBy?.type) === "Bot" && Date.parse(String(issue.closed_at)) >= Number(value.at) - 60_000;
+        const merged = isRuntimeRecord(issue.pull_request) && issue.pull_request.merged_at != null;
+        if (ours && !merged) {
+          await reopenPullRequest(repository, Number(number));
+          schedulerEvent("babysitter.fork_checks.reopen_recovered", owner);
+        } else if (issue.state === "closed") {
+          schedulerEvent("babysitter.fork_checks.reopen_abandoned", { ...owner, reason: merged ? "merged" : "closed by someone else" });
+        }
+        await pullRequestInbox.setMeta(key, { ...value, closing: false }, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        await noteForgeQuota(error, "fork-reopen-recover");
+        schedulerEvent("babysitter.fork_checks.reopen_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      }
+    }
   }
 
   /**
@@ -607,8 +654,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * pushes to the repository report on it. A push runs the workflow files of the pushed commit with the
    * repository's permissions, so the host pushes only a head that GitHub reports, now, as:
    * - approved at that exact SHA by a reviewer with write access, with no change request standing;
-   * - carrying the `.github` tree of the base branch or of its merge base with it, so every workflow and
-   *   action is one the base has run itself.
+   * - carrying no local action and no workflow that a push starts, unless the base branch has the same file now.
    * It moves only a branch it created itself. Once per head; a refused or failed push is tried again after an hour.
    */
   async function pushForkHead(snapshot: Snapshot, owner: Record<string, unknown>, missing: string[], signal: AbortSignal): Promise<boolean> {
@@ -680,17 +726,31 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (isRuntimeRecord(permission) && ["admin", "maintain", "write"].includes(String(permission.permission))) approved = true;
     }
     if (!approved) return `no approval of ${head.slice(0, 7)} by a reviewer with write access`;
-    const githubTree = async (treeish: string) => {
+    // A push runs the pushed commit's own workflows. Each one a push or a branch creation starts must be
+    // the base's current file, and local actions must match, so a retired workflow never runs again.
+    const entries = async (treeish: string) => {
       const tree = await read(`/repos/${repository}/git/trees/${encodeURIComponent(treeish)}`);
-      const entries = isRuntimeRecord(tree) && Array.isArray(tree.tree) ? tree.tree : [];
-      const entry = entries.find(item => isRuntimeRecord(item) && item.path === ".github" && item.type === "tree");
-      return isRuntimeRecord(entry) ? entry.sha : undefined;
+      const list = isRuntimeRecord(tree) && Array.isArray(tree.tree) ? tree.tree : [];
+      return new Map(list.flatMap(item => isRuntimeRecord(item) && hasRuntimeType(item.path, "string") && hasRuntimeType(item.sha, "string") ? [[item.path, { sha: item.sha, type: item.type }]] : []));
     };
-    // A head that changes nothing in `.github` carries workflows that were on the base at its merge base.
-    const compare = await read(`/repos/${repository}/compare/${encodeURIComponent(baseRef)}...${head}?per_page=1`);
-    const mergeBase = isRuntimeRecord(compare) && isRuntimeRecord(compare.merge_base_commit) && hasRuntimeType(compare.merge_base_commit.sha, "string") ? compare.merge_base_commit.sha : undefined;
-    const [headTree, baseTree, mergeBaseTree] = await Promise.all([githubTree(head), githubTree(baseRef), mergeBase ? githubTree(mergeBase) : undefined]);
-    return headTree === baseTree || mergeBase && headTree === mergeBaseTree ? undefined : "the PR changes .github";
+    const child = async (tree: Map<string, { sha: string; type: unknown }>, name: string) => {
+      const entry = tree.get(name);
+      return entry?.type === "tree" ? { sha: entry.sha, entries: await entries(entry.sha) } : undefined;
+    };
+    const [headRoot, baseRoot] = await Promise.all([entries(head), entries(baseRef)]);
+    if (headRoot.get(".github")?.sha === baseRoot.get(".github")?.sha) return undefined;
+    const [headGithub, baseGithub] = await Promise.all([child(headRoot, ".github"), child(baseRoot, ".github")]);
+    if (!headGithub) return undefined;
+    if (headGithub.entries.has("actions") && headGithub.entries.get("actions")?.sha !== baseGithub?.entries.get("actions")?.sha) return `the PR's .github/actions differs from ${baseRef}`;
+    const [headFlows, baseFlows] = await Promise.all([child(headGithub.entries, "workflows"), baseGithub && child(baseGithub.entries, "workflows")]);
+    if (!headFlows || headFlows.sha === baseFlows?.sha) return undefined;
+    for (const [name, entry] of headFlows.entries) {
+      if (baseFlows?.entries.get(name)?.sha === entry.sha) continue;
+      const blob = await read(`/repos/${repository}/git/blobs/${entry.sha}`);
+      const text = isRuntimeRecord(blob) && hasRuntimeType(blob.content, "string") ? Buffer.from(blob.content, "base64").toString("utf8") : undefined;
+      if (text === undefined || runsOnPush(text)) return `.github/workflows/${name} runs on push and differs from ${baseRef}`;
+    }
+    return undefined;
   }
 
   const forkHeadKey = (repository: string, number: number) => `fork-head-push:${repository}#${number}`;
@@ -1877,6 +1937,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     await sweepForkHeadBranches(signal).catch(error => {
       signal.throwIfAborted();
       schedulerError("babysitter.fork_head.sweep_failed", error);
+    });
+    await recoverForkReopens(signal).catch(error => {
+      signal.throwIfAborted();
+      schedulerError("babysitter.fork_checks.recover_failed", error);
     });
     step("snapshot-detect");
     try {

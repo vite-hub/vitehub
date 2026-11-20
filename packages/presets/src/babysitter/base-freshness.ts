@@ -22,22 +22,36 @@ const pushMarginMs = 2 * 60_000;
  */
 export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Snapshot, head: string, baseRef: string, conclusions: ReadonlySet<string>, signal: AbortSignal): Promise<string | undefined> {
   const { repository } = snapshot;
-  const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
+  // A rerun or a reopen adds a newer run of the same check; only the newest run of each check counts.
+  const newest = new Map<string, (typeof snapshot.checks)[string]>();
+  for (const check of Object.values(snapshot.checks)) {
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) continue;
+    const name = String(check.name);
+    const previous = newest.get(name);
+    if (!previous || String(check.started_at ?? check.completed_at ?? "") > String(previous.started_at ?? previous.completed_at ?? "")) newest.set(name, check);
+  }
+  const runIds = [...new Set([...newest.values()].flatMap((check) => {
     const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
     return id ? [id] : [];
   }))];
-  const runs = await Promise.all(runIds.map(async (id) => {
+  const fork = String(snapshot.pr?.head?.repo?.full_name ?? repository).toLowerCase() !== repository.toLowerCase();
+  const runs = (await Promise.all(runIds.map(async (id) => {
     const run = await reader.page(`repos/${repository}/actions/runs/${id}`, signal);
     if (!isRuntimeRecord(run)) return { created: Number.NaN, base: undefined, hasPullRequestMetadata: false };
     const bases = Array.isArray(run.pull_requests)
       ? run.pull_requests.map(pr => isRuntimeRecord(pr) && isRuntimeRecord(pr.base) ? pr.base.sha : undefined).filter((base): base is string => hasRuntimeType(base, "string"))
       : [];
+    if (fork && Array.isArray(run.pull_requests) && !run.pull_requests.length) {
+      // GitHub lists no pull request on a fork's runs. A push run tested the fork head alone, not
+      // its merge with the base. A pull_request run tested the merge with the base of its start.
+      if (run.event === "push") return undefined;
+      if (run.event === "pull_request") return { created: Date.parse(String(run.created_at)), base: undefined, hasPullRequestMetadata: false };
+    }
     // An array returned by the Actions API is metadata, even when it is
     // empty or contains unusable entries. In that case the run is
     // ambiguous and must not fall back to an activity timestamp guess.
     return { created: Date.parse(String(run.created_at)), base: bases.length === 1 ? bases[0] : undefined, hasPullRequestMetadata: Array.isArray(run.pull_requests) };
-  }));
+  }))).filter(run => run !== undefined);
   // A non-PR or ambiguous run is never evidence for the PR's tested base.
   const exactBases = runs.filter(run => run.hasPullRequestMetadata).map(run => run.base);
   if (exactBases.length && exactBases.some(base => !base)) return undefined;

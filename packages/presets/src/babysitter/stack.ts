@@ -1,3 +1,4 @@
+import { parse } from "yaml";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import type { GitHubPullRequestRecord } from "./inbox/types.ts";
 import type { BabysitterMergeMethod } from "./merge.ts";
@@ -103,4 +104,14 @@ export function sameRepositoryBranches(pr: unknown, repository: string): { head:
  */
 export function foldMethod(method: BabysitterMergeMethod, repository: unknown): BabysitterMergeMethod {
   return isRuntimeRecord(repository) && repository.allow_merge_commit === false ? method : "merge";
+}
+
+/** Whether a workflow file starts on a push or a branch creation. Unreadable YAML counts as yes. */
+export function runsOnPush(workflow: string): boolean {
+  let document: unknown;
+  try { document = parse(workflow); } catch { return true; }
+  if (!isRuntimeRecord(document)) return true;
+  const on = document.on ?? document.true;
+  const events = typeof on === "string" ? [on] : Array.isArray(on) ? on : isRuntimeRecord(on) ? Object.keys(on) : undefined;
+  return !events || events.some(event => event === "push" || event === "create");
 }

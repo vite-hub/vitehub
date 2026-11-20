@@ -162,7 +162,11 @@ the base into a same-repository head branch through `POST /repos/{owner}/{repo}/
 after checking that the head did not move. GitHub refuses App pushes to a fork,
 so a fork PR whose base changed its files, or that needs a retest on the current
 base, is closed and reopened instead, at most hourly. Its `pull_request` workflows
-then run again on the merge with the current base.
+then run again on the merge with the current base. GitHub lists no pull request on
+a fork's Actions runs, so the host dates such a run by its start, and ignores push
+runs of a fork head, which never tested a merge with the base. The host records the
+close first and reopens a PR that a restart or a GitHub error left closed, unless a
+person closed it.
 
 PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
 
@@ -188,8 +192,9 @@ PR's head. When it is missing, the host pushes the head to that branch, once per
 head. A push runs the workflow files of the pushed commit with the repository's
 permissions, so the host first rereads GitHub and pushes only when a reviewer with
 write access approved that exact head, no change request stands, and the head's
-`.github` folder is the same as the base branch's or as the merge base's, so the
-PR itself changes no workflow. It moves and deletes only a
+head carries no local action and no workflow that a push or a branch creation
+starts unless the base branch has the same file now, so a retired workflow never
+runs again. It moves and deletes only a
 branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
