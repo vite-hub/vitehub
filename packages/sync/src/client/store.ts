@@ -593,7 +593,10 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const change: SyncStorageChange = { add: batch, remove: removed }
     flushed = storage.write(id, change).then((result) => {
       for (const write of batch) storing.delete(write.id)
-      if (at !== generation) return
+      if (at !== generation) {
+        if (batch.some(write => parked.has(write.id))) return reload().catch(() => undefined)
+        return
+      }
       // A reload may have read these writes from storage already.
       const known = new Set(writes.map(write => write.id))
       const stored = addedWrites(change, result)

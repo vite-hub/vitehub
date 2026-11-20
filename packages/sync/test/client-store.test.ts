@@ -272,6 +272,40 @@ describe("clear with keepWrites", () => {
     expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
   })
 
+  it("settles a kept action sent before the originating tab finishes storing it", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    let markStored!: () => void
+    const stored = new Promise<void>((resolve) => { markStored = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const one = h.open({ storage: {
+      ...h.storage,
+      async write(id, change) {
+        const result = await h.storage.write(id, change)
+        if (change.add?.length) {
+          markStored()
+          await gate
+        }
+        return result
+      },
+    } })
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    const action = one.store.actions.complete({ id: "a" })
+    action.then(undefined, () => undefined)
+    await stored
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    expect(action.state).toBe("queued")
+    release()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
   it("settles an action whose terminal storage commit overlaps a clear", async () => {
     const h = setup()
     h.server.actions.complete = () => ({ answer: 42 })
