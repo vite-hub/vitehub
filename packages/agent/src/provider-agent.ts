@@ -11,6 +11,9 @@ import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./in
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
+import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { assertProviderEmulationSupported, emulatedCodexGateway } from "./internal/codex-emulation.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionCursorRecordKey } from "./internal/provider-session-cursor.ts"
@@ -2840,7 +2843,12 @@ async function* runProvider<
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
-  const chatgptExpiry = isChatGPTGateway(options.gateway) ? new AbortController() : undefined
+  // With VITEHUB_MODELS=emulate, the run reads no credential and no gateway, and Codex calls only the AI emulator.
+  const emulated = resolveModelEmulation(providerMetadataContext(context))
+  if (emulated) {
+    assertProviderEmulationSupported({ provider: options.provider, sandbox: Boolean(options.sandbox), tools: Object.keys(context.tools || {}).length })
+  }
+  const chatgptExpiry = !emulated && isChatGPTGateway(options.gateway) ? new AbortController() : undefined
   let chatgptExpiryTimer: ReturnType<typeof setTimeout> | undefined
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const invocationSignal = context.input.abortSignal && timeoutSignal
@@ -2867,8 +2875,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox and ChatGPT homes last one invocation; conversation history is replayed on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && (options.provider !== "codex"
+  // Sandbox, ChatGPT, and emulator homes last one invocation; conversation history is replayed on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -3147,7 +3155,7 @@ async function* runProvider<
       })
     }
     effectiveSignal?.throwIfAborted()
-    codexCredentialHome = await waitForProviderOperation(
+    codexCredentialHome = emulated ? undefined : await waitForProviderOperation(
       prepareCodexCredentialHome(options, context),
       effectiveSignal,
       async (home) => {
@@ -3182,9 +3190,18 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    let gateway = options.gateway === undefined
-      ? undefined
-      : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    // The emulator owns the run. A Sandbox fails above, so the run has a private temporary root.
+    let emulatedCodexHome: string | undefined
+    let gateway: ResolvedAgentDriverGateway | undefined
+    if (emulated) {
+      invariant(temporaryRoot, "a Codex run on the AI emulator has a temporary root because it has no Sandbox")
+      emulatedCodexHome = join(temporaryRoot.root, "codex-home")
+      await mkdir(emulatedCodexHome, { mode: 0o700 })
+      gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
+    }
+    else if (options.gateway !== undefined) {
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    }
     if (gateway?.chatgpt && chatgptExpiry) {
       const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
       const remaining = gateway.chatgpt.expiresAt - Date.now()
@@ -3275,6 +3292,8 @@ async function* runProvider<
         ? { PATH: `${[capabilityEnvironment?.PATH, ...toolchainPath].filter(Boolean).join(delimiter)}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),
     })
+    // A fresh Codex Home has no sign-in, config, or MCP server that could reach a real provider.
+    if (emulatedCodexHome) providerRuntimeEnvironment.CODEX_HOME = emulatedCodexHome
     const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
     const providerAgentTools = context.tools ? withAgentToolExecutionBudget(context.tools, context.executionBudget) : context.tools
     if (nativeUnattendedTools) {
@@ -3442,7 +3461,9 @@ async function* runProvider<
       await updateAgentTelemetryConfiguration(context.context, {
         ...(workspace && revision ? { workspace: { ...workspace, revision, ...(head?.id === revision ? { ref: head.ref } : {}) } } : {}),
         driver: {
-          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          ...(options.model || emulated
+            ? { model: { ...(emulated ? { gateway: emulatedGateway } : {}), ...(options.model ? { id: options.model } : {}), provider: options.provider } }
+            : {}),
           provider: options.provider,
         },
         ...(instructions ? { instructions: [instructions] } : {}),
@@ -3598,6 +3619,7 @@ async function* runProvider<
       binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
       ...(chatgptHome ? { homePath: chatgptHome } : {}),
+      ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {

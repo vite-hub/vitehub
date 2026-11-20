@@ -93,7 +93,7 @@ const { text } = await generateText({ model, prompt: 'Hello' })
 - In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
 - The emulator rejects hosted tools, such as web search.
-- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. A later ViteHub release runs Codex Agents on the emulator through the Codex Driver. Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. To run a Codex Agent without tools on the emulator, set `VITEHUB_MODELS=emulate`, and ViteHub sets up Codex for it. Read [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator). Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 
