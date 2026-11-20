@@ -12,12 +12,19 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts"
 export interface ProcessAgentCapacityOptions {
   concurrency: number
   cpu?: {
+    /** Pause new admissions above this CPU pressure. Defaults to 0.25. */
     pausePressure?: number
+    /**
+     * Resume when CPU pressure falls to this much above the lowest pressure of the last 10 minutes, the host's idle
+     * pressure, and no higher than `pausePressure`. Use this value alone until sampling covers 10 minutes, including
+     * after a sampling gap of 10 minutes or more. Defaults to 0.1.
+     */
     resumePressure?: number
   }
   fallbackConcurrency?: number
   intervalMs?: number
   memory?: {
+    /** Pause new admissions above this memory pressure. Defaults to 0.05. */
     pausePressure?: number
     /** Reserve this much future growth for every active invocation as well as new work. */
     perInvocationBytes?: number
@@ -25,6 +32,11 @@ export interface ProcessAgentCapacityOptions {
     reserveBytes?: number
     /** Memory reserved inside the process/service budget. Defaults to 1 GiB. */
     serviceReserveBytes?: number
+    /**
+     * Resume when memory pressure falls to this much above the lowest pressure of the last 10 minutes, the host's idle
+     * pressure, and no higher than `pausePressure`. Use this value alone until sampling covers 10 minutes, including
+     * after a sampling gap of 10 minutes or more. Defaults to 0.01.
+     */
     resumePressure?: number
   }
   queue?: AgentDriverCapacityQueueOptions
@@ -106,6 +118,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
 
   let pressurePaused = false
   let lastMemoryHighEvents: number | undefined
+  const idlePressure = createIdlePressure(idlePressureWindowMs)
   const sample =
     options.sample ??
     (async (context: AgentDriverCapacitySampleContext): Promise<AgentDriverCapacitySample> => {
@@ -118,9 +131,12 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         resources.memoryReclaimable < memory.perInvocationBytes
       if (resources.cgroupAvailable) lastMemoryHighEvents = resources.memoryHighEvents
 
+      const floor = idlePressure.record(resources.cpuPressure, resources.memoryPressure)
       if (pressurePaused) {
         pressurePaused =
-          memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure
+          memoryHighIncreased ||
+          resources.cpuPressure > resumeThreshold(cpu, floor.cpu) ||
+          resources.memoryPressure > resumeThreshold(memory, floor.memory)
       } else {
         pressurePaused =
           resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased
@@ -164,6 +180,40 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
     concurrency: options.concurrency,
     ...(options.queue ? { queue: options.queue } : {}),
   })
+}
+
+/** How far back the idle pressure of the host looks. */
+const idlePressureWindowMs = 10 * 60_000
+
+/**
+ * The lowest CPU and memory pressure of the last `windowMs`. A shared host never drops below the load of its other
+ * services. It is zero until the samples cover the whole window, so a short dip after a pause does not count as idle.
+ */
+function createIdlePressure(windowMs: number): { record(cpu: number, memory: number): { cpu: number, memory: number } } {
+  const samples: { at: number, cpu: number, memory: number }[] = []
+  return {
+    record(cpu, memory) {
+      const now = performance.now()
+      const cutoff = now - windowMs
+      const previous = samples.at(-1)
+      if (previous && previous.at <= cutoff) samples.length = 0
+      samples.push({ at: now, cpu, memory })
+      // Keep one sample at or before the start of the window, so the samples show when they cover all of it.
+      while (samples.length > 1 && samples[1]!.at <= cutoff) samples.shift()
+      if (samples[0]!.at > cutoff) return { cpu: 0, memory: 0 }
+      for (const entry of samples) {
+        if (entry.at < cutoff) continue
+        cpu = Math.min(cpu, entry.cpu)
+        memory = Math.min(memory, entry.memory)
+      }
+      return { cpu, memory }
+    },
+  }
+}
+
+/** Resume at `resumePressure` above the idle pressure of the host, and never above `pausePressure`. */
+function resumeThreshold(policy: PressurePolicy, idle: number): number {
+  return Math.min(policy.pausePressure, idle + policy.resumePressure)
 }
 
 function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): void {

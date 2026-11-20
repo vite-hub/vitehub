@@ -589,7 +589,11 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   if (!response.ok) {
-    options.stderr.write(`No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
+    // A server error carries its cause, such as an Agent module that does not load.
+    const message = response.status >= 500 ? redactInspectionText((await response.text().catch(() => "")).trim()) : ""
+    options.stderr.write(message
+      ? `The Vite Development Server at ${devServerDisplayUrl(options.serverUrl)} failed with HTTP ${response.status}: ${message}\n`
+      : `No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
     return
   }
   const payload: unknown = await response.json().catch(() => ({}))

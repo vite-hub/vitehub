@@ -127,6 +127,42 @@ Inside a running host, `runAgent(agent, input)` gets the same runtime capabiliti
 
 Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, schedule })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
 
+## Run on the AI emulator
+
+`VITEHUB_MODELS=emulate` sends the model requests of every model Driver Agent to the AI emulator (`@emulators/ai`), with no AI key. Use it in dev and tests. `VITEHUB_EMULATE_URL` sets the emulator URL; the default is `http://localhost:4014`. The switch and the URL are read from the Cloudflare bindings of the run, else from `process.env`. They read no other Server Env value.
+
+`materializeAgentModel()` in `src/internal/agent-model.ts` is the one place that applies the switch, and every model entry point calls it: the Driver model, `chatgpt()` models, Capability models such as `title()`, and the workspace fallback. Under the switch:
+
+- A model ID or `{ id, apiKey }` keeps its ID and goes to the API of its prefix: `openai/*` to OpenAI Responses, `anthropic/*` to Anthropic Messages, others to Chat Completions. ViteHub does not read `apiKey` or `AI_GATEWAY_API_KEY`.
+- A `languageModel(gateway, id, { api })` model keeps its model API, and a `chatgpt()` model uses Responses. ViteHub reads the route from the `aiGatewayLanguageModel` symbol of the model and resolves no gateway credential and no ChatGPT grant.
+- Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
+- A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
+- Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
+
+Provider Drivers check the switch at the start of `runProvider()` in `src/provider-agent.ts`, before they read `driver.credentials`, `driver.env`, or a gateway:
+
+- A Codex Driver without tools uses the `emulate()` gateway instead of `driver.gateway` and `driver.credentials`. `src/internal/codex-emulation.ts` adds the Codex overrides after the caller launch arguments, so they win: web search and MCP servers off, `--disable` for `multi_agent`, `multi_agent_v2`, `goals`, `apps`, and `plugins` (Codex applies `--disable` over `--enable` in any order), the project untrusted, and a `model_catalog_json` file with one hidden placeholder model. Codex sends a freeform `apply_patch` tool (`"type": "custom"`) for the models of its own catalog, such as `gpt-5.5`, and the emulator rejects it. A model that the catalog does not list gets the generic Codex settings, which send only function tools, and the request keeps the model ID. Codex runs with a new Codex Home in the temporary root of the Invocation, which `driver.launch` gets in `requiredEnvironment`, and the thread is not resumed. The emulator URL comes only from the `VITEHUB_EMULATE_URL` host variable. `inspectAgentProvider()` returns early with the switch on, so the readiness check of an Invocation probes no provider and reads no credential.
+- A Codex Driver with tools fails with `AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED`, because Codex sends MCP tools as a `namespace` tool. A Codex Driver with a `sandbox` fails with `AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED`. A Claude Code Driver fails with `AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED`, because the emulator rejects the `system` turns of Claude Code.
+- The Invocation configuration record shows `gateway: "emulate"` for the Codex model.
+
+`VITEHUB_TEST_REAL_CODEX=1 vp test run test/emulate-codex.test.ts` runs real Codex against the emulator. Install `@openai/codex@0.169.0` in this package or put that `codex` on `PATH` first. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+## Emulated models in tests
+
+`emulateModels(seed?)` from `@vite-hub/agent/test/emulate-models` starts the upstream AI emulator on a free loopback port. Model requests get answers from scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes, then restores both values, so every model Driver Agent reaches it with no change to its model, as [Run on the AI emulator](#run-on-the-ai-emulator) describes. Only one scope can run in a test worker at a time.
+
+```ts fragment
+await using ai = await emulateModels({
+  rules: [{ id: "hello", match: { textContains: "Hello" }, reply: [{ type: "text", text: "Hi." }] }],
+})
+const [error, result] = await runAgent(agent, { prompt: "Hello" })
+const calls = await ai.calls() // calls[0].matched.id === "hello"
+```
+
+The seed is the upstream `AiSeedConfig` of `@emulators/ai`, and `strict` defaults to `true`: a request that no rule matches fails with HTTP 400, and the error cause contains the missing rule as YAML. `rules()`, `setRules(rules)`, `calls()`, and `reset()` call the emulator's `/_ai/rules`, `/_ai/calls`, and `/_ai/reset` routes. ViteHub keeps no copy of the calls. `setRules()` keeps the other seed settings. `close()` and `await using` stop the emulator.
+
+`@emulators/core` and `@emulators/ai` are optional peer dependencies, pinned to `0.14.0`. Without them, `emulateModels()` throws `AGENT_EMULATOR_PACKAGES_MISSING`. The separate `@vite-hub/agent/test` entry does not need either package. A rule that the emulator rejects throws `AGENT_EMULATOR_RULES_INVALID`, and a call after `close()` throws `AGENT_EMULATOR_CLOSED`. See [Test an Agent](https://vitehub.dev/docs/agents/testing#run-the-model-driver-without-an-ai-key).
+
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
@@ -270,7 +306,7 @@ export const agentCapacity = createProcessAgentCapacity({
 })
 ```
 
-Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits and events, host `MemAvailable`, and the greater of host and cgroup CPU or memory pressure when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. The sampler reserves `memory.perInvocationBytes` of additional growth for each active invocation before admitting new work. This is conservative because current usage is already deducted from available memory. Admission does not enforce worker limits or stop active work. Tune `memory.perInvocationBytes`, `memory.reserveBytes` for the host, `memory.serviceReserveBytes` for the process or cgroup (1 GiB by default), and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
+Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits and events, host `MemAvailable`, and the greater of host and cgroup CPU or memory pressure when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. The sampler reserves `memory.perInvocationBytes` of additional growth for each active invocation before admitting new work. This is conservative because current usage is already deducted from available memory. Admission pauses above `cpu.pausePressure` or `memory.pausePressure` and resumes when pressure falls to `resumePressure` above the lowest pressure of the last 10 minutes, never higher than `pausePressure`. Until samples cover 10 minutes, including after a sampling gap of 10 minutes or more, admission uses `resumePressure` alone. Admission does not enforce worker limits or stop active work. Tune `memory.perInvocationBytes`, `memory.reserveBytes` for the host, `memory.serviceReserveBytes` for the process or cgroup (1 GiB by default), and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
@@ -491,7 +527,11 @@ Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel 
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development.
+
+Nitro's `miniflare` dev runner runs the server in workerd, which cannot open that file. Conversations stay in memory, and queued Channel tasks and triggers are off unless you set `agent.providers.state.url` to a libSQL server URL. A `file:` URL that the app sets fails there with `AGENT_STATE_FILE_URL_UNSUPPORTED`.
+
+Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there. A Vercel or Netlify build warns if State needs a URL and `VITEHUB_AGENT_STATE_URL` is not visible to the build. This does not check the deployed function's environment. If the function also lacks the URL, State fails with `AGENT_R0893`. On Netlify, set the variable in the Functions scope for the target deploy context.
 
 ```ts
 // vite.config.ts
