@@ -22,7 +22,7 @@ realtime.onReset(({ reason }) => {
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
   if (error?.code === 'REALTIME_SOURCE_CHANGED') {
-    toast.add({ title: 'The page changed', description: 'Someone else saved it. Your editor now shows their version.' })
+    toast.add({ title: 'Not published', description: 'The stored page changed outside this room.' })
     return
   }
   if (error) {

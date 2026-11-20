@@ -158,22 +158,16 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
   let canConnect = !getCurrentInstance()
 
-  function destroyDocument(keepDocument = false, preserveRefresh = false) {
+  function destroyDocument(resetReason?: RealtimeResetReason) {
     for (const controller of requestControllers) {
-      if (!preserveRefresh || !refreshControllers.has(controller)) controller.abort()
-    }
-    if (preserveRefresh) {
-      for (const controller of requestControllers) {
-        if (!refreshControllers.has(controller)) requestControllers.delete(controller)
-      }
-    }
-    else {
-      requestControllers.clear()
-      refreshControllers.clear()
+      if (resetReason === "source-changed" || (resetReason && refreshControllers.has(controller))) continue
+      controller.abort()
+      requestControllers.delete(controller)
+      refreshControllers.delete(controller)
     }
     connectedDocumentId = undefined
     provider.value?.destroy()
-    if (!keepDocument) document.value?.destroy()
+    if (!resetReason) document.value?.destroy()
     provider.value = undefined
     document.value = undefined
     people.value = []
@@ -310,7 +304,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   function reset(id: string, reason: RealtimeResetReason, epoch: string) {
     const previous = document.value
-    destroyDocument(true, true)
+    destroyDocument(reason)
     if (previous) {
       try {
         for (const listener of resetListeners) listener({ epoch, previous, reason })
@@ -338,12 +332,10 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       const room = id.split("/").map(encodeURIComponent).join("/")
       const current = document.value
       const query = action === "checkpoint" ? "history=checkpoint" : `document=${action}`
-      const stillCurrent = () => !controller.signal.aborted && !!current && connectedDocumentId === id && document.value === current && toValue(documentId) === id && enabled()
+      const stillInScope = () => !controller.signal.aborted && toValue(documentId) === id && enabled()
+      const stillCurrent = () => !!current && connectedDocumentId === id && document.value === current
       for (let attempt = 0; ; attempt++) {
-        // A refresh may intentionally re-seed the room and replace `document`
-        // before its HTTP response arrives. The successful response remains
-        // valid even though that reset makes the old document non-current.
-        if (action !== "refresh" && !stillCurrent()) return disconnected()
+        if (!stillInScope() || (action !== "refresh" && !stillCurrent())) return disconnected()
         let response: Response
         try {
           response = await fetch(resolveRealtimeApplicationPath(`/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?${query}`), {
@@ -353,7 +345,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           })
         }
         catch (cause) {
-          if (controller.signal.aborted) return disconnected()
+          if (!stillInScope() || (action !== "refresh" && !stillCurrent())) return disconnected()
           return [realtimeErrorDiagnostics.REALTIME_REQUEST_FAILED({ action, cause }), undefined]
         }
         let data: unknown
@@ -361,16 +353,17 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           data = await response.json()
         }
         catch {
-          if (controller.signal.aborted) return disconnected()
+          data = undefined
         }
-        if (action !== "refresh" && !stillCurrent()) return disconnected()
-        if (response.ok) return [undefined, data]
+        if (!stillInScope()) return disconnected()
         const errorData = isRecord(data) ? data : undefined
         const nestedData = isRecord(errorData?.data) ? errorData.data : undefined
+        const serverCode = isString(nestedData?.code) ? nestedData.code : undefined
+        if (action !== "refresh" && !stillCurrent() && (response.ok || serverCode !== realtimeSourceChangedCode)) return disconnected()
+        if (response.ok) return [undefined, data]
         const message = isString(errorData?.statusMessage) && errorData.statusMessage
           ? errorData.statusMessage
           : isString(errorData?.message) ? errorData.message : undefined
-        const serverCode = isString(nestedData?.code) ? nestedData.code : undefined
         if (response.status === 409 && isRetryableRealtimeRequestCode(serverCode) && attempt < 20) {
           await new Promise(resolve => setTimeout(resolve, 50))
           continue

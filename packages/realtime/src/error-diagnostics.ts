@@ -46,8 +46,8 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       data: ({ status }: { action: RealtimeRequestAction, message?: string, status?: number }): RealtimeRequestFailure => ({ status }),
     },
     REALTIME_SOURCE_CHANGED: {
-      why: ({ action }: { action: RealtimeRequestAction }) => `The stored document changed outside the room during \`${action}()\`. The room re-seeded, and every editor now shows the stored version.`,
-      fix: "Tell the person that someone else changed the document. Their unsaved edits are the `previous` document of the `onReset()` event.",
+      why: ({ action }: { action: RealtimeRequestAction }) => `The server refused \`${action}()\` because the stored document changed outside the room.`,
+      fix: "Tell the person that the stored document changed. Use `onReset()` to detect a room reset and read unsaved edits from the event's `previous` document.",
     },
     REALTIME_SYNC_PENDING: {
       why: ({ action }: { action: RealtimeRequestAction }) => `The room did not receive every edit of this client in time, so \`${action}()\` did not run. The composable tried 20 times.`,
