@@ -3,8 +3,9 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { createServer, type PluginOption } from "vite"
+import { createServer, resolveConfig, type PluginOption } from "vite"
 import { expect, it, vi } from "vitest"
+import { hubAgent } from "@vite-hub/agent/vite"
 
 import { cloudflareNodeDevPlugin } from "../src/cloudflare-node-dev.ts"
 import { vitehub } from "../src/index.ts"
@@ -80,3 +81,54 @@ it("uses the effective runner for both Cloudflare modules and only applies in de
   expect(plugin.resolveId("cloudflare:workers")).toBe("\0vitehub-dev:cloudflare-workers")
   expect(plugin.resolveId("cloudflare:email")).toBe("\0vitehub-dev:cloudflare-email")
 })
+
+it.each(["late override", "standalone Agent"] as const)("inlines packages for Miniflare selected by %s", async (scenario) => {
+  const { nitro } = await import(createRequire(import.meta.url).resolve("nitro/vite")) as { nitro: (config?: NitroConfig) => PluginOption }
+  const root = await mkdtemp(join(tmpdir(), "vitehub-dev-loading-"))
+  const nodeRoot = join(root, "node-app")
+  const dist = join(root, "node_modules/@vite-hub/agent/dist")
+  const file = join(dist, "probe.js")
+  const late = scenario === "late override"
+  try {
+    for (const app of [root, nodeRoot]) {
+      const routes = join(app, "server/routes")
+      await mkdir(routes, { recursive: true })
+      await writeFile(join(routes, "index.ts"), 'export default { fetch: () => new Response("ok") }\n')
+    }
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [
+        late ? vitehub({ host: "node", agent: true, env: false }) : hubAgent(),
+        nitro({
+          devServer: { runner: late ? "node-worker" : "miniflare" },
+          hooks: late ? { "build:before": (nitro) => { nitro.options.devServer.runner = "miniflare" } } : {},
+        }),
+      ],
+    }, "serve")
+    const noExternal = config.environments.nitro!.resolve.noExternal
+    expect(noExternal === true || Array.isArray(noExternal) && noExternal.some(pattern =>
+      typeof pattern === "string" ? pattern === "@vite-hub/agent" : pattern.test("@vite-hub/agent"),
+    )).toBe(true)
+
+    const node = await resolveConfig({
+      root: nodeRoot,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [vitehub({ host: "node", agent: true, env: false }), nitro({ devServer: { runner: "node-worker" } })],
+    }, "serve")
+    await mkdir(dist, { recursive: true })
+    await writeFile(file, "export const probe = true\n")
+    function loadGeneratedImport(plugins: typeof config.plugins) {
+      const agent = plugins.find(plugin => plugin.name === "@vite-hub/agent/vite")!
+      const load = typeof agent.load === "function" ? agent.load : agent.load!.handler
+      return Reflect.apply(load, { environment: { name: "nitro" } }, [file])
+    }
+    expect(await loadGeneratedImport(node.plugins)).toContain("data:text/javascript")
+    expect(await loadGeneratedImport(config.plugins)).toBeUndefined()
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)

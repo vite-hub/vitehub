@@ -1237,8 +1237,9 @@ describe("Vite schedule integration", () => {
       )
 
       expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } } })
-      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8"))
-        .resolves.toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+      const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+      expect(pluginSource).toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+      expect(pluginSource).toContain('setHostScheduleInventory({ timings: {"cleanup":{"cron":"0 0 * * *","timeZone":"UTC"}} })')
     })
 
     it("fails the build when the cron names no Schedule", async () => {

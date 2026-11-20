@@ -1,7 +1,10 @@
+import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, createMemoryOutboxStore, type CommentCreateInput, type CommentFiles, type CommentReplyInput, type CommentsOutboxEnvironment, type CommentsOutboxMessage, type CommentsOutboxStore, type CommentUser } from "../src/client.ts"
+import { createCommentsClient, createMemoryOutboxStore, createRestTransport, type CommentCreateInput, type CommentFiles, type CommentReplyInput, type CommentsOutboxEnvironment, type CommentsOutboxMessage, type CommentsOutboxStore, type CommentsTransport, type CommentUser } from "../src/client.ts"
+import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { createMemoryTransport, type MemoryTransport } from "../src/testing.ts"
+import { createComments } from "./harness.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const subject = { kind: "page", id: "/pricing" }
@@ -108,11 +111,11 @@ function createServer() {
   return { memory, transport, plan, creates, replies }
 }
 
-function setup(options: { store?: CommentsOutboxStore, browser?: ReturnType<typeof createBrowser>, server?: ReturnType<typeof createServer>, account?: string } = {}) {
+function setup(options: { store?: CommentsOutboxStore, browser?: ReturnType<typeof createBrowser>, server?: ReturnType<typeof createServer>, account?: string, transport?: CommentsTransport } = {}) {
   const browser = options.browser ?? createBrowser()
   const server = options.server ?? createServer()
   const store = options.store ?? createMemoryOutboxStore()
-  const client = createCommentsClient({ transport: server.transport, user: ana, query: { page: "/pricing" }, outbox: { account: options.account ?? ana.id, store, environment: browser.tab() } })
+  const client = createCommentsClient({ transport: options.transport ?? server.transport, user: ana, query: { page: "/pricing" }, outbox: { account: options.account ?? ana.id, store, environment: browser.tab() } })
   const stop = client.start()
   stops.push(stop)
   return { browser, server, store, client, stop }
@@ -427,6 +430,86 @@ describe("the comments outbox", () => {
     answer()
     await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
     expect(server.memory.threads[0]!.messages[0]!.body).toBe("First")
+  })
+
+  it.each([["create", 409], ["reply", 404]] as const)("keeps a saved %s locked after a lost answer and a retry that returns %i", async (kind, status) => {
+    let canRead = true
+    let loseAnswer = false
+    const comments = await createComments({ identify: () => ({ ...ana }), authorize: ({ action }) => action !== "read" || canRead })
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    const transport = createRestTransport({
+      base: "http://site.test",
+      async fetch(url, init) {
+        const answer = await app.fetch(new Request(url, init))
+        if (loseAnswer && init?.method === "POST" && answer.ok) {
+          loseAnswer = false
+          throw new TypeError("Lost answer")
+        }
+        return answer
+      },
+    })
+    const parent = kind === "reply" ? await transport.create({ subject, anchor, body: "Parent" }) : undefined
+    const { browser, client } = setup({ transport })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    loseAnswer = true
+    if (parent) await client.reply({ threadId: parent.id, body: "Original" })
+    else await client.create({ subject, anchor, body: "Original" })
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+    const id = client.outbox.entries[0]!.id
+    canRead = false
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.failures[0]?.error?.status).toBe(status))
+    await expect(client.outbox.edit(id, "Changed")).resolves.toBe(false)
+    await expect(client.outbox.dismiss(id)).resolves.toBe(false)
+    canRead = true
+    await client.outbox.retry(id)
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect((await transport.list({ page: "/pricing" })).map(thread => thread.messages.map(message => message.body)))
+      .toEqual([parent ? ["Parent", "Original"] : ["Original"]])
+  })
+
+  it("lets the reader edit a refused comment after an attachment upload got no answer", async () => {
+    let uploads = 0
+    const bodies: string[] = []
+    const transport = createRestTransport({
+      async fetch(url, init) {
+        if (init?.method !== "POST") return Response.json({ data: [] })
+        if (String(url).endsWith("/attachments")) {
+          if (++uploads === 1) throw new TypeError("Lost upload answer")
+          return Response.json({ data: { key: "files/shot.png" } })
+        }
+        bodies.push(String(init.body))
+        return Response.json({ error: { code: "TOO_LONG", why: "Too long" } }, { status: 413 })
+      },
+    })
+    const { browser, client } = setup({ transport })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const draft = await client.create({ subject, anchor, body: "Too long", files: [new Blob(["pixels"])] })
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+    expect(bodies).toHaveLength(0)
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.failures[0]?.error?.status).toBe(413))
+    await expect(client.outbox.edit(draft.id, "Short")).resolves.toBe(true)
+    await vi.waitFor(() => expect(bodies[1]).toContain('"body":"Short"'))
+    expect(uploads).toBe(2)
+  })
+
+  it("lets the reader dismiss a refused reply after its thread lookup got no answer", async () => {
+    const server = createServer()
+    const parent = await server.memory.create({ subject: { kind: "page", id: "/other" }, anchor, body: "Parent" })
+    server.transport.get = vi.fn().mockRejectedValueOnce(failure(0)).mockResolvedValue(parent)
+    const { browser, client } = setup({ server })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    server.plan.push(failure(404))
+    const draft = await client.reply({ threadId: parent.id, body: "Reply", files: [new Blob(["file"])] })
+    const id = draft.messages.at(-1)!.id
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+    expect(server.replies).toHaveLength(0)
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.failures[0]?.error?.status).toBe(404))
+    expect(server.replies).toHaveLength(1)
+    await expect(client.outbox.dismiss(id)).resolves.toBe(true)
+    expect(client.outbox.entries).toEqual([])
   })
 
   it("dismisses a comment and its replies, and sends nothing", async () => {

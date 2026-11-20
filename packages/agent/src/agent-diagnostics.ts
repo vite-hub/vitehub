@@ -4389,6 +4389,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ file, name }: { file: string, name: string }) => `[vitehub] Agent "${name}" has no default export in ${file}. Every file that Agent discovery finds must export its Agent Definition as default.`,
       fix: "Export the Agent from the file with `export default defineAgent({ ... })`. If the file holds helpers and not an Agent, move it out of `server/agents/`, or set `agent: false` in `vitehub()` when the app has no Agents.",
     },
+    AGENT_DEV_LOOP_FAILED: {
+      why: ({ message, status }: { message: string, status: number }) => `The dev server answered the Agent Dev Loop with HTTP ${status}: ${message}`,
+      fix: "Fix the error that the message names, for example an Agent module that does not load, and run the command again.",
+    },
     AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
       why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
       fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
@@ -4538,6 +4542,34 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MEMORY_EVENT_INVALID: {
       why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
       fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
+    },
+    AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent asks Jev questions. The AI emulator does not answer Jev questions, and ViteHub does not send them to a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent uses the Claude Code Driver. The AI emulator rejects the `system` turns that Claude Code sends, and ViteHub does not start Claude Code against a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to run Claude Code, or give the Agent a model Driver, such as `driver: { model: 'anthropic/claude-sonnet-4.5' }`, or `codexDriver()` without Capability tools while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED: {
+      why: ({ tools }: { tools: number }) => `[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent has ${tools} Capability ${tools === 1 ? "tool" : "tools"}. Codex sends Capability tools as one \`namespace\` tool, which the AI emulator rejects, and ViteHub does not start Codex against a real provider while the switch is on.`,
+      fix: "Remove the Capabilities that add tools while you run this Agent on the emulator, or give it a model Driver, such as `driver: { model: 'openai/gpt-5.5' }`, which sends Capability tools as function tools. Unset `VITEHUB_MODELS` to run Codex with tools.",
+    },
+    AGENT_MODELS_EMULATE_IN_PRODUCTION: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
+      fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
+    },
+    AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
+      fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
+    },
+    AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
+      fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
+    },
+    AGENT_MODELS_INVALID: {
+      why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
+      fix: "Set `VITEHUB_MODELS=emulate` to send model requests to the AI emulator, or unset it to call the real providers.",
     },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,
@@ -4693,9 +4725,19 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
       fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
     },
+    AGENT_STATE_FILE_URL_UNSUPPORTED: {
+      why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
+      fix: "Set agent.providers.state.url to a libSQL server URL, such as a Turso URL. If VITEHUB_AGENT_STATE_URL is supplied to the Worker, change or remove that override. To keep using the local file, run `vite dev` on a Node dev runner.",
+    },
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
+      why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
+      fix: ({ host }: { host: "vercel" | "netlify" }) => host === "netlify"
+        ? "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Netlify Functions scope for the target deploy context."
+        : "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Vercel runtime environment for this deployment.",
     },
     AGENT_STORAGE_PREFIX_INVALID: {
       why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,

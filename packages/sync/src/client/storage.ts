@@ -54,6 +54,7 @@ interface SyncStorageChange {
   add?: SyncNewWrite[]
   /** Replaces writes with the same `seq`. A write that is gone stays gone. */
   update?: SyncQueuedWrite[]
+  claim?: { from: string, to: string, seqs: number[] }
   /** Removes writes by `seq`. */
   remove?: number[]
   /** Results of actions that the server applied, by mutation id, for the tab that made the call. */
@@ -64,6 +65,7 @@ interface SyncStorageChange {
 interface SyncWriteResult {
   /** The `seq` of each added write. */
   seqs: number[]
+  claimed?: number[]
 }
 
 /** Where a store keeps its rows and its outbox. `id` names one Sync route. */
@@ -105,8 +107,12 @@ function addedWrites(change: SyncStorageChange, result: SyncWriteResult): SyncQu
 function applyQueueChange(writes: readonly SyncQueuedWrite[], change: SyncStorageChange, result: SyncWriteResult): SyncQueuedWrite[] {
   const removed = new Set(change.remove)
   const updated = new Map(change.update?.map(write => [write.seq, write]))
+  const claimed = new Set(result.claimed)
   return [
-    ...writes.filter(write => !removed.has(write.seq)).map(write => updated.get(write.seq) ?? write),
+    ...writes.filter(write => !removed.has(write.seq)).map(write => {
+      if (change.claim && claimed.has(write.seq)) return { ...write, account: change.claim.to }
+      return updated.get(write.seq) ?? write
+    }),
     ...addedWrites(change, result),
   ]
 }
@@ -131,6 +137,10 @@ function createMemoryStorage(): SyncStorage {
       const copy = structuredClone(change)
       const current = entry(id)
       const result: SyncWriteResult = { seqs: (copy.add ?? []).map(() => ++seq) }
+      if (copy.claim) {
+        const { from, seqs } = copy.claim
+        result.claimed = current.writes.filter(write => write.account === from && seqs.includes(write.seq)).map(write => write.seq)
+      }
       names.set(id, {
         meta: copy.meta ?? current.meta,
         rows: applyRowChange(current.rows, copy),
