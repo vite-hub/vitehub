@@ -491,7 +491,11 @@ Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel 
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development. Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development.
+
+Nitro's `miniflare` dev runner runs the server in workerd, which cannot open that file. Conversations stay in memory, and queued Channel tasks and triggers are off unless you set `agent.providers.state.url` to a libSQL server URL. A `file:` URL that the app sets fails there with `AGENT_STATE_FILE_URL_UNSUPPORTED`.
+
+Production Node and serverless output require `VITEHUB_AGENT_STATE_URL` or an explicit State driver because ViteHub cannot infer a durable filesystem there. A Vercel or Netlify build warns if State needs a URL and `VITEHUB_AGENT_STATE_URL` is not visible to the build. This does not check the deployed function's environment. If the function also lacks the URL, State fails with `AGENT_R0893`. On Netlify, set the variable in the Functions scope for the target deploy context.
 
 ```ts
 // vite.config.ts

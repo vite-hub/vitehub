@@ -5,11 +5,11 @@ import { dirname, resolve } from "node:path";
 import * as v from "valibot";
 
 import {
+  createNativePackageLoading,
   createNoExternalAddition,
   hasNitroConfigContext,
   isProductionBuild,
   isServerEnvironment,
-  loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
   publishViteHubDevServer,
   resolveViteHubProjectRoot,
@@ -139,7 +139,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
 
 /** The parts of a Nitro instance that the management route reads and changes. */
 type ConnectionsNitro = {
-  options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
+  options: { dev?: boolean; devServer?: { runner?: string }; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
   routing: { sync: () => void };
 };
 
@@ -236,6 +236,7 @@ function isConnectionDefinitionFile(
 }
 
 export function hubConnections(options: ConnectionsVitePluginOptions = {}): ConnectionsVitePlugin {
+  const packageLoading = createNativePackageLoading();
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
   const databaseName = options.databaseName ?? "default";
@@ -294,6 +295,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       name: "@vite-hub/connections/management",
       setup(nitro) {
         nitroInstance = nitro;
+        packageLoading.nitro.setup(nitro);
         // The development policy trusts only this machine. Nitro's dev worker never sees the client address, so the
         // front process signs loopback requests for it.
         if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers ??= []);
@@ -414,7 +416,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       await refreshGeneratedFiles();
     },
     configEnvironment(name, config, env) {
-      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return;
+      if (!isServerEnvironment(name, config) || packageLoading.configureEnvironment(name, env)) return;
       return {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
