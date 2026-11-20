@@ -103,6 +103,7 @@ export function agentErrorMessage(error: unknown, fallback?: string): string {
 }
 
 export type AgentPublicErrorCode =
+  | AgentEmulationErrorCode
   | "AGENT_BUDGET_EXCEEDED"
   | "APPROVAL_REQUIRED"
   | "AUTHENTICATION_REQUIRED"
@@ -377,8 +378,41 @@ export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
   return diagnosticErrorText(code, message)
 }
 
-export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
+/**
+ * The AI emulator diagnostics. They stop a run before any provider call, their fix is a dev or test setting, and they
+ * carry no secrets, so every public error surface shows them with their own code, in the `CODE: message` form.
+ * A value replaces the message of a diagnostic that quotes a host value.
+ */
+const emulationDiagnostics = {
+  AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: undefined,
+  AGENT_MODELS_EMULATE_IN_PRODUCTION: undefined,
+  AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: undefined,
+  AGENT_MODELS_INVALID: "[vitehub] VITEHUB_MODELS must be \"emulate\" or unset.",
+} as const satisfies Record<string, string | undefined>
+
+export type AgentEmulationErrorCode = keyof typeof emulationDiagnostics
+
+function emulationPublicError(error: unknown): AgentPublicError | undefined {
+  const code = readAgentErrorProperty(error, "code")
+  if (typeof code !== "string" || !Object.hasOwn(emulationDiagnostics, code)) return
+  // SAFETY: Object.hasOwn() checked that the code is a key of emulationDiagnostics.
+  const emulationCode = code as AgentEmulationErrorCode
+  const message = emulationDiagnostics[emulationCode] ?? readAgentErrorProperty(error, "message")
+  if (typeof message !== "string") return
+  return publicError(emulationCode, diagnosticErrorText(emulationCode, message))
+}
+
+/** The failure inside a `runAgent()` error. Its own code only says that the run failed or stopped. */
+function runFailureCause(error: unknown): unknown {
+  const code = readAgentErrorProperty(error, "code")
+  return code === "AGENT_RUN_FAILED" || code === "AGENT_RUN_CANCELLED" ? readAgentErrorProperty(error, "cause") : error
+}
+
+export function toAgentPublicError(failure: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
+    const error = runFailureCause(failure)
+    const emulationError = emulationPublicError(error)
+    if (emulationError) return emulationError
     const providerError = aiSdkProviderPublicError(error)
     if (providerError) return providerError
     const chatgptError = chatgptGatewayDiagnostic(error)
