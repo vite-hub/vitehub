@@ -939,6 +939,7 @@ describe("vitehub", () => {
       runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
+      assertGitHubStoreAvailable: expect.any(Function),
       hosting: "node-server",
     })
 

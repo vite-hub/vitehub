@@ -46,7 +46,10 @@ async function build(route: string, options?: ViteHubOptions, definition?: strin
     const builder = await createBuilder({
       logLevel: "silent",
       root,
-      plugins: [vitehub({ host: "cloudflare", env: false, ...options }), nitro() as never],
+      plugins: [vitehub({ host: "cloudflare", env: false, ...options }), nitro() as never, {
+        name: "test:optional-discord-compression",
+        resolveId: (id: string) => id === "zlib-sync" ? { id, external: true } : undefined,
+      }],
     } as Parameters<typeof createBuilder>[0])
     await builder.buildApp()
   }
@@ -69,11 +72,21 @@ it("stops the build when a github() Source needs the Forge package that the app 
 
 it("builds an app that imports vite-hub/source without github()", async () => {
   await expect(build([
-    "import { glob } from 'vite-hub/source'",
+    "import { github, glob } from 'vite-hub/source'",
     "const docs = glob({ cwd: 'docs', include: '**/*.md' })",
     "export default async () => await docs.getKeys({})",
     "",
   ].join("\n"))).resolves.toBeUndefined()
+}, 120_000)
+
+it("stops the build when server code selects the Workspace GitHub Source", async () => {
+  await expect(build(`
+    import { github as repository } from 'vite-hub/workspace'
+    const docs = repository({ repo: 'vite-hub/vitehub' })
+    export default async () => await docs.getKeys({})
+  `)).rejects.toMatchObject({
+    errors: [expect.objectContaining({ pluginCode: "VITE_HUB_R0136", plugin: "vite-hub/forge-build-check" })],
+  })
 }, 120_000)
 
 it("builds a route that uses an inline memory Workspace without Forge", async () => {

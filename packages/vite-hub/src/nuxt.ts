@@ -310,7 +310,7 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 
 /**
  * Put these plugins before Nitro's own resolvers, so they see generated and cache imports first. Each one goes first, so
- * in a build `forgeBuildCheckPlugin()` sees the GitHub Source import before `nitroOptionalPeers()` keeps it external.
+ * in a build `forgeBuildCheckPlugin()` can wrap Source imports before Nitro resolves them.
  */
 function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
