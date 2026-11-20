@@ -2,10 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, expect, expectTypeOf, it, vi } from "vitest"
 
 import { hubAgent } from "../src/vite.ts"
 
+import type { EmulatedModelSeed } from "../src/test/emulate-models.ts"
 import type { AgentModelsEmulateSeed, AgentModelsOptions } from "../src/types.ts"
 
 const names = ["VITEHUB_MODELS", "VITEHUB_EMULATE_URL"] as const
@@ -182,4 +183,8 @@ it("names a rule that the emulator rejects", async () => {
   const server = await devServer({ rules: [{ id: "broken" }] } as unknown as AgentModelsOptions["emulate"])
   await expect(server.start()).rejects.toMatchObject({ code: "AGENT_EMULATOR_RULES_INVALID" })
   expect(process.env.VITEHUB_MODELS).toBeUndefined()
+})
+
+it("accepts the upstream seed type of emulateModels()", () => {
+  expectTypeOf<EmulatedModelSeed>().toExtend<AgentModelsEmulateSeed>()
 })

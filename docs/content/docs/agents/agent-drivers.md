@@ -150,7 +150,7 @@ pnpm vitehub agent dev --agent greeter --prompt 'hello there'
 Hello from the seeded rule.
 ```
 
-- `emulate: true` uses the default answers of the emulator. A seed object sets `rules`, `strict`, `timing`, `random`, and `models`, typed by `AiSeedConfig` from `@emulators/ai`. See the [rule reference](https://emulate.dev/docs/ai).
+- `emulate: true` uses the default answers of the emulator. A seed object sets `rules`, `strict`, `timing`, `random`, and `models`. The emulator checks the seed when `vite dev` starts. See the [rule reference](https://emulate.dev/docs/ai).
 - The emulator listens on a free loopback port. The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` as Server Env. On the Cloudflare `miniflare` dev runner, it adds both as Wrangler vars.
 - A dev server restart keeps the URL and replaces the rules when you change them. When the dev server stops, the emulator stops and both variables go back to their earlier values. Dev servers in one Node.js process share one emulator.
 - `vite build` and `vite preview` do not start the emulator, and a build has no `@emulators/*` import.

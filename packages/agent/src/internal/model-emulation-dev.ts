@@ -3,7 +3,7 @@ import { emulatorUrlEnv, modelEmulationEnv } from "./agent-emulation.ts"
 import { startAiEmulator, upstreamMessage } from "./ai-emulator.ts"
 
 import type { AgentModelsEmulateSeed } from "../types.ts"
-import type { AiEmulator } from "./ai-emulator.ts"
+import type { AiEmulator, AiEmulatorSeed } from "./ai-emulator.ts"
 
 interface DevModelEmulatorLogger {
   info: (message: string) => void
@@ -46,7 +46,8 @@ export async function acquireDevModelEmulator(owner: object, seed: true | AgentM
   const key = JSON.stringify(config)
   owners.add(owner)
   if (!running) {
-    const starting = startAiEmulator(config)
+    // SAFETY: The emulator validates the seed when it starts and throws AGENT_EMULATOR_RULES_INVALID for a bad one.
+    const starting = startAiEmulator(config as AiEmulatorSeed)
     running = starting
     let emulator: AiEmulator
     try {
