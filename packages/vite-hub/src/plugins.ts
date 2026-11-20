@@ -21,7 +21,7 @@ import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentP
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, recordNitroDevRunner, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { formatDiagnostic } from "nostics"
@@ -1088,6 +1088,8 @@ function deploymentPlugins(
       enforce: "pre",
       nitro: {
         async setup(nitro) {
+          // The primitives decide from the runner whether Node loads their packages in `vite dev`.
+          recordNitroDevRunner(nitro.options.devServer?.runner)
           // Keep Nitro's single config load (including dotenv) authoritative.
           const configured = nitro.options._c12.layers?.some(layer =>
             layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)

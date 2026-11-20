@@ -16,6 +16,7 @@ import {
   hasNitroConfigContext,
   loadNativePackageModule,
   loadsViteHubPackagesNatively,
+  recordNitroDevRunner,
   renderNativePackageInstallPlugin,
   resolveNitroVercelFunctionName,
   resolveNuxtServerDirs,
@@ -71,6 +72,30 @@ describe("Vite provider builds", () => {
     expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
     expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)
     expect(loadsViteHubPackagesNatively("ssr", { command: "serve" })).toBe(false)
+  })
+
+  // workerd cannot import a package file from the disk, so a `data:` module that re-exports it has no exports there.
+  it("inlines ViteHub packages when the Nitro dev runner is not Node", () => {
+    const previous = process.env.NITRO_DEV_RUNNER
+    try {
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(false)
+      expect(loadNativePackageModule("/app/node_modules/@vite-hub/agent/dist/server/registry.js", "nitro", "serve")).toBeUndefined()
+      process.env.NITRO_DEV_RUNNER = "node-process"
+      expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
+
+      // The runner in the Nitro options wins over the variable, as in Nitro.
+      recordNitroDevRunner("miniflare")
+      expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(false)
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      recordNitroDevRunner("node-worker")
+      expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
+    }
+    finally {
+      recordNitroDevRunner(undefined)
+      if (previous === undefined) delete process.env.NITRO_DEV_RUNNER
+      else process.env.NITRO_DEV_RUNNER = previous
+    }
   })
 
   it("lets Node load the installed files of native packages that generated code imports by path", async () => {

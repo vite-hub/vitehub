@@ -127,13 +127,30 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
   }
 }
 
+const nitroDevRunnerKey = Symbol.for("vitehub.nitro.devRunner")
+
+/**
+ * Records the dev runner that the app sets in its Nitro options, such as `nitro({ devServer: { runner: "miniflare" } })`.
+ * Every ViteHub package bundles this module, so the value is kept on `globalThis`.
+ */
+export function recordNitroDevRunner(runner: string | undefined): void {
+  Reflect.set(globalThis, nitroDevRunnerKey, runner)
+}
+
+/** The Nitro dev runner, chosen as Nitro chooses it: the Nitro option, then `NITRO_DEV_RUNNER`, then `node-worker`. */
+function nitroDevRunner(): string {
+  const recorded: unknown = Reflect.get(globalThis, nitroDevRunnerKey)
+  return (typeof recorded === "string" && recorded) || process.env.NITRO_DEV_RUNNER || "node-worker"
+}
+
 /**
  * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
- * This is the Nitro environment of `vite dev`. Generated Nitro plugins give these packages the registries and the
- * `define` values that Vite gives to the code it transforms. Builds and other environments still inline the packages.
+ * This is the Nitro environment of `vite dev` on a Node dev runner. Generated Nitro plugins give these packages the
+ * registries and the `define` values that Vite gives to the code it transforms. Builds, other environments, and other
+ * runners, such as `miniflare`, still inline the packages: workerd cannot load a package file from the disk.
  */
 export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
-  return env.command === "serve" && name === "nitro"
+  return env.command === "serve" && name === "nitro" && nitroDevRunner().startsWith("node")
 }
 
 // The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
