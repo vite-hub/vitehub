@@ -24,7 +24,6 @@ interface RemoteRuntimeOptions {
   readonly home?: string;
   readonly runtime: string;
   readonly workspace?: string;
-  /** Keep the files that earlier sessions of the same Sandbox left in Home. */
   readonly preserveHome?: boolean;
   readonly preserveWorkspace?: boolean;
 }
@@ -98,7 +97,6 @@ export async function openRemoteSandbox(
     initialize?: (session: SandboxSession, context: { signal?: AbortSignal }) => Promise<void>;
     signal?: AbortSignal;
   },
-  /** Base environment of the runtime session. Toolchain provisioning sets its PATH. */
   environment: Record<string, string>,
 ) {
   assertRemoteInput(input, options.runtime);
@@ -214,17 +212,12 @@ async function materializeRemotePlan(
 }
 
 async function settleFileOperations(operations: Promise<void>[], signal?: AbortSignal) {
-  // Drain every upload before failed or aborted boot cleanup removes its Home.
   const results = await Promise.allSettled(operations);
   signal?.throwIfAborted();
   const failure = results.find(result => result.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;
 }
 
-/**
- * Remote Sandboxes do not share a cache. Reuse an exact image node, otherwise upload
- * the verified toolchain into the Sandbox Home cache for this session.
- */
 async function provisionRemoteToolchain(
   input: SandboxRuntimeInput,
   session: RuntimeSession,
@@ -254,7 +247,6 @@ async function provisionRemoteToolchain(
     },
   });
   environment.PATH = [...toolchain.bin, basePath.stdout].filter(Boolean).join(":");
-  // Runtime sessions read the shared environment object, so this check uses the final PATH.
   await verifyToolchain(toolchain, cacheRoot, async script => await session.run({ abortSignal, command: script, workingDirectory: workspace }));
   session.toolchain = toolchain;
 }

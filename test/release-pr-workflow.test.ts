@@ -52,7 +52,6 @@ describe("release PR workflow", () => {
     expect(check).toBeGreaterThan(-1)
     expect(head).toBeGreaterThan(check)
     expect(dispatch).toBeGreaterThan(head)
-    // uppt rebuilds a release branch only when it holds uppt's commit alone.
     expect(workflow).not.toContain("--bump")
     expect(workflow).not.toContain("git commit")
     expect(workflow).not.toContain("commit -m")
@@ -123,13 +122,11 @@ describe("release PR workflow", () => {
       pnpm("install", "--lockfile-only", "--no-frozen-lockfile")
       const lockfile = readFileSync(join(directory, "pnpm-lock.yaml"), "utf8")
 
-      // uppt's commit changes only the versions.
       workspace(version, "*")
       expect(check()).toContain(`Validated 3 packages at ${version}`)
       pnpm("install", "--lockfile-only", "--frozen-lockfile")
       expect(readFileSync(join(directory, "pnpm-lock.yaml"), "utf8")).toBe(lockfile)
 
-      // A pinned internal range would need a second commit on every release.
       workspace(version, "^0.1.0")
       expect(() => check()).toThrow("packages/env/package.json peerDependencies @vite-hub/agent is ^0.1.0")
       workspace(version, "*")

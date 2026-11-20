@@ -77,8 +77,6 @@ function isSecretInput(value: unknown): boolean {
   return typeof value === "string" || isResolver(value) || (isRecord(value) && typeof value.unseal === "function")
 }
 
-// An explicit undefined secret, such as an unset optional Server Env value, must fail the
-// request rather than fall back to another credential.
 const missingSecret = () => undefined
 
 /** Validate a gateway definition and return a frozen copy with its model API routes. */
@@ -187,7 +185,6 @@ async function resolveHeaders(gateway: AiGatewayDefinition, context: AiGatewayCo
   for (const [name, input] of Object.entries(gateway.headers || {})) {
     const value = await resolveAiGatewaySecret(input, context)
     if (!value && optional.includes(name)) continue
-    // Codex drops a header whose variable is unset, so a missing value would surface later as a 401 or 403 from the gateway.
     if (!value) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" resolved to an empty value.` })
     if (/[\r\n]/.test(value)) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" must not contain line breaks.` })
     headers.push([name, value])

@@ -7,8 +7,6 @@ import { readDiagnosticCatalogs } from "../docs/modules/diagnostics/catalog.ts"
 
 import type { DiagnosticCode } from "../docs/modules/diagnostics/catalog.ts"
 
-// Concurrent pull requests that append the next number, such as AUTH_C0067, edit the same lines of a catalog and of
-// its docs page, and can take the same code. A named code in alphabetical order lands at a line of its own.
 const repoRoot = resolve(import.meta.dirname, "..")
 const legacyFile = "test/fixtures/legacy-diagnostic-codes.txt"
 const legacy = new Set(readFileSync(join(repoRoot, legacyFile), "utf8").split("\n").filter(line => line && !line.startsWith("#")))
@@ -24,7 +22,6 @@ function at(file: string, line: number): string {
 }
 
 it("keeps the list of legacy codes closed", () => {
-  // The list only shrinks. A new code is named and sorted, so it never needs an entry.
   expect(legacy.size, `${legacyFile} never grows. Remove the codes that you added to it, and name the new codes instead.`).toBeLessThanOrEqual(2402)
 })
 
@@ -39,7 +36,6 @@ it("names every new diagnostic code", () => {
 it("puts every new code in alphabetical order in its catalog group", () => {
   const found: string[] = []
   for (const catalog of catalogs) {
-    // A group comment, such as `// Runtime errors`, starts a group. Sort a new code among the codes of its group.
     const groups: DiagnosticCode[][] = []
     for (const [index, code] of catalog.codes.entries()) {
       if (index === 0 || code.group !== catalog.codes[index - 1]!.group) groups.push([])
@@ -47,7 +43,6 @@ it("puts every new code in alphabetical order in its catalog group", () => {
     }
     for (const group of groups) {
       for (const [index, code] of group.entries()) {
-        // A new numbered code fails the naming check first.
         if (!isNew(code) || numbered.test(code.code)) continue
         const before = group[index - 1]?.code
         const after = group[index + 1]?.code
@@ -59,7 +54,6 @@ it("puts every new code in alphabetical order in its catalog group", () => {
   expect(found).toEqual([])
 })
 
-/** The position in the group nearest to `index` where `code` sorts between its neighbors. One always exists. */
 function placement(others: string[], code: string, index: number): string {
   const fits = (position: number) => (position === 0 || others[position - 1]! < code) && (position === others.length || code < others[position]!)
   const positions = Array.from({ length: others.length + 1 }, (_, position) => position).filter(fits)
@@ -84,7 +78,6 @@ it("documents new codes on their generated pages, not on the limits-and-errors p
     const file = join(docs, section, "limits-and-errors.md")
     if (!existsSync(file)) continue
     for (const [index, line] of readFileSync(file, "utf8").split("\n").entries()) {
-      // A table row lists codes in its first cell. A heading names one code.
       const cell = /^\|([^|]*)\|/.exec(line)?.[1] ?? /^#{2,4}\s+(.*)$/.exec(line)?.[1] ?? ""
       for (const code of cell.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g) ?? []) {
         if (added.has(code)) found.push(`docs/content/docs/${section}/limits-and-errors.md:${index + 1} lists the new code ${code}. Remove it: the docs build writes a page for each code from the \`why\` and \`fix\` of its catalog entry. Write more in docs/diagnostics/${code}.md, which replaces the body of that page.`)

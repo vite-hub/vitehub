@@ -4,8 +4,6 @@ import { sandboxTaskErrorDiagnostics } from '../error-diagnostics.ts'
 
 const require = createRequire(import.meta.url)
 
-// Load the compiler on first analysis. Importing `@vite-hub/sandbox/task/vite` must not load it.
-// Node caches the module after the first call. TypeScript is an optional peer, so a build reads it from the app.
 export function loadTypeScript(): typeof import('typescript') {
   try {
     return require('typescript')

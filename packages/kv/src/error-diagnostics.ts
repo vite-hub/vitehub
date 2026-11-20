@@ -12,7 +12,6 @@ const cursorProblems = {
 
 export type KVCursorProblem = keyof typeof cursorProblems
 
-// Keep published codes stable. The docs build generates a page for each code.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
@@ -179,7 +178,6 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Run `vitehub provision run --host cloudflare --dry-run` and check the Cloudflare token permissions.",
     },
 
-    // Build hints. A build prints them and writes them to `.vitehub/hints.json`.
     KV_REDIS_URL_UNUSED: {
       why: ({ name, store }: { name: string, store: string }) => store === "upstash"
         ? `KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own.`

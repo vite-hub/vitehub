@@ -25,9 +25,7 @@ function channelSendErrorMessage(error: Error): string {
     const message = error.message
     if (typeof message === "string") return message.slice(0, 2_000)
   }
-  catch {
-    // Connector error getters and proxies can throw while reading the message.
-  }
+  catch {}
   return uninspectableSendErrorMessage
 }
 
@@ -35,9 +33,7 @@ function logDelivery(event: string, deliveryId: string, channel: string, kind: s
   try {
     console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() }))
   }
-  catch {
-    // Logging must not change delivery results or encourage retrying a delivered message.
-  }
+  catch {}
 }
 
 function normalizeSendReceipt(result: object): ChannelSendReceipt {
@@ -48,22 +44,16 @@ function normalizeSendReceipt(result: object): ChannelSendReceipt {
       try {
         if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
       }
-      catch {
-        // Optional metadata must not turn an accepted delivery into a retry.
-      }
+      catch {}
     }
   }
-  catch {
-    // An adapter proxy can reject enumeration while still exposing its ID.
-  }
+  catch {}
   const normalized: ChannelSendReceipt = Object.fromEntries(entries)
   try {
     const id: unknown = Reflect.get(result, "id")
     if (typeof id === "string") normalized.id = id
   }
-  catch {
-    // Delivery already succeeded. An inaccessible optional ID must not encourage a resend.
-  }
+  catch {}
   return normalized
 }
 
@@ -78,7 +68,6 @@ export function createChannel<TAdapter extends ChannelAdapter<never, never>>(
     name,
     async send(message: unknown, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
       const invalid = (detail: string): Result<ChannelSendResult, ChannelErrorCode> => [channelErrors.CHANNEL_INVALID_SEND({ detail }), undefined]
-      // Text must have content. The adapter checks the shape of an object message, such as a card.
       if (typeof message === "string" ? message.trim().length === 0 : (!message || typeof message !== "object" || Array.isArray(message))) {
         return invalid("Channel message must be non-empty text or an object that the adapter accepts.")
       }

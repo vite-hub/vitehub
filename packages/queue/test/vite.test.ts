@@ -127,7 +127,6 @@ describe("hubQueue", () => {
       const context = { environment: { config } }
       projects.push({ root, viteRoot, name, context, configureNitro })
     }
-    // Resolve A Vite, B Vite, A Nitro, B Nitro before either output is generated.
     if (order === "interleaved") {
       for (const { configureNitro } of projects) await configureNitro()
     }
@@ -213,12 +212,10 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
-    // `vite dev` runs the jobs in the dev server with the local provider and the Cloudflare rules.
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
     expect(nitroPlugin).toContain(`"base": ${JSON.stringify(join(root, ".vitehub/data/queue"))}`)
     expect(nitroPlugin).toContain('"driver": "local"')
     expect(nitroPlugin).toContain('"rules": "cloudflare"')
-    // A stored job error keeps the handler's message and stack only in `vite dev`.
     expect(nitroPlugin).toContain('"development": true')
     expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
@@ -287,7 +284,6 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
     expect(nitroPlugin).toContain("const { env: vitehubEnv, waitUntil: vitehubWaitUntil } = vitehubCloudflareWorkers as unknown as")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
-    // A build keeps the Cloudflare runtime. Local delivery is only for `vite dev`.
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
     expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
     expect(nitroPlugin).not.toContain("local-client")
@@ -338,7 +334,6 @@ describe("hubQueue", () => {
       } as never)
       const nitroPlugin = await readFile(pluginFile, "utf8")
       const nitroMiddleware = await readFile(middlewareFile, "utf8")
-      // The consumer route of each Definition stays, so the Nitro config is the same in dev and in the build.
       expect(existsSync(join(root, ".vitehub", "nitro", "queue", "vercel"))).toBe(true)
       if (command === "serve") {
         expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
@@ -382,7 +377,6 @@ describe("hubQueue", () => {
     roots.push(root)
     await mkdir(join(root, "server", "queues"), { recursive: true })
     await writeFile(join(root, "server", "queues", "sync.ts"), "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue({ handler: async () => undefined, \"maxBatchSize\": 5 })\n")
-    // A comment or a payload field with the same name sets nothing.
     await writeFile(join(root, "server", "queues", "mail.ts"), "import { defineQueue } from 'vite-hub/queue'\n// maxBatchSize stays at the Cloudflare default.\nexport default defineQueue<{ maxBatchSize: number }>({ handler: async ({ payload }) => payload.maxBatchSize })\n")
 
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
@@ -551,13 +545,11 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("internal/runtime/local-client")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
     expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
-    // A production build keeps the fixed message of a plain Error.
     expect(nitroPlugin).not.toContain('"development"')
     expect(nitroPlugin).not.toContain("@vercel/queue")
     expect(nitroPlugin).not.toContain("cloudflare:")
   })
 
-  /** A Database plugin whose resolved config has the Default Database on `dialect`, or no config yet. */
   function databasePlugin(dialect?: "postgresql" | "sqlite") {
     let config = dialect ? { databases: { default: { dialect } } } : undefined
     return {
@@ -581,13 +573,11 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain('"driver": "postgres"')
     expect(nitroPlugin).toContain('"database": "default"')
     expect(nitroPlugin).toContain('"cache": false')
-    // The jobs use the client of the Default Database, whatever variable it reads.
     expect(nitroPlugin).toContain("startPostgresQueue(queueConfig, () => import(\"@vite-hub/database/drizzle\").then(module => module.databases))")
     expect(nitroPlugin).toContain("internal/runtime/postgres-client")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createPostgresQueueRuntimeClient)")
     expect(nitroPlugin).toContain("nitro.hooks.hook('close', closePostgresQueues)")
     expect(nitroPlugin).not.toContain("local-client")
-    // The URL is read when the server starts, so the build output has none.
     expect(nitroPlugin).not.toContain("DATABASE_URL")
   })
 
@@ -639,7 +629,6 @@ describe("hubQueue", () => {
     const database = databasePlugin()
     const plugin = hubQueue()
     await createQueueNitroConfig(plugin, { nitro: { preset: "node-server" }, projectRoot: root, root, viteConfig: { plugins: [database] } })
-    // Nuxt builds with Vite in its source directory.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", nitro: { preset: "node-server" }, plugins: [database], root: join(root, "app") } as never)
     const pluginFile = join(root, ".vitehub", "nitro", "queue", "plugin.ts")
     expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { driver: "local" } }])

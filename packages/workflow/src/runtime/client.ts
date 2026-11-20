@@ -33,10 +33,6 @@ function resultError(diagnostic: Diagnostic<unknown>): ResultError<WorkflowResul
   return toResultError(diagnostic) as ResultError<WorkflowResultErrorCode>
 }
 
-/**
- * Returns a runtime failure of a Workflow call as a catalog error. The providers throw `ViteHubError` inside the
- * package. The catalog error keeps its `details` in `data` and the provider error in `cause`. Config errors throw.
- */
 function toWorkflowResultError(error: unknown): ResultError<WorkflowResultErrorCode> {
   if (isRuntimeDiagnostic(error) && resultErrorCodes.has(error.code)) return resultError(error)
   const shape = getViteHubErrorShape(error)
@@ -53,7 +49,6 @@ function toWorkflowResultError(error: unknown): ResultError<WorkflowResultErrorC
   return resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ cause, operation: details.operation, provider: details.provider }))
 }
 
-/** Runs one Workflow call and returns its runtime failure as `[error, undefined]`. */
 async function toWorkflowResult<T>(run: () => Promise<T>): Promise<Result<T, WorkflowResultErrorCode>> {
   try {
     return [undefined, await run()]
@@ -114,7 +109,6 @@ async function sha256Hex(value: string): Promise<string> {
 async function createStableWorkflowRunId(name: string, value: WorkflowRunIdValue): Promise<string> {
   const normalized = JSON.stringify(normalizeWorkflowRunIdValue(value))
   const hash = await sha256Hex(`${name}:${normalized}`)
-  // 67 characters, a `-`, and 32 hex digits fit the 100-character Cloudflare instance id.
   const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 67) || "workflow"
   return `${prefix}-${hash.slice(0, 32)}`
 }
@@ -311,7 +305,6 @@ export async function resumeWorkflow<TPayload = unknown>(token: string, payload:
     return [resultError(workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflow()` requires an opaque signal token." })), undefined]
   }
   const config = getActiveWorkflowConfig()
-  // Test backends start no handlers, so there is no suspended signal to resume.
   if (getViteHubTestMode()) {
     return [resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "signals", provider: config.driver })), undefined]
   }

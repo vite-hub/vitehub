@@ -27,7 +27,6 @@ import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
-// Generated code imports the operations by path, so they need no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
 
 export { collectQueueContributions } from "./contributions.ts"
@@ -81,7 +80,6 @@ export interface QueueVitePluginInternalOptions {
 const mergeNoExternal = createNoExternalAddition(queuePackageName)
 const databaseVitePluginName = "@vite-hub/database/vite"
 
-/** The part of the Database Vite plugin that Queue reads: its resolved configuration. */
 interface DatabaseVitePlugin {
   api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
 }
@@ -98,10 +96,6 @@ function findDatabasePlugin(plugins: readonly PluginOption[] | undefined): Datab
   return undefined
 }
 
-/**
- * Whether the Database integration resolved the Default Database on Postgres, with its layers, contributions, and
- * server directories. A Node server then infers the postgres provider on the connection of that Database.
- */
 function hasPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean {
   return plugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
 }
@@ -131,10 +125,6 @@ function normalizeQueueForHosting(queue: QueueOptions | undefined, hosting: stri
   return normalizeQueueOptions(queue, { hosting })
 }
 
-/**
- * The host of this build: the Nitro preset, else the host that `vitehub()` selected. `vite dev` has no Nitro preset, so
- * a Node app in dev reads its host from `vitehub()`.
- */
 function resolveQueueHost(config: object, nitro: Record<string, unknown>): ViteHubHost | undefined {
   return resolveHost({ nitro, hosting: getDeploymentHost(config) })
 }
@@ -142,8 +132,6 @@ function resolveQueueHost(config: object, nitro: Record<string, unknown>): ViteH
 function resolveQueueHosting(queue: QueueOptions | undefined, host: ViteHubHost | undefined, postgresDatabase = false): string {
   const hosting = getHostingProvider(host)
   if (hosting) return hosting
-  // A Node server has no hosted Queue. Without an explicit driver, Queue runs in the server processes: on the
-  // Postgres Default Database when the app has one, else in local files.
   if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server", postgresDatabase })?.driver ?? "local"
   return normalizeQueueForHosting(queue, hosting)?.driver || "vercel"
 }
@@ -161,7 +149,6 @@ function isGeneratedVercelConsumer(value: unknown): boolean {
   return typeof value === "string" && value.replaceAll("\\", "/").includes(`${generatedQueueNitroVercelConsumerDir}/`)
 }
 
-/** Vercel delivers Queue messages to Nitro routes that have a queue trigger in `vercel.functionRules`. */
 function hostsVercelQueueConsumers(nitro: Record<string, unknown>): boolean {
   const hosting = getHostingProvider(resolveHost({ nitro }))
   return hosting === "vercel" || (hosting === undefined && Boolean(process.env.VERCEL))
@@ -252,12 +239,10 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
   let hosting = "vercel"
   let cloudflareQueues = true
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
-  // Queue Definitions that other Vite plugins add through `vitehub.queues`.
   let contributions: CollectedQueueContribution[] = []
   let localDevelopment = false
   let preview = false
   let nitroQueue: QueueOptions | undefined = queue
-  // The Queue config of the generated Nitro plugin, which the durability report describes.
   let writtenQueue: NormalizedQueueOptions | undefined
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
   let nuxtProjectRoot: string | undefined
@@ -270,7 +255,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
     nuxtProjectRoot: string
     resolveNuxtDefinitions: () => DiscoveredQueueDefinition[]
   }>()
-  // Nitro reads the Cloudflare bindings and Vercel queue triggers from the Definitions found at config time.
   const buildStates = new WeakMap<ResolvedConfig, {
     configuredDefinitions: DiscoveredQueueDefinition[]
     contributions: CollectedQueueContribution[]
@@ -286,11 +270,8 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
     return await collectQueueContributions(plugins, { projectRoot, root, serverDirs: dirs })
   }
   let databasePlugin: DatabaseVitePlugin | undefined
-  // The Default Database is on Postgres. Read when the Nitro config is made, and again at `buildStart`.
   let postgresDatabase = false
   const database = () => ({ import: internalOptions.databaseImport, postgres: postgresDatabase })
-  // The Node server plugins that this plugin wrote, by root. Nuxt makes the Nitro config in its project root and builds
-  // with Vite in its source directory, so `buildStart` writes again in the root that Nitro reads.
   const nodeWrites = new Map<string, {
     cloudflareQueues: boolean
     definitions: DiscoveredQueueDefinition[] | undefined
@@ -307,7 +288,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
   return {
     name: "@vite-hub/queue/vite",
     api: {
-      // The config that the build wrote, else the one this host resolves to.
       deploymentEnv: context => queueDeploymentEnv(writtenQueue ?? normalizeQueueOptions(nitroQueue === false ? false : queue, { hosting: context.host, postgresDatabase })),
     },
     vitehub: {
@@ -319,7 +299,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         const input = { driver: resolvedQueue.driver, ...(typeof base === "string" ? { base } : {}), ...(typeof database === "string" ? { database } : {}) }
         return [{ export: "queueDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "queue" }]
       },
-      // The Console, `vitehub queue`, and agents run these.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: operationsModule }],
       inspect: () => {
         const resolvedQueue = normalizeQueueOptions(queue, { hosting })
@@ -375,7 +354,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
           nitroQueue = resolvedQueue?.driver && nitroHosting && resolvedQueue.driver !== nitroHosting ? false : projectQueue
           cloudflareQueues = supportsCloudflareQueues(configuredNitro)
           localDevelopment = development
-          // Nuxt can configure Nitro after another project's Vite config resolves.
           const nuxtState = { nuxtConfiguredDefinitions, nuxtProjectRoot, resolveNuxtDefinitions }
           nuxtStates.set(root, nuxtState)
           if (state) Object.assign(state, nuxtState)
@@ -395,7 +373,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       contributions = await collectPluginQueueContributions(config.plugins, root)
       const nitro = (config as { nitro?: unknown }).nitro
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, root, discoverQueueDefinitions({ contributions, rootDir: root }))
-      // Vitest does not boot Nitro. Install only config and Definitions, without starting providers.
       if (process.env.VITEST) {
         const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
           test: { setupFiles: [resolve(root, generatedQueueTestSetup)] },
@@ -413,7 +390,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       queue = getResolvedFeatureOptions<QueueOptions>(config, "queue") ?? options
       queueOptions.set(config.root, queue)
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      // The resolved list includes plugins that other plugins add after the `config` hook.
       contributions = await collectPluginQueueContributions(config.plugins, config.root)
       configuredDefinitions = discoverQueueDefinitions({ contributions, rootDir: config.root })
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
@@ -458,9 +434,6 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       writtenQueue = await writeQueueNitroIntegration(nuxtProjectRoot || resolved.root, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase, database())
     },
     async buildStart() {
-      // The Database integration can resolve its Definitions after this plugin made the Nitro config. Read them again,
-      // and write the server plugins again when the Default Database moved to or from Postgres. An unresolved
-      // Database changes nothing.
       const databaseConfig = databasePlugin?.api?.getConfig?.()
       if (!databaseConfig) return
       postgresDatabase = databaseConfig.databases.default?.dialect === "postgresql"

@@ -20,7 +20,6 @@ type DeployJson = SetupDeployOutput & { error?: SetupError, rerun?: string }
 const cloudflareEnv = { CLOUDFLARE_ACCOUNT_ID: "acc-1", CLOUDFLARE_API_TOKEN: "cf-token-1" }
 const migratingDeploy = "npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json"
 
-/** A fake Cloudflare account with D1 databases, and a Provision Step that reads and creates them as the D1 step does. */
 function fakeD1(events: string[] = []) {
   const databases = new Map<string, string>()
   const contexts: ProvisionContext[] = []
@@ -55,7 +54,6 @@ function fakeD1(events: string[] = []) {
   return { contexts, databases, step }
 }
 
-/** A build that records its turn and whether the ids were there for it to bind. */
 function fakeBuild(root: string, events: string[]): ViteHubCliSpawn {
   return async (command, args) => {
     expect([command, ...args]).toEqual(["pnpm", "run", "build"])

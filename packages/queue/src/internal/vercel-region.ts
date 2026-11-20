@@ -3,7 +3,6 @@ import { getQueueRuntimeEvent } from "./runtime/state.ts"
 type HeaderSource = Record<string, unknown>
 
 function readHeader(headers: HeaderSource | undefined, name: string) {
-  // Headers from any Fetch implementation have get(). Node request headers are a plain record.
   const get = headers?.get
   const value: unknown = typeof get === "function" ? get.call(headers, name) : headers?.[name]
   if (typeof value === "string") return value || undefined

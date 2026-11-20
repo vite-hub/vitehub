@@ -58,7 +58,6 @@ describe("onShutdown", () => {
     emitter.on("SIGTERM", prior)
     onShutdown(app, "agent.chat", chat, runtime)
     onShutdown(app, "agent.queue", queue, runtime)
-    // The server adds its stop listener after the Nitro plugins run.
     const closeServer = vi.fn(async (_signal: ShutdownSignal) => {
       order.push("server")
       await close()
@@ -107,7 +106,6 @@ describe("onShutdown", () => {
     expect(emitter.listenerCount("SIGINT")).toBe(0)
     expect(shutdownState(runtime)).toMatchObject({ signals: false, trap: "skipped" })
 
-    // The drain still runs when the Nitro app closes, for example on a development reload.
     await close()
     await close()
     expect(drain).toHaveBeenCalledOnce()

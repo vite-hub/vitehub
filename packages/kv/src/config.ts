@@ -64,14 +64,8 @@ function resolveStoreMode(store: ResolvedKVStoreConfig, remote: boolean | undefi
   return input.dev && remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
-/**
- * The folder of an `fs-lite` store without `base`. The default store keeps `.vitehub/data/kv`. Each named store gets its
- * own folder next to it, so stores never share keys. It is not inside `.vitehub/data/kv`, because the default store
- * treats folders there as keys from the old layout.
- */
 function fsLiteStoreBase(name: string): string {
   if (name === "default") return ".vitehub/data/kv"
-  // Keep the name in one folder segment, also for `.` and `..`.
   return `.vitehub/data/kv-stores/${encodeURIComponent(name).replace(/\./g, "%2E") || "%"}`
 }
 
@@ -81,12 +75,10 @@ function resolveFsLiteStore(config: Partial<FsLiteKVStoreConfig> = {}, name = "d
 
 /** The key prefix of a Redis store without `base`. Every store has one, so a shared Redis keeps other keys apart. */
 export function redisStorePrefix(name: string): string {
-  // Keep the name in one segment through unstorage's key normalization, including an empty name.
   const segment = name.replace(/[%:/\\?]/g, character => encodeURIComponent(character)) || "%"
   return `vitehub:kv:${segment}`
 }
 
-/** An empty prefix would let `kv.clear()` and `kv.list()` reach every key of the Redis or Upstash database. */
 function resolveStoreBase(base: string | undefined, name: string): string {
   return normalizeKey(trimmed(base)) || redisStorePrefix(name)
 }
@@ -148,7 +140,6 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
   }
 }
 
-/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
 const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
 
 function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
@@ -202,7 +193,6 @@ export function normalizeKVOptions(
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
   if (input.dev || input.prerender) return inferred(resolveFsLiteStore())
-  // Node and other servers keep the build-selected driver. Redis requires an explicit driver.
   if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
   return inferred({ ...resolveFsLiteStore(), inferred: true })
 }

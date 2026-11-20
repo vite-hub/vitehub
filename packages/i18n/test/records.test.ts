@@ -30,7 +30,6 @@ async function folder(): Promise<string> {
 
 interface DiglotIssue { locale: string, hash?: string, message: string }
 
-/** Run `diglot validate` of `@diglot/cli` on a folder. */
 async function diglotValidate(root: string): Promise<{ code: number, checked: number, errors: DiglotIssue[], warnings: DiglotIssue[] }> {
   const result = await promisify(execFile)(process.execPath, [diglotBin, "validate", "--cwd", root, "--locale", "es", "--json"])
     .then(output => ({ code: 0, stdout: output.stdout }), (error: { code: number, stdout: string }) => ({ code: error.code, stdout: error.stdout }))
@@ -46,7 +45,6 @@ const messages = [
 
 describe("translation records", () => {
   it("keeps the Lingui ID as the runtime key and names the record with Diglot's hash", () => {
-    // Values of `generateMessageId()` from `@lingui/message-utils` 6.12.
     expect(messageId("Deploy your agent")).toBe("oEE8vp")
     expect(messageId("Save", "button")).toBe("z6v0vJ")
     expect(messageSegment("Save", "button")).toEqual({
@@ -81,7 +79,6 @@ describe("translation records", () => {
       updatedAt: "2026-11-07T10:00:00.000Z",
     })
 
-    // A record whose source was edited no longer matches its name.
     const other = messageSegment("Other")
     await writeRecord(root, "es", createRecord({ segment: other, text: "Otro", origin: "human" }))
     const otherFile = join(root, recordPath("es", other.hash))
@@ -109,7 +106,6 @@ describe("translation records", () => {
     const file = join(root, recordPath("es", messageSegment("Save", "button").hash))
     expect((await saveTranslation(root, "es", save, "Guardar", { by: "ana", expected: null })).ok).toBe(true)
 
-    // Luis opened the message before Ana saved it, so he expected no translation.
     const stale = await saveTranslation(root, "es", save, "Salvar", { by: "luis", expected: null })
     expect(stale).toMatchObject({ ok: false, code: "stale" })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ text: "Guardar", by: "ana" })
@@ -159,7 +155,6 @@ describe("translation records", () => {
     expect((await readRecords(root, "es")).records).toEqual({})
     expect((await saveTranslation(root, "es", ref, valid, { by: "ana", expected: null })).ok).toBe(true)
 
-    // Records can also be written by Diglot or a text editor. Readers must fall back, and verification must refuse them.
     await writeRecord(root, "es", createRecord({ segment: messageSegment(message), text: invalid, origin: "mt" }))
     expect(await verifyTranslation(root, "es", ref, { by: "luis", expected: invalid })).toMatchObject({ ok: false, code: "invalid" })
     const { records } = await readRecords(root, "es")
@@ -244,11 +239,9 @@ describe("translation records", () => {
     }
     expect((await verifyTranslation(root, "es", messages[1]!, { by: "luis", expected: "Guardar" })).ok).toBe(true)
 
-    // Without a manifest, Diglot checks the shape, path, and hash of each record.
     const alone = await diglotValidate(root)
     expect(alone).toMatchObject({ code: 0, checked: 4, errors: [] })
 
-    // With a manifest of the messages, Diglot also checks each text against its message.
     const segments = messages.map(message => messageSegment(message.message, message.context))
     const manifest: Manifest = {
       version: 1,
@@ -256,7 +249,6 @@ describe("translation records", () => {
       files: {
         "src/App.vue": segments.map(segment => ({
           hash: segment.hash,
-          // Diglot 0.2.1 types have no `message` kind. The manifest is JSON, and `diglot validate` accepts it.
           kind: segment.kind as string as SegmentKind,
           format: segment.format,
           skeleton: segment.skeleton,
@@ -269,7 +261,6 @@ describe("translation records", () => {
     await writeManifest(join(root, ".diglot"), manifest)
     expect(await diglotValidate(root)).toEqual({ code: 0, checked: 4, errors: [], warnings: [] })
 
-    // A record that loses `{0}`, written without ViteHub, fails the same check.
     await writeRecord(root, "es", createRecord({ segment: segments[2]!, text: "Hola, lee la documentación.", origin: "mt" }))
     const lost = await diglotValidate(root)
     expect(lost.code).toBe(1)

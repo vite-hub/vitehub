@@ -1,9 +1,0 @@
-{
-  "packages/choices/src/choices.ts": 9,
-  "packages/choices/src/cli.ts": 9,
-  "packages/choices/src/diagnostics.ts": 8,
-  "packages/choices/test/choices.test.ts": 2,
-  "packages/choices/test/portal-oracle.test.ts": 5,
-  "packages/choices/test/support.ts": 2,
-  "packages/choices/test/use-choices.test.ts": 1
-}

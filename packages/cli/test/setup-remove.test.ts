@@ -44,7 +44,6 @@ describe("vitehub remove", () => {
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
     expect(loadConfig).not.toHaveBeenCalled()
     expect(json).toMatchObject({ features: ["schedule"], status: "applied", turnedOff: ["schedule"], uninstall: { command: "pnpm remove @vite-hub/schedule", packages: ["@vite-hub/schedule"] } })
-    // The starter turned Schedule on, so neither command touches the config.
     expect(json.changes.map(change => [change.kind, change.path])).toEqual([["delete", "server/schedules/nightly.ts"]])
     expect(pm.calls.at(-1)).toEqual(["pnpm", "remove", "@vite-hub/schedule"])
     expect(await snapshot(root)).toEqual(original)
@@ -502,7 +501,6 @@ describe("vitehub remove", () => {
 
     const forced = await remove(["realtime", "--yes", "--force"], root)
 
-    // The app still imports the package, so it stays installed.
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
     expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
     expect(forced.json.references).toHaveLength(2)

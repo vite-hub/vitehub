@@ -23,7 +23,6 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { force: true, recursive: true })))
 })
 
-/** A project with one file Schedule and one Definition module that a package generates under `.vitehub/`. */
 async function createRoot(options: { cron?: string, definition?: string, file?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-contributions-"))
   tempDirs.push(root)

@@ -108,8 +108,6 @@ async function assertPathComponents(root, path, finalType) {
   }
 }
 
-// Installers read these sections. A URL, git, or file spec there makes npm installs depend on a host
-// that the registry does not control, and many installers and registries reject it.
 const installedDependencySections = ["dependencies", "optionalDependencies", "peerDependencies"]
 const unpublishableSpecifierPattern = /^(?:https?:|git|file:)/i
 
@@ -127,7 +125,6 @@ function workspaceDependencies(manifest, publicNames) {
   const dependencies = {
     ...manifest.dependencies,
     ...manifest.optionalDependencies,
-    // Optional peers are integrations, not prerequisites for publishing the package.
     ...Object.fromEntries(Object.entries(manifest.peerDependencies || {})
       .filter(([name]) => manifest.peerDependenciesMeta?.[name]?.optional !== true)),
   }
@@ -627,7 +624,6 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-// One deadline covers every verification in the release, so slow propagation can't add up per package, conflict or request.
 async function waitUntilVerified(packages, options, verification) {
   const attempts = options.attempts || 20
   verification.deadline ??= Date.now() + (options.verifyTimeoutMs ?? 900_000)
@@ -654,7 +650,6 @@ async function auditPublishedSignatures(packages, runtime, options) {
   try {
     const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.version]))
     await writeFile(join(directory, "package.json"), `${JSON.stringify({ dependencies, private: true }, null, 2)}\n`)
-    // Signatures and attestations can appear after the versions, so retry the audit for the whole set once.
     const attempts = options.attempts || 20
     for (let attempt = 1; ; attempt++) {
       try {
@@ -713,7 +708,6 @@ export async function publishReleaseArtifacts(options) {
     }
     catch (error) {
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
-      // Dependents must not be published against a version this release did not produce.
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
       await waitUntilVerified([pkg], { ...options, runtime }, verification)
       continue
@@ -721,7 +715,6 @@ export async function publishReleaseArtifacts(options) {
     published.push(pkg)
   }
 
-  // npm can take minutes to serve new versions, so check the whole set once instead of after each package.
   await waitUntilVerified(published, { ...options, runtime }, verification)
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)

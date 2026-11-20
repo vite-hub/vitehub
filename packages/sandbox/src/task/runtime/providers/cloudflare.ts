@@ -13,7 +13,6 @@ type SandboxTaskOptions = {
 export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions) {
   const env = getActiveCloudflareEnv()
   const bindingName = options.provider.binding || 'SANDBOX'
-  // Only explicitly declared Worker bindings can select a Sandbox namespace.
   const namespace = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
 
   if (!namespace) {

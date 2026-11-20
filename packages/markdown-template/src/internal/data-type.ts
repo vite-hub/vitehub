@@ -4,7 +4,6 @@ import type { ElementNode, Node } from "comark"
 import { hasMarkdownHtmlChildren, parserOptions } from "../parser.ts"
 import { prepareTemplate } from "../prepare.ts"
 
-// `scalar` comes from `{{ data.x }}` and bound attributes, `markdown` from `:insert`, `condition` from `::if` props.
 type DataUse = "condition" | "markdown" | "scalar"
 
 interface DataField {
@@ -50,13 +49,11 @@ function addAttributes(root: DataField, [tag, attributes]: ElementNode, required
     if (!key.startsWith(":")) continue
     const parts = dataPath(value)
     if (!parts) continue
-    // A missing condition value is falsy, so it never fails a render.
     if (condition) addPath(root, parts, "condition", false)
     else addPath(root, parts, tag === "insert" && key === ":markdown" ? "markdown" : "scalar", required)
   }
 }
 
-// The renderer shows one branch of an `::if`. Nodes after a nested branch render always, as in `conditionalBranches()`.
 async function visitCondition(root: DataField, [tag, attributes, ...children]: ElementNode, required: boolean): Promise<void> {
   addAttributes(root, [tag, attributes], false)
   let afterBranch = false
@@ -71,7 +68,6 @@ async function visitCondition(root: DataField, [tag, attributes, ...children]: E
 
 async function visit(root: DataField, nodes: Node[], required: boolean): Promise<void> {
   for (const node of nodes) {
-    // Text and comment nodes bind no data.
     if (!Array.isArray(node) || node[0] === null) continue
     if (node[0] === "if") {
       await visitCondition(root, node, required)
@@ -86,7 +82,6 @@ async function visit(root: DataField, nodes: Node[], required: boolean): Promise
   }
 }
 
-// The renderer reads `null` as a missing path, so an optional value also takes `null`, as a database row gives it.
 function renderOptional(field: DataField, type: string): string {
   return field.required || type === "unknown" ? type : `${type} | null`
 }

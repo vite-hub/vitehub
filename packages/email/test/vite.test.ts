@@ -259,7 +259,6 @@ describe("hubEmail", () => {
       return JSON.parse(await readFile(configFile, "utf8")).send_email
     }
 
-    // Nitro lists the module config entries before the project's Wrangler file entries.
     await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }] }))
     await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }])
 
@@ -348,7 +347,6 @@ describe("hubEmail", () => {
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    // Only an app with templates bundles the Markdown renderer.
     expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
@@ -474,7 +472,6 @@ describe("hubEmail", () => {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
       const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
       await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
-      // Stop development refreshes before removing the source tree to simulate deployment.
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
@@ -488,7 +485,6 @@ describe("hubEmail", () => {
   })
 
   it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
-    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await Promise.all([
@@ -531,7 +527,6 @@ describe("hubEmail", () => {
     try {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
-      // Vite's plugin container normalizes the hook's /@fs// prefix to /@fs/.
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
         .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
     }
@@ -578,7 +573,6 @@ describe("hubEmail", () => {
       watcher.emit("change", template)
       let closed = false
       closing = Promise.resolve(functionHook(plugin.closeBundle, "closeBundle")()).then(() => { closed = true })
-      // The paused rebuild must keep the close hook pending.
       await Promise.resolve()
       expect(closed).toBe(false)
       for (const event of ["add", "change", "unlink"]) expect(watcher.listenerCount(event)).toBe(0)

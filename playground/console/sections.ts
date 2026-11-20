@@ -1,7 +1,3 @@
-/**
- * Section descriptors that the owner packages contribute. The playground serves them without a build.
- * `packages/vite-hub/test/console-contributions.test.ts` keeps them equal to the owner descriptors.
- */
 export const playgroundConsoleContributions = [
   {
     id: "auth",
@@ -97,11 +93,6 @@ export const playgroundConsoleContributions = [
   },
 ] as const
 
-/**
- * The Comments section of an app with a default-export `server/comments.ts`. The build puts it in place of the Comments
- * record table, so it is not in the list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to
- * `commentsOperationsConsoleSection`. `comments.ts` answers its operations.
- */
 export const playgroundCommentsSection = {
   description: "Read the comment threads of the site and jump to the page.",
   icon: "i-vitehub-comments",
@@ -132,11 +123,6 @@ export const playgroundCommentsSection = {
   },
 } as const
 
-/**
- * The Webhooks section of an app with `server/webhooks/`. The build adds it when the folder exists, so it is not in the
- * list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to `webhooksConsoleSection`.
- * `webhooks-fixture.ts` answers its operations.
- */
 export const playgroundWebhooksSection = {
   description: "See, test, flush, and redeliver the webhooks that the app sends.",
   icon: "i-vitehub-webhooks",

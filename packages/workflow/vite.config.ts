@@ -3,9 +3,6 @@ import { defineConfig } from "vite-plus";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 import packageManifest from "./package.json" with { type: "json" };
 
-// These entries are not public API. Generated code imports most of them by path.
-// `definition` is an entry so that `defineWorkflow` never shares a chunk with Node built-ins:
-// the Vercel Workflow sandbox cannot load a flow bundle that keeps `require("node:async_hooks")`.
 const privateEntries = new Set([
   "./definition",
   "./operations",

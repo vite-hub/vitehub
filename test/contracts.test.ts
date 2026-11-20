@@ -46,7 +46,6 @@ function exportTarget(rawTarget: unknown) {
 
 function hasExport(packageName: string, specifier: string) {
   const manifest = readPackageManifest(packageInfoByPublishName(packageName).name)
-  // Vite resource queries select a loader; they are not part of the package export.
   const subpath = specifier.split("?")[0]!.slice(packageName.length)
 
   if (!subpath) {
@@ -104,12 +103,10 @@ describe("package manifest contracts", () => {
         }
       }
       expect(manifest.type).toBe("module")
-      // Presets and kit expose only subpaths, with no root entry.
       const subpathOnly = packageName === "presets" || packageName === "kit"
       expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))
-      // The typecheck reads workspace dependencies from their dist, so it builds them first.
       expect(manifest.scripts?.typecheck).toMatch(new RegExp(`^vp run --cache -t ${manifest.name}#build && `))
       expect(manifest.scripts?.test).toEqual(expect.any(String))
       if (packageName === "markdown-template") {
@@ -208,9 +205,6 @@ describe("package manifest contracts", () => {
   })
 
   it("declares peers that the app also installs as ranges that accept the app's copy", () => {
-    // An exact peer makes pnpm install a second Vue next to the app's Vue, and Nuxt pages then render empty.
-    // npm stops with ERESOLVE when the app depends on another version of an exact optional peer, such as better-auth.
-    // A second drizzle-orm breaks Drizzle's `is()` checks, such as the Postgres check of Auth.
     const appPeers = ["@ai-sdk/provider", "@better-auth/oauth-provider", "@nuxt/ui", "@workflow/builders", "better-auth", "drizzle-kit", "drizzle-orm", "nuxt", "vite", "vue", "workflow"]
     for (const packageName of packageNames) {
       const peers = readPackageManifest(packageName).peerDependencies || {}
@@ -224,8 +218,6 @@ describe("package manifest contracts", () => {
   })
 
   it("declares Drizzle peer ranges whose highest published match is the version that ViteHub tests", () => {
-    // Drizzle publishes snapshot builds such as 1.0.0-rc.5-ab785fc. Semver ranks them above 1.0.0-rc.5, so pnpm
-    // installs one for `>=1.0.0-rc.5`. That snapshot has no drizzle-orm/d1/codecs, and an Agent build stops with MISSING_EXPORT.
     const published = ["0.45.4", "1.0.0-rc.4", "1.0.0-rc.4-fb12281", "1.0.0-rc.5", "1.0.0-rc.5-169397b", "1.0.0-rc.5-5935859", "1.0.0-rc.5-ab785fc"]
     const peers = ["drizzle-orm", "drizzle-kit"] as const
     const checked: string[] = []
@@ -242,7 +234,6 @@ describe("package manifest contracts", () => {
   })
 
   it("declares peer ranges that accept the versions that sibling packages depend on", () => {
-    // npm installs one copy for the peer and the sibling's dependency only when the peer range accepts that version.
     const dependencies = packageNames.flatMap((packageName) => {
       const manifest = readPackageManifest(packageName)
       return Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })
@@ -440,8 +431,6 @@ describe("playground import contracts", () => {
     }
   })
 
-  // `vite-hub/content` re-exports `@vite-hub/content`, an optional peer. A playground that does not declare it fails
-  // in `vp dev` with "Cannot find module '@vite-hub/content'".
   it("declares the ViteHub owner packages that each workspace playground imports", () => {
     const vitehubManifest = readPackageManifest("vite-hub")
     const optionalOwners = new Set(Object.keys(vitehubManifest.peerDependencies ?? {}).filter(name => name.startsWith("@vite-hub/")))

@@ -26,14 +26,12 @@ function inspectTimeZone(timeZone: string | null | undefined): string {
   return timeZone === null ? "Not a static string" : timeZone ?? "UTC"
 }
 
-/** The UTC cron that Cloudflare, Vercel, Netlify, and Deno run for a Schedule with a static `timeZone`. */
 function inspectHostCron(cron: string, timeZone: string): ViteHubDefinitionField[] {
   try {
     const utcCron = utcCronForTimeZone(cron, timeZone)
     return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
   }
   catch {
-    // Inspection lists Definitions that host cron output would reject.
     return []
   }
 }
@@ -102,9 +100,7 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
     try {
       for (const [name, cron] of await readRuntimeDefinitionCrons([definition])) crons.set(name, cron)
     }
-    catch {
-      // Inspection must not apply provider-output validation to runtime-valid Schedule Definitions.
-    }
+    catch {}
   }
   return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons, options.cron))
 }
@@ -150,7 +146,6 @@ export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<Sch
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,
-  // Generated Console code imports the reader by path.
   runtime: { export: "readScheduleConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [

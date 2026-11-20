@@ -218,7 +218,6 @@ export type KVGetTypeMap = GetItemTypeMap
 /** Options of `kv.get()`. Other fields go to the driver. */
 export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined> = Record<string, unknown> & { type?: K }
 
-/** A read value: the caller's `T` without a `type`, the converted type with one. */
 type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
 /** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
@@ -299,24 +298,10 @@ export interface KVStorage {
    * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
   deleteIfEquals<T = unknown>(key: string, expected: T): Promise<Result<boolean, "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  /**
-   * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
-   * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
-   */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
-  /**
-   * Reads many keys in one call. Returns one value per key, in the order of `keys`, with `null` for a missing key.
-   * `options` works as in `get()` and applies to every key. Stores with a batch read use it: Cloudflare KV reads 100
-   * keys per call, Redis and Upstash use `MGET`, and the `database` driver runs one query. Other stores read the keys
-   * one by one, 16 at a time.
-   */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   getMany<T = unknown, K extends KVGetType | undefined = undefined>(keys: readonly string[], options?: KVGetOptions<K>): Promise<Result<Array<KVValue<T, K> | null>, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
-  /**
-   * Atomically returns and deletes a value. `{ type: "text" }` returns the stored text.
-   * The drivers in {@link KVDriversWith}`<"getAndDelete">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
-   */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>

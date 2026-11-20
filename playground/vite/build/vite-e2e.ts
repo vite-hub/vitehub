@@ -192,7 +192,6 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",
     "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: async () => ({ allowDataLoss: false, databases: {}, unsupported: 'Hosted test output does not ship migrations.' }) }, name === undefined ? undefined : [name]) }",
     "",
-    // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
     "export const db = databases.default?.db ?? new Proxy({}, { get() { throw new Error('The database \"default\" is not configured.') } })",
     "export const schema = databases.default?.schema ?? {}",
     "",
@@ -258,7 +257,6 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
   ]
 
   if (config.store.driver === "cloudflare") {
-    // Use the KV package's Cloudflare storage so the local run proves how it resolves the request binding.
     imports.push(`import { createCloudflareKVStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(kvPackageDir, "runtime/cloudflare-kv")))}`)
   }
   else if (config.store.driver === "upstash") {
@@ -869,8 +867,6 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     }
 
     if (sandboxTaskProvider === "cloudflare") {
-      // @cloudflare/sandbox 1.0 exports only the `import` condition, which require.resolve cannot read.
-      // Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
       alias["@cloudflare/sandbox"] = realpathSync(resolve(sandboxPackageDir, "node_modules/@cloudflare/sandbox/dist/index.mjs"))
     }
   }
@@ -1508,10 +1504,6 @@ async function generateViteE2EOutputs(options: ViteE2EComposerOptions): Promise<
   await writeVercelOutput(options, artifacts)
 }
 
-/**
- * The composer writes the one hosted output of the e2e build. A feature plugin writes its own Provider Output in
- * `buildEnd` and `closeBundle`, so this removes those two hooks and keeps the config, dev and CLI parts of the plugin.
- */
 export function withoutProviderOutput<T extends Plugin>(plugin: T): T {
   delete plugin.buildEnd
   delete plugin.closeBundle
@@ -1548,8 +1540,6 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
   }
 }
 
-// Live smoke names a fresh KV namespace, queue prefix, and workflow for each Cloudflare run.
-// Without these variables the playground keeps its default names.
 export function resolveViteE2EModuleOptions(hosting: string, env: Record<string, string | undefined> = process.env) {
   const cloudflare = resolveHostedProvider(hosting) === "cloudflare"
   const kvNamespaceName = cloudflare ? env.VITEHUB_KV_NAMESPACE_NAME?.trim() : undefined

@@ -4,12 +4,9 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SCHEDULE_R0001, SCHEDULE_R0002, and SCHEDULE_R0036 to SCHEDULE_R0038.
 export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {
-    // Operation errors. The `schedule.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
     SCHEDULE_DEFINITION_NOT_FOUND: {
       why: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
       fix: "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).",

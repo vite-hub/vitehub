@@ -61,7 +61,6 @@ it("makes values of a condition and of its branches optional", async () => {
 })
 
 it("accepts null for an object that a condition checks before its branch reads it", async () => {
-  // A missing path and `null` render the same: the condition is false and the branch does not read the fields.
   const template = [
     "Hi {{ data.recap.label }}",
     "",

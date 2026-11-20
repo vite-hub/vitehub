@@ -11,7 +11,7 @@
   "packages/content/src/defaults.ts": 2,
   "packages/content/src/diagnostic-log.ts": 1,
   "packages/content/src/documents.ts": 22,
-  "packages/content/src/error-diagnostics.ts": 37,
+  "packages/content/src/error-diagnostics.ts": 36,
   "packages/content/src/github-webhook.ts": 8,
   "packages/content/src/head.ts": 2,
   "packages/content/src/history.ts": 24,

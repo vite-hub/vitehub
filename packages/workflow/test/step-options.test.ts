@@ -19,7 +19,6 @@ import { unwrap } from "./unwrap.ts"
 const attempts: string[] = []
 const signals: AbortSignal[] = []
 
-/** The shape that the generated registry gives a folder Workflow: one step file with its exported options. */
 function folderWorkflow(options: WorkflowStepOptions, run: (input: unknown, context: { signal: AbortSignal }) => unknown): WorkflowDefinition {
   return {
     rootStep: false,
@@ -27,7 +26,6 @@ function folderWorkflow(options: WorkflowStepOptions, run: (input: unknown, cont
   }
 }
 
-/** Fails until the signal aborts, or answers after 300 ms. */
 async function waitForAbort(_input: unknown, { signal }: { signal: AbortSignal }) {
   attempts.push("sync")
   signals.push(signal)

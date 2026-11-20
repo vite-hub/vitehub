@@ -70,11 +70,9 @@ export interface ProcessScheduleTiming {
   timeZone?: string
 }
 
-/** A Definition with its own cron. Definitions without `cron` run only through started Schedules. */
 type CronScheduleDefinition = ScheduleDefinition & { cron: string }
 
 interface StaticScheduleEntry extends ProcessScheduleTiming {
-  /** The Definition, loaded at startup or on the first wake. */
   definition: () => Promise<CronScheduleDefinition>
   name: string
 }
@@ -95,7 +93,6 @@ function isTiming(value: unknown): value is ProcessScheduleTiming {
   return isObject(value) && String(value.cron) === value.cron && (value.timeZone === undefined || String(value.timeZone) === value.timeZone)
 }
 
-/** Loads a Definition once, and again only after the load fails. */
 function lazyDefinition(name: string, load: ScheduleDefinitionRegistry[string]): () => Promise<CronScheduleDefinition> {
   let loading: Promise<CronScheduleDefinition> | undefined
   return () => loading ??= load().then((loaded) => {
@@ -108,10 +105,6 @@ function lazyDefinition(name: string, load: ScheduleDefinitionRegistry[string]):
   })
 }
 
-/**
- * Loads the Definitions without a build timing now and keeps the others lazy. A Definition without a cron and a handler
- * is skipped.
- */
 async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry, timings: ProcessScheduleRuntimeOptions["timings"] = {}): Promise<Map<string, StaticScheduleEntry>> {
   const entries = await Promise.all(Object.entries(registry).map(async ([name, load]): Promise<StaticScheduleEntry | undefined> => {
     const timing = Object.hasOwn(timings, name) ? timings[name] : undefined
@@ -167,7 +160,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   const reportError = createErrorReporter(options.onError)
   const leaseTtlMs = resolveLeaseTtlMs(options.leaseTtlMs)
   const claims = createOccurrenceClaims({
-    // Catch-up after a restart looks back `catchUpMs`. The done marker must outlast it and the wait of other processes.
     doneTtlMs: (options.catchUpMs ?? DEFAULT_CATCH_UP_MS) + leaseTtlMs + 2 * minuteMs,
     leases: options.leases ?? createMemoryLeaseStore(),
     owner: `${hostname()}:${process.pid}`,
@@ -175,7 +167,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     reportError,
     ttlMs: leaseTtlMs,
   })
-  /** Occurrences that another process held when this process tried them, by run id. Each scan tries them again. */
   const held = new Map<string, ProcessScheduleWake>()
   const pendingWork = new Set<Promise<unknown>>()
   const activeWakes = new Set<Promise<void>>()
@@ -196,16 +187,12 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
 
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
-      // Manual runs can use simulated times and must not move the cron catch-up cursor.
       const [run] = await options.scheduleRunStore.listRuns({ scheduleId, idPrefix: "srun_static_", limit: 1 })
       if (!run || run.id.startsWith("srun_static_")) return run?.scheduledAt
-      // Older custom stores may ignore idPrefix. Look for a cron run without loading their full history.
       const limit = 100
       const recent = await options.scheduleRunStore.listRuns({ scheduleId, limit })
       const latest = recent.find(record => record.id.startsWith("srun_static_"))
       if (latest) return latest.scheduledAt
-      // A full page cannot prove there is no earlier cron run. Check the configured window instead;
-      // deterministic static IDs deduplicate existing occurrences, including ones outside this page.
       return recent.length < limit ? undefined : "unknown"
     },
     reportError,
@@ -226,7 +213,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         }
         const definition = await entry.definition()
         if (definition.handler === runStartedSchedules) {
-          // The tick of started Schedules records no run: it would add one each minute. Each started Schedule records its own.
           await runStartedSchedules({
             id: `tick_${input.scheduledAt.toISOString()}`,
             idempotencyKey: scheduleIdempotencyKey(entry.name, input.scheduledAt),
@@ -263,12 +249,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   }
   const driver = createProcessWakeDriver(options, context)
 
-  /**
-   * Catch-up starts after the newest cron-triggered run, also when that run did not finish. A run that is still pending
-   * or running inside the catch-up window lost its process, as when every server restarts after a crash. Try those
-   * occurrences again at each scan, through the claim: they run when the lease of their process ends and no process
-   * finished them.
-   */
   async function recoverUnfinishedOccurrences(): Promise<void> {
     const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
     if (catchUpMs <= 0) return
@@ -276,7 +256,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     const since = currentMinute - catchUpMs
     for (const entry of definitions.values()) {
       try {
-        // Read only as many runs as the cron has occurrences in the window, so a daily Schedule reads none at most starts.
         let due = 0
         for (let minute = Math.ceil(since / minuteMs) * minuteMs; minute <= currentMinute; minute += minuteMs) {
           if (isScheduleDue(scheduleCronRecord(entry), new Date(minute))) due++

@@ -2,10 +2,7 @@ import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnos
 import { resolveAttributes } from "comark/render"
 import type { NodeRenderData } from "comark/render"
 
-// Resolve the longest explicit key before traversing nested data. A scalar key
-// and its dotted descendants cannot both be represented by a nested alias tree.
 function pathValue(value: unknown, parts: string[]): { value: unknown } | undefined {
-  // A matched undefined value still owns the path and must prevent fallback.
   if (!parts.length) return { value }
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   for (let length = parts.length; length > 0; length--) {
@@ -26,7 +23,7 @@ export function resolveTemplateAttributes(
   for (const [key, value] of Object.entries(attributes)) {
     if (!key.startsWith(":") || typeof value !== "string") continue
     try { JSON.parse(value); continue }
-    catch { /* Let Comark retain JSON literal parsing and attribute filtering. */ }
+    catch { }
     const alias = `binding${Object.keys(values).length}`
     values[alias] = pathValue(renderData, value.split("."))?.value
     rewritten[key] = `props.${alias}`
@@ -63,9 +60,7 @@ export function resolveScalarTemplateAttributes(attributes: Record<string, unkno
   return props
 }
 
-// Comark resolves inherited properties; expose only the explicit data for this render.
 export function snapshotTemplateData<T>(value: T, seen = new WeakMap<object, object>()): T {
-  // Comark resolves inherited properties; expose a stable snapshot of explicit data.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return value
   // SAFETY: `value` is an object tracked in this map, so the stored clone has type T.
   // SAFETY: every value inserted into `seen` is the clone of the corresponding input object.

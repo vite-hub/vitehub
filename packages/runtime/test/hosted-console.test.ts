@@ -55,7 +55,6 @@ describe("hosted Console links", () => {
       expect(normalizeConsolePath(path), path).toBeUndefined()
       expect(() => hostedConsoleUrl("https://app.example.com", path), path).toThrowError(expect.objectContaining({ code: "RUNTIME_CONSOLE_PATH_INVALID" }))
     }
-    // A dot segment stays inside the Console.
     expect(normalizeConsolePath("/../../kv")).toBe("/kv")
   })
 

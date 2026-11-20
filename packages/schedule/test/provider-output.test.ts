@@ -84,7 +84,6 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "retained", "sources")
     const retainedHandler = join(retainedSourcesDir, "cleanup.schedule.ts")
     await mkdir(retainedSourcesDir, { recursive: true })
-    // The handler names its published file, so publication copies that file into the Netlify output.
     const publishedHandler = join(rootDir, ".vitehub", "schedule", "sources", "cleanup.schedule.ts")
     const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => ['${value}', ${JSON.stringify(publishedHandler)}] })`
     await writeFile(retainedHandler, source("previous"))
@@ -354,7 +353,6 @@ describe("schedule provider output", () => {
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
     const output = (await Promise.all(outputFiles.map(file => readFile(join(distDir, file), "utf8")))).join("\n")
 
-    // Provider outputs bundle with the Rolldown of the app's Vite, so the package needs no esbuild.
     expect(output).not.toMatch(/["']esbuild["']/)
   })
 
@@ -1167,7 +1165,6 @@ describe("schedule provider output", () => {
     expect(netlifyModule.config.schedule).toBe("0 6,7 * * *")
     vi.useFakeTimers({ toFake: ["Date"] })
     try {
-      // Winter: 07:00Z is 08:00 in Madrid. A late call still runs the 07:00Z occurrence.
       for (const now of ["2026-01-15T06:00:04Z", "2026-01-15T07:02:31Z"]) {
         vi.setSystemTime(new Date(now))
         expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)

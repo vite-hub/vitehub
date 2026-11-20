@@ -20,14 +20,10 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
-      // Searches your own projects for the public API that this branch removes. Local only: CI has no consumer checkouts.
       "consumers:check": {
         cache: false,
         command: "node scripts/consumer-check.mjs",
       },
-      // Builds packages in dependency order and caches each package build by
-      // the files it reads. An outer --no-cache does not reach this nested run,
-      // so release and preview publishing run the filter with --no-cache.
       build: {
         cache: false,
         command: 'vp run --cache --filter "./packages/*" build',
@@ -42,8 +38,6 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
-      // doctor.config.json selects the rules. Doctor reports only the lines
-      // changed since the merge base with VITE_DOCTOR_SINCE, so it needs no baseline.
       "doctor:typescript": {
         cache: false,
         command:
@@ -72,7 +66,6 @@ export default defineConfig({
         command: "node test/local/deno-real-project.mjs --live",
         dependsOn: ["build"],
       },
-      // Opt-in: needs Docker. Runs three Node instances of one app against Postgres and Redis.
       "e2e:multi-instance": {
         cache: false,
         command: "node test/multi-instance/run.mjs",
@@ -90,7 +83,7 @@ export default defineConfig({
       },
       lint: {
         cache: false,
-        command: "vp exec oxlint . --ignore-path .gitignore",
+        command: "vp lint . --ignore-path .gitignore",
       },
       "playground:vite:build": {
         cache: false,
@@ -132,7 +125,6 @@ export default defineConfig({
         dependsOn: ["@vite-hub/schedule#build"],
       },
       ...rootTestTasks,
-      // Needs Postgres and Redis. Set VITEHUB_TEST_POSTGRES_URL and VITEHUB_TEST_REDIS_URL.
       "test:services": {
         cache: false,
         command: "node test/service-tests.mjs",

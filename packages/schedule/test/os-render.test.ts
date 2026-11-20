@@ -60,7 +60,6 @@ describe("systemd units", () => {
     await expect(renderSystemdTimer(backup)).toMatchFileSnapshot(join(fixtures, "backup-db.timer"))
   })
 
-  // systemd-analyze verify loads every unit of the machine, which takes seconds on a busy machine.
   it.skipIf(!systemdAnalyze)("passes systemd-analyze verify", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-os-render-"))
     onTestFinished(() => rmSync(directory, { recursive: true, force: true }))

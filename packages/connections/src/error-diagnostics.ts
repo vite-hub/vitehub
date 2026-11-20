@@ -1,12 +1,9 @@
 import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
-/** A Connection name as one shell argument. Names may contain spaces, so quote any name that is not a plain word. */
 const arg = (connection: string): string => /^[\w.:@/-]+$/.test(connection) ? connection : `'${connection.replaceAll("'", "'\\''")}'`
 
-// Write the route and command prefixes literally, so the docs page of each code shows them.
 const connect = (connection: string): string => `Run \`vitehub connections connect ${arg(connection)}\`.`
 
-/** The definition of an instance such as `t3:alice` is `t3`. */
 const definitionOf = (connection: string): string => {
   const separator = connection.lastIndexOf(":")
   return separator > 0 ? connection.slice(0, separator) : connection
@@ -14,7 +11,6 @@ const definitionOf = (connection: string): string => {
 
 const docs = "https://vitehub.dev/docs/connections/diagnostics"
 
-// Keep published codes stable. Each code has a heading on the docs page.
 const codes = {
   CONNECTIONS_CHATGPT_TRANSFER: {
     why: "The ChatGPT credential file is invalid, or the destination already has another active grant.",

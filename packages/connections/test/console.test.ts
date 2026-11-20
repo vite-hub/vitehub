@@ -10,7 +10,6 @@ import type { TestRuntime } from "./helpers.ts"
 
 const app = "https://agents.example.com"
 
-/** The context of a signed Console call that the app's `/_vitehub/rpc` received. */
 function consoleCall(user = "u1"): OperationContext {
   return {
     access: { mode: "token", sections: "all" },
@@ -26,7 +25,6 @@ function operation(name: string) {
   return (input: unknown, context: OperationContext) => (found.run as (input: unknown, context: OperationContext) => Promise<unknown>)(input, context)
 }
 
-/** A management handler that denies every request, as a production build without `connections.management` has. */
 function productionHandler(test: TestRuntime) {
   return createConnectionsHandler({ actor: () => undefined, basePath: "/portal/_vitehub/connections", runtime: () => test.runtime })
 }
@@ -41,7 +39,6 @@ describe("Connections in the Console", () => {
     expect(authorize.searchParams.get("redirect_uri")).toBe(`${app}/portal/_vitehub/connections/callback`)
 
     test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN, token_type: "Bearer" } })
-    // The provider sends the browser back without the state cookie, and the policy denies every app request.
     const callback = await productionHandler(test).fetch(new Request(`${app}/portal/_vitehub/connections/callback?code=code-1&state=${authorize.searchParams.get("state")}`))
     expect(callback.status).toBe(200)
     expect(await callback.text()).toContain("mail is connected as owner@example.com.")

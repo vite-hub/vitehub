@@ -82,14 +82,9 @@ async function serializeCloudflareRun<TResult>(id: string | undefined, run: () =
   }
 }
 
-/**
- * A new run repeats every command of the failed one. Once a command starts, only the transport
- * can retry that request on a cold start without replaying earlier work.
- */
 function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
   if (commandMayHaveRun)
     return false
-  // A cleanup failure must not decide whether the primary failure can retry.
   if (isSandboxTaskError(error) && error.cause instanceof AggregateError)
     error = error.cause.errors[0]
   if (error instanceof AggregateError)
@@ -103,7 +98,6 @@ function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
     return false
 
   const failure = readCloudflareFailure(error)
-  // Before the Task starts a command, its requests are safe to repeat, so a request deadline also reruns it.
   if (failure.timedOut)
     return true
   return canRetryCloudflareRequest(failure, true)
@@ -147,7 +141,6 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
-  // `vite dev` runs Sandbox Tasks on this machine, unless `remote: true` asks for the host's Sandbox.
   const local = getSandboxTaskRuntimeLocalProvider()
   if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote)) {
     const policy = sandboxTaskConfig && 'networkPolicy' in sandboxTaskConfig ? sandboxTaskConfig.networkPolicy : undefined
@@ -181,8 +174,6 @@ async function createSandboxTaskRunner(
       const cloudflareSandboxId = provider.provider === 'cloudflare'
         ? createCloudflareExecutionSandboxId(name, namedSandboxId)
         : undefined
-      // A named Cloudflare Sandbox is shared with other runs, so it stays for idle shutdown,
-      // also after a timeout or an abort. Every other Sandbox ends with its run.
       const closesAfterRun = provider.provider !== 'cloudflare' || !namedSandboxId
       const attempts = provider.provider === 'cloudflare'
         ? cloudflareRetryDelays.length + 1
@@ -276,7 +267,6 @@ export async function resolveSandboxTaskRunner(name?: string) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
 
-  // Every provider ends a run at the same default, instead of at its own session or command limit.
   const runDefinition = {
     ...definition,
     options: { ...definition.options, timeout: definition.options?.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS },

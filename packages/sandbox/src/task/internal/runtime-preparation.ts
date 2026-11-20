@@ -61,7 +61,6 @@ function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxT
     return false
   if (!isPlainObject(options))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0042({ message: '[vitehub] `sandboxTask` must be a plain object.' })
-  // Without `driver`, the Sandbox Task picks the host's driver, so the former `provider` key would be ignored silently.
   if (options.driver === undefined && Object.hasOwn(options, 'provider')) {
     // SAFETY: An app config without types still passes the former `provider` key.
     const provider = (options as { provider?: unknown }).provider
@@ -206,7 +205,6 @@ function createSandboxTaskRuntimeFacadeContents(
     `import { setSandboxTaskRuntimeConfig, ${localDev ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
-    // A dynamic import keeps `node:child_process` out of the dev server until a Task runs locally.
     ...(localDev
       ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
       : []),
@@ -231,7 +229,6 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
       continue
     }
     if (platform === 'win32' && alias.artifactKey) {
-      // One replaceable file keeps every runtime entry on the same immutable generation.
       aliases[alias.key] = plan.manifest.aliasPath
       continue
     }
@@ -242,8 +239,6 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
   return aliases
 }
 
-// A file outside the runtime generations keeps one real path for the whole dev session. Replace it in one step,
-// because the active generation imports it.
 async function writeStableSandboxTaskRuntimeFile(
   file: string,
   contents: string,
@@ -325,8 +320,6 @@ async function writeSandboxTaskArtifactsLocked(
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     invariant(registryArtifact, 'the Sandbox Task feature adds the registry artifact and its alias to the plan')
     const providerLoaderArtifact = emitted.get('sandbox-task-provider-loader')
-    // The facade loads from the generation folder or through the `runtime` link. An absolute path reaches the
-    // provider loader from both. On Windows the facade is a copy in the `runtime` folder.
     const providerLoaderImport = providerLoaderArtifact && (platform === 'win32'
       ? createImportPath(activeFacadeFile, providerLoaderArtifact.dst)
       : providerLoaderArtifact.dst)

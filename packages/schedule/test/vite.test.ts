@@ -48,7 +48,6 @@ async function resolvePluginConfig(plugin: ReturnType<typeof hubSchedule>, root:
   await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 }
 
-// Generated code imports the Schedule runtime by file path, as `ownModule()` resolves it.
 function ownRuntime(path: string) {
   return fileURLToPath(new URL(`../dist/${path}.js`, import.meta.url))
 }
@@ -309,7 +308,6 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
-    // ViteHub shutdown owns stop signals. The plugin only registers its drain.
     expect(pluginSource).toContain("onShutdown(nitroApp, 'schedule', () => runtimeInstallation.then(async (result) => {")
     expect(pluginSource).not.toContain("SIGTERM")
     expect(pluginSource).not.toContain("setTimeout")
@@ -354,7 +352,6 @@ describe("Vite schedule integration", () => {
     await Promise.all([
       writeFile(join(root, "server", "schedules", "report.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8"),
       writeFile(join(root, "server", "schedules", "cleanup.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nexport default defineSchedule({ cron: '*/5 * * * *', handler: () => {} })\n", "utf8"),
-      // A cron that only the module knows: the runtime loads it at startup.
       writeFile(join(root, "server", "schedules", "dynamic.ts"), "import { defineSchedule } from '@vite-hub/schedule'\nconst cron = process.env.CRON ?? '* * * * *'\nexport default defineSchedule({ cron, handler: () => {} })\n", "utf8"),
     ])
     const generate = async (command: "build" | "serve") => {
@@ -371,7 +368,6 @@ describe("Vite schedule integration", () => {
         report: { cron: "0 9 * * *", timeZone: "Europe/Madrid" },
       },
     })
-    // `vite dev` loads every Schedule at startup, so an edited cron applies at once.
     expect(await generate("serve")).not.toContain("timings")
   })
 
@@ -545,7 +541,6 @@ describe("Vite schedule integration", () => {
     }
     const retainedScheduleSpecifier = registry.match(/import\("(\.\/sources\/[^"]+\/cleanup\.schedule\.ts)"\)/)?.[1]
     expect(retainedScheduleSpecifier).toBeDefined()
-    // The provider bundles hold the snapshot code. Deployments get only the sources that a bundle names.
     const retainedSchedulePath = retainedScheduleSpecifier!.slice(2)
     const retainedSchedule = await readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8")
     expect(retainedSchedule).toContain("Owner decoration.")

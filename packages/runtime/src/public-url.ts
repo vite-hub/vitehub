@@ -70,6 +70,5 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
   const project = `${new URL(origin).origin}${applicationBasePath()}`
   const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  // Vercel's Workflow VM has `URL` but no `URLSearchParams`, so the query is built by hand.
   return `${hostedConsoleOrigin}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }

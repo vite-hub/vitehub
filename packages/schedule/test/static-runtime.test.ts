@@ -83,7 +83,6 @@ describe("Static Schedule runtime", () => {
         cron: "0 4 * * *",
         handler: async ({ scheduledAt }) => calls.push(`report:${scheduledAt.toISOString()}`),
       }),
-      // A registry entry without a cron is not a Static Schedule Definition, so cron dispatch skips it.
       cronless: async () => ({ handler: async () => calls.push("cronless") }) as unknown as ScheduleDefinition,
       skipped: async () => ({
         default: {
@@ -127,7 +126,6 @@ describe("Static Schedule runtime", () => {
       { cron: "0 6,7 * * *", scheduledTime },
       { registry, timeZoneCrons: { brief: "0 6,7 * * *" } },
     )
-    // 06:00Z is 08:00 in Madrid in summer, and 07:00Z is 08:00 in winter.
     for (const time of ["2026-07-15T06:00:00Z", "2026-07-15T07:00:00Z", "2026-01-15T06:00:00Z", "2026-01-15T07:00:00Z"]) await wake(time)
     expect(runs).toEqual(["schedule:brief:2026-07-15T06:00:00.000Z", "schedule:brief:2026-01-15T07:00:00.000Z"])
   })

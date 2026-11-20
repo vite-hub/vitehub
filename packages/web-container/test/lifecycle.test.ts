@@ -272,7 +272,6 @@ describe("WebContainer lifecycle", () => {
     const app = await bootWebContainer()
     await app.run("dev")
     expect(container.spawn).toHaveBeenCalledWith("npm", ["run", "dev"], { cwd: undefined, env: { PORT: "3000", NODE_OPTIONS: "--disable-warning=ExperimentalWarning" } })
-    // Nitro starts its dev workers on random ports before Vite listens on PORT.
     events.emit("server-ready", 51519, "https://worker.example")
     expect(app.preview.url).toBeUndefined()
     expect(app.status.stage).toBe("starting")

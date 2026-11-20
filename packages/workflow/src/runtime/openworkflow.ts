@@ -17,7 +17,6 @@ type NodeFsModule = typeof import("node:fs")
 type NodePathModule = typeof import("node:path")
 type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
 type OpenWorkflowSqliteModule = typeof import("openworkflow/sqlite")
-// `postgres` declares `export =`, and a dynamic import returns it as `default`.
 type PostgresModule = { default: typeof import("postgres") }
 type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
 type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>> | ReturnType<OpenWorkflowSqliteModule["BackendSqlite"]["connect"]>
@@ -27,17 +26,13 @@ type OpenWorkflowStepAttempt = Awaited<ReturnType<OpenWorkflowBackend["listStepA
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
-// A variable specifier keeps the optional OpenWorkflow packages out of host bundles. Do not build this
-// importer from a string: workerd blocks code generation when the module loads during a request.
 const defaultImporter: OpenWorkflowImporter = specifier => import(/* @vite-ignore */ specifier)
 let openWorkflowImporter = defaultImporter
 
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
-  /** The registered ViteHub definitions, by name. */
   definitions: Map<string, WorkflowDefinition>
-  /** Returns the OpenWorkflow id of the first run of `name` that started with the id `key`. */
   findRunId: (name: string, key: string) => Promise<string | undefined>
   workflows: Map<string, OpenWorkflowRunnable>
 }
@@ -112,7 +107,6 @@ export function setOpenWorkflowDatabaseUrl(resolve: (() => string | undefined) |
   databaseUrlResolver = resolve
 }
 
-/** The Postgres URL of the Default Database, when the app has a Postgres Default Database. */
 function readDatabasePostgresUrl(): string | undefined {
   if (!databaseUrlResolver) return undefined
   const url = databaseUrlResolver()?.trim()
@@ -178,16 +172,13 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 }
 
-/** How long a server waits for the setup lock that another server holds, before the worker start tries again. */
 const postgresSetupWaitMs = 120_000
-/** How long the server that holds the setup lock waits for the second connection that the OpenWorkflow migration needs. */
 const postgresSecondConnectionTimeoutMs = 10_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms).unref?.())
 }
 
-/** Resolves `true` when `task` settles first, `false` when `ms` passes first. */
 function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
@@ -199,25 +190,7 @@ function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
   ]).finally(() => clearTimeout(timer))
 }
 
-/**
- * OpenWorkflow creates its Postgres schema without a lock. When servers start together, all but one fail with
- * `duplicate key value violates unique constraint`, and OpenWorkflow leaves the failed migration connection open in an
- * aborted transaction. So one server at a time sets up the schema, and the others then find it up to date.
- *
- * OpenWorkflow does not export its migrations, so they cannot run on the connection that holds the lock: they run on a
- * connection that `BackendPostgres.connect()` opens.
- * - A server tries the lock with `pg_try_advisory_xact_lock` in a short transaction. A server that does not get it
- *   commits at once and tries again later, so a waiting server holds no connection.
- * - The server that gets it first checks that it can open a second connection. A pool of one connection, such as a
- *   pooler with one server connection, cannot run the migration while the lock holds that connection, so the server
- *   stops with `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` before the setup starts.
- * - Then it holds the lock until OpenWorkflow finished the setup.
- * A transaction lock also works through a pooler in transaction mode, such as PgBouncer.
- * OpenWorkflow 0.11.0 locks its setup with a session lock
- * (https://github.com/openworkflowdev/openworkflow/commit/eb544db), which such a pooler does not keep, so this lock stays.
- */
 async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
-  // `idle_timeout` closes the connection between attempts, so a waiting server holds none.
   const sql = postgres.default(url, { idle_timeout: 1, max: 1, onnotice: () => {} })
   const key = `vitehub:openworkflow:${schema}`
   const deadline = Date.now() + postgresSetupWaitMs
@@ -228,11 +201,8 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
         const [lock] = await transaction<{ locked: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as locked`
         if (!lock?.locked) return
         const probe = postgres.default(url, { max: 1, onnotice: () => {} })
-        // A probe that fails also got an answer: a database that is down fails the setup next.
         const answered = Promise.resolve(probe`select 1`).then(() => {}, () => {})
         if (!await settlesWithin(answered, postgresSecondConnectionTimeoutMs)) {
-          // Ending the probe while it waits destroys its socket, and postgres.js then rejects a promise that no code
-          // handles. The rollback below frees the connection, so the probe gets its answer and ends after it.
           void answered.then(() => probe.end())
           throw workflowErrorDiagnostics.WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE()
         }
@@ -251,10 +221,6 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
   }
 }
 
-/**
- * The backend that the OpenWorkflow client and its workers use. OpenWorkflow retries a failed run by its retry policy, so
- * only `failWorkflowRun()` knows when a run ends as `failed`. This wrapper sends `workflow.failed` then.
- */
 function reportFailedRuns<TBackend extends OpenWorkflowBackend>(backend: TBackend, definitions: ReadonlyMap<string, WorkflowDefinition>): TBackend {
   const failWorkflowRun: TBackend["failWorkflowRun"] = async (params) => {
     const run = await backend.failWorkflowRun(params)
@@ -339,10 +305,6 @@ function readRowId(row: unknown): string | undefined {
   return typeof id === "string" ? id : undefined
 }
 
-/**
- * ViteHub starts a run with the caller's id as the OpenWorkflow idempotency key, and OpenWorkflow gives the run its own
- * UUID. The OpenWorkflow API reads runs by UUID only, so this lookup reads the key from the backend connection.
- */
 function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowStorageConfig): OpenWorkflowRuntime["findRunId"] {
   const connection: unknown = Reflect.get(backend, options.backend === "sqlite" ? "db" : "pg")
   return async (name, key) => {
@@ -388,10 +350,6 @@ export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): P
   return resolved
 }
 
-/**
- * OpenWorkflow counts attempts, and `limit` counts the retries after the first attempt. OpenWorkflow caps each wait at
- * `maximumInterval`, 100 seconds by default, so the cap is the longest wait that the policy asks for.
- */
 function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): Partial<RetryPolicy> {
   const { backoff, delay, limit } = resolveWorkflowStepOptions(name, options).retries
   // SAFETY: `resolveWorkflowStepOptions` accepted `delay`, so it is a valid duration.
@@ -407,7 +365,6 @@ function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): 
 
 function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
   return {
-    // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
       const output = await step.run({ name, retryPolicy: toOpenWorkflowRetryPolicy(name, options) }, async () => {
         try {
@@ -424,7 +381,6 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
       // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
       return output as Awaited<ReturnType<typeof run>>
     },
-    // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
     sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
   }
 }
@@ -493,7 +449,6 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
     ...(run.finishedAt ? { completedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
-    // The id that the caller passed is the run id. OpenWorkflow keeps it as the idempotency key.
     id: run.idempotencyKey || run.id,
     metadata: {
       namespaceId: run.namespaceId,
@@ -507,13 +462,11 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
   }
 }
 
-/** OpenWorkflow stores `name`, `message`, and `stack`. The stack has server paths, so the step keeps the message only. */
 function toWorkflowRunStepError(error: unknown): WorkflowRunStep["error"] {
   const message: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "message") : undefined
   return { message: typeof message === "string" && message ? message : "Workflow step failed." }
 }
 
-/** OpenWorkflow stores one row per step attempt. A run reports each step once, with its latest attempt. */
 function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunStep[] {
   const steps = new Map<string, WorkflowRunStep>()
   for (const attempt of attempts) {
@@ -558,11 +511,9 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   onDispatch?.()
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
-    // OpenWorkflow deduplicates a key for 24 hours only. A run id identifies one run for as long as storage keeps it.
     const existingId = options.id ? await runtime.findRunId(name, options.id) ?? options.id : undefined
     const existing = existingId ? await runtime.backend.getWorkflowRun({ workflowRunId: existingId }) : null
     if (existing?.workflowName === name) return { workflowRun: existing }
-    // OpenWorkflow keeps the run pending until `availableAt`, so it reports `queued` during the delay.
     const runOptions = options.id || startAt !== undefined
       ? { ...(options.id ? { idempotencyKey: options.id } : {}), ...(startAt === undefined ? {} : { availableAt: new Date(startAt) }) }
       : undefined
@@ -582,7 +533,6 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     return {
       ...serialized,
       metadata: { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
-      // A start with the id of an existing run returns that run, so report the payload that it stored.
       // SAFETY: OpenWorkflow stores the payload of this Workflow Definition as the run input.
       payload: handle.workflowRun.input as TPayload,
     }
@@ -607,10 +557,6 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
 
 const terminalOpenWorkflowStatuses: ReadonlySet<WorkflowRunStatus> = new Set(["cancelled", "completed", "failed"])
 
-/**
- * Cancels a pending or running OpenWorkflow run of this Workflow and returns its state afterwards. A run of another
- * Workflow, or an unknown run, reports `unknown` without being cancelled. A finished run keeps and reports its status.
- */
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Workflow handles intentionally retain their definition's payload and result types across provider reads.
 export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   config: ResolvedWorkflowOptions,
@@ -624,7 +570,6 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
     await runWorkflowProviderOperation("openworkflow", "cancel", async () => await runtime.client.cancelWorkflowRun(await runtime.findRunId(name, id) ?? id))
   }
   catch (error) {
-    // A worker may finish between the initial read and OpenWorkflow's atomic cancellation update.
     const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id).catch(() => undefined)
     if (latest && terminalOpenWorkflowStatuses.has(latest.status)) return latest
     throw error

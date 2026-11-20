@@ -1,6 +1,5 @@
 import { defineErrors, type ViteHubError } from '@vite-hub/runtime'
 
-// Keep published codes stable. The docs build writes a page for each code.
 export const sandboxTaskRunErrors = /*#__PURE__*/ defineErrors({
   docs: 'https://vitehub.dev/docs/sandbox/diagnostics',
   codes: {
@@ -13,7 +12,6 @@ export const sandboxTaskRunErrors = /*#__PURE__*/ defineErrors({
   },
 })
 
-/** Preserve an explicit HTTP status or map the underlying diagnostic code. */
 function statusFor(error: ViteHubError<`SANDBOX_TASK_${string}`>) {
   const status = error.details?.httpStatus
   if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599)

@@ -9,11 +9,6 @@ const choiceAnswer = (choice: string, labels: string[], probability = 0.9) => ({
   type: "choice" as const,
 })
 
-/**
- * A gateway that answers by word match, so tests need no model. An option is included when the text names its label,
- * and excluded when the label follows "except" or "not". `unsupported` in the text lowers the supported check.
- * An infer group chooses the first option whose label, or a word of five letters or more from its criteria, is in the text.
- */
 export function wordGateway(calls: { questions: Record<string, unknown>, state: unknown, signal?: AbortSignal }[] = []): { ask: AiGatewayAsk } {
   const ask: AiGatewayAsk = async (state, questions, options) => {
     calls.push({ questions, signal: options?.signal, state })
@@ -24,7 +19,6 @@ export function wordGateway(calls: { questions: Record<string, unknown>, state: 
       const labels = group.options.map(option => option.label)
       const named = labels.filter(label => text.includes(label.toLowerCase()))
       if (`g${gi}` in questions && group.infer) {
-        // Descriptions are in the question criteria, not in the state.
         const criteria = (questions[`g${gi}`] as { criteria: Record<string, string | null> }).criteria
         const words = (label: string) => (criteria[label] ?? "").toLowerCase().match(/\w{5,}/g) ?? []
         const fit = group.options.find(option => named.includes(option.label) || words(option.label).some(word => text.includes(word)))

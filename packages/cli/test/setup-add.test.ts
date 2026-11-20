@@ -15,7 +15,6 @@ import type { SetupAddPlan, SetupError, SetupMissing, SetupStatus } from "../src
 
 const docsHosts = fileURLToPath(new URL("../../../fixtures/docs-hosts/", import.meta.url))
 
-/** A temp copy of a `fixtures/docs-hosts` folder. */
 async function copyFixture(name: string): Promise<string> {
   const root = await createProject()
   await cp(join(docsHosts, name), root, { recursive: true })
@@ -215,7 +214,6 @@ describe("vitehub add", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "node" }') })
     const added = await add(["console", "--no-install", "--yes"], root)
     expect(added.exitCode, added.stdout).toBe(0)
-    // The Console app is hosted, so the app installs no Console package.
     expect(added.json.install.packages).not.toContain("@vite-hub/console-client")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("console: true")
     expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
@@ -385,7 +383,6 @@ describe("vitehub add", () => {
     expect(native.length).toBeGreaterThan(5)
     const files = Object.fromEntries(await Promise.all(["vite.config.ts", "nuxt.config.ts"].map(async file => [file, await readFile(join(docsHosts, fixture, file), "utf8").catch(() => undefined)] as const)))
     for (const id of native) {
-      // Only the config files, so the loop stays fast on a slow temp disk.
       const root = await createProject(Object.fromEntries(Object.entries(files).filter((entry): entry is [string, string] => entry[1] !== undefined)))
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
@@ -520,7 +517,6 @@ describe("vitehub add", () => {
     expect(rerun.json.status).toBe("applied")
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("email: { driver: 'resend' },")
 
-    // The config now sets the option, so the plain command needs no input and changes nothing.
     expect((await add(["email", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
 
@@ -811,7 +807,6 @@ describe("vitehub add", () => {
 
     const durable = await add(["workflow", "--option", "workflow.driver=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
-    // `@vite-hub/workflow` depends on OpenWorkflow, so the provider adds no package.
     expect(durable.json.install.packages).toEqual(["@vite-hub/workflow"])
   })
 
@@ -919,7 +914,6 @@ describe("vitehub add", () => {
 
     for (const [args, file, starter] of [
       [["database", "--name", "default"], "src/database.ts", "server/databases/default.ts"],
-      // The owner rejects a Named Database next to the Default one.
       [["database", "--name", "main"], "src/database.ts", "server/databases/main.ts"],
       [["queue", "--name", "welcome-email"], "src/welcome-email.queue.ts", "server/queues/welcome-email.ts"],
     ] as const) {

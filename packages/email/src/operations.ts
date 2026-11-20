@@ -5,16 +5,12 @@ import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/opera
 import type { EmailPreview } from "./preview.ts"
 import type { EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
 
-// The runtime module reads the outbox of the app, which only exists in the Nitro runtime. The operations load it when
-// they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = async () => {
-  // Install the capture setting even when application code has not imported Email yet.
   await import("#vitehub/email/definition")
   return import("./runtime/operations.ts")
 }
 
 function defineEmailOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The outbox answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "email", user: false })
 }
 

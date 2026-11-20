@@ -11,7 +11,6 @@ const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
 const previewWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
 
-// A third-party action is pinned to a full commit SHA, with its version in a comment for Dependabot.
 function pinned(action: string) {
   return new RegExp(`uses: ${action}@[0-9a-f]{40} # v\\d+\\.\\d+\\.\\d+\\n`)
 }

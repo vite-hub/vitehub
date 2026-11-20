@@ -45,12 +45,10 @@ export type SandboxTaskVitePlugin = Plugin & {
 }
 
 const SANDBOX_PACKAGE_ID = '@vite-hub/sandbox/task'
-// Vite and Nitro match noExternal entries against package names, and Sandbox Tasks ship in @vite-hub/sandbox.
 const SANDBOX_PACKAGE_NAME = '@vite-hub/sandbox'
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-task-provider-loader'
 const SANDBOX_STATE_ID = '#vitehub/sandbox-task'
 const RESOLVED_SANDBOX_STATE_ID = '\0vitehub:sandbox-task:state'
-// Rolldown and Vite skip the resolveId and load hooks for every other id.
 const SANDBOX_STATE_ID_PATTERN = /^(?:#vitehub\/sandbox-task|\0vitehub:sandbox-task:state)$/
 
 type AliasMap = Record<string, string>
@@ -198,14 +196,11 @@ function invalidateGeneratedSandboxTaskModules(files: string[], moduleGraph: { g
   }
 }
 
-// Vite resolves the `runtime` link to a generation folder, and importers keep that path in
-// their transformed code. Move server environments to the current generation before it is pruned.
 async function reloadStaleSandboxTaskGenerations(
   environments: Record<string, DevEnvironment> | undefined,
   rootDir: string,
   facadeFile: string,
 ) {
-  // Vite keys modules by real path.
   const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).then(normalize).catch(() => undefined)
   const currentGeneration = generationsDir && await readSandboxTaskRuntimeGeneration(facadeFile, generationsDir)
   if (!generationsDir || !currentGeneration)
@@ -384,7 +379,6 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/task/provider-runtime', setup: sandboxTaskNitroModule },
     api: {
-      // Without Sandbox Task Definitions, the server opens no Sandbox.
       deploymentEnv: context => sandboxTaskEnabled && definitions.length
         ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.driver : undefined), context)
         : [],

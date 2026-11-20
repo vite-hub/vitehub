@@ -22,7 +22,6 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
   const header = isApiKeyProvider(provider) ? provider.header : "authorization"
   const policy = provider.requests ? scheduler.resolve(name, provider.requests) : undefined
 
-  // Preparation also runs before governance so an unsafe destination cannot create an approval.
   function prepare(url: string | URL, input?: RequestInit["headers"]): Record<string, string> {
     const origin = new URL(url).origin
     const origins = Object.values(providerApis(definition)).map(catalog => new URL(catalog.rootUrl).origin)
@@ -34,7 +33,6 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     const headers = new Headers(input)
     headers.delete("authorization")
     headers.delete(header)
-    // Never forward caller-controlled response-cookie data through provider redirects.
     headers.delete("set-cookie")
     return Object.fromEntries(headers)
   }
@@ -49,11 +47,9 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     const dispatch = (attempt: RequestInit) => isApiKeyProvider(provider)
       ? sendKey(url, attempt)
       : isMcpEndpoint(provider.mcp, url) ? sendMcp(url, attempt) : request(url, attempt)
-    // MCP sessions are long-lived streams, so the request policy does not pace, retry, or time them out.
     return await (policy && !isMcpEndpoint(provider.mcp, url) ? scheduler.send(policy, authenticated, dispatch) : dispatch(authenticated))
   }
 
-  /** Follow MCP redirects only while the destination remains the declared endpoint. */
   async function sendMcp(url: string, init: RequestInit): Promise<Response> {
     if (init.redirect && init.redirect !== "follow") return await request(url, init)
     let target = new URL(url)
@@ -63,7 +59,6 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
       const location = response.headers.get("location")
       if (!REDIRECT_STATUSES.has(response.status) || !location || hop === MAX_REDIRECTS) return response
       const next = new URL(location, target)
-      // Do not send the Connection token to another path, even on the same origin.
       if (!isMcpEndpoint(provider.mcp, next.toString())) return response
       await response.body?.cancel().catch(() => undefined)
       const method = (current.method ?? "GET").toUpperCase()
@@ -77,10 +72,6 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     }
   }
 
-  /**
-   * Send a request that carries an API key. Fetch keeps custom headers on a cross-origin redirect,
-   * so ViteHub follows redirects itself and removes the key once the chain leaves the first origin.
-   */
   async function sendKey(url: string, init: RequestInit): Promise<Response> {
     if (init.redirect && init.redirect !== "follow") return await request(url, init)
     const origin = new URL(url).origin
@@ -99,7 +90,6 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
       if (!REDIRECT_STATUSES.has(response.status) || !location || hop === MAX_REDIRECTS) return response
       await response.body?.cancel().catch(() => undefined)
       const method = (current.method ?? "GET").toUpperCase()
-      // Fetch turns a 303, and a 301 or 302 after POST, into GET without a body.
       if ((response.status === 303 && method !== "GET" && method !== "HEAD") || ((response.status === 301 || response.status === 302) && method === "POST")) {
         headers.delete("content-type")
         headers.delete("content-length")

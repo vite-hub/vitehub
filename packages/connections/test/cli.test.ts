@@ -11,7 +11,6 @@ import { defineConnection } from "../src/definition.ts"
 import { createConnectionsHandler } from "../src/http.ts"
 import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN, testProvider } from "./helpers.ts"
 
-/** The dev server of the project. The CLI never guesses a port, so each test names it. */
 const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
 
 function cli(test = createTestRuntime()) {
@@ -80,7 +79,6 @@ describe("vitehub connections", () => {
   })
 
   it("allows OAuth completion to finish after the provider's 30-second deadline", async () => {
-    // Scale seconds to milliseconds to exercise the full request deadline without a slow test.
     const timeout = AbortSignal.timeout.bind(AbortSignal)
     const deadlines = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms / 1_000))
     const test = createTestRuntime()
@@ -94,7 +92,6 @@ describe("vitehub connections", () => {
     const request = (async (input, init) => {
       const response = await handler.fetch(new Request(input, init))
       if (JSON.parse(String(init?.body)).action === "complete") {
-        // The grant is durable, but the app's final response arrives after 30 seconds.
         await new Promise(resolve => setTimeout(resolve, 31))
         init?.signal?.throwIfAborted()
       }
@@ -193,7 +190,6 @@ describe("vitehub connections", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-connections-cli-"))
     try {
       await mkdir(join(root, ".vitehub"))
-      // A Nuxt dev server on a port other than 5173 records its URL with the app base.
       await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/docs/" }))
       const requests: string[] = []
       const context = { env: { ...devServerEnv }, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
@@ -299,7 +295,6 @@ describe("vitehub connections", () => {
     expect(await harness.run("approvals", ["approve", approval!.id])).toBe(0)
     expect(harness.output.stdout).toContain("executed")
 
-    // Vitest has no terminal, so nothing can confirm.
     expect(await harness.run("revoke", ["mail"])).toBe(1)
     expect(harness.output.stderr).toContain("run it again with --yes")
     expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
@@ -370,7 +365,6 @@ describe("vitehub connections", () => {
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
-    // A dev server that rebuilds Nitro can accept the request and never answer.
     const fetch = (async (_input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => await new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
     })) as typeof globalThis.fetch

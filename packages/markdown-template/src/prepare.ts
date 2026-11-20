@@ -5,8 +5,6 @@ import { htmlPlugins } from "./parser.ts"
 
 const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
 
-// Comark's block components run before multiline code spans. Protect component
-// lines that its own code parser identifies as literal, then restore after rendering.
 export async function prepareTemplate(source: string) {
   const prefix = `VITEHUBCODE${crypto.randomUUID().replaceAll("-", "")}`
   const lines: string[] = []

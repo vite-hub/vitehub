@@ -462,7 +462,6 @@ describe("non-throwing Rate Limit check", () => {
     const event = requestEvent("192.0.2.32")
     await expect(checkRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("`checkRateLimit()` requires a non-empty stable ID")
     await expect(checkRateLimit(event, "previews", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
-    // checkRateLimit() throws no HTTP error, so it has no message to set.
     await expect(checkRateLimit(event, "previews", { limit: 1, message: "Slow down.", window: "1m" } as never)).rejects.toThrow('does not support the "message" option')
   })
 })

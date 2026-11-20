@@ -27,7 +27,6 @@ export const postgresQueuePollIntervalMs = 1000
 /** Milliseconds that `close()` waits for running jobs. */
 export const postgresQueueDrainTimeoutMs = 10_000
 
-/** Jobs that `jobs()` lists at most. */
 const listLimit = 1000
 
 type DeliveryError = QueueDeliveryErrorDetails
@@ -76,7 +75,6 @@ export interface PostgresQueueEngine extends QueueJobStore {
   readonly workerId: string
 }
 
-// Times are ISO strings: the Drizzle client of a Database returns timestamps as Postgres text, not as `Date`.
 interface JobRow {
   attempts: number
   created_at: string
@@ -86,7 +84,6 @@ interface JobRow {
   last_error: DeliveryError | null
   locked: boolean
   message_id: string
-  /** `send()` got no payload. Postgres.js reads SQL `null` and JSON `null` both as `null`. */
   no_payload?: boolean
   payload?: unknown
   queue: string
@@ -120,7 +117,6 @@ function toJobSummary(row: JobRow): LocalQueueJob {
     ...(row.failed_at ? { failedAt: iso(row.failed_at) } : {}),
     id: row.message_id,
     queue: row.queue,
-    // A claim that ran out can be taken again, even if its previous handler is still running.
     state: row.status === "running" && !row.locked ? "pending" : row.status,
   }
 }
@@ -136,11 +132,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   const workerId = options.workerId ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
   const channel = table
   const ownsClient = "url" in options.connection
-  // Postgres prints a notice for each `if not exists` that skips. The jobs need no notices.
   const sql = "url" in options.connection ? postgres(options.connection.url, { onnotice: () => {} }) : options.connection.client
   const base = describePostgresQueueLocation(sql, table)
   const t = sql(table)
-  // `to_json()` writes a timestamp in ISO 8601, whatever parsers the client has.
   const times = sql`to_json(run_at) #>> '{}' as run_at, to_json(created_at) #>> '{}' as created_at, to_json(failed_at) #>> '{}' as failed_at`
 
   const running = new Map<string, Promise<void>>()
@@ -155,7 +149,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   let pumpAgain = false
   let closed = false
 
-  /** Creates the table once per process. Concurrent cold starts wait for one transaction lock, so they do not race. */
   function ensureTable(): Promise<void> {
     ready ??= (async () => {
       try {
@@ -181,7 +174,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
           updated_at timestamptz not null default now(),
           failed_at timestamptz
         )`
-        // A live job holds its idempotency key. A dead job does not, and a completed job is deleted.
         await tx`create unique index if not exists ${sql(`${table}_idempotency`)} on ${t} (queue, idempotency_key) where idempotency_key is not null and status <> 'dead'`
         await tx`create index if not exists ${sql(`${table}_due`)} on ${t} (queue, run_at) where status <> 'dead'`
         await tx`create index if not exists ${sql(`${table}_message`)} on ${t} (message_id)`
@@ -198,7 +190,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     timer = undefined
     if (closed) return
     timer = setTimeout(wake, ms)
-    // A server keeps the process alive. The poll timer alone does not.
     timer.unref?.()
   }
 
@@ -222,7 +213,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     return value
   }
 
-  /** Takes due jobs while a Queue Definition has a free slot, and starts them. */
   async function pump() {
     let wait = pollIntervalMs
     try {
@@ -261,7 +251,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   }
 
   async function claim(queue: string, limit: number): Promise<JobRow[]> {
-    // Evaluate the locking LIMIT once, even when the planner favors a nested loop.
     return await sql<JobRow[]>`
       with next_jobs as materialized (
         select id as claim_id from ${t}
@@ -302,14 +291,11 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
   }
 
   async function deliver(row: JobRow) {
-    // A claim counts the attempt before the handler runs. A job above the limit lost its last attempt to a stopped
-    // process, for example a handler that crashes the process, so it does not run again.
     if (row.attempts > rules.maxAttempts) {
       await markDead(row, { message: "[vitehub] The process stopped during the last attempt of this job.", name: "Error" }, `after ${row.attempts - 1} attempts`)
         .catch((error: unknown) => console.error(`[vitehub:queue] The postgres provider cannot update a job in ${base}.`, error))
       return
     }
-    // Renew while the handler runs. A failed renewal can let another worker take the job.
     let handling = true
     const renew = setInterval(() => {
       void sql`update ${t} set locked_until = now() + make_interval(secs => ${lockSeconds}), updated_at = now()
@@ -353,13 +339,11 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         await markDead(row, report, `after ${row.attempts} attempts`)
         return
       }
-      // A pending job keeps its last error, so `vitehub queue jobs list` shows why it waits.
       await sql`update ${t} set status = 'pending', run_at = now() + make_interval(secs => ${retryDelayMs(row.attempts) / 1000}),
         last_error = ${JSON.stringify(report)}::text::jsonb, locked_by = null, locked_until = null, updated_at = now()
         where id = ${row.id} and locked_by = ${workerId} and attempts = ${row.attempts}`
     }
     catch (storeError) {
-      // The claim runs out, and another worker takes the job again.
       console.error(`[vitehub:queue] The postgres provider cannot update a job in ${base}. The job runs again when its claim ends.`, storeError)
     }
   }
@@ -395,11 +379,8 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       closed = true
       if (timer) clearTimeout(timer)
       timer = undefined
-      // A listener that is still starting must also be released.
       await started
-      // A claim in progress adds its jobs to `running` before it ends.
       await pumping
-      // Jobs that do not end in time keep their claim. Another instance runs them again when the claim ends.
       let drainTimer: ReturnType<typeof setTimeout> | undefined
       await Promise.race([
         Promise.allSettled(running.values()),
@@ -408,16 +389,13 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
         }),
       ])
       clearTimeout(drainTimer)
-      // Keep leases alive during the drain, but let unfinished claims expire after its deadline.
       for (const renew of renewals) clearInterval(renew)
       renewals.clear()
       if (running.size) console.warn(`[vitehub:queue] The postgres provider stopped with ${running.size} running job${running.size === 1 ? "" : "s"}. Another instance runs ${running.size === 1 ? "it" : "them"} again in ${lockSeconds} s.`)
       await unlisten?.().catch(() => {})
-      // A borrowed client belongs to the Database, which keeps using it.
       if (ownsClient) await sql.end({ timeout: 5 })
     },
     async enqueue(queue, entries) {
-      // Check every job before one is stored, so a send that breaks a rule stores nothing.
       const prepared = entries.map((entry) => {
         const text = JSON.stringify(entry.payload)
         return { delaySeconds: delayMs(entry.delaySeconds, rules) / 1000, entry, text }
@@ -426,7 +404,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
       const ids = await sql.begin(async (tx) => {
         const accepted: string[] = []
         for (const { delaySeconds, entry, text } of prepared) {
-          // The update on a conflict changes nothing. It locks the live job and returns its ID.
           const [row] = await tx<{ message_id: string }[]>`
             insert into ${t} (id, message_id, queue, payload, run_at, idempotency_key)
             values (${randomUUID()}, ${entry.id}, ${queue}, ${text === undefined ? null : text}::text::jsonb,
@@ -436,7 +413,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
             returning message_id`
           accepted.push(row!.message_id)
         }
-        // Postgres sends the notification when the transaction commits.
         await tx`select pg_notify(${channel}, ${queue})`
         return accepted
       })
@@ -477,7 +453,6 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
               where id = ${row.id} and not (status = 'running' and locked_until >= now()) returning ${columns}`
       }
       catch (error) {
-        // A newer live job holds the idempotency key of this dead job.
         if (error instanceof postgres.PostgresError && error.code === "23505") return "duplicate"
         throw error
       }

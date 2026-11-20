@@ -84,7 +84,6 @@ function describeChoice(choice: RealtimeNodeDriverChoice): string {
     : `[vitehub] Realtime shares rooms across instances through ${choice.driver === "redis" ? "Redis" : "Postgres"} (${choice.source}).`
 }
 
-/** The postgres.js client of the Default Database, or undefined when it is not one. */
 async function defaultDatabaseClient(databases: (() => Promise<RealtimeDatabases>) | undefined): Promise<PostgresClient | undefined> {
   const entry = databases ? (await databases()).default : undefined
   const client: unknown = entry ? Reflect.get(entry.db, "$client") : undefined
@@ -124,7 +123,6 @@ export function useRealtimeBus(driver: RealtimeNodeDriver = "auto", options: Rea
   if (existing) return existing
   const pending = createRealtimeNodeBus(driver, options)
   buses().set(driver, pending)
-  // A failed connection is tried again by the next room that opens.
   pending.catch(() => {
     if (buses().get(driver) === pending) buses().delete(driver)
   })
@@ -162,7 +160,6 @@ function createBusBase() {
     onClose(hook: () => Promise<void>) {
       hooks.push(hook)
     },
-    /** Runs the close hooks once, then `end`. */
     close(end: () => Promise<void>): Promise<void> {
       closing ??= (async () => {
         await Promise.allSettled(hooks.map(hook => hook()))
@@ -175,10 +172,6 @@ function createBusBase() {
 
 type Listener = (message: RealtimeBusMessage) => void | Promise<void>
 
-/**
- * Runs the listeners on each message in arrival order, also when one message needs an async step to read. `start`
- * subscribes once, for the first listener.
- */
 function createDelivery(instance: string, read: (raw: string | Uint8Array) => Promise<Uint8Array | undefined>, start: (resubscribed: () => void) => Promise<void>) {
   let queue = Promise.resolve()
   const listeners = new Set<Listener>()
@@ -206,7 +199,6 @@ function createDelivery(instance: string, read: (raw: string | Uint8Array) => Pr
   }
 }
 
-/** Sends messages one at a time, so that the other instances receive them in the order this instance sent them. */
 function createSendQueue() {
   let queue = Promise.resolve()
   return <T>(send: () => Promise<T>): Promise<T> => {
@@ -216,7 +208,6 @@ function createSendQueue() {
   }
 }
 
-/** Runs at most `limit` tasks at a time. */
 function createLimit(limit: number) {
   let active = 0
   const waiting: Array<() => void> = []
@@ -234,17 +225,12 @@ function createLimit(limit: number) {
 }
 
 const postgresChannel = "vitehub_realtime"
-/** `NOTIFY` payloads stop at 8000 bytes. A larger message goes to a table, and the notification carries its id. */
 const maxNotifyPayload = 7_900
-/** Large messages stay this long for instances that read them late. */
 const postgresMessageRetentionSeconds = 300
-/** Pool size for room records and notifications. Locks use their own pool so adapter queries cannot wait on them. */
 const postgresConnections = 6
 const postgresLockedSaves = 3
-/** A stable number for `pg_advisory_xact_lock()` while the tables are created: "vhrt" in ASCII. */
 const postgresSetupLock = 0x76687274
 
-/** The part of postgres.js that the bus uses. */
 interface PostgresClient {
   <T extends readonly object[] = Array<Record<string, unknown>>>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T & { count: number }>
   begin<T>(task: (transaction: PostgresClient) => Promise<T>): Promise<T>
@@ -276,7 +262,6 @@ function toRecord(row: Record<string, unknown> | undefined): RealtimeRoomRecord 
  */
 export async function createPostgresRealtimeBus(connection: ({ client: unknown } | { url: string }) & { namespace?: string }): Promise<RealtimeBus> {
   const namespace = connection.namespace ?? "default"
-  // A channel name stops at 63 bytes, so it carries a hash of the namespace.
   const channel = `${postgresChannel}_${createHash("sha256").update(namespace).digest("hex").slice(0, 16)}`
   let sql: PostgresClient
   const owned = "url" in connection
@@ -288,8 +273,6 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
   else if (isPostgresClient(connection.client)) sql = connection.client
   else throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "postgres" })
   const { default: postgres } = await import("postgres")
-  // The callback may use the borrowed Database, including a max=1 pool. Reserve locks on an independent pool with
-  // the same resolved connection settings; never occupy the connection that the adapter needs to finish its save.
   // SAFETY: postgres.js accepts its own parsed options through their internal `shared` field, preserving resolved
   // hosts, credentials and socket hooks. Its constructor types describe only unparsed options.
   const locks = postgres({ ...sql.options, max: postgresLockedSaves, onnotice: () => {} } as unknown as import("postgres").Options<{}>)
@@ -358,11 +341,9 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
         : await sql`update vitehub_realtime_rooms set epoch = ${record.epoch}, digest = ${record.digest}, state = ${state}, pending = ${record.pending ?? false}, updated_at = now() where namespace = ${namespace} and room_key = ${room} and epoch = ${ifEpoch} returning room_key`
       return rows.length === 1
     },
-    // A transaction-scoped lock ends with the transaction, and with the connection when the instance stops.
     withRoomLock: (room, task) => locked(async () => {
       const result = await locks.begin(async (transaction) => {
         await transaction`select pg_advisory_xact_lock(hashtextextended(${`vitehub_realtime:${namespace}:${room}`}, 0))`
-        // Keep the generic result inside an object so the driver's array-return type cannot unwrap it.
         return { value: await task() }
       })
       return result.value
@@ -375,10 +356,8 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
 }
 
 const redisPrefix = "vitehub:realtime:"
-/** A lock whose holder stopped expires after this time. */
 const redisLockMs = 30_000
 
-/** Writes the record when the stored epoch is ARGV[1], or when there is no record and ARGV[1] is empty. */
 const redisWriteRoomScript = `
 local current = redis.call('HGET', KEYS[1], 'epoch')
 if (ARGV[1] == '' and current == false) or (current ~= false and current == ARGV[1]) then
@@ -388,7 +367,6 @@ end
 return 0
 `
 
-/** Extends the lock while its holder still runs, so a save that takes longer than 30 seconds keeps it. */
 const redisRenewLockScript = `
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('PEXPIRE', KEYS[1], ARGV[2])
@@ -429,7 +407,6 @@ export async function createRedisRealtimeBus(url: string, options: { namespace?:
   const delivery = createDelivery(base.instance, async raw => typeof raw === "string" ? undefined : raw, async (resubscribed) => {
     subscriber.on("messageBuffer", (_channel: Buffer, message: Buffer) => delivery.push(Uint8Array.from(message)))
     await subscriber.subscribe(redisChannel)
-    // ioredis subscribes again after a reconnect. Messages sent while it was down are lost.
     subscriber.on("ready", resubscribed)
   })
 

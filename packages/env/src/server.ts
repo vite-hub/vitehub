@@ -34,7 +34,6 @@ import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
-// The generated `#vitehub/env/server` module builds its `seal()` and `unseal()` with it.
 export { createSealing, seal, unseal } from "./seal-value.ts"
 export type { SealOptions, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 
@@ -59,7 +58,6 @@ export interface DeriveSecretOptions {
   root?: string
 }
 
-/** The development secret that the Vite plugin generated or selected for one project. Private to the generated module. */
 interface DevelopmentSecret {
   envKey?: string
   generated?: boolean
@@ -86,7 +84,6 @@ export async function deriveSecret(purpose: string, options: DeriveSecretOptions
   return await deriveViteHubSecret(root, purpose)
 }
 
-/** An empty variable counts as missing, so it never shadows a later name or satisfies a required value. */
 function hasRuntimeName(env: RuntimeEnv, name: string): boolean {
   return Object.hasOwn(env, name) && env[name] !== undefined && env[name] !== ""
 }
@@ -98,7 +95,6 @@ function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: bo
   return { found: false }
 }
 
-/** Report which kind of name supplied the value, and whether a shadowed conventional name holds another value. */
 function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { found: boolean, name?: string, value?: unknown }): Pick<ServerEnvInspectionEntry, "conflict" | "via"> {
   const canonical = entry.source.canonical
   if (!source.found || canonical === undefined || canonical === false) return {}
@@ -108,12 +104,10 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
-/** Server Env resolves every declaration together, so the message must say why reading another value fails. */
 function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntry, path: string): string {
   const supply = entry.source.kind === "env"
     ? `Set ${(entry.source.names || [entry.source.name]).join(" or ")}`
     : "Return it from the provider"
-  // A default is serialized into the generated server module, so a secret must not be told to use one.
   const fix = entry.secret ? `${supply} or declare it with optional: true.` : `${supply}, give it a default, or declare it with optional: true.`
   return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${fix}`
 }
@@ -200,8 +194,6 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
   }
   const parsed = parseRuntimeValue(entry, resolved, path)
   if (!parsed.success) {
-    // A secret must not list its allowed values, even though the registry rejects secret enums.
-    // Schema issue messages can quote the input, so a secret hides them too.
     const message = entry.secret
       ? entry.schemaModule ? "The value does not match its schema." : "The value does not match its declared type."
       : parsed.message
@@ -237,10 +229,6 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): un
   return output
 }
 
-/**
- * Copy the namespace records of a resolved registry, so a caller that changes its result does not change the cached
- * one. resolveRegistryValue() creates each namespace without a prototype, and provider getters keep their descriptor.
- */
 function copyNamespaces(value: object): object {
   const descriptors = Object.getOwnPropertyDescriptors(value)
   for (const descriptor of Object.values(descriptors)) {
@@ -478,10 +466,8 @@ function inspectionPath(path: string): { path?: string } {
   return /^(?:env|runtime)(?:\.[A-Za-z_$][A-Za-z0-9_$-]{0,63}){0,8}$/.test(path) ? { path } : {}
 }
 
-// A host variable name. Anything else is withheld, since a name with other characters may hold data.
 const hostVariableName = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
 
-/** The host variable names an env declaration reads, in read order. Never values. */
 function inspectionNames(entry: RuntimeEnvEntry): { names?: readonly string[] } {
   const names = (entry.source.names || [entry.source.name]).filter(name => hostVariableName.test(name))
   return names.length ? { names } : {}
@@ -532,14 +518,12 @@ async function inspectRegistryEntry(
 const registryEnvNames = new WeakMap<object, readonly string[] | null>()
 const resolvedServerEnvs = new WeakMap<object, { key: string, value: unknown }>()
 
-/** The env names a registry reads, or null when it declares an array, list, JSON value, or object, since each call returns its own copy. */
 function reusableEnvNames(registry: object): readonly string[] | null {
   const known = registryEnvNames.get(registry)
   if (known !== undefined) return known
   let names: string[] | null = []
   for (const { entry } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeEnvEntry(entry)) continue
-    // A schema from env.schemaFrom() can return an object, and a call must not share it.
     if (entry.schemaModule || entry.schema?.kind === "array" || entry.schema?.kind === "json" || entry.schema?.kind === "list" || entry.schema?.kind === "object") {
       names = null
       break
@@ -550,10 +534,8 @@ function reusableEnvNames(registry: object): readonly string[] | null {
   return names
 }
 
-/** The values of every name the registry reads, as one string. Undefined when the result must not be reused. */
 function serverEnvKey(registry: object, event: ViteHubContext | undefined): string | undefined {
   const names = reusableEnvNames(registry)
-  // Test values change between tests, so a test reads the env again on each call.
   if (!names || getViteHubTestMode()) return undefined
   const host = processEnv()
   const cloudflare = cloudflareEnv(event) ?? {}

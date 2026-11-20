@@ -21,7 +21,6 @@ export default defineConfig({
     ...ui({
       comark: false,
       nuxtUI: {
-        // Match console.account.vite.config.ts: the Console appearance module owns the color scheme.
         colorMode: false,
         dts: false,
         ui: consoleAppConfig,
@@ -30,7 +29,6 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
-      // The Nuxt UI utility names on shadcn tokens. The file is copied to dist/ as it is; this reads it before a build.
       {
         find: "@vite-hub/kit/styles/tailwind.css",
         replacement: resolve(workspaceRoot, "packages/kit/src/styles/tailwind.css"),
@@ -51,7 +49,6 @@ export default defineConfig({
         find: "vite-hub/agent/vue",
         replacement: resolve(workspaceRoot, "packages/agent/src/vue.ts"),
       },
-      // The rail, Content editing, and live editing import these. Their exports point to dist/, which a fresh checkout has not built.
       {
         find: "@vite-hub/auth/vue",
         replacement: resolve(workspaceRoot, "packages/auth/src/vue.ts"),

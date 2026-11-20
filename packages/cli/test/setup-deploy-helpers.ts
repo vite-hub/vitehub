@@ -15,13 +15,11 @@ export interface FakeCall {
   cwd: string
   pid: number
   generated?: Record<string, unknown>
-  /** The `--secrets-file` of a Wrangler run, read while the run lasted. */
   secretsFile?: { path: string, mode?: number, values?: Record<string, string>, missing?: true }
   accountId?: string
 }
 
 export interface FakeHosts {
-  /** The env for `runSetup`: PATH with the fake CLIs and git, and where the fakes record their calls. */
   env: NodeJS.ProcessEnv
   calls: () => Promise<FakeCall[]>
   state: () => Promise<{ secrets: Record<string, string>, deploys: number }>
@@ -29,7 +27,6 @@ export interface FakeHosts {
 
 const fakeCli = join(import.meta.dirname, "fixtures", "fake-host-cli.cjs")
 
-/** Writes fake `wrangler`, `vercel`, `netlify`, and `deno` executables into a folder and puts it first on PATH. */
 export async function fakeHosts(env: NodeJS.ProcessEnv = {}): Promise<FakeHosts> {
   const folder = await createProject()
   const bin = join(folder, "bin")
@@ -61,7 +58,6 @@ if (await run(["deploy", "create", ".", "--source", "local", ...common]) !== 0) 
 }
 `
 
-/** The build output files of each host, as ViteHub's build writes them, without the server bundle. */
 export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", deployCommand = "npx wrangler deploy --config ./server/wrangler.json"): Record<string, string> {
   const manifest = (dir: string) => ({ [`${dir}/deployment.json`]: JSON.stringify({ host, identity: { name: "my-app", source: "package" } }) })
   switch (host) {
@@ -80,7 +76,6 @@ export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", 
   }
 }
 
-/** A built project for `host`. */
 export async function builtProject(host: "cloudflare" | "vercel" | "netlify" | "deno", files: Record<string, string> = {}): Promise<string> {
   return await createProject({
     "package.json": JSON.stringify({ name: "my-app", packageManager: "pnpm@10.0.0", scripts: { build: "vite build" }, type: "module" }),
@@ -91,7 +86,6 @@ export async function builtProject(host: "cloudflare" | "vercel" | "netlify" | "
   })
 }
 
-/** The tokens appear in no argv and no CLI output. */
 export function expectNoLeak(calls: readonly FakeCall[], output: string, values: readonly string[]): void {
   for (const value of values) {
     for (const call of calls) expect(call.argv.join(" "), `${call.name} ${call.argv.join(" ")}`).not.toContain(value)
@@ -101,14 +95,9 @@ export function expectNoLeak(calls: readonly FakeCall[], output: string, values:
 
 export interface CliProcess {
   pid: number
-  /** Resolves when the process ends, with its exit code or the signal that ended it. */
   exited: Promise<{ code: number | null, signal: NodeJS.Signals | null, stdout: string, stderr: string }>
 }
 
-/**
- * Runs the CLI from source in its own Node process, as the vite-hub bin does. Use it when the test needs process
- * state that `runSetup` shares with Vitest: signals, or a `DEBUG` that Vite reads when it is first imported.
- */
 export function cliProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CliProcess {
   const entry = `import { runViteHubCliEntrypoint } from ${JSON.stringify(join(import.meta.dirname, "../src/index.ts"))}\nrunViteHubCliEntrypoint({ args: ${JSON.stringify(args)} })\n`
   const child = spawn(process.execPath, ["--input-type=module", "--eval", entry],{ cwd, env, stdio: ["ignore", "pipe", "pipe"] })

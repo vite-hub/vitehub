@@ -210,7 +210,7 @@
   "packages/vite-hub/src/console/runtime/server/blob.ts": 1,
   "packages/vite-hub/src/console/runtime/server/channel-replay.ts": 2,
   "packages/vite-hub/src/console/runtime/server/console-signature.ts": 2,
-  "packages/vite-hub/src/console/runtime/server/database.get.ts": 7,
+  "packages/vite-hub/src/console/runtime/server/database.get.ts": 6,
   "packages/vite-hub/src/console/runtime/server/definitions.get.ts": 6,
   "packages/vite-hub/src/console/runtime/server/definitions.ts": 1,
   "packages/vite-hub/src/console/runtime/server/documents.ts": 5,

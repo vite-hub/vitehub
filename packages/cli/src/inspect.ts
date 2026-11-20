@@ -57,7 +57,6 @@ function redactSummary(summary: ViteHubDefinitionSummary): ViteHubDefinitionSumm
   }
 }
 
-/** The operations of the app as one Definition kind. */
 function operationInspector(operations: readonly AnyOperation[]) {
   return {
     kind: "operation",
@@ -230,7 +229,6 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
 
 const wranglerIdFields = { "cloudflare-d1": ["d1_databases", "database_id"], "cloudflare-kv-namespace": ["kv_namespaces", "id"] } as const
 
-// Reads binding ids from a generated Wrangler config, keyed by resource kind and binding.
 function readGeneratedWranglerIds(entries: readonly ViteHubProviderOutputEntry[]): Map<string, string> {
   const ids = new Map<string, string>()
   for (const entry of entries) {
@@ -317,15 +315,10 @@ async function runResources(args: string[], context: InspectContext, plugins: re
   return 0
 }
 
-/** One server route of the production build. */
 interface RouteReport {
-  /** The handler file: relative to the project root, or `<package>/<file>` for a file of another package. */
   handler: string
-  /** `*` when the route answers every method. */
   method: string
-  /** Middleware runs before the routes and passes the request on. */
   middleware?: true
-  /** The ViteHub area of a generated handler, the package of a package file, or `app`. */
   owner: string
   route: string
 }
@@ -339,7 +332,6 @@ function findPackage(file: string): { dir: string, name: string } | undefined {
   }
 }
 
-// Generated handlers live in `.vitehub/<area>/` or `.vitehub/nitro/<area>/`.
 function routeHandler(rootDir: string, file: string): Pick<RouteReport, "handler" | "owner"> {
   const path = relative(rootDir, file)
   const generated = file.lastIndexOf("/.vitehub/")
@@ -372,7 +364,6 @@ function readRoutes(rootDir: string, handlers: readonly unknown[]): RouteReport[
     seen.add(key)
     routes.push(report)
   }
-  // Middleware runs first, so it comes first. Routes keep the order Nitro reads them in.
   return [...routes.filter(route => route.middleware), ...routes.filter(route => !route.middleware)]
 }
 

@@ -108,7 +108,6 @@ function invalidResponse(host: string): Error {
   return cliErrorDiagnostics.CLI_HOST_RESPONSE_INVALID({ host })
 }
 
-/** The same normalization as the deployment identity of `vitehub({ name })`. */
 function normalizeName(value: string | undefined): string | undefined {
   return value?.trim().toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "") || undefined
 }
@@ -129,7 +128,6 @@ function nameRequired(): SetupFailure {
   return setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
 }
 
-/** `--project`, else the literal `name` of vitehub(), else the package.json name, normalized as the build does. */
 async function projectName(project: SetupProject, option: string | undefined): Promise<string> {
   if (option?.trim()) return option.trim()
   const config = project.config
@@ -166,7 +164,6 @@ function notFound(host: SetupLinkHost, name: string, options: SetupLinkOptions, 
   return setupFailure(cliErrorDiagnostics.SETUP_LINK_PROJECT_NOT_FOUND({ account, host, project: name, rerun }), setupExitCodes.conflict, { rerun })
 }
 
-/** Returns undefined when the host API answers 404. */
 async function unlessNotFound<T>(request: Promise<T>): Promise<T | undefined> {
   try {
     return await request
@@ -194,7 +191,6 @@ function parseCloudflareWorker(value: unknown): { id?: string, name: string } {
   return { ...(id ? { id } : {}), name }
 }
 
-// Workers API: GET /accounts and GET or POST /accounts/{account_id}/workers/workers[/{name}].
 async function linkCloudflare(name: string, options: SetupLinkOptions, token: string, accountId: string | undefined, fetchImpl: typeof fetch): Promise<HostProject> {
   let account: SetupLinkAccount
   if (accountId) account = { id: accountId }
@@ -227,7 +223,6 @@ function parseVercelProject(value: unknown): { id: string, name: string, account
   return { id, name, ...(accountId ? { accountId } : {}) }
 }
 
-// Projects API: GET /v9/projects/{idOrName} and POST /v11/projects, with `teamId` for a team.
 async function linkVercel(name: string, options: SetupLinkOptions, token: string, teamId: string | undefined, fetchImpl: typeof fetch): Promise<HostProject> {
   const client = createVercelProvisionClient({ teamId, token }, fetchImpl)
   let created = false
@@ -261,7 +256,6 @@ function parseNetlifySites(value: unknown): NetlifySite[] {
   return value.map(parseNetlifySite)
 }
 
-// Sites API: GET and POST /sites, or /{account_slug}/sites with `--account`. `name` filters by a part of the name.
 async function linkNetlify(name: string, options: SetupLinkOptions, token: string, fetchImpl: typeof fetch): Promise<HostProject> {
   const client = createNetlifyApiClient(token, fetchImpl)
   const path = options.account ? `/${encodeURIComponent(options.account)}/sites` : "/sites"
@@ -307,7 +301,6 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
 
   let linked: HostProject
   if (host === "deno") {
-    // Deno Deploy has no project lookup here yet, so the link keeps the name and stays unverified.
     linked = { ...(options.account ? { account: { id: options.account } } : {}), created: false, project: { name }, verified: false }
   }
   else if (!credentials.ok) {
@@ -536,7 +529,6 @@ async function readStatusCredentials(host: CredentialHost, cwd: string, context:
   }
   catch (error: unknown) {
     if (!signal?.aborted) throw error
-    // Preserve the credential output contract using only local environment data after a timeout.
     return await envOnly()
   }
 }

@@ -11,7 +11,6 @@ export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
   icon: "i-vitehub-email",
   id: "email",
   label: "Email",
-  // Generated Console code imports the reader by path.
   runtime: { export: "readEmailOutboxConsoleRecords", module: ownModule(import.meta.url, "runtime/console") },
   view: {
     columns: [

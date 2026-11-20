@@ -230,7 +230,6 @@ async function withMcpClient<T>(
   if (isMcpResourcesClient(resolved)) {
     return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
   }
-  // Create the owned client without interruption, so this function always closes it.
   const { client, transport } = await createMcpClient(resolved)
   let result: T
   try {
@@ -323,10 +322,6 @@ function isIgnoredBeforeContentRead(
   if (options.path || resource.mimeType || candidate.split("/").at(-1)?.includes(".")) {
     return matchesIgnore(candidate)
   }
-  // An extensionless descriptor is only a provisional path. Its final key is
-  // determined by the content MIME type, so do not guess an extension here.
-  // A global catch-all remains conclusive, while an exact provisional match
-  // must be deferred until MIME inference determines the exposed key.
   const patterns = Array.isArray(options.ignore) ? options.ignore : [options.ignore]
   return patterns.some(pattern => (pattern === "**" || pattern === "**/*") && matchesAny(candidate, pattern))
 }
@@ -374,7 +369,6 @@ interface McpSchemas {
   ResourceContentsSchema: typeof ResourceContentsSchema
 }
 
-// The SDK is an optional peer. Load its schemas with the first response, so importing this module does not need it.
 let mcpSchemas: Promise<McpSchemas> | undefined
 function loadMcpSchemas(): Promise<McpSchemas> {
   return mcpSchemas ??= import("@modelcontextprotocol/sdk/types.js")
@@ -498,8 +492,6 @@ async function createEntries<TKey extends string>(
   const matchesInclude = createPathMatcher(options.include)
   const matchesIgnore = options.ignore ? createPathMatcher(options.ignore) : () => false
   for (const resource of resources) {
-    // Apply an explicit ignore before reading content to infer a missing MIME type.
-    // An excluded resource must not trigger a remote read or leak a provider error.
     const candidate = resourceKey(resource, options)
     if (isIgnoredBeforeContentRead(resource, candidate, options, matchesIgnore)) continue
     let contents: McpResourceContent[] | undefined

@@ -151,7 +151,6 @@ async function createStageFixture(): Promise<string> {
   await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "env"), "dir")
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-cli-fixture", private: true, type: "module" }), "utf8")
   await mkdir(join(root, "server"), { recursive: true })
-  // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
     "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
@@ -270,7 +269,6 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     const kitRoot = join(root, "node_modules", "nuxt")
     await mkdir(kitRoot, { recursive: true })
     await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
-    // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
     await writeFile(join(kitRoot, "kit.mjs"), [
       'import { appendFileSync } from "node:fs"',
       'import { DevEnvironment } from "vite"',
@@ -441,7 +439,6 @@ describe("env CLI with Vite stage files", () => {
     expect(await realFeature("check").run(["--stage", "staging", "--json"], context)).toBe(1)
     const report: { entries: Array<{ path?: string, status: string }>, ok: boolean } = JSON.parse(output.stdout)
     expect(report.ok).toBe(false)
-    // The stage file provides the region, so the provider does not see the process value.
     expect(report.entries.find(entry => entry.path === "env.server.region")?.status).toBe("available")
     expect(report.entries.find(entry => entry.path === "env.server.regionToken")?.status).toBe("missing")
   }, 60_000)

@@ -16,11 +16,10 @@ const outboxProblems = {
 export type EmailDriverProblem = keyof typeof driverProblems
 export type EmailOutboxProblem = keyof typeof outboxProblems
 
-// Keep published codes stable. Each code has a heading on the docs page.
 export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/email/diagnostics",
   codes: {
-    // Runtime errors. `send()` returns them as `[error, undefined]`.
+    // Runtime errors.
     EMAIL_AUTHENTICATION: {
       why: ({ driver }: { driver: string }) => `The ${driver} Email provider rejected the credentials.`,
       fix: "Check the API key or binding of the driver, and check that the provider authorizes the sender.",
@@ -50,7 +49,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.",
     },
 
-    // Operation errors. The `email.*` operations and `vitehub email preview` throw them with an HTTP status.
+    // Operation errors.
     EMAIL_OUTBOX_DISABLED: {
       why: "The Email development outbox is disabled.",
       fix: "Remove `email.outbox: false` to capture messages in `vite dev`.",
@@ -64,7 +63,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`.",
     },
 
-    // Config errors. Email throws them because the code or the deployment must change.
+    // Config errors.
     EMAIL_INVALID_DRIVER: {
       why: ({ problem }: { problem: EmailDriverProblem }) => driverProblems[problem],
       fix: "Pass a driver from `@vite-hub/email/drivers/*`, or an object with a `name` and a `send()` function.",
@@ -76,7 +75,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `vitehub({ email: { driver, options } })`, and check the driver options. `error.cause` tells which option is not valid.",
     },
 
-    // Build errors. The Vite plugin throws them.
+    // Build errors.
     EMAIL_DUPLICATE_TEMPLATE: {
       why: ({ name }: { name: string }) => `Two Email templates have the name ${JSON.stringify(name)}.`,
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",

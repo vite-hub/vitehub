@@ -42,7 +42,6 @@ it("rotates stored tokens to the first key of VITEHUB_CONNECTIONS_KEYS with the 
     expect(output.stderr).toBe("")
     expect(JSON.parse(output.stdout)).toEqual({ rotated: 1, skipped: 0 })
 
-    // The previous key is gone from the keyring and the token still reads.
     vi.stubEnv("VITEHUB_CONNECTIONS_KEY", "")
     vi.stubEnv("VITEHUB_CONNECTIONS_KEYS", keyB.toString("base64"))
     useDatabase(db)

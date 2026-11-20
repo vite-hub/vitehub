@@ -70,9 +70,7 @@ export interface ShutdownRuntime {
 /** Name of the variable that sets the shared drain budget in milliseconds. The default is 0. */
 export const shutdownDrainEnv = "VITEHUB_SHUTDOWN_DRAIN_MS"
 
-/** Time that a drain gets after the budget ends to finish its abort, such as a restart notice. */
 const settleMs = 15_000
-/** Time that the server gets to close HTTP and run Nitro `close` hooks after the drains. */
 const closeMs = 10_000
 const signals: ShutdownSignal[] = ["SIGTERM", "SIGINT"]
 
@@ -83,7 +81,6 @@ function currentProcess(): ShutdownRuntime | undefined {
   return candidate as unknown as ShutdownRuntime
 }
 
-/** State for a host without `process`, such as a Cloudflare Worker without Node compatibility. */
 let isolateState: ShutdownState | undefined
 
 /** Returns the shutdown state of this process. */
@@ -143,7 +140,6 @@ export function runShutdownDrains(app?: ShutdownApp, runtime: ShutdownRuntime | 
   const timeoutMs = drainBudget(runtime)
   const entries = [...state.entries].filter(entry => !app || entry.app === app)
   return Promise.all(entries.map(entry => entry.result ??= runEntry(entry, timeoutMs, state).finally(() => {
-    // A Nitro app that closes without a stop signal, such as a development reload, does not run again.
     if (state.status === "running") state.entries.delete(entry)
   })))
 }
@@ -162,13 +158,9 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     const names = [...state.entries].map(entry => entry.name)
     console.info("[vitehub]", JSON.stringify({ drainMs: drainBudget(runtime), drains: names, event: "shutdown.draining", signal, timestamp: new Date().toISOString() }))
     void (async () => {
-      // The host installs its stop listener on the next turn. Wait for that handoff
-      // before draining so an early signal cannot bypass the HTTP/Nitro close path.
       await setup
       if (!serverListeners.length) {
         state.status = "running"
-        // `stop` consumed the signal while the host handoff was pending. Restore the
-        // platform's normal signal behavior once the temporary listener is removed.
         if (runtime.kill && typeof process !== "undefined" && typeof process.pid === "number")
           runtime.kill(process.pid, signal)
         return
@@ -177,8 +169,6 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.drained", results, signal, timestamp: new Date().toISOString() }))
       const listeners = serverListeners.filter(([name]) => name === signal)
       const closeServer = Promise.all(listeners.map(([, listener]) => Promise.resolve().then(() => listener(signal)))).then(
-        // The host listener owns Nitro's close lifecycle; once it returns, its close
-        // hooks have completed and the process can publish the final shutdown record.
         () => undefined,
         (error: unknown) => console.error("[vitehub] Server shutdown failed.", error),
       )
@@ -188,9 +178,6 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       ])
       state.status = "exited"
       const exited = JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.exited", signal, timestamp: new Date().toISOString() })
-      // Write the final record through the stream itself, then wait for its callback. This
-      // preserves the record when stdout is piped, while the bound keeps a broken adapter
-      // from preventing termination.
       if (runtime.stdout) {
         await new Promise<void>(resolve => {
           let settled = false
@@ -207,8 +194,6 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
             finish(error)
           })
         })
-        // Give the event loop one turn after the stream acknowledges the write so consumers
-        // reading a piped stdout receive the final record before the process exits.
         await new Promise<void>(resolve => setImmediate(resolve))
       } else console.info("[vitehub]", exited)
       runtime.exit(0)
@@ -219,19 +204,10 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     })
   }
   for (const signal of signals) runtime.on(signal, stop)
-  // The Nitro server adds its own stop listeners after the plugins run. A server that owns
-  // stop signals, such as the srvx server of the Node, Bun, and Deno presets, adds them now.
-  // ViteHub holds them until the drains settle, so HTTP stays up for the drain.
   setTimeout(() => {
     for (const signal of signals) {
-      // The host installs one stop listener after the ViteHub plugins. Keep that
-      // first handoff listener for the delayed close; later listeners belong to
-      // applications or integrations and must retain their normal ordering.
       const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
         typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
-      // srvx exposes its graceful stop callback as `shutdown` (older presets use `stop`).
-      // Match only these exact host contracts; application callbacks are never classified
-      // by broad names or source text, and unmatched listeners retain normal ordering.
       const server = candidates.find(listener => listener.name === "shutdown" || listener.name === "stop")
       if (server) {
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
@@ -246,8 +222,6 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       resolveSetup()
       return
     }
-    // No server handles stop signals here: development, prerender, serverless functions, or
-    // a server with graceful shutdown turned off. Keep the default signal behavior.
     for (const signal of signals) runtime.off(signal, stop)
     state.trap = "skipped"
     resolveSetup()
@@ -268,8 +242,6 @@ export function onShutdown(app: ShutdownApp, name: string, drain: ShutdownDrain,
     app.hooks.hook("close", () => runShutdownDrains(app, runtime))
   }
   if (runtime && !state.trap) {
-    // Node, Bun, and Deno report a Node release. Cloudflare Workers can polyfill `process`,
-    // but they own the isolate lifecycle and do not allow timers during startup.
     if ((runtime.release?.name === "node" || runtime.release?.name === "bun") && globalThis.navigator?.userAgent !== "Cloudflare-Workers") installSignalTrap(app, runtime, state)
     else state.trap = "skipped"
   }

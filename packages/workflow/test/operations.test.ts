@@ -80,7 +80,6 @@ describe("workflow operations", () => {
 
   it("lists and shows the runs that `vite dev` recorded, with steps, result, and error", async () => {
     enableWorkflowDevRuns()
-    // A folder Workflow: each step file runs through the step runner.
     const folder = (fail: boolean) => async () => ({
       default: {
         handler: async (context: WorkflowExecutionContext) => {
@@ -141,10 +140,8 @@ describe("workflow operations", () => {
     expect(await call("workflow.runs-clear", {})).toEqual({ ok: true, value: { cleared: 1 } })
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [] } })
     expect(await call("workflow.runs-show", { id })).toMatchObject({ code: "WORKFLOW_RUN_NOT_FOUND", ok: false, status: 404 })
-    // `workflow.get` still reads the run: clear removes only the dev history.
     expect(await call("workflow.get", { runId: id })).toMatchObject({ ok: true, value: { run: { id, status: "completed" } } })
 
-    // A second enable keeps the history, and new runs are recorded after a clear.
     enableWorkflowDevRuns()
     await call("workflow.start", { workflow: "welcome" })
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [{ workflow: "welcome" }] } })

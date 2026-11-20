@@ -22,8 +22,6 @@ import { resolveSandboxTaskRunner, runSandboxTaskRuntime } from "../../src/task/
 import { toSandboxTaskError } from "../../src/task/runtime/error-normalization.ts"
 import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
-// Only the provider is fake. The runtime stages, reads, decodes, and removes
-// invocation files through this in-memory session. No remote command runs.
 function createSession() {
   const files = new Map<string, Uint8Array>()
   const cleanup = vi.fn(async () => ({ ok: true, code: 0, stdout: "", stderr: "" }))
@@ -88,7 +86,6 @@ afterEach(() => {
 })
 
 
-/** Run the task, and read its failure as a route sends it with `toResponse(error)`. */
 async function failedRun(payload?: unknown) {
   const [error, data] = await runSandboxTaskRuntime("example", payload)
   expect(data).toBeUndefined()
@@ -317,7 +314,6 @@ describe("Sandbox Task error preservation", () => {
   ])("preserves timeout and $failure through the $boundary", async ({ boundary, failure }) => {
     vi.useFakeTimers()
     const { session, cleanup, execute } = createSession()
-    // A timeout leaves a shared Sandbox open, so only a per-run Sandbox closes its session.
     if (failure === "session rejection") setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: {
       options: { timeout: 1000 },
@@ -412,8 +408,6 @@ describe("Sandbox Task incomplete output recovery", () => {
     const result = boundary === "runner"
       ? runner.run().catch((error: unknown) => toSandboxTaskError(error))
       : runSandboxTaskRuntime("example")
-    // Provider loading can finish after the first timer advance. Wait until
-    // recovery reads the incomplete file before advancing past its deadline.
     await vi.waitFor(() => expect(read).toHaveBeenCalled())
     await vi.advanceTimersByTimeAsync(120_000)
 

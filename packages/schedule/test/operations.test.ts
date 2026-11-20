@@ -25,7 +25,6 @@ async function runDigest(scheduledAt: Date, handler: ScheduleHandler = () => {})
   await executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "digest", scheduledAt }).catch(() => {})
 }
 
-/** The registry that the Console installs: only the definitions that set `manual: true`. */
 function installRegistry(value: Record<string, () => Promise<unknown>>): void {
   Reflect.set(globalThis, Symbol.for("vitehub.console.schedules"), value)
 }

@@ -10,24 +10,15 @@ import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostLi
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
-/** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/plugins.ts`). */
 const valueFlags = new Set(["--config"])
 const plainFlags = new Set(["--containers-rollout=gradual"])
 
 interface WranglerCommand {
-  /** `--config` with its value, and the rollout flag, in build order. */
   args: string[]
   config: string
-  /** The D1 bindings whose migrations `database.migrateOnDeploy` applies before the deploy, in build order. */
   migrations: string[]
 }
 
-/**
- * Reads `commands.deploy` from `<output>/nitro.json` and checks that it is the Wrangler deploy that the build writes:
- * `npx wrangler deploy --config <file> [--containers-rollout=gradual]`. With
- * `database.migrateOnDeploy`, `npx wrangler d1 migrations apply <binding> --remote --config <file> && ` comes before it
- * once for each D1 binding (`packages/database/src/internal/migrate-on-deploy.ts`).
- */
 async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> {
   let manifest: unknown
   try {
@@ -89,7 +80,6 @@ interface WranglerOutputEntry {
   worker_name?: unknown
 }
 
-/** Wrangler writes one JSON object per line to `WRANGLER_OUTPUT_FILE_PATH`. */
 async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> {
   const text = await readFile(file, "utf8").catch(() => "")
   return text.split("\n").flatMap((line) => {
@@ -105,19 +95,11 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
 
 const durationUnits: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
-/** `Claim within: 59 minutes` as an ISO time, from now. */
 function claimExpiry(text: string): string | undefined {
   const match = /Claim within:\s*(\d+)\s*(second|minute|hour|day)s?/u.exec(text)
   return match ? new Date(Date.now() + Number(match[1]) * durationUnits[match[2]!]!).toISOString() : undefined
 }
 
-// Wrangler 4.158: `wrangler deploy --help`, `wrangler versions upload --help`, `wrangler secret put --help`,
-// `wrangler secret list --help`, and the global `--temporary` flag. Wrangler 4.157: `wrangler d1 migrations apply --help`.
-// Recorded in test/fixtures/host-cli-help/.
-//
-// `context.upload` goes to `--secrets-file` as JSON, so the values arrive with the new version: a `secret put` before
-// the deploy would roll the old code out with the new values, and a preview value would reach production. JSON, not
-// dotenv: Wrangler's dotenv mode expands `$VAR` and lets the process env override the file.
 export async function cloudflareAdapter(context: DeployContext): Promise<DeployAdapter> {
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
@@ -133,14 +115,12 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
 
   return {
     async deploy(): Promise<DeployResult> {
-      // A preview version and a temporary Worker must not change the production database.
       if (!context.preview && !context.temporary) {
         for (const binding of command.migrations) {
           const result = await run(["d1", "migrations", "apply", binding, "--remote", "--config", command.config], { show: true })
           if (result.exitCode !== 0) throw hostCliFailed(`wrangler d1 migrations apply ${binding}`, result, context.secrets)
         }
       }
-      // Ctrl+C must not leave the secrets file: a signal stops Wrangler and waits for the cleanup in `finally`.
       return await untilInterrupted(async (signal) => {
         const folder = await mkdtemp(join(tmpdir(), "vitehub-deploy-"))
         const outputFile = join(folder, "wrangler-output.jsonl")
@@ -152,7 +132,6 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           if (context.temporary) args.push("--temporary")
           if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
           if (context.upload && Object.keys(context.upload).length) {
-            // mkdtemp makes the folder 0700, and `finally` removes it with the file.
             const secretsFile = join(folder, "secrets.json")
             await writeFile(secretsFile, JSON.stringify(context.upload), { flag: "wx", mode: 0o600 })
             args.push("--secrets-file", secretsFile)
@@ -191,7 +170,6 @@ interface CloudflareVersion {
   source: HostDeploymentSource
 }
 
-/** Version and deployment `source` values: https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/ */
 /**
  * The secrets of the linked Worker. Wrangler 4.158 (`wrangler secret put --help`, `wrangler secret list --help`, in
  * test/fixtures/host-cli-help/). `secret put` reads the value from stdin when stdin is not a terminal, and creates a
@@ -239,7 +217,6 @@ function parseVersion(value: unknown): CloudflareVersion | undefined {
   const id = optionalString(value.id)
   if (!id) return
   const metadata = isRecord(value.metadata) ? value.metadata : {}
-  // `wrangler deploy --message` and `wrangler versions upload --message` store the marker on the version.
   const commit = isRecord(value.annotations) ? parseCommitMessage(value.annotations["workers/message"]) : undefined
   return { createdAt: isoTime(metadata.created_on), hasPreview: metadata.hasPreview === true, id, source: cloudflareSource(metadata.source), ...(commit ? { commit } : {}) }
 }
@@ -253,7 +230,6 @@ interface CloudflareDeployment {
   id: string
   createdAt: string
   source: HostDeploymentSource
-  /** The version with the most traffic. */
   versionId?: string
   versionIds: string[]
 }
@@ -272,7 +248,6 @@ function parseDeployments(value: unknown): CloudflareDeployment[] {
   })
 }
 
-/** A Workers API request that answers undefined on any error, for data that only adds to a listing. */
 async function optional<T>(request: Promise<T>): Promise<T | undefined> {
   try {
     return await request
@@ -304,7 +279,6 @@ export const listCloudflareDeployments: ListDeployments = async (context, { limi
   ])
   const byId = new Map((versions.result ?? []).map(version => [version.id, version]))
   const listed = (deployments.result ?? []).slice(0, limit)
-  // A deployment of an older version than the version list holds: read that version alone.
   const missing = [...new Set(listed.flatMap(item => item.versionId && !byId.has(item.versionId) ? [item.versionId] : []))]
   for (const version of await Promise.all(missing.map(id => optional(client(`${script}/versions/${encodeURIComponent(id)}`, { parse: parseVersion }))))) {
     if (version?.result) byId.set(version.result.id, version.result)

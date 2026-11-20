@@ -264,11 +264,9 @@ function writeResult(result: KVCommandResult, context: KVCliContext): number {
     case "list": {
       const page = result.value
       if (page.keys.some(key => /[\r\n\u2028\u2029]/.test(key))) return writeCliFailure(false, context, { message: "The KV list contains line-breaking keys. Use --json to preserve the complete keys." })
-      // Some drivers scan a fixed number of entries per page, so a page can be empty while more keys exist.
       if (page.keys.length === 0 && page.cursor) context.stderr.write("No keys on this page.\n")
       else if (page.keys.length === 0) context.stderr.write(`No keys${page.prefix ? ` with prefix ${page.prefix}` : ""} in store ${page.store}.\n`)
       else context.stdout.write(`${page.keys.join("\n")}\n`)
-      // The hints go to stderr, so stdout stays a plain key list for scripts.
       if (page.driver) context.stderr.write(`Store ${page.store} uses the ${page.driver} driver in this server process.\n`)
       if (page.cursor) context.stderr.write(`More keys exist. Next page: --cursor ${page.cursor}\n`)
       return 0
@@ -375,14 +373,8 @@ export async function runKVCli(args: string[], context: KVCliContext, options: K
   return await runKVCommand(command, rest, context, options)
 }
 
-/** The folder of the KV seed files, relative to the project root. */
 const kvSeedDir = "server/seed/kv"
 
-/**
- * Writes each file in `server/seed/kv/` to the default KV store with `kv set`. The key is the path without its
- * extension, so `server/seed/kv/settings/theme.json` is the key `settings/theme`. A `.json` file is a JSON value, and
- * any other file is a string.
- */
 async function runKVSeed(seed: ViteHubCliSeedOptions, context: ViteHubCliContext, options: KVCliOptions): Promise<number | undefined> {
   const dir = resolve(options.projectRoot?.() ?? context.rootDir, kvSeedDir)
   const files = await listSeedFiles(dir)

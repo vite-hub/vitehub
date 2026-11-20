@@ -1,7 +1,0 @@
-{
-  "packages/mcp/src/error-diagnostics.ts": 6,
-  "packages/mcp/src/index.ts": 6,
-  "packages/mcp/src/runtime.ts": 18,
-  "packages/mcp/src/vite.ts": 8,
-  "packages/mcp/test/runtime.test.ts": 2
-}

@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SANDBOX_TASK_R0005, SANDBOX_TASK_R0014, SANDBOX_TASK_R0040, SANDBOX_TASK_R0043, SANDBOX_TASK_R0044, SANDBOX_TASK_R0047 to SANDBOX_TASK_R0051.
 export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {

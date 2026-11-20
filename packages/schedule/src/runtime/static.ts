@@ -123,9 +123,7 @@ function isScheduleRuntimeError(error: unknown): error is Error {
     try {
       return intrinsicNativeErrorIsError(error)
     }
-    catch {
-      // Continue with the captured Error.isError predicate when the host utility rejects the value.
-    }
+    catch {}
   }
   try {
     return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
@@ -201,7 +199,6 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
     runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
-  // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
   const failures: unknown[] = []
   results.forEach((result, index) => {
@@ -304,11 +301,9 @@ function restoreGlobalEnv(
 }
 
 function isCallable(value: unknown): value is CallableFunction {
-  // Callable HTMLDDA browser values report undefined without being undefined.
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

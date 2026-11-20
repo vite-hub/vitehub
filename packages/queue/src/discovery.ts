@@ -48,7 +48,6 @@ function mergeContributedQueueDefinitions(
 }
 
 interface QueueContributionOptions {
-  /** Queue Definitions that Vite plugins contribute. See `collectQueueContributions()`. */
   contributions?: readonly CollectedQueueContribution[]
 }
 

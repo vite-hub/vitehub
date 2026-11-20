@@ -30,14 +30,9 @@ export interface WorkflowRunState<TResult = unknown> {
   status: "running" | "completed" | "failed"
 }
 
-// Execution retains its state through the completion callback. When GC APIs
-// exist, inspection does not keep an abandoned promise and its payload alive.
 type ActiveRunReference = WeakRef<WorkflowRunState> | WorkflowRunState
 const runs = new Map<string, ActiveRunReference>()
-// Keep pending runs strongly reachable so explicit-id deduplication remains
-// reliable even when callers do not retain an inspection or waitUntil handle.
 const inFlightRuns = new Map<string, WorkflowRunState>()
-// Without GC APIs, bound strong inspection ownership independently of history.
 const fallbackRunKeys = new Set<string>()
 let collectedRuns: FinalizationRegistry<{ key: string, reference: WeakRef<WorkflowRunState> }> | undefined
 const completedRuns = new Map<string, WorkflowRunState>()
@@ -222,9 +217,6 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
       loaded = await loadingGenerationStorage.run(generation, () => loadingInlineRegistryStorage.run(loadingInlineDefinitions, entry))
     }
     catch (error) {
-      // A failed module load must not leave definitions registered by that
-      // module available to a later load. Keep definitions from a newer
-      // generation or concurrent load intact.
       for (const [definitionName, definition] of loadingInlineDefinitions) {
         if (inlineRegistry.get(definitionName) === definition) inlineRegistry.delete(definitionName)
       }
@@ -238,8 +230,6 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
     if (registeredInlineDefinition) {
       consumeInlineWorkflowDefinition(name, registeredInlineDefinition)
     }
-    // Generated folder entries wrap the inline handler with step runners and options.
-    // Cache that resolved entry in preference to the handler captured during its import.
     // SAFETY: Registry module exports are validated as WorkflowDefinitions at this boundary.
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
@@ -292,9 +282,6 @@ export function setWorkflowRun<TResult = unknown>(
       state.result = resolved.result
       state.error = resolved.error
       state.expiresAt = Date.now() + RUNS_TTL_MS
-      // An active run may have been evicted from the inspection map while it
-      // was pending. Drop its strong deduplication reference independently so
-      // settlement cannot retain abandoned state indefinitely.
       if (inFlightRuns.get(key) === state) inFlightRuns.delete(key)
       const active = runs.get(key)
       const activeState = active && isWeakReference(active) ? active.deref() : active

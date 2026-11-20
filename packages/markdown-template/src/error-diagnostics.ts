@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: MARKDOWN_TEMPLATE_R0001, MARKDOWN_TEMPLATE_R0003 to MARKDOWN_TEMPLATE_R0010, MARKDOWN_TEMPLATE_R0016, MARKDOWN_TEMPLATE_R0019, and MARKDOWN_TEMPLATE_R0028.
 export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/markdown-template/diagnostics",
   codes: {

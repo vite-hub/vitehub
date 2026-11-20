@@ -1,25 +1,19 @@
 # Architecture decision records
 
-An ADR keeps a decision that the code cannot show and that a future change would break without knowing it. Code comments are banned (see `.agents/skills/delete-comment`), so these decisions live here.
+An ADR keeps a decision that the code cannot show and that a future change would break without knowing it. Code comments are banned (see [repo.md](repo.md)), so these decisions live here.
 
-Name a file `NNNN-short-title.md` with the next free number. Use this shape:
+Each area has one decision log: `adr/<package>.md` for `packages/<package>`, and `adr/repo.md` for decisions that cover the repository or several packages. Read the log of a package before you change it. Add an entry in this shape:
 
 ```md
-# NNNN. Title in plain words
+## The decision in one sentence
 
-Status: Accepted
+`symbol` in `packages/<package>/src/file.ts`.
 
-## Context
+**Context:** The constraint or the failure that forced the decision.
 
-The constraint or the failure that forced the decision.
+**Decision:** What the code does.
 
-## Decision
-
-What the code does, and the symbols that do it.
-
-## Consequences
-
-What a change must keep, and what it costs.
+**Consequences:** What a change must keep, and what breaks if it does not.
 ```
 
-Name files and symbols, not line numbers. When a decision changes, set the old record to `Status: Superseded by NNNN` and add a new one.
+Name files and symbols, not line numbers. When a decision changes, edit or delete its entry in the same pull request. A log that describes old code is worse than no log.

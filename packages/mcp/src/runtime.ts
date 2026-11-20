@@ -69,7 +69,6 @@ function toolError(text: string): McpToolResult {
 }
 
 function failure(name: string, error: unknown): McpToolResult {
-  // H3 2 errors carry `status`, H3 1 errors `statusCode`. A 4xx says what the Agent must change.
   const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
   if (status >= 400 && status < 500 && error instanceof Error) return toolError(error.message)
   console.error(`[vitehub] MCP tool ${name} failed:`, error)
@@ -84,16 +83,11 @@ function issuesText(name: string, issues: ReadonlyArray<{ message: string, path?
   return `Invalid arguments for ${name}: ${lines.join("; ")}`
 }
 
-/**
- * How a tool may be called on a server that checks tokens. ChatGPT reads them on the tool and in its `_meta`, so
- * `tools/list` shows them in both places.
- */
 function securitySchemes(definition: McpToolDefinition, optional: boolean): McpSecurityScheme[] {
   const oauth2: McpSecurityScheme = { type: "oauth2", ...(definition.scopes?.length ? { scopes: definition.scopes } : {}) }
   return optional && definition.access === "public" ? [{ type: "noauth" }, oauth2] : [oauth2]
 }
 
-/** What `tools/list` shows of a tool. It is the same for every request. */
 function listedTool(name: string, definition: McpToolDefinition, schemes: McpSecurityScheme[] | undefined): Omit<McpTool, "handler"> {
   const meta = schemes ? { ...definition._meta, securitySchemes: schemes } : definition._meta
   return {
@@ -108,15 +102,10 @@ function listedTool(name: string, definition: McpToolDefinition, schemes: McpSec
   }
 }
 
-/** One request: its event, the context of the handlers, which `resolveCaller` makes once, and the hooks. */
 interface McpRequestScope {
   event: H3Event
   context: () => Promise<McpToolContext>
   hooks: McpHooks<unknown> | undefined
-  /**
-   * On an optional route, the tool error that asks the person to sign in, or to approve more scopes, before the tool
-   * runs. `undefined` lets the call run.
-   */
   refuse?: (tool: string, definition: McpToolDefinition) => McpToolResult | undefined
 }
 
@@ -181,7 +170,6 @@ function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefiniti
   }
 }
 
-/** The JSON-RPC error of a prompt or resource handler that threw: its message for a 4xx `status`, else a generic one. */
 function methodFailure(kind: "prompt" | "resource", name: string, error: unknown): unknown {
   if (mcpMethodRpcCode(error) !== undefined) return error
   const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
@@ -190,7 +178,6 @@ function methodFailure(kind: "prompt" | "resource", name: string, error: unknown
   return mcpMethodFailed(name, error)
 }
 
-/** The arguments that `prompts/list` shows: the fields of the input JSON Schema. */
 function promptArguments(definition: McpPromptDefinition): McpPromptArgument[] {
   const schema = definition.input ? standardJsonSchema(definition.input, "input") : undefined
   const properties = isRecord(schema?.properties) ? schema.properties : {}
@@ -210,7 +197,6 @@ function toMcpPromptResult(value: unknown): McpPromptResult {
   return value as McpPromptResult
 }
 
-/** What `prompts/list` shows of a prompt. It is the same for every request. */
 function listedPrompt(name: string, definition: McpPromptDefinition): Omit<McpPrompt, "get"> {
   const arguments_ = promptArguments(definition)
   return {
@@ -292,7 +278,6 @@ function toMcpResource(name: string, definition: McpResourceDefinition, scope: M
   }
 }
 
-/** The `serverInfo` of a request. An icon `src` or `websiteUrl` that starts with `/` becomes a URL on the request origin. */
 function resolveServerInfo(info: McpServerInfo, request: Request): McpServerInfo {
   const relative = (value: string | undefined) => value?.startsWith("/") && !value.startsWith("//")
   if (!relative(info.websiteUrl) && !info.icons?.some(icon => relative(icon.src))) return info
@@ -309,25 +294,18 @@ function resourceMetadata(request: Request, route: string): string {
   return `${forwardedRequestOrigin(request)}/.well-known/oauth-protected-resource${route}`
 }
 
-/** A `WWW-Authenticate` parameter value, with the characters that would end it replaced. */
 function quoted(value: string): string {
   return value.replace(/["\\\r\n]/g, "'")
 }
 
-/** The `insufficient_scope` challenge of a call that needs sign-in or more scopes. */
 function scopeChallenge(request: Request, route: string, description: string, scopes: readonly string[]): string {
   return `Bearer resource_metadata="${resourceMetadata(request, route)}", error="insufficient_scope", error_description="${quoted(description)}"${scopes.length ? `, scope="${scopes.join(" ")}"` : ""}`
 }
 
-/**
- * On an optional route, the answer to a call that needs sign-in or more scopes. ChatGPT reads the challenge in
- * `_meta["mcp/www_authenticate"]` and asks the person to connect their account. Other clients show the text.
- */
 function signInResult(request: Request, route: string, text: string, scopes: readonly string[]): McpToolResult {
   return { content: [{ type: "text", text }], isError: true, _meta: { "mcp/www_authenticate": [scopeChallenge(request, route, text, scopes)] } }
 }
 
-/** Whether an optional route refuses a call: a tool without `access: "public"` needs a token with its `scopes`. */
 function refusal(request: Request, route: string, caller: McpToolCaller | undefined, tool: string, definition: McpToolDefinition): McpToolResult | undefined {
   if (definition.access === "public") return undefined
   const scopes = definition.scopes ?? []
@@ -341,7 +319,6 @@ function bearerToken(request: Request): string | undefined {
   return /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
 }
 
-/** The `401` that starts the OAuth flow of an MCP client, with the location of the protected resource metadata. */
 function unauthorized(request: Request, route: string, error: { code: string, message: string }): Response {
   const metadata = resourceMetadata(request, route)
   const invalid = error.code === "AUTH_MCP_TOKEN_INVALID"
@@ -387,7 +364,6 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
         const token = error.code === "AUTH_MCP_TOKEN_INVALID" && verifyToken ? bearerToken(request) : undefined
         caller = token ? await verifyToken?.({ event, token }) : undefined
         if (!caller) {
-          // Read no body for a rejected request. Some dev proxies drop the connection when a body is left unread.
           await request.body?.cancel().catch(() => undefined)
           return unauthorized(request, options.route, token ? { code: "AUTH_MCP_TOKEN_INVALID", message: "The token is not an access token of this server, and verifyToken did not accept it." } : error)
         }
@@ -398,12 +374,10 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
     const scope: McpRequestScope = {
       event,
       hooks,
-      // `resolveCaller` runs once per request, when the first handler needs the context, so `initialize` reads no app data.
       // SAFETY: `McpCaller` is the type that `resolveCaller` returns, or the signed-in caller without it.
       context: () => context ??= (async () => ({ event, caller: (hooks?.resolveCaller ? await hooks.resolveCaller({ caller, event }) : caller) as McpToolContext["caller"] }))(),
       ...(optional ? { refuse: (tool: string, definition: McpToolDefinition) => refusal(request, options.route, signedIn, tool, definition) } : {}),
     }
-    // A caller without a token sees every tool, so the client knows what sign-in unlocks, but only public prompts and resources.
     const visible = <T extends { definition: { access?: "public" } }>(entries: T[]) => anonymous ? entries.filter(entry => entry.definition.access === "public") : entries
     return serveMcp(request, {
       instructions,
@@ -411,7 +385,6 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, scope)),
       prompts: visible(prompts).map(prompt => toMcpPrompt(prompt.listed, prompt.definition, scope)),
       resources: visible(resources).map(({ name, definition }) => toMcpResource(name, definition, scope)),
-      // An optional route answers missing scopes with a tool result instead, which ChatGPT reads.
       ...(caller && !optional ? { scopes: caller.scopes, challenge: async (missing: readonly string[]) => scopeChallenge(request, options.route, `Sign in again and approve ${missing.join(" ")}.`, missing) } : {}),
     })
   }

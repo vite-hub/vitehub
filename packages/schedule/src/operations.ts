@@ -4,8 +4,6 @@ import * as v from "valibot"
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ManualScheduleRunSummary, ScheduleAttemptsResult, ScheduleListResult, ScheduleRunAttemptSummary, ScheduleRunResult, ScheduleRunSummary, ScheduleRunsResult, StartedScheduleResult, StartedScheduleSummary } from "./runtime/operations.ts"
 
-// The runtime module reads the run store and the registry of the Nitro runtime. The operations load it when they run, so
-// the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const id = v.pipe(v.string(), v.minLength(1))
@@ -36,7 +34,6 @@ function formatRun({ run }: { run: ManualScheduleRunSummary }): string {
 }
 
 function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The run store answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "schedules", user: false })
 }
 

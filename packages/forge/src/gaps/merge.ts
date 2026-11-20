@@ -4,9 +4,6 @@ import type { ForgeProvider, MergeOptions, MergeResult, ThreadRef } from "forges
 import { forgeDiagnostics } from "../error-diagnostics.ts"
 import { isRecord, repositoryPath, requireGitHub } from "./github.ts"
 
-// Gap: forges `threads.merge()` cannot bypass branch rules. GitHub's asynchronous merge takes `bypass_rules`.
-// Remove when forges releases it (https://github.com/danielroe/forges/issues/297).
-
 export interface ForgeMergeOptions extends MergeOptions {
   /**
    * GitHub only. Merge past failing branch rules, such as a required check. GitHub accepts it only from an
@@ -65,10 +62,6 @@ export async function forgeMerge(provider: ForgeProvider, thread: ThreadRef, opt
   }
 }
 
-/**
- * GitHub answers 409 while another merge request for the pull request is pending. Wait for that request
- * only when it asked for exactly this merge, so a different request never counts as this one.
- */
 function pendingMerge(error: unknown, method: string, sha: string, customMessage: boolean): unknown {
   if (!(error instanceof ForgeApiError) || error.constructor !== ForgeApiError) throw error
   if (error.status === 400) throw new MergeBlockedError("Pull request cannot be merged in its current state", 400, error.body, {}, { cause: error })

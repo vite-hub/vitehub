@@ -97,7 +97,6 @@ export function readJsonInput(input: unknown): EnvValueParseResult {
   }
 }
 
-// A host value is one string with items on separate lines or between commas. A default is an array of items.
 function parseList(item: EnvValueSchema, input: unknown): EnvValueParseResult {
   const items =
     typeof input === "string"
