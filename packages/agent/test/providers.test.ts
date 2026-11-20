@@ -157,6 +157,7 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const inheritAgentLayerOptions = agent => agent",
     "export const markDiscoveredAgentName = () => {}",
     "export const withDiscoveredAgentName = agent => agent",
+    "export const withDeclaredAgentWorkspace = agent => agent",
     "export const resetPublicUrlAgentNames = () => {}",
     "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
     "export const workspaceDefinitionFromOptions = () => undefined",
@@ -169,8 +170,16 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const namedChannelHosts = () => ({})",
     "export const resolvePublicUrl = () => undefined",
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
+    "export const installHostedWorkspaceRuntime = () => {}",
+    "export const installHostedVercelBlobWorkspaceRuntime = () => {}",
   ].join("\n"), "utf8")
-  return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
+  return ([
+    "index",
+    "server/internal",
+    "server/workspace",
+    "internal/workspace/internal/runtime/hosted",
+    "internal/workspace/internal/runtime/hosted-vercel-blob",
+  ] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
 
 function createTestChatAdapter(
@@ -1340,7 +1349,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
@@ -1415,7 +1424,7 @@ describe("agent Vite plugin", () => {
         build: { outDir: "dist/client" },
         command: "build",
         plugins: [],
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
