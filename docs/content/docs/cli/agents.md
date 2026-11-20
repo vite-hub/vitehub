@@ -100,7 +100,7 @@ The Console has no status filter, so `list --status` reads pages until it has `-
 
 An Agent with an explicit `messages.state` keeps its Chat State keys without a scope, such as `thread-state:teams:<conversation>`. The provider default State (`agent.providers.state`) keeps them under the Agent and Channel: `chat:<agent>:<channel>:thread-state:teams:<conversation>`. To move to the provider default without losing threads, subscriptions, queued messages, or transcripts, move the old keys once.
 
-Stop the app, then run the command against the same database. Without `--apply`, it only prints the moves.
+Stop the app, then run the command against the same database. Without `--apply`, it only reads the database and prints the moves.
 
 ```bash [Terminal]
 pnpm vitehub agent state migrate --agent bot --channel teams --url file:/var/lib/app/chat_state.sqlite.db
@@ -116,14 +116,14 @@ pnpm vitehub agent state migrate --agent bot --channel teams --url file:/var/lib
 Dry run: nothing changed. Run the command again with --apply to move the keys.
 ```
 
-- `--channel <adapter>` picks keys by the adapter name at their start, such as `teams:` or `thread-state:teams:`. When the Channel key in `channels` differs from the adapter name, pass both: `--channel discord=support`. Repeat the flag for each Channel.
-- User transcripts (`transcripts:user:`) move to the Agent scope, `chat:<agent>:`, as the provider default stores them.
+- `--channel <adapter>` picks keys by the adapter name at their start, such as `teams:` or `thread-state:teams:`. When the Channel key in `channels` differs from the adapter name, pass both: `--channel discord=support`. Repeat the flag for each Channel. The keys name only the adapter, so the command stops when one adapter names two Channels.
+- User transcripts of a listed adapter (`transcripts:user:<adapter>:`) move to the Agent scope, `chat:<agent>:`, as the provider default stores them. Transcripts of a custom `identity` name no adapter and stay.
 - Keys of other adapters, keys without an adapter, and keys that ViteHub already scoped stay. Locks stay too, because they expire.
 - A key whose scoped copy already exists stays, so the command never replaces newer data. Running it again is safe.
 - `--url` defaults to `VITEHUB_AGENT_STATE_URL`, and `VITEHUB_AGENT_STATE_AUTH_TOKEN` authenticates a libSQL server. `--table-prefix` matches a custom `tablePrefix`. The command reads only libSQL and SQLite State, not the Cloudflare Durable Object State.
 - When one adapter served several Agents through the same unscoped State, the keys do not say which Agent wrote them. The command moves all of them to `--agent`.
 
-Then remove `messages.state` and start the app with the provider default.
+Then point the provider default State at the same database: set `VITEHUB_AGENT_STATE_URL`, or `url` in `agent.providers.state`, and the same `tablePrefix`. Without that, the provider default opens its own database and does not see the moved keys. Remove `messages.state` and start the app.
 
 ## Talk to an Agent during development
 

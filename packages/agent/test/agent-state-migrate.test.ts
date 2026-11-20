@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -48,8 +48,11 @@ async function run(args: string[], env: NodeJS.ProcessEnv = {}) {
 
 /** Writes keys as the Chat SDK does through an explicit, unscoped `messages.state`. */
 async function seedUnscopedState(url: string) {
-  const state = createLibsqlAgentState({ url })
+  // A rollback journal, so a dry run that switched the file to WAL would change its header.
+  const state = createLibsqlAgentState({ journalMode: "delete", url })
   await state.connect()
+  // Opening the State adapter deletes expired rows. The dry run must not.
+  await state.set("webhook:bot:teams:expired", true, 1)
   await state.set("thread-state:teams:conv-1", { title: "Old thread" })
   await state.set("channel-state:productlane:card-1", { open: true })
   await state.set("chat:callback:token-1", { url: "https://example.com" })
@@ -60,10 +63,13 @@ async function seedUnscopedState(url: string) {
   await state.appendToList("msg-history:teams:conv-1", { text: "one" })
   await state.appendToList("msg-history:teams:conv-1", { text: "two" })
   await state.appendToList("transcripts:user:teams:u1", { text: "hi" })
+  // Another Agent's transcript in the same database.
+  await state.appendToList("transcripts:user:telegram:u2", { text: "other" })
   await state.subscribe("teams:conv-1")
   await state.enqueue("teams:conv-1", queueEntry("queued"), 10)
   await state.acquireLock("teams:conv-2", 60_000)
   await state.disconnect()
+  await new Promise(resolve => setTimeout(resolve, 5))
 }
 
 describe("vitehub agent state migrate", () => {
@@ -72,13 +78,17 @@ describe("vitehub agent state migrate", () => {
     await seedUnscopedState(url)
     const args = ["migrate", "--agent", "bot", "--channel", "teams", "--channel", "productlane=support"]
 
+    const file = url.slice("file:".length)
+    const before = await readFile(file)
     const dryRun = await run(args, { VITEHUB_AGENT_STATE_URL: url })
+    // The dry run does not change the file, not even to delete expired rows.
+    expect((await readFile(file)).equals(before)).toBe(true)
     expect(dryRun).toMatchObject({ code: 0, stderr: "" })
     expect(dryRun.stdout).toContain("6 keys move to their Channel scope.")
     expect(dryRun.stdout).toContain("thread-state:teams:conv-1 -> chat:bot:teams:thread-state:teams:conv-1")
     expect(dryRun.stdout).toContain("channel-state:productlane:card-1 -> chat:bot:support:channel-state:productlane:card-1")
     expect(dryRun.stdout).toContain("transcripts:user:teams:u1 -> chat:bot:transcripts:user:teams:u1")
-    expect(dryRun.stdout).toContain("2 keys name no listed adapter and stay:\n  chat:callback:token-1\n  thread-state:slack:C1")
+    expect(dryRun.stdout).toContain("3 keys name no listed adapter and stay:\n  chat:callback:token-1\n  thread-state:slack:C1\n  transcripts:user:telegram:u2")
     expect(dryRun.stdout).toContain("1 lock stays.")
     expect(dryRun.stdout).toContain("Dry run: nothing changed.")
 
@@ -106,6 +116,7 @@ describe("vitehub agent state migrate", () => {
     await expect(state.get("thread-state:slack:C1")).resolves.toEqual({ title: "Other adapter" })
     await expect(state.get("chat:bot:teams:interrupted")).resolves.toEqual({ ok: true })
     await expect(state.get("webhook:bot:teams:teams:cursor")).resolves.toBe(1)
+    await expect(state.getList("transcripts:user:telegram:u2")).resolves.toEqual([{ text: "other" }])
     await state.disconnect()
 
     const again = await run([...args, "--url", url, "--apply"])
@@ -137,6 +148,16 @@ describe("vitehub agent state migrate", () => {
 
     const missingUrl = await run(["migrate", "--agent", "bot", "--channel", "teams"])
     expect(missingUrl.stderr).toContain("VITEHUB_AGENT_STATE_URL")
+
+    const twoChannels = await run(["migrate", "--agent", "bot", "--channel", "telegram=support", "--channel", "telegram=private", "--url", "file:/tmp/state.db"])
+    expect(twoChannels.code).toBe(1)
+    expect(twoChannels.stderr).toContain("--channel telegram names the Channels support and private")
+
+    const url = await stateFile()
+    await seedUnscopedState(url)
+    const otherPrefix = await run(["migrate", "--agent", "bot", "--channel", "teams", "--url", url, "--table-prefix", "other_", "--apply"])
+    expect(otherPrefix.code).toBe(1)
+    expect(otherPrefix.stderr).toContain("no Agent State tables with the prefix other_")
 
     const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-migrate-"))
     tempDirs.push(dir)

@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { createLibsqlAgentState } from "../state/sqlite.ts"
 import { chatStateAgentPrefix, chatStateChannelPrefix, chatStateScopedKey } from "./chat-state-scope.ts"
 
-import type { SqliteAgentStateExtensionExecutor } from "../state/sqlite.ts"
+import type { InArgs } from "@libsql/client"
 
 interface AgentStateCliContext {
   env: NodeJS.ProcessEnv
@@ -26,6 +25,8 @@ interface ParsedArgs {
 }
 
 type StateTable = "cache" | "lists" | "queue" | "subscriptions"
+
+type Execute = (sql: string, args?: InArgs) => Promise<Array<Record<string, unknown>>>
 
 interface StateKeyMove {
   from: string
@@ -85,6 +86,9 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs | "help" {
       if (flag === "--channel") {
         const [adapter, channel = adapter] = value.split("=", 2)
         if (!adapter || !channel) throw invalid(`--channel ${value} needs an adapter name, such as --channel teams or --channel teams=support.`)
+        // The keys name the adapter, not the Channel, so one adapter cannot move to two Channels.
+        const listed = parsed.channels.get(adapter)
+        if (listed !== undefined && listed !== channel) throw invalid(`--channel ${adapter} names the Channels ${listed} and ${channel}. Keys name only the adapter, so the command cannot tell them apart. Move them by hand.`)
         parsed.channels.set(adapter, channel)
       }
       continue
@@ -110,6 +114,11 @@ function localFilePath(url: string): string | undefined {
 }
 
 function keyAdapter(key: string, channels: ReadonlyMap<string, string>): string | undefined {
+  // The default transcript identity is `<adapter>:<user>`. A custom `identity` names no adapter, so its keys stay.
+  if (key.startsWith("transcripts:user:")) {
+    const adapter = key.slice("transcripts:user:".length).split(":", 1)[0]!
+    return channels.has(adapter) ? adapter : undefined
+  }
   // Chat SDK concurrency keys are `concurrency:["<adapter>",<scope>,<key>]`.
   const concurrency = /^concurrency:\["([^"\\]*)"/.exec(key)
   if (concurrency) return channels.has(concurrency[1]!) ? concurrency[1] : undefined
@@ -124,19 +133,25 @@ function keyAdapter(key: string, channels: ReadonlyMap<string, string>): string 
 function scopedChatStateKey(key: string, agent: string, channels: ReadonlyMap<string, string>): string | undefined {
   const adapter = keyAdapter(key, channels)
   const channel = adapter === undefined ? undefined : channels.get(adapter)
-  if (channel === undefined && !key.startsWith("transcripts:user:")) return
-  return chatStateScopedKey(key, chatStateAgentPrefix(agent), chatStateChannelPrefix(agent, channel ?? ""))
+  if (channel === undefined) return
+  return chatStateScopedKey(key, chatStateAgentPrefix(agent), chatStateChannelPrefix(agent, channel))
 }
 
-async function tableKeys(tx: SqliteAgentStateExtensionExecutor, table: string, column: string): Promise<string[]> {
-  return (await tx.execute(`SELECT DISTINCT ${column} AS key FROM ${table}`)).map(row => String(row.key))
+async function tableKeys(execute: Execute, table: string, column: string): Promise<string[]> {
+  return (await execute(`SELECT DISTINCT ${column} AS key FROM ${table}`)).map(row => String(row.key))
 }
 
-async function planMigration(tx: SqliteAgentStateExtensionExecutor, parsed: ParsedArgs): Promise<StateMigrationPlan> {
+async function planMigration(execute: Execute, parsed: ParsedArgs): Promise<StateMigrationPlan> {
   const plan: StateMigrationPlan = { conflicts: [], locks: 0, moves: [], unmatched: [] }
   const unmatched = new Set<string>()
+  // Read the tables as they are. The State adapter would create missing tables and delete expired rows.
+  const tables = new Set((await execute(`SELECT name FROM sqlite_master WHERE type = 'table'`)).map(row => String(row.name)))
+  if (!["cache", "lists", "queue", "subscriptions"].some(table => tables.has(`${parsed.tablePrefix}${table}`))) {
+    throw agentDiagnostics.AGENT_STATE_MIGRATE_ARGUMENT_INVALID({ reason: `The database has no Agent State tables with the prefix ${parsed.tablePrefix}. Check --url and --table-prefix.` })
+  }
   for (const table of ["cache", "lists", "queue", "subscriptions"] as const) {
-    const keys = await tableKeys(tx, `${parsed.tablePrefix}${table}`, keyColumns[table])
+    if (!tables.has(`${parsed.tablePrefix}${table}`)) continue
+    const keys = await tableKeys(execute, `${parsed.tablePrefix}${table}`, keyColumns[table])
     const existing = new Set(keys)
     for (const key of keys) {
       if (key.startsWith(chatStateAgentPrefix(parsed.agent)) || key.startsWith("webhook:")) continue
@@ -151,22 +166,24 @@ async function planMigration(tx: SqliteAgentStateExtensionExecutor, parsed: Pars
       plan[conflict ? "conflicts" : "moves"].push({ from: key, table, to })
     }
   }
-  for (const key of await tableKeys(tx, `${parsed.tablePrefix}locks`, "thread_id")) {
-    if (scopedChatStateKey(key, parsed.agent, parsed.channels)) plan.locks += 1
+  if (tables.has(`${parsed.tablePrefix}locks`)) {
+    for (const key of await tableKeys(execute, `${parsed.tablePrefix}locks`, "thread_id")) {
+      if (scopedChatStateKey(key, parsed.agent, parsed.channels)) plan.locks += 1
+    }
   }
   plan.unmatched = [...unmatched].sort()
   return plan
 }
 
-async function applyMigration(tx: SqliteAgentStateExtensionExecutor, prefix: string, moves: readonly StateKeyMove[]): Promise<void> {
+async function applyMigration(execute: Execute, prefix: string, moves: readonly StateKeyMove[]): Promise<void> {
   for (const move of moves) {
     const table = `${prefix}${move.table}`
     if (move.table === "subscriptions") {
-      await tx.execute(`INSERT OR IGNORE INTO ${table} (thread_id) VALUES (?)`, [move.to])
-      await tx.execute(`DELETE FROM ${table} WHERE thread_id = ?`, [move.from])
+      await execute(`INSERT OR IGNORE INTO ${table} (thread_id) VALUES (?)`, [move.to])
+      await execute(`DELETE FROM ${table} WHERE thread_id = ?`, [move.from])
       continue
     }
-    await tx.execute(`UPDATE ${table} SET ${keyColumns[move.table]} = ? WHERE ${keyColumns[move.table]} = ?`, [move.to, move.from])
+    await execute(`UPDATE ${table} SET ${keyColumns[move.table]} = ? WHERE ${keyColumns[move.table]} = ?`, [move.to, move.from])
   }
 }
 
@@ -213,26 +230,30 @@ export async function runAgentStateCli(args: string[], context: AgentStateCliCon
     context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_STATE_MIGRATE_DATABASE_MISSING({ path }))}\n`)
     return 1
   }
-  const state = createLibsqlAgentState({
+  // A plain libSQL client, not the State adapter: opening the adapter migrates the schema, deletes expired rows, and
+  // sets the journal mode. A dry run must leave the database as it is.
+  const { createClient } = await import("@libsql/client")
+  const client = createClient({
     ...(context.env.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: context.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),
-    tablePrefix: parsed.tablePrefix,
     url: parsed.url,
   })
+  const options = parsed
+  const tx = await client.transaction(options.apply ? "write" : "read")
   try {
-    const options = parsed
-    const plan = await state.extension("scope_migration").transaction(async (tx) => {
-      const planned = await planMigration(tx, options)
-      if (options.apply) await applyMigration(tx, options.tablePrefix, planned.moves)
-      return planned
-    })
+    const execute: Execute = async (sql, args = []) => (await tx.execute({ args, sql })).rows
+    const plan = await planMigration(execute, options)
+    if (options.apply) await applyMigration(execute, options.tablePrefix, plan.moves)
+    await tx.commit()
     context.stdout.write(report(plan, options.apply))
     return 0
   }
   catch (error) {
+    if (!tx.closed) await tx.rollback()
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
   finally {
-    await state.disconnect()
+    tx.close()
+    client.close()
   }
 }
