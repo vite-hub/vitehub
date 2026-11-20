@@ -1,8 +1,11 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
 import { canonicalAccessPath, resolveAccessRoutePath } from "../application-path.ts"
+import { checksOwnAccess } from "../own-access.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
+
+export { authAccessHandlerMeta } from "../own-access.ts"
 
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "../runtime-state.ts"
 import type { AuthDefinition, AuthRequestInput, ResolvedAuthAccessRoute } from "../types.ts"
@@ -22,21 +25,6 @@ export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccess
   state.accessIdentityResolvers ??= new Map()
   if (resolver) state.accessIdentityResolvers.set(path, resolver)
   else state.accessIdentityResolvers.delete(path)
-}
-
-/**
- * The Nitro route `meta` of a handler that checks its own access, such as the ViteHub Console route. The access routes
- * leave a request to the handler that Nitro routed it to when that handler has this meta, whatever its path and method.
- * The exception follows the dispatch, so an app route file on the same path keeps the access routes.
- */
-export const authAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
-
-/** Whether Nitro routed the request event to a handler with `authAccessHandlerMeta`. A plain Request has no route. */
-function routedToAccessHandler(input: AuthRequestInput): boolean {
-  if (!("context" in input) || !(input.context instanceof Object)) return false
-  const route: unknown = Reflect.get(input.context, "matchedRoute")
-  const meta: unknown = route instanceof Object ? Reflect.get(route, "meta") : undefined
-  return meta instanceof Object && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
 }
 
 export interface AuthAccessRouteMatch {
@@ -66,7 +54,7 @@ export function createAuthAccessRouteMatcher(
   const exceptions = publicRoutes.map(route => resolveAccessRoutePath(route))
 
   return (input) => {
-    if (routedToAccessHandler(input)) return []
+    if (checksOwnAccess(input)) return []
     const request = unwrapAuthRequest(input)
     // Match the path that the Nitro router reads.
     const pathname = canonicalAccessPath(new URL(request.url).pathname)

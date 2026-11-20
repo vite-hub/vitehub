@@ -69,7 +69,7 @@ describe("hubSync", () => {
     const root = app({ "server/sync/todos.ts": "export default {}\n" })
     const { plugin, config } = await configure(root)
     const nitro: unknown = Reflect.get(config, "nitro")
-    expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, route: "/_vitehub/sync/**" }]))
+    expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/sync/**" }]))
     expect(readFileSync(join(root, ".vitehub/types/sync.d.ts"), "utf8")).toContain("interface ViteHubSyncMap")
     expect(await plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncColumns: "vitehub_sync_columns", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
   })

@@ -177,7 +177,7 @@ describe("standalone operation installation", () => {
       expect(source).toContain(`import { createStandaloneOperationHandler } from ${JSON.stringify(order === "kv-first" ? kvModule : formsModule)}`)
       expect(source).toMatch(new RegExp(`^import \\* as \\w+ from ${JSON.stringify(formsModule)}$`, "m"))
       const nitro = Reflect.get(config, "nitro") as { handlers: Array<{ handler: string }>, devHandlers: Array<{ handler?: unknown }> }
-      expect(nitro.handlers).toEqual([{ handler, route: "/_vitehub/rpc" }])
+      expect(nitro.handlers).toEqual([{ handler, meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/rpc" }])
       expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])
     }
     finally { await rm(root, { force: true, recursive: true }) }

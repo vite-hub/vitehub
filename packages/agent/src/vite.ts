@@ -20,6 +20,7 @@ import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentStateDurabilityInput } from "./durability.ts"
@@ -3368,6 +3369,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
               handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
+              // Each Channel checks the signature or the secret of its platform's webhooks.
+              meta: { ...ownAccessHandlerMeta },
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
@@ -3383,6 +3386,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.discordGateway && !installProcessDiscordGateway
           ? [{
               handler: join(generatedRoot, generatedAgentDiscordGatewayRouteHandler),
+              // The route checks VITEHUB_DISCORD_GATEWAY_SECRET.
+              meta: { ...ownAccessHandlerMeta },
               route: normalizeNitroRoute(resolved.routes.discordGateway),
             }]
           : []),
@@ -3412,7 +3417,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             throw agentDiagnostics.AGENT_WEBHOOK_ALIAS_TARGET_INVALID()
           }
           const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias", "/_vitehub/channels")
-          nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
+          // An alias reaches a Channel webhook, which checks its own signature.
+          nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), meta: { ...ownAccessHandlerMeta }, route })
         }
       }
       if (installPreparation && resolved && resolved.preparation) {

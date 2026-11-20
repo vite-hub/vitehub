@@ -346,6 +346,20 @@ The generated access middleware checks each request that an access route matches
 
 The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
 
+Other generated ViteHub routes that check their own access also skip the access routes. These are Realtime, Comments, Sync, Blob signed links and serve routes, Connections, MCP with `auth: true` and its `publicRoute`, signed Agent and Content webhooks, and the page tools session. Each runs your `authorize` callback, its access rule, or a signature check. Routes that take any request, such as `/_vitehub/browser-errors` and Forms, stay behind the access routes. Your own middleware can skip the same requests with `checksOwnAccess(event)`:
+
+```ts [server/middleware/members-only.ts]
+import { checksOwnAccess } from 'vite-hub/auth'
+import { defineHandler } from 'h3'
+
+export default defineHandler((event) => {
+  if (checksOwnAccess(event)) return
+  // Check the session of every other request here.
+})
+```
+
+The check reads the route that Nitro matched, so an app route file on the same path does not skip.
+
 ### Make every route private
 
 With `routes: ['/**']`, the access middleware guards every path. List the paths that a signed-out visitor can open in `access.public`. A request to a public path skips all access routes and their `authorize` callbacks.

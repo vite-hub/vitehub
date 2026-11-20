@@ -326,7 +326,7 @@ describe("hubBlob", () => {
     expect(userConfig).toHaveProperty("nitro.plugins", [generatedPlugin])
     expect(userConfig).toHaveProperty("nitro.handlers", [
       { handler: generatedMiddleware, middleware: true },
-      { handler: generatedServeHandler, route: "/_vitehub/blob/**" },
+      { handler: generatedServeHandler, meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/blob/**" },
     ])
 
     const resolvedConfig = {
@@ -357,7 +357,7 @@ describe("hubBlob", () => {
       expect(resolvedConfig).toHaveProperty("nitro.plugins", [resolvedPlugin])
       expect(resolvedConfig).toHaveProperty("nitro.handlers", [
         { handler: resolvedMiddleware, middleware: true },
-        { handler: resolvedServeHandler, route: "/_vitehub/blob/**" },
+        { handler: resolvedServeHandler, meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/blob/**" },
       ])
     }
     finally {
@@ -1012,7 +1012,7 @@ describe("hubBlob", () => {
       await config(userConfig, { command: "build" })
       return userConfig.nitro?.handlers
     }
-    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob-signed/**" }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/blob-signed/**" }
 
     expect(await handlers({ driver: "fs" })).toEqual([signed])
     expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare" }, local: { driver: "fs" } } })).toEqual([signed])

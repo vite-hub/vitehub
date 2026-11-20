@@ -2993,9 +2993,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       expect(config.noExternals).toEqual(expect.arrayContaining(["vite-hub", "@vite-hub/"]))
       expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
       expect(config.handlers).toEqual(expect.arrayContaining([
-        { handler, method: "post", route: "/_vitehub/connections" },
-        { handler, method: "get", route: "/_vitehub/connections/connect/**" },
-        { handler, method: "get", route: "/_vitehub/connections/callback" },
+        { handler, method: "post", meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/connections" },
+        { handler, method: "get", meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/connections/connect/**" },
+        { handler, method: "get", meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/connections/callback" },
       ]))
       // Resolve generated imports, including the app's actor module and the discovered Connection.
       const output = await build({

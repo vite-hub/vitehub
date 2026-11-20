@@ -74,4 +74,19 @@ describe("Auth startup runtime", () => {
     await expect(handler(new Request("https://app.example/_vitehub/rpc", { method: "POST" }))).resolves.toMatchObject({ status: 401 })
     expect(check).toHaveBeenCalledTimes(4)
   })
+
+  it("tells app middleware which requests a ViteHub route checks itself, from the root entry", async () => {
+    const { checksOwnAccess } = await import("../src/index.ts")
+    const { ownAccessHandlerMeta } = await import("@vite-hub/internal/nitro-kit")
+    const event = (meta?: Record<string, unknown>) => ({
+      "~standard": { vendor: "test", req: new Request("https://app.example/_vitehub/realtime/room"), res: { headers: new Headers() } },
+      context: { matchedRoute: { route: "/_vitehub/realtime/**", ...meta ? { meta } : {} } },
+    })
+
+    expect(authAccessHandlerMeta).toEqual(ownAccessHandlerMeta)
+    expect(checksOwnAccess(event({ ...ownAccessHandlerMeta }))).toBe(true)
+    expect(checksOwnAccess(event())).toBe(false)
+    expect(checksOwnAccess(new Request("https://app.example/_vitehub/realtime/room"))).toBe(false)
+    expect([...loaded]).toEqual([])
+  })
 })

@@ -13,7 +13,7 @@ import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessHandlerMeta } from "@vite-hub/internal/nitro-kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -73,6 +73,8 @@ export interface GeneratedSourceRoute {
    * because a lazy handler does not receive `next`. Such a handler must load heavy modules itself, on demand.
    */
   lazy?: false
+  /** The Nitro route meta, such as `ownAccessHandlerMeta` for a route that checks its own access. */
+  meta?: Readonly<Record<string, unknown>>
   plugin?: never
   route: string
 }
@@ -767,7 +769,8 @@ async function writeContentArtifact(
           "export default defineContentGitHubWebhookHandler(content)",
           "",
         ].join("\n"))
-    handlers.push({ handler: githubWebhook, method: "post", route: "/_vitehub/content/github" })
+    // The handler checks the GitHub signature of each delivery.
+    handlers.push({ handler: githubWebhook, meta: { ...ownAccessHandlerMeta }, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
   // `vitehub.queues` writes the Queue module. It goes when the app has no Queue or no `github()` Source.

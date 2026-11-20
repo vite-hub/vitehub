@@ -13,9 +13,22 @@ export interface NitroServerHandler {
   /** Import the handler on its first request instead of when the server starts. */
   lazy?: boolean
   method?: string | string[]
+  /**
+   * The Nitro route meta. Nitro gives it to the request event as `event.context.matchedRoute.meta`. A route that checks
+   * its own access uses `ownAccessHandlerMeta`.
+   */
+  meta?: Readonly<Record<string, unknown>>
   middleware?: boolean
   route?: string
 }
+
+/**
+ * The route meta of a generated handler that checks its own access: it runs an app `authorize`, an explicit access
+ * rule, or a signature check on every request. ViteHub Auth access routes leave a request that Nitro routed to such a
+ * handler to the handler, and `checksOwnAccess(event)` of `vite-hub/auth/server` tells app middleware the same. A route
+ * that accepts every request, such as a browser error sink, must not use it.
+ */
+export const ownAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
 
 export interface NitroServerKit {
   readonly config: Record<string, unknown>
