@@ -1060,7 +1060,7 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 // Drizzle Kit asks rename-or-create questions only when its stdin is a terminal.
-function generateCanAsk(args: string[], env: NodeJS.ProcessEnv): boolean {
+function generateCanAsk(env: NodeJS.ProcessEnv): boolean {
   if (env.CI && env.CI !== "0" && env.CI !== "false") return false
   return !!process.stdin.isTTY
 }
@@ -1122,7 +1122,7 @@ async function runDrizzleKitWithConfig(
     cwd: projectRoot,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
     stderr: "inherit",
-    ...(feature === "generate" && !generateCanAsk(args, env) ? { stdin: "ignore" as const } : {}),
+    ...(feature === "generate" && !generateCanAsk(env) ? { stdin: "ignore" as const } : {}),
     stdout: "inherit",
   })
   const exitCode = result.exitCode ?? 1
