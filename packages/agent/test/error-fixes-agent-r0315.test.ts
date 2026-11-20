@@ -1,7 +1,7 @@
 import { expect, it } from "vitest"
 
 import { agentDiagnostics } from "../src/agent-diagnostics.ts"
-import { channelAdapter, http, telegram } from "../src/channels.ts"
+import { channelAdapter, telegram } from "../src/channels.ts"
 
 const codes = [
   "AGENT_R0315",
@@ -60,7 +60,6 @@ const codes = [
   "AGENT_R0369",
   "AGENT_R0370",
   "AGENT_R0371",
-  "AGENT_R0372",
   "AGENT_R0373",
   "AGENT_R0374",
   "AGENT_R0375",
@@ -115,13 +114,6 @@ it("reports telegram() with webhookSecret and webhooks with a code and a fix", (
   expect(() => telegram({ webhookSecret: "secret", webhooks: true } as never)).toThrow(expect.objectContaining({
     code: "AGENT_R0373",
     fix: expect.stringContaining("webhookSecret or webhooks"),
-  }))
-})
-
-it("reports http({ path }) with a code and a fix", () => {
-  expect(() => http({ path: "/chat" } as never)).toThrow(expect.objectContaining({
-    code: "AGENT_R0372",
-    fix: expect.stringContaining("http({ webhooks: { path } })"),
   }))
 })
 

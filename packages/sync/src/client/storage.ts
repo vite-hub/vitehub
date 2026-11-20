@@ -12,6 +12,8 @@ interface SyncMeta {
   version: string
   /** The static column defaults, for optimistic inserts. */
   defaults: SyncRow
+  /** The `after` of the last page of a snapshot that is not done yet. */
+  after?: SyncKey
 }
 
 /**

@@ -58,7 +58,7 @@ export default defineEventHandler((event) => {
 
 ::product-features
   :::product-feature-item{title="No keys" icon="i-lucide-text-cursor-input" to="/docs/i18n/configure#write-messages"}
-  Write ``t`Save` `` in the source language. `t` and `<Trans>` work in templates with no import.
+  Write ``t`Save` `` in your source language. `t` and `<Trans>` work in Vue templates without imports.
   :::
 
   :::product-feature-item{title="One locale for each request" icon="i-lucide-server" to="/docs/i18n/server-api#how-the-server-picks-the-locale"}
@@ -74,7 +74,7 @@ export default defineEventHandler((event) => {
   :::
 
   :::product-feature-item{title="Translate an app in one tutorial" icon="i-lucide-rocket" to="/docs/i18n/get-started"}
-  A Vue page and a server route in English and Spanish, with no provider account.
+  Translate a Vue page and an API route from English to Spanish with no provider account.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/i18n/limits-and-errors#limits"}

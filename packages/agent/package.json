@@ -90,6 +90,11 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/agent-invocations-cli": {
+      "types": "./dist/internal/agent-invocations-cli.d.ts",
+      "import": "./dist/internal/agent-invocations-cli.js",
+      "default": "./dist/internal/agent-invocations-cli.js"
+    },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
       "import": "./dist/internal/default-invocations.js",

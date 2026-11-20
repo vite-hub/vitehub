@@ -53,15 +53,15 @@ Start with one plugin and add more later.
 | [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in your database, Turso, Cloudflare D1, or a SQLite file, in tables Comments creates. Guests on the dev server. |
 | [With GitHub sign-in](/docs/comments/configure#sign-in-with-github) | A GitHub App and three server variables | People who can push to the repository sign in and comment. Pull request comments show their GitHub account. |
 | [In a ViteHub app](/docs/comments/with-vite-hub) | `vitehub()` with a Database, and `server/comments.ts` | Any ViteHub Database on every host. Live cursors, Content edits in place, the Console section, MCP tools for Agents, and your own sign-in. |
-| [On a docs site](/docs/docs-site/configure#comments) | `vite-hub/nuxt` beside `vite-hub/docs/nuxt` | On by default on every docs page, with threads in the Console. `docs: { comments: false }` turns it off. |
+| [On a docs site](/docs/docs-site/configure#comments) | `vite-hub/nuxt` beside `vite-hub/docs/nuxt` | On by default on every docs page, with threads in the Console. Set `docs: { comments: false }` to turn it off. |
 
 ::product-features
   :::product-feature-item{title="One plugin turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
-  Add `comments()` to `vite.config.ts` to get the API, the overlay, and a SQLite file for threads.
+  Add `comments()` to `vite.config.ts` to get the API, the page overlay, and a SQLite file for threads.
   :::
 
   :::product-feature-item{title="Sign in with GitHub" icon="i-lucide-github" to="/docs/comments/configure#sign-in-with-github"}
-  People who can push to the repository may comment. The session is a cookie; the server stores no users.
+  People who can push to the repository can comment. The session is a cookie, and the server stores no users.
   :::
 
   :::product-feature-item{title="Public visitors get nothing extra" icon="i-lucide-eye-off" to="/docs/comments/configure#turn-comment-mode-on-and-off"}
@@ -95,7 +95,7 @@ Start with one plugin and add more later.
 
 ## Comments through Operations
 
-The same `server/comments.ts` also runs the [comment operations](/docs/comments/operations/get-started): numbered threads on your own subjects, for the CLI, MCP, the Console, and your UI. Export the definition as `comments` or as the default export. Both use the same tables.
+The same `server/comments.ts` file also runs the [comment operations](/docs/comments/operations/get-started): numbered threads on your own subjects, for the CLI, MCP, the Console, and your UI. Export the definition as `comments` or as the default export. Both use the same tables.
 
 ## Use without ViteHub
 
