@@ -68,7 +68,8 @@ export default defineChannel({ adapter: webhook({ path: '/api/label/webhook', se
 
 describe('standalone Channel folders', () => {
   it('serves standalone webhooks only from the configured Channels root', async () => {
-    const source = `import { defineChannel, webhook } from '@vite-hub/channels'
+    const source = `import { defineChannel } from '@vite-hub/channels'
+    import { webhook } from '@vite-hub/channels/adapters'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
   adapter: webhook({ signature: 'bearer', secret: 'secret' }),
