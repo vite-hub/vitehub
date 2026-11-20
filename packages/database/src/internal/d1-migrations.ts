@@ -176,10 +176,10 @@ function readLegacyJournal(migrationsDir: string) {
   const file = join(migrationsDir, "meta", "_journal.json")
   if (!existsSync(file)) return []
   const journal: unknown = JSON.parse(readFileSync(file, "utf8"))
-  if (!isRecord(journal) || !Array.isArray(journal.entries)) throw new Error(`Invalid migration journal: ${file}.`)
+  if (!isRecord(journal) || !Array.isArray(journal.entries)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal: ${file}.` })
   return journal.entries.map((entry: unknown) => {
     if (!isRecord(entry) || typeof entry.tag !== "string" || typeof entry.when !== "number" || !Number.isSafeInteger(entry.when) || entry.when < 0 || entry.when >= Date.UTC(10000, 0, 1)) {
-      throw new Error(`Invalid migration journal entry: ${file}.`)
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal entry: ${file}.` })
     }
     return { tag: entry.tag, when: entry.when }
   })
@@ -203,8 +203,8 @@ export function planFlatMigrationFolders(migrationsDir: string, now = Date.now()
   const anchors = new Map<string, number>()
   for (const { tag, when } of readLegacyJournal(migrationsDir)) {
     const file = `${tag}.sql`
-    if (!files.includes(file)) throw new Error(`The migration journal lists ${file}, but that file is missing.`)
-    if (anchors.has(file)) throw new Error(`The migration journal lists ${file} more than once.`)
+    if (!files.includes(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file}, but that file is missing.` })
+    if (anchors.has(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file} more than once.` })
     anchors.set(file, Math.floor(when / 1000) * 1000)
   }
   const listed = files.map(file => anchors.get(file))
@@ -215,7 +215,7 @@ export function planFlatMigrationFolders(migrationsDir: string, now = Date.now()
   for (const [index, second] of listed.entries()) {
     const next = index === 0 ? start : seconds[index - 1]! + 1000
     if (second !== undefined && second < next) {
-      throw new Error(`There is not enough time between journal entries to keep ${files[index]} in order without changing its recorded timestamp.`)
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `There is not enough time between journal entries to keep ${files[index]} in order without changing its recorded timestamp.` })
     }
     seconds.push(second ?? next)
   }

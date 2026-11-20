@@ -390,6 +390,7 @@ describe("vitehub database up", () => {
 
     const failed = await project.run("up")
     expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
     expect(failed.stderr).toContain("Drizzle Kit could not read the current Database Definitions")
     await expect(readdir(migrationsDir)).resolves.toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
   }, 120_000)
@@ -419,6 +420,7 @@ describe("vitehub database up", () => {
       const converted = await project.run("up")
       if (gap === 1_000) {
         expect(converted.exitCode).toBe(1)
+        expect(converted.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
         expect(converted.stderr).toContain("without changing its recorded timestamp")
         await expect(readdir(migrationsDir)).resolves.toEqual([...files, "meta"])
         await expect(project.columns()).resolves.toEqual(["id", "body"])

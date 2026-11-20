@@ -197,6 +197,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
     },
+    DATABASE_MIGRATION_CONVERSION_FAILED: {
+      why: ({ problem }: { problem: string }) => `ViteHub could not convert the old migration layout. ${problem}`,
+      fix: "Fix the problem above and run `vitehub database up` again. Keep the file names and journal timestamps of applied migrations. If the history cannot be converted, move it to the Drizzle Kit 1.0 layout manually and verify it on a copy of the database before migrating.",
+    },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",

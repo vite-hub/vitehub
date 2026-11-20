@@ -884,18 +884,18 @@ async function convertFlatMigrations(
   let snapshot: string
   let names: Record<string, string> | undefined
   try {
-    if (database.dialect !== "sqlite") throw new Error("Only SQLite and D1 support conversion of hand-written SQL. For Postgres, use a complete Drizzle Kit 0.x journal and snapshots or convert the files manually.")
+    if (database.dialect !== "sqlite") throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Only SQLite and D1 support conversion of hand-written SQL. For Postgres, use a complete Drizzle Kit 0.x journal and snapshots or convert the files manually." })
     if ((await listMigrationFolders(dir)).some(folder => /^\d{14}_/.test(folder) || existsSync(join(dir, folder, "migration.sql")))) {
-      throw new Error("The folder already contains migration folders. Move them out of the old migrations folder before converting it.")
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "The folder already contains migration folders. Move them out of the old migrations folder before converting it." })
     }
     moves = await Promise.all(planFlatMigrationFolders(dir).map(async move => ({ ...move, sql: addStatementBreakpoints(await readFile(join(dir, move.file), "utf8")) })))
-    if (!moves.length) throw new Error("There are no flat SQL files to convert.")
+    if (!moves.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "There are no flat SQL files to convert." })
     if (database.cloudflare) {
       const recorded = readD1MigrationNames(dir)
       names = Object.fromEntries([...Object.entries(recorded), ...moves.map(move => [move.folder, move.file] as const)].sort(([a], [b]) => a.localeCompare(b)))
     }
     if (await readSchemaSnapshot(context, { bin, configFile, projectRoot }) === undefined) {
-      throw new Error("Drizzle Kit could not read the current Database Definitions. See the Drizzle Kit output above.")
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not read the current Database Definitions. See the Drizzle Kit output above." })
     }
     snapshot = await readReplayedSqliteSnapshot(context, { bin, moves, projectRoot })
   }
@@ -916,7 +916,11 @@ async function convertFlatMigrations(
 }
 
 function writeFlatConversionError(context: ViteHubCliContext, database: string, directory: string, error: unknown): void {
-  context.stderr.write(`[vitehub] Database "${database}": ${directory} stays as it was. ${error instanceof Error ? error.message : String(error)}\n`)
+  const diagnostic = isRuntimeDiagnostic(error) ? error : databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({
+    cause: error,
+    problem: error instanceof Error ? error.message : String(error),
+  })
+  context.stderr.write(`[vitehub] Database "${database}": ${directory} stays as it was.\n${formatRuntimeDiagnosticError(diagnostic)}\n`)
 }
 
 async function readReplayedSqliteSnapshot(
@@ -935,7 +939,7 @@ async function readReplayedSqliteSnapshot(
           for (const statement of sql.split("--> statement-breakpoint")) database.exec(statement)
         }
         catch (error) {
-          throw new Error(`Could not replay ${file}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+          throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: `Could not replay ${file}: ${error instanceof Error ? error.message : String(error)}` })
         }
       }
     }
@@ -950,7 +954,7 @@ async function readReplayedSqliteSnapshot(
       stdout: "pipe",
     })
     const generated = (await listMigrationFolders(out))[0]
-    if (result.exitCode !== 0 || !generated) throw new Error("Drizzle Kit could not write a snapshot of the replayed SQL.")
+    if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
     return await readFile(join(out, generated, "snapshot.json"), "utf8")
   }
   finally {
