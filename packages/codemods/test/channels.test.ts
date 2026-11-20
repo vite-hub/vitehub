@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseProgram } from "@vite-hub/internal/ast"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
@@ -265,5 +266,55 @@ describe("channels", () => {
       "server/channels/payments.ts": "import { stripe } from '@vite-hub/channels/adapters'\nimport type { StripeEvent } from '@vite-hub/channels/adapters'\nexport const adapter = stripe()\nexport type Event = StripeEvent\n",
     })
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/ns.ts", line: 1, message: expect.stringContaining("vite-hub/channels/adapters") })])
+  })
+
+  it.each([
+    ["import { webhook /* inbound */, defineChannel } from 'vite-hub/channels'", "/* inbound */", "import { webhook } from 'vite-hub/channels/adapters'"],
+    ["import { ignored // response,\n, slack } from 'vite-hub/agent/channels'", "// response,", "import { ignored } from 'vite-hub/channels'"],
+    ["import { defineChannel, webhook, stripe } from 'vite-hub/channels'", "defineChannel", "import { webhook, stripe } from 'vite-hub/channels/adapters'"],
+  ])("splits %s without losing comments or leaving invalid commas", async (source, preserved, moved) => {
+    const { after } = await migrate({ "split.ts": source })
+    const result = after["split.ts"]!
+    expect(result).toContain(preserved)
+    expect(result).toContain(moved)
+    expect(() => parseProgram(result)).not.toThrow()
+  })
+
+  it("moves re-exports, import types, and loads that only use moved adapters", async () => {
+    const { after } = await migrate({
+      "exports.ts": `export { stripe as payment, defineChannel } from 'vite-hub/channels'
+export type Event = import('@vite-hub/channels').StripeEvent
+export type Options = import('vite-hub/agent/channels').DiscordAdapterOptions
+const { webhook } = await import('vite-hub/channels')
+const actual = vi.importActual<typeof import('vite-hub/agent/channels')>('vite-hub/agent/channels')`,
+    })
+    const result = after["exports.ts"]!
+    expect(result).toContain("export { defineChannel } from 'vite-hub/channels'")
+    expect(result).toContain("export { stripe as payment } from 'vite-hub/channels/adapters'")
+    expect(result).toContain("import('@vite-hub/channels/adapters').StripeEvent")
+    expect(result).toContain("import('vite-hub/channels/adapters').DiscordAdapterOptions")
+    expect(result).toContain("const { webhook } = await import('vite-hub/channels/adapters')")
+    expect(result).toContain("vi.importActual<typeof import('vite-hub/channels/adapters')>('vite-hub/channels/adapters')")
+    expect(() => parseProgram(result)).not.toThrow()
+  })
+
+  it("detects unresolved namespace uses, mixed dynamic loads, and wildcard re-exports", async () => {
+    const { after, cwd, run } = await migrate({
+      "manual.ts": `import * as channels from 'vite-hub/channels'
+const { stripe } = channels
+const { webhook, defineChannel } = await import('vite-hub/channels')
+export * from '@vite-hub/channels'`,
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps.map(entry => entry.line).sort()).toEqual([1, 3, 4])
+    expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("channels")
+  })
+
+  it("warns that typed Vitest mocks no longer intercept helpers moved to the root", async () => {
+    const { after, run } = await migrate({
+      "mock.ts": "import { ignored } from 'vite-hub/agent/channels'\nvi.mock(import('vite-hub/agent/channels'), () => ({ ignored: fakeIgnored }))",
+    })
+    expect(after["mock.ts"]).toBe("import { ignored } from 'vite-hub/channels'\nvi.mock(import('vite-hub/channels/adapters'), () => ({ ignored: fakeIgnored }))")
+    expect(run.result.followUps.filter(entry => entry.message.includes("mock that path too"))).toHaveLength(1)
   })
 })

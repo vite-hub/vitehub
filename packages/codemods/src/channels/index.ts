@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, isReference, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
+import { moduleSource } from "../shared/module-source.ts"
 
 import type { CallExpression, Expression, File, Identifier, ImportDeclaration, ObjectExpression, ObjectProperty, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -109,6 +110,13 @@ function importedName(specifier: Specifier): string | undefined {
 
 const manualHttp = '`http()` was removed. Use `channelAdapter("http", options)` from the same module to keep the Channel kind.'
 
+function mockSource(node: Node): StringLiteral | undefined {
+  if (node.type !== "CallExpression" || node.callee.type !== "MemberExpression"
+    || node.callee.property.type !== "Identifier" || !moduleCalls.has(node.callee.property.name)) return
+  const first = node.arguments[0]
+  return first?.type === "StringLiteral" ? first : first && moduleSource(first)
+}
+
 function reportIndirectUses(context: FileContext): Set<string> {
   const mocked = new Set<string>()
   walk(context.program, (node, ancestors) => {
@@ -127,22 +135,17 @@ function reportIndirectUses(context: FileContext): Set<string> {
       return
     }
     if (node.type !== "CallExpression" && node.type !== "ImportExpression") return
-    const callee = node.type === "CallExpression" ? node.callee : undefined
-    const first = node.type === "CallExpression" ? node.arguments[0] : node.source
-    const source = first?.type === "ImportExpression" ? first.source
-      : first?.type === "CallExpression" && first.callee.type === "Import" ? first.arguments[0] : first
-    if (source?.type !== "StringLiteral" || !httpModules.has(source.value)) return
-    if (callee?.type === "MemberExpression" && callee.property.type === "Identifier" && moduleCalls.has(callee.property.name)) {
+    const mock = mockSource(node)
+    const source = mock ?? moduleSource(node)
+    if (!source || !httpModules.has(source.value)) return
+    if (mock) {
       mocked.add(source.value)
       followUp(context, node, `Check this mock for the removed http export. Update the mock and its callers together. ${manualHttp}`)
       return
     }
-    if (node.type === "ImportExpression" || callee?.type === "Import" || (callee?.type === "Identifier" && callee.name === "require")) {
-      const parent = ancestors.at(-1)
-      if (parent?.type === "CallExpression" && parent.callee.type === "MemberExpression"
-        && parent.callee.property.type === "Identifier" && moduleCalls.has(parent.callee.property.name)) return
-      followUp(context, node, `Check this module load for references to the removed http export. ${manualHttp}`)
-    }
+    const parent = ancestors.at(-1)
+    if (parent && mockSource(parent) === source) return
+    followUp(context, node, `Check this module load for references to the removed http export. ${manualHttp}`)
   })
   return mocked
 }
@@ -393,6 +396,56 @@ function moveSource(context: FileContext, source: StringLiteral, to: string) {
   overwrite(context, source, quoteString(to, context.style))
 }
 
+type NamedStatement = ImportDeclaration | Extract<Node, { type: "ExportNamedDeclaration" }>
+
+function takeSpecifiers(context: FileContext, statement: NamedStatement, source: StringLiteral, moved: readonly Node[]): string {
+  const { block, output } = context
+  const remove = (from: number, to: number) => output.remove(block.offset + from, block.offset + to)
+  const selected = new Set(moved)
+  for (const [index, specifier] of statement.specifiers.entries()) {
+    if (!selected.has(specifier)) continue
+    const next = statement.specifiers[index + 1]
+    const previous = statement.specifiers[index - 1]
+    const after = block.code.slice(end(specifier), next ? start(next) : start(source))
+    const trivia = /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*/.exec(after)?.[0] ?? ""
+    const separator = /^,[ \t]*/.exec(after.slice(trivia.length))?.[0]
+    if (separator) {
+      const comma = end(specifier) + trivia.length
+      if (trivia.includes("/")) {
+        remove(start(specifier), end(specifier))
+        remove(comma, comma + separator.length)
+      }
+      else remove(start(specifier), comma + separator.length)
+    }
+    else {
+      const before = previous && block.code.slice(end(previous), start(specifier))
+      const comma = before && !selected.has(previous) && /^\s*,\s*$/.test(before) ? end(previous) : start(specifier)
+      remove(comma, end(specifier))
+    }
+  }
+  return moved.map(specifier => block.code.slice(start(specifier), end(specifier))).join(", ")
+}
+
+function nameUsage(name: string | undefined): "adapters" | "root" | "unknown" {
+  return name === undefined ? "unknown" : rootAdapterNames.has(name) ? "adapters" : "root"
+}
+
+function adapterUsage(node: Node, parent: Node | undefined): ReturnType<typeof nameUsage> {
+  if ((parent?.type === "MemberExpression" || parent?.type === "OptionalMemberExpression") && parent.object === node) {
+    return nameUsage(keyName(parent.property, parent.computed))
+  }
+  if (parent?.type === "TSQualifiedName" && parent.left === node) return nameUsage(parent.right.name)
+  if (parent?.type === "VariableDeclarator" && parent.init === node && parent.id.type === "ObjectPattern") {
+    const uses = new Set(parent.id.properties.map(prop => nameUsage(prop.type === "ObjectProperty" ? keyName(prop.key, prop.computed) : undefined)))
+    return uses.size === 1 ? [...uses][0] ?? "unknown" : "unknown"
+  }
+  return "unknown"
+}
+
+function reportAdapterSplit(context: FileContext, node: Node, root: string) {
+  followUp(context, node, `Check for webhook and stripe exports (including their types). Import them from \`${root}/adapters\` and keep other names on \`${root}\`.`)
+}
+
 /**
  * Moves `webhook`, `stripe`, and their types from the root of `vite-hub/channels` or `@vite-hub/channels` to its
  * adapters entry. Returns the import statements that it changed.
@@ -401,33 +454,40 @@ function moveRootAdapters(context: FileContext): Set<ImportDeclaration> {
   const { block, output, program, style } = context
   const semicolon = style.semicolons ? ";" : ""
   const changed = new Set<ImportDeclaration>()
+  const resolve = bindingResolver(program)
   for (const statement of program.program.body) {
-    if (statement.type !== "ImportDeclaration" || !rootModules.has(statement.source.value)) continue
-    const adaptersSource = `${statement.source.value}/adapters`
+    if (statement.type !== "ImportDeclaration" && statement.type !== "ExportNamedDeclaration" && statement.type !== "ExportAllDeclaration") continue
+    const source = statement.source
+    if (!source || !rootModules.has(source.value)) continue
+    const adaptersSource = `${source.value}/adapters`
+    if (statement.type === "ExportAllDeclaration" || (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier"))) {
+      reportAdapterSplit(context, statement, source.value)
+      continue
+    }
     const namespace = statement.specifiers.find(specifier => specifier.type === "ImportNamespaceSpecifier")
     if (namespace) {
-      let used = false
-      walk(program, (node) => {
-        if (node.type !== "MemberExpression" || node.object.type !== "Identifier" || node.object.name !== namespace.local.name) return
-        const name = node.computed ? (node.property.type === "StringLiteral" ? node.property.value : undefined) : node.property.type === "Identifier" ? node.property.name : undefined
-        if (name === "webhook" || name === "stripe") used = true
+      let needsSplit = block.templateNames?.has(namespace.local.name) || block.hasExternalTemplate || block.hasOtherScript
+      walk(program, (node, ancestors) => {
+        const parent = ancestors.at(-1)
+        if (isReference(node, parent) && resolve(node) === namespace.local && adapterUsage(node, parent) !== "root") needsSplit = true
       })
-      if (used) followUp(context, namespace, `\`webhook()\` and \`stripe()\` moved to \`${adaptersSource}\`. Import them from there.`)
+      if (needsSplit) reportAdapterSplit(context, namespace, source.value)
       continue
     }
-    const moved = statement.specifiers.filter(specifier => rootAdapterNames.has(importedName(specifier) ?? ""))
+    const moved = statement.specifiers.filter(specifier => {
+      const name = specifier.type === "ExportSpecifier" ? keyName(specifier.local) : specifier.type === "ImportSpecifier" ? keyName(specifier.imported) : undefined
+      return nameUsage(name) === "adapters"
+    })
     if (!moved.length) continue
-    changed.add(statement)
+    if (statement.type === "ImportDeclaration") changed.add(statement)
     if (moved.length === statement.specifiers.length) {
-      moveSource(context, statement.source, adaptersSource)
+      moveSource(context, source, adaptersSource)
       continue
     }
-    const names = moved.map(specifier => block.code.slice(start(specifier), end(specifier))).join(", ")
-    for (const specifier of moved) {
-      const [from, to] = listItemRemoval(block.code, specifier)
-      output.remove(block.offset + from, block.offset + to)
-    }
-    const keyword = statement.importKind === "type" ? "import type" : "import"
+    const names = takeSpecifiers(context, statement, source, moved)
+    const keyword = statement.type === "ImportDeclaration"
+      ? (statement.importKind === "type" ? "import type" : "import")
+      : (statement.exportKind === "type" ? "export type" : "export")
     output.appendLeft(block.offset + end(statement), `\n${keyword} { ${names} } from ${quoteString(adaptersSource, style)}${semicolon}`)
   }
   return changed
@@ -463,11 +523,7 @@ function moveImports(context: FileContext, changed: ReadonlySet<ImportDeclaratio
     }
     moveSource(context, statement.source, adaptersPath)
     if (!moved.length) continue
-    const names = moved.map(specifier => block.code.slice(start(specifier), end(specifier))).join(", ")
-    for (const specifier of moved) {
-      const [from, to] = listItemRemoval(block.code, specifier)
-      output.remove(block.offset + from, block.offset + to)
-    }
+    const names = takeSpecifiers(context, statement, statement.source, moved)
     const kind = statement.importKind ?? "value"
     const target = channelImports.get(kind)
     if (target) {
@@ -477,15 +533,32 @@ function moveImports(context: FileContext, changed: ReadonlySet<ImportDeclaratio
     const keyword = kind === "type" ? "import type" : "import"
     output.appendLeft(block.offset + end(statement), `\n${keyword} { ${names} } from ${quoteString(channelsPath, style)}${semicolon}`)
   }
-  walk(program, (node) => {
-    const first = node.type === "ImportExpression" ? node.source : node.type === "CallExpression" ? node.arguments[0] : undefined
-    if (first?.type !== "StringLiteral" || first.value !== movedPath) return
-    const callee = node.type === "CallExpression" ? node.callee : undefined
-    const mock = callee?.type === "MemberExpression" && callee.property.type === "Identifier" && moduleCalls.has(callee.property.name)
-    const load = node.type === "ImportExpression" || callee?.type === "Import" || (callee?.type === "Identifier" && callee.name === "require")
-    if (!mock && !load) return
-    moveSource(context, first, adaptersPath)
-    if (mock) followUp(context, node, "This mock now replaces `vite-hub/channels/adapters`. `defineChannelTrigger`, `ignored`, `retryLater`, and `rejected` also come from `vite-hub/channels`: mock that path too when the code under test imports them from it.")
+  walk(program, (node, ancestors) => {
+    if (node.type === "ImportDeclaration" || node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") return
+    const mock = mockSource(node)
+    const source = mock ?? moduleSource(node)
+    if (!source) return
+    const parent = ancestors.at(-1)
+    if (parent && mockSource(parent) === source) return
+    if (source.value === movedPath) {
+      moveSource(context, source, adaptersPath)
+      if (mock) followUp(context, node, "This mock now replaces `vite-hub/channels/adapters`. `defineChannelTrigger`, `ignored`, `retryLater`, and `rejected` also come from `vite-hub/channels`: mock that path too when the code under test imports them from it.")
+      return
+    }
+    if (!rootModules.has(source.value)) return
+    let usage: ReturnType<typeof nameUsage>
+    if (node.type === "TSImportType" && node.qualifier) {
+      let qualifier = node.qualifier
+      while (qualifier.type === "TSQualifiedName") qualifier = qualifier.left
+      usage = nameUsage(qualifier.name)
+    }
+    else {
+      usage = parent?.type === "AwaitExpression" && parent.argument === node
+        ? adapterUsage(parent, ancestors.at(-2))
+        : adapterUsage(node, parent)
+    }
+    if (usage === "adapters") moveSource(context, source, `${source.value}/adapters`)
+    else if (usage === "unknown") reportAdapterSplit(context, node, source.value)
   })
 }
 

@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, and `cms-roles`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, and `choices-package`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -405,7 +405,7 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
  })
 ```
 
-It also moves `webhook` and `stripe` imports from `vite-hub/channels` to `vite-hub/channels/adapters`. A namespace import, a re-export, an `import()` call, and a `vi.mock()` path move to `vite-hub/channels/adapters`, which has every name. The report lists each mock, because the names that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
+It also moves `webhook`, `stripe`, and their types from `vite-hub/channels` to `vite-hub/channels/adapters` in named imports, re-exports, and module loads that only use those adapters. The report flags namespace uses and mixed loads that need a manual split. Namespace imports, re-exports, `import()` calls, and mock paths of the removed Agent facade move to `vite-hub/channels/adapters`. The report lists each mock because helpers that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
 
 The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
 
@@ -561,3 +561,20 @@ npx @vite-hub/codemods cms-roles [dir] [--dry-run]
 ```
 
 The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
+
+## choices-package
+
+`choices-package` moves an app from the Decisions package to Choices. The package, the import path, the CLI command, and the docs now use one word:
+
+```bash [Terminal]
+npx @vite-hub/codemods choices-package [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `@vite-hub/decisions` in `package.json` | Keep an existing `@vite-hub/choices` constraint or choose a compatible version by hand |
+| `vite-hub/decisions` and `@vite-hub/decisions` in imports | `vite-hub/choices` and `@vite-hub/choices` |
+| `vite-hub/decisions/vue`, `@vite-hub/decisions/vue` | `vite-hub/choices/vue`, `@vite-hub/choices/vue` |
+| `vitehub decisions list` in a package script | `vitehub choices list` |
+
+Check the manual follow-ups before you install again. A Choices release may not match a Decisions version. Named CLI imports keep their local names; for other CLI references, use `listChoices` and `createChoicesCliNamespace` from `@vite-hub/choices/cli`. The diagnostic codes keep their `DECISIONS_` names.

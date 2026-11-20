@@ -39,8 +39,8 @@ the same behavior.
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
-| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
-| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
+| `vite-hub/choices` | [`defineChoices()`](/docs/choices/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/choices`. |
+| `vite-hub/choices/vue` | [`useChoices()`](/docs/choices/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/choices/vue`; auto-imported in Nuxt. |
 | `vite-hub/device` | [`openDevice()`, `setDeviceAccount()`, `clearDevice()`, and `inspectDevice()`](/docs/device/browser-api): the stored copies of server answers in the browser, for one account. Re-exports `@vite-hub/device`. |
 | `vite-hub/device/vue` | [`useStoredData()`](/docs/device/browser-api#usestoreddata) and [`useStoredFetch()`](/docs/device/browser-api#usestoredfetch): the last answer at once from the device, then a fresh one. Re-exports `@vite-hub/device/vue`. |
 | `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. `formFields()`, `toElicitation()`, and `toChatModal()` draw the same schema as an MCP elicitation or a Slack or Teams modal, and `checkForm()` checks the answers. Re-exports `@vite-hub/forms`. |
@@ -103,7 +103,8 @@ the same behavior.
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` is on. |
-| `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, `rejected()`, and `useChannel()` for named sends. Needs no `@vite-hub/agent`. |
+| `vite-hub/channels` | `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, `rejected()`, `useChannel()`, and `sendChannelTrigger()`. Needs no `@vite-hub/agent`. |
+| `vite-hub/channels/server` | `useChannel()` for named sends and `sendChannelTrigger()` for outgoing triggers. |
 | `vite-hub/channels/adapters` | Every Channel adapter: `webhook()`, `stripe()`, `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, `gitlab()`, `forgejo()`, `gmail()`, `webChat()`, and `channelAdapter()`. Needs `@vite-hub/agent`, which serves their webhook route. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, Comments API, presence, MCP, and [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |

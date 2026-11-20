@@ -274,7 +274,7 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 ### Give a Channel its own route
 
-A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels/adapters` does not need an Agent Definition, but it does need the `@vite-hub/agent` package to serve the route. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
 import { defineChannelTrigger } from 'vite-hub/channels'
