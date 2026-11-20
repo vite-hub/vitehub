@@ -81,6 +81,25 @@ The module reads the `.md` and `.navigation.yml` files of every source through V
 
 `sources` configures the site pages, search, Markdown resources, and the pages that the docs assistant reads.
 
+A page that the build generates, such as a list of the skills in a repository, is a `files()` Source. Its loader runs when the build reads the pages, so nothing writes the page into the content folder first:
+
+```ts
+import { readdir } from "node:fs/promises"
+import { files } from "vite-hub/source"
+
+async function skillCatalog() {
+  const skills = await readdir("../skills")
+  return ["---", "title: All skills", "---", ...skills.map(name => `- \`${name}\``)].join("\n")
+}
+
+export default defineNuxtConfig({
+  docs: {
+    base: "/",
+    sources: ["content", { source: files({ "catalog.md": skillCatalog }), mount: "/skills" }],
+  },
+})
+```
+
 ```ts
 import { github, glob } from "vite-hub/source"
 
