@@ -4693,6 +4693,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
       fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
     },
+    AGENT_STATE_FILE_URL_UNSUPPORTED: {
+      why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
+      fix: "Set VITEHUB_AGENT_STATE_URL or agent.providers.state.url to a libSQL server URL, such as a Turso URL, or remove the URL so that `vite dev` runs without durable State. Or run `vite dev` on a Node dev runner.",
+    },
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",

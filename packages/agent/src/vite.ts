@@ -643,6 +643,8 @@ type GeneratedLibsqlAgentStateOptions = Pick<AgentSqlStateProviderOptions, "jour
   authTokenEnvNames?: string[]
   durableUrlRequired?: boolean
   ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
+  /** The URL is the local file that `vite dev` picks when the app sets none. */
+  localDefault?: true
 }
 
 const defaultLocalAgentStateUrl = "file:.vitehub/data/agent-state.sqlite"
@@ -730,6 +732,7 @@ function resolveLibsqlAgentState(
     ...(authTokenEnvNames ? { authTokenEnvNames } : {}),
     ...(!resolvedUrl ? { durableUrlRequired: true } : {}),
     ...(ephemeralHosting ? { ephemeralHosting } : {}),
+    ...(!url && resolvedUrl ? { localDefault: true as const } : {}),
     ...(journalMode ? { journalMode } : {}),
     ...(tablePrefix ? { tablePrefix } : {}),
     ...(resolvedUrl ? { url: resolvedUrl } : {}),
@@ -1433,13 +1436,14 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions, typescript = false): string[] {
-  const { authTokenEnvNames, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
+  const { authTokenEnvNames, durableUrlRequired, ephemeralHosting, localDefault, ...stateOptions } = state
   const configuredAuthToken = authTokenEnvNames?.map(name => `process.env[${JSON.stringify(name)}]`).join(" || ")
   const configuredAuthTokenOption = configuredAuthToken
     ? [`  ...(typeof process === 'object' && (${configuredAuthToken}) ? { authToken: ${configuredAuthToken} } : {}),`]
     : []
   return [
     "",
+    `import { opensLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
     `const viteHubChatStateOptions${typescript ? ": Parameters<typeof createLibsqlAgentState>[0]" : ""} = ${JSON.stringify(stateOptions)}`,
     `let viteHubChatState${typescript ? ": ReturnType<typeof createLibsqlAgentState> | undefined" : ""}`,
     "",
@@ -1462,7 +1466,12 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     "  }",
     "  return viteHubChatState",
     "}",
-    "const viteHubChatStateResolver = () => chatStateFromLibsql()",
+    "/** False in workerd for the local default file, which it cannot open. The app then runs without durable State. */",
+    "function viteHubChatStateOpens() {",
+    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+    `  return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: ${localDefault ? "Boolean(runtimeUrl)" : "true"} })`,
+    "}",
+    "const viteHubChatStateResolver = () => viteHubChatStateOpens() ? chatStateFromLibsql() : undefined",
     "viteHubChatStateResolver.ownsScope = false",
     "viteHubChatStateResolver.workflowCustody = true",
   ]
@@ -1473,6 +1482,7 @@ function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: s
     `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}) {`,
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
     "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
+    "  if (!viteHubChatStateOpens()) return async () => undefined",
     `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })] : [])`,
     "  return async () => await Promise.all(stops.map(stop => stop()))",
     "}",
