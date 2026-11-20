@@ -99,7 +99,8 @@ instead of throwing, so check the error.
 | --- | --- |
 | `getItem`, `setItem`, `hasItem` | `get`, `set`, `has` |
 | `del`, `remove`, `removeItem` | `delete` |
-| `getKeys` | `keys`, or `list()` for pages |
+| `getKeys(base)` or `keys(base)` | `list({ prefix: 'base:' })`, then read `page.keys` from the Result data |
+| `clear(base)` | `clear({ prefix: 'base:' })` |
 | `getItemRaw` | `get(key, { type: "bytes" })` or `{ type: "text" }` |
 | `getItems`, `setItems` | One `get` or `set` for each key |
 | `mount`, `unmount` | Named stores with `kv.store(name)` |
@@ -110,7 +111,7 @@ instead of throwing, so check the error.
 before you write them. In development, the local `fs-lite` store ignores
 `ttl`: a key stays until you delete it.
 
-`get`, `set`, `has`, `keys`, and `clear` keep their names. Check other calls against ViteHub's
+`get`, `set`, `has`, and `clear()` without arguments keep their names. To keep matching only keys below a base, end the prefix with `:`. Check other calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
