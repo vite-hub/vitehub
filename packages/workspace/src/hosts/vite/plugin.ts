@@ -712,24 +712,14 @@ function runtimeWorkspaceConfig(
   if (!store || isWorkspaceStore(store) || store.driver !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
-  for (const key of ["branch", "root", "token"] as const) {
+  for (const key of ["branch", "repo", "root", "token"] as const) {
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
-    else if (isAbsent(store[key])) {
+    // `root: ""` is the repository root, a value and not a missing option.
+    else if (isAbsent(store[key]) && !(key === "root" && store.root === "")) {
       delete runtimeStore[key]
     }
-  }
-  if (typeof store.repository === "function") {
-    runtimeStore.repository = store.repository
-  }
-  else if (typeof store.repo === "function") {
-    runtimeStore.repo = store.repo
-    delete runtimeStore.repository
-  }
-  else if (isAbsent(store.repository) && isAbsent(store.repo)) {
-    delete runtimeStore.repository
-    delete runtimeStore.repo
   }
   return { ...config, store: runtimeStore }
 }

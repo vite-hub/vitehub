@@ -78,8 +78,8 @@ describe("Vercel Sandbox Task timeout", () => {
 
     const response = await runSandboxTaskRuntime("slow")
 
-    expect(response.status).toBe(504)
-    expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT" } })
+    expect(response[0]?.status).toBe(504)
+    expect(response[0]?.cause).toMatchObject({ code: "SANDBOX_TASK_TIMEOUT" })
     expect(vercel.createOptions[0]?.timeout).toBe(31_000)
   })
 
@@ -88,7 +88,7 @@ describe("Vercel Sandbox Task timeout", () => {
     vercel.setupLatency = 60
     registerTask({})
 
-    let response: Response | undefined
+    let response: Awaited<ReturnType<typeof runSandboxTaskRuntime>> | undefined
     const pending = runSandboxTaskRuntime("slow").then(result => (response = result))
     // Wait for real setup I/O before advancing the execution deadline.
     await vi.waitFor(() => expect(vercel.handlerStarted).toBe(true), { timeout: 3_000 })
@@ -96,8 +96,8 @@ describe("Vercel Sandbox Task timeout", () => {
     await vi.advanceTimersByTimeAsync(300_000)
     await pending
 
-    expect(response?.status).toBe(504)
-    expect(await response?.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT", details: { timeout: 300_000 } } })
+    expect(response?.[0]?.status).toBe(504)
+    expect(response?.[0]?.cause).toMatchObject({ code: "SANDBOX_TASK_TIMEOUT", details: { timeout: 300_000 } })
     expect(vercel.createOptions[0]?.timeout).toBe(330_000)
   })
 
@@ -106,10 +106,10 @@ describe("Vercel Sandbox Task timeout", () => {
 
     const response = await runSandboxTaskRuntime("slow")
 
-    expect(response.status).toBe(500)
-    expect(await response.json()).toMatchObject({ error: {
+    expect(response[0]?.status).toBe(500)
+    expect(response[0]?.cause).toMatchObject({
       code: "SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT",
       message: expect.stringContaining("Vercel rejected the Sandbox session timeout of 3630000ms: `timeout` restricted to <= 45m on Hobby plans."),
-    } })
+    })
   })
 })

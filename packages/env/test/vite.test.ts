@@ -1220,7 +1220,7 @@ describe("Vite plugin", () => {
 
     expect(() => resolveServerEnv(registry, cloudflareRequest({
         WEBHOOK_URL: "https://example.test/hook",
-      }))).toThrow("[vitehub] Required Env value is missing.")
+      }))).toThrow("[vitehub] Required Env value env.server.airtableToken is missing. Set VITEHUB_AIRTABLE_TOKEN or AIRTABLE_TOKEN.")
   })
 
 })
