@@ -3193,11 +3193,11 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    // The emulator owns the run. A Sandbox fails above, so the run has a private temporary root.
+    // The emulator owns the run. Only a Sandbox run has no temporary root, and the emulator cannot reach a Sandbox.
     let emulatedCodexHome: string | undefined
     let gateway: ResolvedAgentDriverGateway | undefined
     if (emulated) {
-      invariant(temporaryRoot, "a Codex run on the AI emulator has a temporary root because it has no Sandbox")
+      if (!temporaryRoot) throw agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED()
       emulatedCodexHome = join(temporaryRoot.root, "codex-home")
       await mkdir(emulatedCodexHome, { mode: 0o700 })
       gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
