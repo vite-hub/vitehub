@@ -132,9 +132,9 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   const globalKey = 'snapshot-reconcile-next'
   const globalNext = await inbox.metaNumber(globalKey)
   signal?.throwIfAborted()
-  if (globalNext === undefined) { await inbox.setMeta(globalKey, now + 15 * 60_000); return }
+  if (globalNext === undefined) { await inbox.setMeta(globalKey, now + 15 * 60_000, signal); return }
   if (globalNext > now) return
-  await inbox.setMeta(globalKey, now + 60_000)
+  await inbox.setMeta(globalKey, now + 60_000, signal)
   signal?.throwIfAborted()
   const next = await inbox.nextProbe()
   signal?.throwIfAborted()
@@ -147,13 +147,13 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
 /** Reads one PR over REST and ingests it as synthetic deliveries, so missed webhooks are recovered. */
 async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, s: Snapshot, now: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
-  await inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
+  await inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000, signal)
   const snapshot = await readSnapshot(read, s.repository, s.number, readThreads, activityAuthors, signal)
   signal?.throwIfAborted()
   // Apply only if no webhook or claim arrived while this targeted probe ran.
   // New resolution evidence wakes a waiting PR without repeated full queries
   // in every agent pass.
-  if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
+  if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads, signal)
   const ingest = async (event: string, payload: GitHubDelivery) => {
     signal?.throwIfAborted()
     const full = { repository: { full_name: s.repository }, ...payload }
@@ -162,7 +162,7 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
     const pr = full.pull_request as { number?: number, head?: { sha?: string } } | undefined
     const identity = event === 'pull_request' || !pr ? full : { ...full, pull_request: { number: pr.number, head: pr.head?.sha } }
     const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, identity])).digest('hex')}`
-    await inbox.ingest(id, event, full)
+    await inbox.ingest(id, event, full, signal)
   }
   await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })
   if (snapshot.pr.state !== 'open') return
@@ -262,7 +262,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
   signal?.throwIfAborted()
-  await inbox.setMeta('change-detect-next', now + Math.max(60_000, repositories.length * 1_500))
+  await inbox.setMeta('change-detect-next', now + Math.max(60_000, repositories.length * 1_500), signal)
   signal?.throwIfAborted()
   // The summary query already contains every tracked PR. Reuse it for both
   // change detection and the closed-PR sweep instead of issuing one SQLite
@@ -297,7 +297,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       signal?.throwIfAborted()
       if (await inbox.meta(`change-fingerprint:${repository}:${number}`) === fingerprint || pending.success && pending.output.fingerprint === fingerprint) return
       signal?.throwIfAborted()
-      await inbox.setMeta(key, { fingerprint, retryAt: 0, settled, markedAt: pending.success ? pending.output.markedAt ?? now : now } satisfies PendingChange)
+      await inbox.setMeta(key, { fingerprint, retryAt: 0, settled, markedAt: pending.success ? pending.output.markedAt ?? now : now } satisfies PendingChange, signal)
     }
     for (const [number, pr] of open) {
       signal?.throwIfAborted()
@@ -313,9 +313,9 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,
         author_association: pr.authorAssociation, html_url: pr.url, updated_at: pr.updatedAt, labels: pr.labels.nodes.map(label => label.name),
         head: { sha: pr.headRefOid, ref: pr.headRefName, repo: pr.headRepository ? { full_name: pr.headRepository.nameWithOwner } : null },
-        base: { sha: pr.baseRefOid ?? undefined, ref: pr.baseRefName } })
+        base: { sha: pr.baseRefOid ?? undefined, ref: pr.baseRefName } }, signal)
       signal?.throwIfAborted()
-      await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint)
+      await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint, signal)
     }
     // An inbox PR missing from the open list closed or merged.
     for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed', true)
@@ -344,7 +344,7 @@ export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadG
     signal?.throwIfAborted()
     const pending = v.safeParse(pendingChangeSchema, value)
     const [, repository, number] = /^snapshot-changed:(.+):(\d+)$/.exec(key) ?? []
-    if (!pending.success || !repository || !number) { await inbox.deleteMeta(key); continue }
+    if (!pending.success || !repository || !number) { await inbox.deleteMeta(key, signal); continue }
     if (pending.output.retryAt <= now) due.push({ key, repository, number, pending: pending.output })
   }
   due.sort((a, b) => Number(Boolean(b.pending.settled)) - Number(Boolean(a.pending.settled)) || (a.pending.markedAt ?? 0) - (b.pending.markedAt ?? 0))
@@ -354,16 +354,16 @@ export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadG
     if (pending.settled ? settled >= settledLimit : probed - settled >= limit) continue
     const s = await inbox.get(repository, Number(number))
     signal?.throwIfAborted()
-    if (!s) { await inbox.deleteMeta(key); continue }
+    if (!s) { await inbox.deleteMeta(key, signal); continue }
     // A failed probe retries later, not on every reconcile tick.
-    await inbox.setMeta(key, { ...pending, retryAt: now + 2 * 60_000 } satisfies PendingChange)
+    await inbox.setMeta(key, { ...pending, retryAt: now + 2 * 60_000 } satisfies PendingChange, signal)
     probed++
     if (pending.settled) settled++
     await probeSnapshot(inbox, read, s, now, readThreads, activityAuthors, signal)
     signal?.throwIfAborted()
-    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.fingerprint)
+    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.fingerprint, signal)
     signal?.throwIfAborted()
-    await inbox.deleteMeta(key)
+    await inbox.deleteMeta(key, signal)
   }
   return probed
 }

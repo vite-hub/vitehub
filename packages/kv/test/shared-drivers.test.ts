@@ -8,7 +8,6 @@ import { Redis } from "ioredis"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
-import { kvTable } from "../src/runtime/database.ts"
 import { normalizeKVOptions } from "../src/config.ts"
 import { kvResult } from "../src/errors.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
@@ -257,10 +256,12 @@ describe.runIf(postgresUrl)("database on Postgres table setup", () => {
   it("creates the table once when several servers start at the same time", async () => {
     const admin = postgres(postgresUrl!, { max: 1, onnotice: () => {} })
     cleanups.push(() => admin.end())
-    await admin.unsafe(`drop table if exists ${kvTable}`)
+    const schema = `kv_setup_${randomUUID().replaceAll("-", "")}`
+    await admin`create schema ${admin(schema)}`
+    cleanups.push(() => admin`drop schema ${admin(schema)} cascade`)
 
     const stores = await databaseStores(6, () => {
-      const sql = postgres(postgresUrl!, { max: 1, onnotice: () => {} })
+      const sql = postgres(postgresUrl!, { max: 1, onnotice: () => {}, connection: { search_path: schema } })
       cleanups.push(() => sql.end())
       return sql
     })

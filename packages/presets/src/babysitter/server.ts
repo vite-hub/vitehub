@@ -427,7 +427,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (!mainRepairWatches(repository) || mainRepairRunning.has(repository)) continue;
       if ((await pullRequestInbox.metaNumber(mainRepairKey(repository)) ?? 0) > Date.now()) continue;
       signal.throwIfAborted();
-      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs);
+      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs, signal);
       signal.throwIfAborted();
       mainRepairRunning.add(repository);
       void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
@@ -660,7 +660,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (merge.mode !== "direct" || !merge.forkHeadBranches?.size) return;
     if ((await pullRequestInbox.metaNumber("fork-head-sweep-next") ?? 0) > Date.now()) return;
     signal.throwIfAborted();
-    await pullRequestInbox.setMeta("fork-head-sweep-next", Date.now() + 10 * 60_000);
+    await pullRequestInbox.setMeta("fork-head-sweep-next", Date.now() + 10 * 60_000, signal);
     signal.throwIfAborted();
     for (const [key, value] of await pullRequestInbox.metaEntries("fork-head-push:")) {
       signal.throwIfAborted();
@@ -682,7 +682,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           signal.throwIfAborted();
           schedulerEvent("babysitter.fork_head.deleted", { repository, pullRequest: Number(number), branch: value.branch });
         }
-        await pullRequestInbox.deleteMeta(key);
+        await pullRequestInbox.deleteMeta(key, signal);
       } catch (error) {
         signal.throwIfAborted();
         await noteForgeQuota(error, "fork-head-delete");
@@ -1514,9 +1514,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
       if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
       signal.throwIfAborted();
-      await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000);
+      await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000, signal);
       signal.throwIfAborted();
-      if (await pullRequestInbox.wake(snapshot, `ci-recovery:${head}`, { recovery: true })) {
+      if (await pullRequestInbox.wake(snapshot, `ci-recovery:${head}`, { recovery: true, signal })) {
         schedulerEvent("babysitter.ci.recovery.woken", { repository: snapshot.repository, pull_request: snapshot.number, head_sha: head });
       }
     }
@@ -1532,7 +1532,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const nextReadKey = `stack-parent-next:${snapshot.repository}#${snapshot.number}`;
     if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) > Date.now()) return false;
     signal.throwIfAborted();
-    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000);
+    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000, signal);
     try {
       const parents = await readPulls(snapshot.repository, { state: "all", head: `${target.owner}:${target.base}`, limit: 10 }, signal);
       return stackRetargetBase(snapshot.pr, parents) !== undefined;
@@ -1582,7 +1582,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         const nextReadKey = `dependency-next:${snapshot.repository}#${snapshot.number}`;
         if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) <= Date.now()) {
           signal.throwIfAborted();
-          await pullRequestInbox.setMeta(nextReadKey, Date.now() + 60_000);
+          await pullRequestInbox.setMeta(nextReadKey, Date.now() + 60_000, signal);
           signal.throwIfAborted();
           const next = await dependencyEvidence(snapshot.wait.wake, signal);
           signal.throwIfAborted();
@@ -1592,9 +1592,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       signal.throwIfAborted();
       const owner = { pullRequest: snapshot.number, repository: snapshot.repository };
       if (!reasons.length) {
-        await pullRequestInbox.acknowledgeWait(snapshot);
+        await pullRequestInbox.acknowledgeWait(snapshot, signal);
         schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: snapshot.pr?.head?.sha, avoided_invocation: true });
-      } else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`)) {
+      } else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`, { signal })) {
         schedulerEvent("babysitter.wait.woken", { ...owner, head_sha: snapshot.pr?.head?.sha, reasons });
       }
     }
@@ -1777,7 +1777,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         signal.throwIfAborted();
         if (previous?.reason !== admission.reason || Date.now() - (previous?.at ?? 0) >= 900_000) {
           const skipped = { at: Date.now(), reason: admission.reason, detail: admission.detail, retryAt: admission.retryAt, active_owners: active.size };
-          await pullRequestInbox.setMeta("admission-skipped", skipped);
+          await pullRequestInbox.setMeta("admission-skipped", skipped, signal);
           signal.throwIfAborted();
           schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
         }
@@ -1812,16 +1812,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       // SAFETY: This bootstrap retry key is written below only with a numeric epoch timestamp; absent keys return undefined.
       if ((((await pullRequestInbox.meta(nextKey)) as number | undefined) ?? 0) > Date.now()) continue;
       signal.throwIfAborted();
-      await pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000);
+      await pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000, signal);
       try {
         // forges `threads.list()` also reads the checks of every listed pull request.
         const prs = await readPulls(repository, { state: "open", limit: 10_000 }, signal);
         for (const pr of prs) {
           signal.throwIfAborted();
-          await pullRequestInbox.seed(repository, normalizePullRequest(pr));
+          await pullRequestInbox.seed(repository, normalizePullRequest(pr), signal);
         }
         signal.throwIfAborted();
-        await pullRequestInbox.setMeta(key, { at: new Date().toISOString() });
+        await pullRequestInbox.setMeta(key, { at: new Date().toISOString() }, signal);
       } catch (error) {
         signal.throwIfAborted();
         await noteForgeQuota(error, "bootstrap");
@@ -1866,7 +1866,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     try {
       if ((await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now()) {
         signal.throwIfAborted();
-        await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000);
+        await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000, signal);
         signal.throwIfAborted();
         await recoverFailedCiWaits(step, signal);
       }
@@ -1881,7 +1881,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     step("delivery-prune");
     if (((await pullRequestInbox.metaNumber("deliveries-prune-next")) ?? 0) <= Date.now()) {
       signal.throwIfAborted();
-      await pullRequestInbox.setMeta("deliveries-prune-next", Date.now() + 60 * 60_000);
+      await pullRequestInbox.setMeta("deliveries-prune-next", Date.now() + 60 * 60_000, signal);
       signal.throwIfAborted();
       await pullRequestInbox.pruneDeliveries({ signal });
     }

@@ -331,9 +331,14 @@ export class PullRequestInbox {
     })
     await this.ready
   }
-  private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>): Promise<T> {
+  private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.init()
-    return await this.storage.transaction(run)
+    return await this.storage.transaction(async tx => {
+      signal?.throwIfAborted()
+      const result = await run(tx)
+      signal?.throwIfAborted()
+      return result
+    })
   }
   private async read(statement: string, args: unknown[] = []): Promise<PullRequestInboxRow[]> {
     await this.init()
@@ -492,10 +497,10 @@ export class PullRequestInbox {
     const rows = await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND key>=? AND key<? AND substr(key, 1, ?)=? ORDER BY key`, [this.scope, prefix, end, prefix.length, prefix])
     return rows.map(row => [stringValue(row.key), JSON.parse(stringValue(row.value))])
   }
-  async deleteMeta(key: string): Promise<void> {
-    await this.transaction(async tx => { await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]) })
+  async deleteMeta(key: string, signal?: AbortSignal): Promise<void> {
+    await this.transaction(async tx => { await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]) }, signal)
   }
-  async setMeta(key: string, value: unknown): Promise<void> { await this.transaction(tx => this.setMetaIn(tx, key, value)) }
+  async setMeta(key: string, value: unknown, signal?: AbortSignal): Promise<void> { await this.transaction(tx => this.setMetaIn(tx, key, value), signal) }
   private async enqueueStatusResult(tx: PullRequestInboxExecutor, snapshot: Snapshot, claim?: Claim, resultHead?: string): Promise<void> {
     if (!this.activityAuthors.size || !snapshot.lastResult?.trim()) return
     const head = resultHead ?? snapshot.pr?.head?.sha
@@ -973,7 +978,7 @@ export class PullRequestInbox {
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
     return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
-  async seed(repository: string, value: unknown): Promise<Snapshot> {
+  async seed(repository: string, value: unknown, signal?: AbortSignal): Promise<Snapshot> {
     repository = repository.toLowerCase()
     invariant(this.repositories.includes(repository), 'the runtime seeds only repositories that its repository source lists')
     const pr = normalizePullRequest(value)
@@ -987,9 +992,9 @@ export class PullRequestInbox {
         if (s.generation <= s.handled) this.dirty(s, 'bootstrap-recovery')
       }
       await this.put(tx, s); return s
-    })
+    }, signal)
   }
-  async ingest(id: string, event: string, value: unknown): Promise<GitHubInboxDeliveryResult> {
+  async ingest(id: string, event: string, value: unknown, signal?: AbortSignal): Promise<GitHubInboxDeliveryResult> {
     const payload = parseDelivery(value)
     return await this.transaction(async tx => {
       const t = this.tables
@@ -1187,7 +1192,7 @@ export class PullRequestInbox {
         if (wake && !s.wait && s.status !== 'terminal' && !exhausted) queued.push(number)
       }
       return await finish(numbers.size ? undefined : 'no matching PR head')
-    })
+    }, signal)
   }
   /** Leases up to `limit` eligible PRs. `skip` leaves a candidate unclaimed for this call. */
   async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean; signal?: AbortSignal } = {}): Promise<Claim[]> {
@@ -1253,7 +1258,7 @@ export class PullRequestInbox {
       await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
-  async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
+  async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[], signal?: AbortSignal): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s || s.lease || s.generation !== observed.generation || (s.revision ?? 0) !== (observed.revision ?? 0)) return false
@@ -1269,7 +1274,7 @@ export class PullRequestInbox {
       s.threads = threads; s.threadsHydrated = true; s.feedbackRefresh = false
       if (changed && s.status !== 'terminal') this.dirty(s, 'review-threads:reconciled')
       await this.put(tx, s); return true
-    })
+    }, signal)
   }
   /** Retain a worker's verified thread resolution even when its webhook is missing. */
   async recordThreadResolution(claim: Claim, id: string, observed: Snapshot): Promise<boolean> {
@@ -1514,7 +1519,7 @@ export class PullRequestInbox {
     return rows.flatMap(row => this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value))) ?? []).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
   }
   /** Records that the host evaluated a wait's new events and the wait still holds. */
-  async acknowledgeWait(observed: Snapshot): Promise<boolean> {
+  async acknowledgeWait(observed: Snapshot, signal?: AbortSignal): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
@@ -1523,10 +1528,10 @@ export class PullRequestInbox {
       await this.put(tx, s)
       await this.enqueueStatusResult(tx, s, undefined, s.wait.headSha)
       return true
-    })
+    }, signal)
   }
   /** Re-evaluate structured evidence outside an Agent invocation before calling this method. */
-  async wake(observed: Snapshot, evidenceKey: string, options: { recovery?: boolean } = {}): Promise<boolean> {
+  async wake(observed: Snapshot, evidenceKey: string, options: { recovery?: boolean; signal?: AbortSignal } = {}): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
@@ -1543,7 +1548,7 @@ export class PullRequestInbox {
       this.dirty(s, 'wait:evidence-changed')
       await this.put(tx, s)
       return true
-    })
+    }, options.signal)
   }
   /**
    * Frees every lease in this scope at startup and returns how many were held. Call it only when one

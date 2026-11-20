@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { babysitter } from "../src/babysitter.ts";
 import { createBabysitterAdmission } from "../src/babysitter/admission.ts";
 import { probeChangedSnapshots } from "../src/babysitter/inbox/snapshot-sync.ts";
+import { createNodeSqliteInboxStorage } from "../src/babysitter/inbox/storage.ts";
+import { PullRequestInbox } from "../src/babysitter/inbox/store.ts";
 import { createBabysitterRuntime } from "../src/babysitter/server.ts";
 import type { GitHubHost } from "../src/github/index.ts";
 import { deferred } from "./fixtures/deferred.ts";
@@ -125,6 +127,41 @@ it("keeps a replacement snapshot retry when a stopped probe gets its old respons
     expect(await inbox.meta(`change-fingerprint:${repository}:1`)).toBeUndefined();
     expect((await inbox.get(repository, 1))?.pr?.state).toBe("open");
   } finally {
+    await inbox.close();
+  }
+});
+
+it("does not delete a replacement snapshot retry from a delayed transaction", async () => {
+  const storage = createNodeSqliteInboxStorage(":memory:");
+  const entered = deferred<void>();
+  const resume = deferred<void>();
+  let delayNext = false;
+  const inbox = new PullRequestInbox({
+    repositories: [repository], filter: {},
+    storage: { ...storage, async transaction(run) {
+      if (delayNext) {
+        delayNext = false;
+        entered.resolve();
+        await resume.promise;
+      }
+      return await storage.transaction(run);
+    } },
+  });
+  const key = `snapshot-changed:${repository}:1`;
+  try {
+    await inbox.setMeta(key, { fingerprint: "old", retryAt: 0 });
+    const controller = new AbortController();
+    delayNext = true;
+    const deleting = inbox.deleteMeta(key, controller.signal);
+    await entered.promise;
+    controller.abort();
+    const retry = { fingerprint: "new", retryAt: 0 };
+    await inbox.setMeta(key, retry);
+    resume.resolve();
+    await expect(deleting).rejects.toMatchObject({ name: "AbortError" });
+    expect(await inbox.meta(key)).toEqual(retry);
+  } finally {
+    resume.resolve();
     await inbox.close();
   }
 });
