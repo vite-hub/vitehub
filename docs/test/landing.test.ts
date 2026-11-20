@@ -87,7 +87,7 @@ describe("landing page", () => {
       "source",
       "connections",
       "gateways",
-      "decisions",
+      "choices",
       "realtime",
       "browser",
       "shell",

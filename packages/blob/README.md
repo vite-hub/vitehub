@@ -65,7 +65,9 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
-At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
+At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`. A named `fs` store without `base` uses a sibling folder such as `.vitehub/data/blob-avatars`. The Node development fallback of a `cloudflare` store uses the same rule. Names used to generate folders can use letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
 The `fs` driver keeps each object as the file at its pathname, so `docs/a.txt` is the file `<base>/docs/a.txt`. A pathname that is also a folder, such as `docs` next to `docs/a.txt`, keeps its bytes in `<base>/.vitehub/blob-folder-objects`, the same way S3 and R2 keep both keys. Files that older versions stored stay where they are.
 
