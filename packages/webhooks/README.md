@@ -79,6 +79,30 @@ Agent, Workflow, and Schedule send the event when a run fails with no retry left
 
 Errors and stored fields never hold the URL, its query, or the secret. A delivery is one of `pending`, `sending`, `sent`, `dead`, or `cancelled`.
 
+## Member endpoints
+
+A member endpoint is a receiver that belongs to one member of the app, such as their T3 Code thread. A feature that sends to members turns them on, such as Send in Comments, or a Vite plugin with `vitehub.webhooks: { memberEndpoints: true, reason }`. They need `database`, not `queue`.
+
+```ts [server/utils/send-comments.ts]
+import { createMemberEndpoint, sendToMemberEndpoint } from "vite-hub/webhooks"
+
+export async function connectAndSend(userId: string, url: string, secret: string) {
+  const [connectError] = await createMemberEndpoint({ owner: userId, name: "Launch plan thread", agent: "t3", kind: "url", url, secret })
+  if (connectError) return connectError.code
+  const [error, sent] = await sendToMemberEndpoint(userId, { threads: ["thr_1"] }, { event: "comments.send", key: "thr_1:msg_8" })
+  return error ? error.code : sent.status
+}
+```
+
+| Function | Does |
+| --- | --- |
+| `createMemberEndpoint({ owner, name, kind, url?, secret?, agent?, hosts? })` | Stores a member's receiver. `kind` is `"url"` or `"inbox"`. The URL must pass `checkWebhookUrl()` with `hosts`, which defaults to `relay.t3.codes`. |
+| `sendToMemberEndpoint(owner, body, { event, key })` | Posts in the request with a 10 second timeout and the usual signature. The same `key` posts once. Returns `[error, { id, status }]`, where `status` is `"sent"`, `"inbox"`, `"pending"` (the Queue retries), or `"failed"`. |
+| `getMemberEndpoint(owner)`, `removeMemberEndpoint(owner, id)`, `disableMemberEndpoint(id)` | Read, remove, or disable an endpoint. None returns the URL or the secret. |
+| `checkWebhookUrl(url, { hosts? })` | Refuses a URL that is not `https`, holds credentials, uses a host outside `hosts`, or names or resolves to a loopback, private, link-local, or metadata address. Cloudflare Workers cannot resolve names, so there `hosts` alone decides. |
+
+The URL and secret are sealed with AES-GCM and `VITEHUB_WEBHOOKS_KEY` (32 bytes in base64, from `openssl rand -base64 32`). `vite dev` generates one in `.vitehub/data/webhooks-key`. Without it in production, the functions return `WEBHOOKS_KEY_UNSET`. Each send is a delivery with `webhook: "@<endpoint id>"`.
+
 ## Inspect and operate
 
 `@vite-hub/webhooks/runtime` reads and changes deliveries in server code. Each function returns `[error, data]`.
@@ -115,10 +139,10 @@ The Webhooks section of the Console shows each webhook with its host, signature,
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, and the types |
+| `@vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, the member endpoint functions, `checkWebhookUrl()`, and the types |
 | `@vite-hub/webhooks/runtime` | The delivery functions above, `installWebhooks()` for tests, and the Queue handler |
 | `@vite-hub/webhooks/operations` | `webhooksOperations`, the operations of the Console, `vitehub webhooks`, and MCP |
-| `@vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore(db)` |
+| `@vite-hub/webhooks/database` | The tables as `webhooksSchema` and `webhookEndpointsSchema`, as SQL in `webhooksTables`, `createDrizzleWebhookStore(db)`, and `createDrizzleWebhookEndpointStore(db)` |
 | `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you, and `webhooksConsoleSection` |
 
 In a ViteHub app, import the same functions from `vite-hub/webhooks`.

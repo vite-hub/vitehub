@@ -4425,9 +4425,13 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] The AI emulator of emulateModels() is closed.",
       fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
     },
+    AGENT_EMULATOR_DEV_APPS_CONFLICT: {
+      why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
+      fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
-      why: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",
-      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`. Read `error.cause` for the import failure.",
+      why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
     },
     AGENT_EMULATOR_RULES_INVALID: {
       why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,
@@ -4579,9 +4583,19 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
       fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
     },
+    AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED: {
+      why: ({ source, tool }: { source: "gateway" | "switch", tool: string }) => `[vitehub] ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "The Agent model uses the emulate() gateway"}, so the Agent ran without the hosted provider tool "${tool}". The AI emulator rejects hosted tools, such as the web search of webSearch({ mode: "model" }).`,
+      fix: ({ source }: { source: "gateway" | "switch", tool: string }) => source === "switch"
+        ? "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or unset `VITEHUB_MODELS` to run with the hosted tool. The run continues without it."
+        : "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or set the Agent model to one that supports hosted tools, such as `'openai/gpt-5.1'`, instead of `languageModel(emulate(), id)`. The run continues without it.",
+    },
     AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
       why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
       fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
+    },
+    AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED: {
+      why: ({ choice, source }: { choice: string, source: "gateway" | "switch" }) => `[vitehub] The Agent tool choice is ${choice}, but ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "the Agent model uses the emulate() gateway"} and the AI emulator rejects the hosted tool that it needs. The run uses tool choice "auto".`,
+      fix: "Use `webSearch({ mode: 'tool', provider })`, which gives the emulator a `web_search` tool that the tool choice can name. The run continues with tool choice \"auto\".",
     },
     AGENT_MODELS_INVALID: {
       why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,

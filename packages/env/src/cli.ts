@@ -127,7 +127,9 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     }
   }
   try {
-    const resolved = await vite.resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, "serve")
+    // The discovery flag tells plugins that a CLI loads the project, so dev-server work, such as an AI emulator, stays off.
+    const inlineConfig: import("vite").InlineConfig & { vitehubCliDiscovery: true } = { ...config, plugins: [...config.plugins ?? [], nitro.plugin], vitehubCliDiscovery: true }
+    const resolved = await vite.resolveConfig(inlineConfig, "serve")
     environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
     await environment.init()
     let runnable: import("vite").RunnableDevEnvironment

@@ -138,6 +138,7 @@ Trusted code can scope extra tools and Agent Capabilities to one Invocation with
 - Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
 - A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
+- The AI SDK adapter drops hosted provider tools, such as `openai.web_search` from `webSearch({ mode: "model" })`, because the emulator rejects them. It filters the tools of every call, so hosted tools from Capabilities, `runAgent(..., { tools })`, and `prepareCall` never reach the emulator. For each dropped tool it records an `agent.diagnostic.warning` observation with `diagnostic.code: "AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED"`, `tool.id`, and `tool.name`. A tool choice that only a dropped tool can satisfy becomes `"auto"` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`.
 
 Provider Drivers check the switch at the start of `runProvider()` in `src/provider-agent.ts`, before they read `driver.credentials`, `driver.env`, or a gateway:
 
@@ -146,6 +147,8 @@ Provider Drivers check the switch at the start of `runProvider()` in `src/provid
 - The Invocation configuration record shows `gateway: "emulate"` for the Codex model.
 
 `VITEHUB_TEST_REAL_CODEX=1 vp test run test/emulate-codex.test.ts` runs real Codex against the emulator. Install `@openai/codex@0.169.0` in this package or put that `codex` on `PATH` first. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+`vitehub({ agent: { models: { emulate: true | seed } } })` starts the emulator in `vite dev`. `src/internal/model-emulation-dev.ts` owns it: the plugin in `src/vite.ts` calls `startAiEmulator()` from `src/internal/ai-emulator.ts`, the same starter as `emulateModels()`, sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL`, and logs the URL once. It also writes both as Wrangler vars when Nitro uses the `miniflare` dev runner, because that runner does not pass `process.env` to the Worker. The plugin wraps `createEnvironment` of each environment, so the emulator starts only when Vite creates a dev server, before the Nitro runner starts, and each server releases its share when it closes its environments, also on a `server.restart()` that reuses an inline plugin. The last server stops it and restores the variables. An app is a Vite root: a restart with a new seed calls `reseed()`, which replaces the rules and the seed of `POST /_ai/reset`, and a dev server of another app with another setting fails with `AGENT_EMULATOR_DEV_APPS_CONFLICT`, because the routing is process-wide. Builds, `vite preview`, config-only loads, and CLI discovery (also `vitehub env`) do not start it, and the plugin loads `@emulators/*` only on that path, so a build has no emulator import. Missing packages fail with `AGENT_EMULATOR_PACKAGES_MISSING`, and a rejected seed with `AGENT_EMULATOR_RULES_INVALID`.
 
 ## Emulated models in tests
 
