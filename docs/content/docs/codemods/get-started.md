@@ -9,11 +9,11 @@ icon: i-lucide-rocket
 In this tutorial, you run the codemods on an app, read the report, and finish the manual follow-ups. At the end, the app uses the current ViteHub API.
 
 > [!NOTE] Before you start
-> You need Node.js 24.15 or newer. Commit your work first, so that `git diff` shows every edit of the codemods.
+> You need Node.js 24.15 or newer. Commit your work first so `git diff` shows every edit the codemods make.
 
 ## Preview the edits
 
-Run the command in the app folder with `--dry-run`:
+Run the command in your app folder with `--dry-run`:
 
 ```bash [Terminal]
 npx @vite-hub/codemods --dry-run
@@ -33,21 +33,21 @@ The codemods run one after another, so each one sees the edits of the ones befor
 
 ## Read the report
 
-The report has one part for each codemod:
+The report has one part for each codemod that ran:
 
-- why it ran, such as the module that `nuxt.config.ts` lists, and what it did,
-- the files that it changed,
-- a numbered list of manual follow-ups, with `file:line` where it applies,
-- notes that need no action in a specific file,
-- the commands to run next, such as an install.
+- Why it ran, such as a module listed in `nuxt.config.ts`, and what it changed.
+- The files it changed.
+- A numbered list of manual follow-ups, with `file:line` where it applies.
+- Notes that need no action in a specific file.
+- Commands to run next, such as an install.
 
 Do each follow-up, then run the commands from the report. The codemods do not install packages.
 
-The report also warns when `package.json` requires a Nuxt version before 5. The codemods do not upgrade Nuxt. Nuxt 5 also stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
+The report also warns if `package.json` requires a Nuxt version older than 5. The codemods do not upgrade Nuxt. Nuxt 5 also stops auto-importing Nitro helpers like `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
 ## Run one codemod
 
-Pass the name of a codemod to run only that one:
+Pass a codemod name to run only that one:
 
 ```bash [Terminal]
 npx @vite-hub/codemods define-forms --dry-run
@@ -57,7 +57,7 @@ Run `npx @vite-hub/codemods --help` to list the codemods.
 
 ## Check the result
 
-The command exits with `0` when every codemod completes, also when they report follow-ups. It exits with `1` when a codemod could not migrate. Then build and test the app:
+The command exits with `0` when every codemod finishes, also when the report lists follow-ups. It exits with `1` if a codemod could not migrate. Then build and test the app:
 
 ```bash [Terminal]
 pnpm build
