@@ -463,7 +463,7 @@ export interface LocalQueueJob {
   state: "dead" | "pending" | "running"
 }
 
-/** One stored job with its payload, as `vitehub queue jobs show` shows it. */
+/** One stored job with its payload, as `vitehub queue jobs get` shows it. */
 export interface LocalQueueJobDetail extends LocalQueueJob {
   /** The local provider only: the file of the job. */
   file?: string

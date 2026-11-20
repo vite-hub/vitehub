@@ -8,23 +8,30 @@ import { isConsoleSectionReadOnly } from "../client/read-only";
 import { queryChoice, querySelection, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 import {
-  canRedeliverWebhook,
+  canRedeliverDelivery,
   changeWebhookDelivery,
+  deliveryLastResult,
+  deliveryMemberEndpoint,
+  memberEndpointOwner,
+  memberEndpointResult,
+  memberWebhookPrefix,
+  readMemberEndpoints,
   readPendingWebhookDeliveries,
   readWebhookDeliveries,
   readWebhookDelivery,
   readWebhooks,
+  setMemberEndpointDisabled,
   testWebhook,
   webhookAttempts,
   webhookCountdown,
   webhookDebounceLabel,
   webhookEventCount,
-  webhookLastResult,
   webhookLogFilters,
   webhookStateStatus,
 } from "../client/webhooks";
-import type { ConsoleWebhook, ConsoleWebhookDelivery, ConsoleWebhookLogFilter } from "../client/webhooks";
+import type { ConsoleMemberEndpoint, ConsoleWebhook, ConsoleWebhookDelivery, ConsoleWebhookLogFilter } from "../client/webhooks";
 import { consoleDocsBase } from "../sections";
+import { invocationBrand, invocationBrandMark } from "./invocation/internal/invocation-brand";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleConfirm from "./console-confirm.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -34,9 +41,10 @@ import ConsoleSection from "./console-section.vue";
 import ConsoleState from "./console-state.vue";
 
 /**
- * The Webhooks section: each webhook of `server/webhooks/`, the debounce timers that wait now, and the delivery log.
- * Every list and button calls a `webhooks.*` operation as the Console user. The page names the URL and secret variables
- * and shows the URL host, never the URL or the secret.
+ * The Webhooks section: the member endpoints, each webhook of `server/webhooks/`, the debounce timers that wait now, and
+ * the delivery log. Every list and button calls a `webhooks.*` operation as the Console user. The page names the URL
+ * and secret variables and shows the URL host, never the URL or the secret. Admins see member endpoints read-only and
+ * can disable one; Redeliver of a member delivery shows only to its owner.
  */
 const props = defineProps<{
   definitionsBase: string;
@@ -47,15 +55,20 @@ const props = defineProps<{
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 // The log filter and the open delivery live in the URL, so a reload or a shared link opens the same view.
-const { delivery: openId, state: filter } = useConsoleQuery({
+const { delivery: openId, owner: ownerFilter, state: filter, webhook: webhookFilter } = useConsoleQuery({
   delivery: querySelection(),
+  owner: querySelection({ history: "replace" }),
   state: queryChoice(webhookLogFilters, "all", { history: "replace" }),
+  webhook: querySelection({ history: "replace" }),
 });
 
 const toast = useConsoleToast();
 const readOnly = ref(false);
 
 const webhooks = ref<ConsoleWebhook[]>([]);
+// `undefined` while the app has member endpoints off.
+const memberEndpoints = ref<ConsoleMemberEndpoint[]>();
+const memberEndpointsError = ref<unknown>();
 const pending = ref<ConsoleWebhookDelivery[]>([]);
 const deliveries = ref<ConsoleWebhookDelivery[]>([]);
 const loading = ref(true);
@@ -71,8 +84,12 @@ async function load(): Promise<void> {
   request?.abort();
   const controller = new AbortController();
   request = controller;
-  const [listed, waiting] = await Promise.allSettled([readWebhooks(controller.signal), readPendingWebhookDeliveries(controller.signal), loadLog()]);
+  const [listed, waiting, members] = await Promise.allSettled([readWebhooks(controller.signal), readPendingWebhookDeliveries(controller.signal), readMemberEndpoints(controller.signal), loadLog()]);
   if (controller.signal.aborted) return;
+  if (members.status === "fulfilled") {
+    memberEndpoints.value = members.value;
+    memberEndpointsError.value = undefined;
+  } else memberEndpointsError.value = members.reason;
   if (listed.status === "fulfilled") {
     webhooks.value = listed.value;
     error.value = undefined;
@@ -93,7 +110,7 @@ async function loadLog(): Promise<void> {
   logRequest = controller;
   deliveriesLoading.value = true;
   try {
-    const next = await readWebhookDeliveries(filter.value, controller.signal);
+    const next = await readWebhookDeliveries({ filter: filter.value, owner: ownerFilter.value, webhook: webhookFilter.value }, controller.signal);
     if (controller.signal.aborted) return;
     deliveries.value = next;
     deliveriesError.value = undefined;
@@ -106,7 +123,7 @@ async function loadLog(): Promise<void> {
   }
 }
 
-watch(filter, () => void loadLog());
+watch([filter, ownerFilter, webhookFilter], () => void loadLog());
 
 // One clock for the countdowns. It ticks each second while a timer waits.
 const now = ref(Date.now());
@@ -144,6 +161,39 @@ function chooseFilter(value: string | number): void {
   if (next) filter.value = next as ConsoleWebhookLogFilter;
 }
 
+// The Owner and Endpoint filters. `all` stands for no filter, which the URL leaves out.
+const memberList = computed(() => memberEndpoints.value ?? []);
+const memberRows = computed(() => memberList.value.map(endpoint => ({ endpoint, result: memberEndpointResult(endpoint) })));
+const ownerItems = computed(() => [
+  { label: "All owners", value: "all" },
+  ...memberList.value.map(endpoint => ({ label: memberEndpointOwner(endpoint), value: endpoint.owner })),
+]);
+const endpointItems = computed(() => [
+  { label: "All endpoints", value: "all" },
+  ...webhooks.value.map(webhook => ({ label: webhook.name, value: webhook.name })),
+  ...memberList.value.map(endpoint => ({ label: `${agentLabel(endpoint.agent)} · ${memberEndpointOwner(endpoint)}`, value: `${memberWebhookPrefix}${endpoint.id}` })),
+]);
+const chooseOwner = (value: unknown) => { ownerFilter.value = typeof value === "string" && value !== "all" ? value : undefined; };
+const chooseEndpoint = (value: unknown) => { webhookFilter.value = typeof value === "string" && value !== "all" ? value : undefined; };
+const logFiltered = computed(() => filter.value !== "all" || Boolean(ownerFilter.value || webhookFilter.value));
+
+/** The agent of a member endpoint, with its logo, such as T3 Code, Claude Code, or Codex. */
+function agentLabel(agent: string | null): string {
+  return invocationBrand(agent ?? undefined)?.label ?? "Agent";
+}
+const agentMark = (agent: string | null) => () => invocationBrandMark(invocationBrand(agent ?? undefined), "size-3.5");
+
+/** Where a delivery went: the webhook name, or the agent and owner of a member endpoint. */
+function deliveryTarget(entry: ConsoleWebhookDelivery): string {
+  if (!entry.webhook.startsWith(memberWebhookPrefix)) return entry.webhook;
+  const endpoint = deliveryMemberEndpoint(entry, memberList.value);
+  return endpoint ? `${memberEndpointOwner(endpoint)} · ${agentLabel(endpoint.agent)}` : "A removed member endpoint";
+}
+
+// A member delivery goes out again only for its owner, so the buttons show only on the Console user's own.
+const canSendNow = (entry: ConsoleWebhookDelivery) => !entry.webhook.startsWith(memberWebhookPrefix) || deliveryMemberEndpoint(entry, memberList.value)?.mine === true;
+const canRedeliver = (entry: ConsoleWebhookDelivery) => canRedeliverDelivery(entry, memberList.value);
+
 const signatureLabels: Record<ConsoleWebhook["signature"], string> = { github: "GitHub signature", stripe: "Stripe signature" };
 
 /** The URL and secret variables of a webhook, with whether this server has a value for each. */
@@ -174,6 +224,7 @@ async function run(key: string, label: string, action: () => Promise<unknown>): 
 const sendTest = (webhook: ConsoleWebhook) => run(`test:${webhook.name}`, "send the test", () => testWebhook(webhook.name));
 const sendNow = (entry: ConsoleWebhookDelivery) => run(entry.id, "send it now", () => changeWebhookDelivery("flush", entry.id));
 const redeliver = (entry: ConsoleWebhookDelivery) => run(entry.id, "redeliver", () => changeWebhookDelivery("redeliver", entry.id));
+const toggleEndpoint = (endpoint: ConsoleMemberEndpoint) => run(endpoint.id, endpoint.disabledAt === null ? "disable the endpoint" : "enable the endpoint", () => setMemberEndpointDisabled(endpoint.id, endpoint.disabledAt === null));
 
 // Cancel drops the collected events, so it asks first.
 const cancelling = ref<ConsoleWebhookDelivery>();
@@ -235,19 +286,66 @@ onBeforeUnmount(() => {
     <template #body>
       <div class="flex flex-1 flex-col">
         <ConsoleState v-if="error" :error="error" title="Couldn't load the webhooks" :retry="load" />
-        <div v-else-if="loading" class="mx-auto grid w-full max-w-3xl gap-3 p-6" aria-busy="true">
+        <div v-else-if="loading" class="mx-auto grid w-full max-w-5xl gap-3 p-6" aria-busy="true">
           <USkeleton class="h-5 w-40" />
           <USkeleton v-for="index in 3" :key="index" class="h-14 w-full" />
         </div>
         <ConsoleState
-          v-else-if="!webhooks.length"
+          v-else-if="!webhooks.length && memberEndpoints === undefined && !memberEndpointsError"
           icon="i-vitehub-webhooks"
           title="No webhooks yet"
           description="Add `server/webhooks/<name>.ts` that default-exports `defineWebhook({ url, secret })`."
           :docs="`${consoleDocsBase}/webhooks/get-started`"
         />
-        <div v-else class="mx-auto grid w-full max-w-3xl gap-8 p-6">
-          <ConsoleSection title="Endpoints" :count="webhooks.length">
+        <div v-else class="mx-auto grid w-full max-w-5xl gap-8 p-6">
+          <ConsoleSection
+            v-if="memberEndpoints !== undefined || memberEndpointsError"
+            title="Member endpoints"
+            :count="memberEndpointsError ? undefined : memberList.length"
+            description="Where each member's Send goes. Members set these from Send; admins see them read-only."
+          >
+            <ConsoleState v-if="memberEndpointsError" compact :error="memberEndpointsError" title="Couldn't load the member endpoints" :retry="load" />
+            <div v-else-if="memberList.length" class="overflow-x-auto rounded-lg border border-default">
+              <table class="w-full text-left text-[13px]">
+                <thead>
+                  <tr class="border-b border-default">
+                    <th v-for="heading in ['Owner', 'Agent', 'Host', 'Last result']" :key="heading" scope="col" class="h-9 whitespace-nowrap px-3 text-xs font-medium text-dimmed">{{ heading }}</th>
+                    <th v-if="!readOnly" scope="col" class="h-9 whitespace-nowrap px-3 text-right text-xs font-medium text-dimmed">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-default">
+                  <tr v-for="{ endpoint, result } in memberRows" :key="endpoint.id" :class="endpoint.disabledAt === null ? '' : 'text-muted'">
+                    <td class="h-11 whitespace-nowrap px-3 py-2 font-medium" :class="endpoint.disabledAt === null ? 'text-highlighted' : ''" :title="endpoint.owner">{{ memberEndpointOwner(endpoint) }}</td>
+                    <td class="whitespace-nowrap px-3 py-2">
+                      <span class="inline-flex items-center gap-1.5" :class="endpoint.disabledAt === null ? '' : 'opacity-60'"><component :is="agentMark(endpoint.agent)" />{{ agentLabel(endpoint.agent) }}</span>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2 text-xs text-muted" :class="endpoint.kind === 'url' ? 'font-mono' : ''">{{ endpoint.kind === "inbox" ? "Inbox" : endpoint.host }}</td>
+                    <td class="whitespace-nowrap px-3 py-2 text-xs">
+                      <Status :tone="result.tone">
+                        {{ result.label }}<template v-if="result.at !== undefined"> · <ConsoleRelativeTime :value="isoTime(result.at)" /></template>
+                      </Status>
+                    </td>
+                    <td v-if="!readOnly" class="whitespace-nowrap px-3 py-2 text-right">
+                      <UButton
+                        size="xs"
+                        variant="ghost"
+                        color="neutral"
+                        :label="endpoint.disabledAt === null ? 'Disable' : 'Enable'"
+                        :aria-label="`${endpoint.disabledAt === null ? 'Disable' : 'Enable'} the endpoint of ${memberEndpointOwner(endpoint)}`"
+                        :loading="busy.has(endpoint.id)"
+                        @click="toggleEndpoint(endpoint)"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="flex rounded-lg border border-default py-6">
+              <ConsoleState icon="i-vitehub-webhooks" title="No member has connected an agent." description="Members connect from Send." />
+            </div>
+          </ConsoleSection>
+
+          <ConsoleSection v-if="webhooks.length" title="Endpoints" :count="webhooks.length">
             <ul class="divide-y divide-default rounded-lg border border-default">
               <li v-for="webhook in webhooks" :key="webhook.name" class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5">
                 <span class="grid min-w-0 flex-1 basis-56 gap-0.5">
@@ -291,12 +389,12 @@ onBeforeUnmount(() => {
               <li v-for="entry in pending" :key="entry.id" class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5">
                 <span class="grid min-w-0 flex-1 basis-56 gap-0.5">
                   <span class="truncate text-[13px] font-medium text-highlighted">{{ entry.event }}</span>
-                  <span class="truncate text-xs text-dimmed">{{ entry.webhook }} · {{ webhookEventCount(entry.count) }}<template v-if="entry.key"> · <span class="font-mono">{{ entry.key }}</span></template></span>
+                  <span class="truncate text-xs text-dimmed">{{ deliveryTarget(entry) }} · {{ webhookEventCount(entry.count) }}<template v-if="entry.key"> · <span class="font-mono">{{ entry.key }}</span></template></span>
                 </span>
                 <span class="ms-auto shrink-0 text-xs tabular-nums text-muted" :title="consoleDateTime(entry.dueAt)">{{ webhookCountdown(entry.dueAt, now) }}</span>
                 <template v-if="!readOnly">
-                  <UButton size="xs" variant="ghost" color="neutral" label="Send now" :aria-label="`Send ${entry.event} to ${entry.webhook} now`" :disabled="busy.has(entry.id)" @click="sendNow(entry)" />
-                  <UButton size="xs" variant="ghost" color="neutral" label="Cancel" :aria-label="`Cancel ${entry.event} to ${entry.webhook}`" :disabled="busy.has(entry.id)" @click="cancelling = entry" />
+                  <UButton v-if="canSendNow(entry)" size="xs" variant="ghost" color="neutral" label="Send now" :aria-label="`Send ${entry.event} to ${deliveryTarget(entry)} now`" :disabled="busy.has(entry.id)" @click="sendNow(entry)" />
+                  <UButton size="xs" variant="ghost" color="neutral" label="Cancel" :aria-label="`Cancel ${entry.event} to ${deliveryTarget(entry)}`" :disabled="busy.has(entry.id)" @click="cancelling = entry" />
                 </template>
               </li>
             </ul>
@@ -305,7 +403,13 @@ onBeforeUnmount(() => {
 
           <ConsoleSection title="Deliveries" :count="deliveriesError ? undefined : deliveries.length" description="The newest 100, newest first.">
             <template #actions>
-              <UTabs :model-value="filter" :items="filterItems" :content="false" size="xs" class="w-max" aria-label="Delivery state" @update:model-value="chooseFilter" />
+              <div class="flex flex-wrap items-center gap-2">
+                <template v-if="memberList.length">
+                  <USelect :model-value="ownerFilter ?? 'all'" :items="ownerItems" aria-label="Owner" class="min-w-32" @update:model-value="chooseOwner" />
+                  <USelect :model-value="webhookFilter ?? 'all'" :items="endpointItems" aria-label="Endpoint" class="min-w-36" @update:model-value="chooseEndpoint" />
+                </template>
+                <UTabs :model-value="filter" :items="filterItems" :content="false" size="xs" class="w-max" aria-label="Delivery state" @update:model-value="chooseFilter" />
+              </div>
             </template>
             <ConsoleState v-if="deliveriesError" compact :error="deliveriesError" title="Couldn't load the deliveries" :retry="loadLog" />
             <div v-else-if="deliveriesLoading && !deliveries.length" aria-busy="true">
@@ -317,24 +421,24 @@ onBeforeUnmount(() => {
                 <span class="grid min-w-0 flex-1 basis-56 gap-0.5">
                   <!-- The button overlay makes the whole row open the delivery. -->
                   <button type="button" class="truncate rounded-sm text-left text-[13px] font-medium text-highlighted after:absolute after:inset-0" @click="openId = entry.id">{{ entry.event }}</button>
-                  <span class="truncate text-xs text-dimmed">{{ entry.webhook }} · {{ entry.attempts ? `${webhookAttempts(entry.attempts)} · ${webhookLastResult(entry)}` : webhookLastResult(entry) }}</span>
+                  <span class="truncate text-xs text-dimmed">{{ deliveryTarget(entry) }} · {{ entry.attempts ? `${webhookAttempts(entry.attempts)} · ${deliveryLastResult(entry, memberList)}` : deliveryLastResult(entry, memberList) }}</span>
                 </span>
                 <span class="relative shrink-0 text-xs text-muted tabular-nums max-sm:hidden"><ConsoleRelativeTime :value="isoTime(entry.createdAt)" /></span>
                 <UButton
-                  v-if="!readOnly && canRedeliverWebhook(entry.state)"
+                  v-if="!readOnly && canRedeliver(entry)"
                   class="relative ms-auto"
                   size="xs"
                   variant="ghost"
                   color="neutral"
                   label="Redeliver"
-                  :aria-label="`Redeliver ${entry.event} to ${entry.webhook}`"
+                  :aria-label="`Redeliver ${entry.event} to ${deliveryTarget(entry)}`"
                   :disabled="busy.has(entry.id)"
                   @click="redeliver(entry)"
                 />
               </li>
             </ul>
             <p v-else class="rounded-lg border border-dashed border-default px-3 py-4 text-center text-xs text-dimmed">
-              {{ filter === "all" ? "No deliveries yet. Send a test to see one here." : `No ${filterLabel} deliveries.` }}
+              {{ !logFiltered ? "No deliveries yet. Send a test to see one here." : filter === "all" ? "No deliveries match these filters." : `No ${filterLabel} deliveries.` }}
             </p>
           </ConsoleSection>
 
@@ -365,7 +469,7 @@ onBeforeUnmount(() => {
           <dt class="text-muted">State</dt>
           <dd><Status :tone="webhookStateStatus(opened.state).tone" :label="webhookStateStatus(opened.state).label" /></dd>
           <dt class="text-muted">Webhook</dt>
-          <dd class="text-highlighted">{{ opened.webhook }}</dd>
+          <dd class="text-highlighted">{{ deliveryTarget(opened) }}</dd>
           <template v-if="opened.key">
             <dt class="text-muted">Key</dt>
             <dd class="font-mono text-highlighted">{{ opened.key }}</dd>
@@ -375,7 +479,7 @@ onBeforeUnmount(() => {
           <dt class="text-muted">Attempts</dt>
           <dd class="text-highlighted tabular-nums">{{ opened.attempts }}</dd>
           <dt class="text-muted">Last result</dt>
-          <dd class="break-words text-highlighted">{{ webhookLastResult(opened) }}</dd>
+          <dd class="break-words text-highlighted">{{ deliveryLastResult(opened, memberList) }}</dd>
           <dt class="text-muted">Created</dt>
           <dd class="text-highlighted tabular-nums">{{ consoleDateTime(opened.createdAt) }}</dd>
           <template v-if="opened.state === 'pending'">

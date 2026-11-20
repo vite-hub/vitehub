@@ -91,7 +91,7 @@ const refs = defineWorkspaceOperation<{ workspace: string }, WorkspaceHistoryRef
 })
 
 const show = defineWorkspaceOperation<{ path?: string, target: string, workspace: string }, WorkspaceHistoryDetails>({
-  cli: { command: "show", format: formatShow, namespace: "workspace", positional: ["workspace", "target", "path"] },
+  cli: { command: "get", format: formatShow, namespace: "workspace", positional: ["workspace", "target", "path"] },
   description: "Show one revision of a Workspace by ref or revision id, with its files. With `path`, return that file as it was in the revision.",
   input: v.object({
     path: v.optional(nonEmpty("The path cannot be empty.")),

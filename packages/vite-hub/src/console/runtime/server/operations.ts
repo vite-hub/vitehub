@@ -298,7 +298,8 @@ const databasesTables = defineConsoleOperation({
 })
 
 const definitionsList = defineConsoleOperation({
-  cli: { positional: ["section"] },
+  // `vitehub inspect definitions` lists the Definitions in the terminal.
+  cli: false,
   description: "Read the definitions of one Console section.",
   input: v.strictObject({ section: text }),
   kind: "read",
@@ -477,7 +478,7 @@ const mediaUpload = defineConsoleOperation({
 })
 
 const projectGet = defineConsoleOperation({
-  cli: { command: "info", namespace: "project" },
+  cli: { command: "get", namespace: "project" },
   description: "Read the project: its name, the vite-hub version, the time and Git commit of its production build, its open Comments threads, and the sections and operations that this access may use.",
   input: v.strictObject({}),
   kind: "read",

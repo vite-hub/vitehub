@@ -138,6 +138,7 @@ Trusted code can scope extra tools and Agent Capabilities to one Invocation with
 - Any other model object fails with `AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED`, and an ask Driver fails with `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`.
 - A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
+- The AI SDK adapter drops hosted provider tools, such as `openai.web_search` from `webSearch({ mode: "model" })`, because the emulator rejects them. It filters the tools of every call, so hosted tools from Capabilities, `runAgent(..., { tools })`, and `prepareCall` never reach the emulator. For each dropped tool it records an `agent.diagnostic.warning` observation with `diagnostic.code: "AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED"`, `tool.id`, and `tool.name`. A tool choice that only a dropped tool can satisfy becomes `"auto"` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`.
 
 Provider Drivers check the switch at the start of `runProvider()` in `src/provider-agent.ts`, before they read `driver.credentials`, `driver.env`, or a gateway:
 
@@ -146,6 +147,24 @@ Provider Drivers check the switch at the start of `runProvider()` in `src/provid
 - The Invocation configuration record shows `gateway: "emulate"` for the Codex model.
 
 `VITEHUB_TEST_REAL_CODEX=1 vp test run test/emulate-codex.test.ts` runs real Codex against the emulator. Install `@openai/codex@0.169.0` in this package or put that `codex` on `PATH` first. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+`vitehub({ agent: { models: { emulate: true | seed } } })` starts the emulator in `vite dev`. `src/internal/model-emulation-dev.ts` owns it: the plugin in `src/vite.ts` calls `startAiEmulator()` from `src/internal/ai-emulator.ts`, the same starter as `emulateModels()`, sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL`, and logs the URL once. It also writes both as Wrangler vars when Nitro uses the `miniflare` dev runner, because that runner does not pass `process.env` to the Worker. The plugin wraps `createEnvironment` of each environment, so the emulator starts only when Vite creates a dev server, before the Nitro runner starts, and each server releases its share when it closes its environments, also on a `server.restart()` that reuses an inline plugin. The last server stops it and restores the variables. An app is a Vite root: a restart with a new seed calls `reseed()`, which replaces the rules and the seed of `POST /_ai/reset`, and a dev server of another app with another setting fails with `AGENT_EMULATOR_DEV_APPS_CONFLICT`, because the routing is process-wide. Builds, `vite preview`, config-only loads, and CLI discovery (also `vitehub env`) do not start it, and the plugin loads `@emulators/*` only on that path, so a build has no emulator import. Missing packages fail with `AGENT_EMULATOR_PACKAGES_MISSING`, and a rejected seed with `AGENT_EMULATOR_RULES_INVALID`.
+
+## Emulated models in tests
+
+`emulateModels(seed?)` from `@vite-hub/agent/test/emulate-models` starts the upstream AI emulator on a free loopback port. Model requests get answers from scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes, then restores both values, so every model Driver Agent reaches it with no change to its model, as [Run on the AI emulator](#run-on-the-ai-emulator) describes. Only one scope can run in a test worker at a time.
+
+```ts fragment
+await using ai = await emulateModels({
+  rules: [{ id: "hello", match: { textContains: "Hello" }, reply: [{ type: "text", text: "Hi." }] }],
+})
+const [error, result] = await runAgent(agent, { prompt: "Hello" })
+const calls = await ai.calls() // calls[0].matched.id === "hello"
+```
+
+The seed is the upstream `AiSeedConfig` of `@emulators/ai`, and `strict` defaults to `true`: a request that no rule matches fails with HTTP 400, and the error cause contains the missing rule as YAML. `rules()`, `setRules(rules)`, `calls()`, and `reset()` call the emulator's `/_ai/rules`, `/_ai/calls`, and `/_ai/reset` routes. ViteHub keeps no copy of the calls. `setRules()` keeps the other seed settings. `close()` and `await using` stop the emulator.
+
+`@emulators/core` and `@emulators/ai` are optional peer dependencies, pinned to `0.14.0`. Without them, `emulateModels()` throws `AGENT_EMULATOR_PACKAGES_MISSING`. The separate `@vite-hub/agent/test` entry does not need either package. A rule that the emulator rejects throws `AGENT_EMULATOR_RULES_INVALID`, and a call after `close()` throws `AGENT_EMULATOR_CLOSED`. See [Test an Agent](https://vitehub.dev/docs/agents/testing#run-the-model-driver-without-an-ai-key).
 
 ## Structured data and interception
 
@@ -276,7 +295,7 @@ export default defineAgent({
 })
 ```
 
-Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent get` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
 
 For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admissions from host CPU and memory pressure while keeping `concurrency` as a hard maximum. It does not cap I/O-heavy work to the host CPU count. When capacity reaches zero, work stays in the same FIFO queue and resumes automatically after pressure recovers. Active invocations are never preempted.
 
@@ -312,7 +331,7 @@ For model-backed drivers, put free-form guidance for configured Sources, Capabil
 
 ## CLI inspection
 
-With `hubAgent()` active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
+With `hubAgent()` active, start the Vite Development Server and run `vitehub agent get --agent <name>`.
 The command reads the resolved Agent Definition metadata without invoking the Agent Driver, so use it to verify the selected Driver, tools, Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status before debugging model output.
 Pass `--json` for the structured inspection contract.
 

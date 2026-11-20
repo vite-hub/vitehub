@@ -90,7 +90,7 @@ const { text } = await generateText({ model, prompt: 'Hello' })
 - It reads no credentials. It sends the key `emulate`, because the AI SDK providers need a key.
 - `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
 - To send the models of all Agents to the emulator without a change to the Agent files, set `VITEHUB_MODELS=emulate`. Read [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
-- In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
+- In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule. In an Agent test, [`emulateModels()`](/docs/agents/testing#run-the-model-driver-without-an-ai-key) does this for you.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
 - The emulator rejects hosted tools, such as web search.
 - It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. To run a Codex Agent without tools on the emulator, set `VITEHUB_MODELS=emulate`, and ViteHub sets up Codex for it. Read [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator). Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
