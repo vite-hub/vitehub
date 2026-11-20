@@ -1350,6 +1350,34 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  @./missing.md\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n\\> Waiting")
   })
 
+  it("keeps tsconfig paths of other folders when the app tsconfig.json references files that do not exist yet", async () => {
+    // A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which `nuxt prepare` writes. `lib/tsconfig.json`
+    // maps `theme` to a workspace file, and an installed `theme` package must not replace it.
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "server", "entry.ts")
+    const outfile = join(rootDir, "bundle.mjs")
+    await Promise.all(["server", "lib", "node_modules/theme"].map(dir => mkdir(join(rootDir, dir), { recursive: true })))
+    await Promise.all([
+      writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(rootDir, "lib", "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { theme: ["./theme.ts"] } } })),
+      writeFile(join(rootDir, "lib", "theme.ts"), 'export const theme: string = "workspace"\n'),
+      writeFile(join(rootDir, "lib", "helper.ts"), 'export { theme } from "theme"\n'),
+      writeFile(join(rootDir, "node_modules", "theme", "package.json"), JSON.stringify({ name: "theme", type: "module", exports: "./index.js" })),
+      writeFile(join(rootDir, "node_modules", "theme", "index.js"), 'export const theme = "installed"\n'),
+      writeFile(entry, 'export { theme } from "../lib/helper"\n'),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await expect(bundleEsmEntry(entry, outfile, { platform: "node", rootDir })).rejects.toThrow(".nuxt/tsconfig.server.json")
+
+    await mkdir(join(rootDir, ".nuxt"))
+    await writeFile(join(rootDir, ".nuxt", "tsconfig.server.json"), JSON.stringify({ include: ["../server/**/*"] }))
+    await bundleEsmEntry(entry, outfile, { platform: "node", rootDir })
+    const output = await readFile(outfile, "utf8")
+    expect(output).toContain('"workspace"')
+    expect(output).not.toContain('"installed"')
+  })
+
   it("bundles the exact Markdown template query", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
@@ -1740,5 +1768,59 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     // SAFETY: This bundle's CommonJS entry exports the selected string condition.
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
+  })
+  it.each([false, true])("drops the dynamic imports of code that tree-shaking removes (minify: %s)", async (minify) => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "agent-kit")
+    const entry = join(rootDir, "entry.mjs")
+    const registry = join(rootDir, "registry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: "./index.mjs", name: "agent-kit", sideEffects: false, type: "module" })),
+      writeFile(join(packageDir, "index.mjs"), 'export { named } from "./named.mjs"\nexport { runAgent } from "./run.mjs"\n'),
+      writeFile(join(packageDir, "named.mjs"), "export const named = value => `named ${value}`\n"),
+      // Only unused code imports the registry, like the Agent runtime that a Schedule bundle does not call.
+      writeFile(join(packageDir, "run.mjs"), 'import registry from "#agent-registry"\nexport const runAgent = name => registry[name]()\n'),
+      writeFile(registry, 'export default {\n  agent: () => import("./agent.mjs"),\n  host: () => import("./host.mjs"),\n}\n'),
+      writeFile(join(rootDir, "agent.mjs"), 'import { named } from "agent-kit"\nimport config from "./config.json"\nexport default named(config.agent)\n'),
+      writeFile(join(rootDir, "config.json"), '{"agent":"UNUSED_AGENT"}'),
+      writeFile(join(rootDir, "host.mjs"), 'import { named } from "agent-kit"\nexport default named("UNUSED_HOST")\n'),
+      writeFile(join(rootDir, "job\u2028config.mjs"), 'import { named } from "agent-kit"\nexport default named("job")\n'),
+      writeFile(entry, 'import config from "./config.json"\nconst unused = () => config.agent\nexport const load = async () => (await import("./job\\u2028config.mjs")).default\n'),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "#agent-registry": registry },
+      format: "esm",
+      minifyIdentifiers: minify,
+      minifySyntax: minify,
+      minifyWhitespace: minify,
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    const code = await readFile(outfile, "utf8")
+    expect(code).not.toContain("UNUSED_AGENT")
+    expect(code).not.toContain("UNUSED_HOST")
+    expect(code).not.toMatch(/^export \{[^}]*\binit_/m)
+    // SAFETY: This bundle exports the loader of the job module.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { load: () => Promise<string> }
+    await expect(loaded.load()).resolves.toBe("named job")
+  })
+
+  it("inlines a live self-import when the entry is written to a different filename", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'export const value = "entry"\nexport const load = async () => (await import("./entry.mjs")).value\n')
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, { platform: "node" })
+
+    // SAFETY: This bundle exports the self-import loader.
+    const loaded = await import(pathToFileURL(outfile).href) as { load: () => Promise<string> }
+    await expect(loaded.load()).resolves.toBe("entry")
   })
 })
