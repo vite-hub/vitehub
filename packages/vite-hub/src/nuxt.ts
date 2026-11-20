@@ -136,6 +136,14 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
   })
 }
 
+/** The `/// <reference>` lists of the declaration files that Nuxt writes for the app, `shared/`, and server code. */
+type NuxtTypeReference = { path: string } | { types: string }
+type NuxtPrepareTypesContext = {
+  references: NuxtTypeReference[]
+  sharedReferences?: NuxtTypeReference[]
+  serverReferences?: NuxtTypeReference[]
+}
+
 type NuxtLike = {
   /** The installed Nuxt version, such as `5.0.0-2611052317-a04317f`. */
   _version?: string
@@ -150,6 +158,7 @@ type NuxtLike = {
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
     (name: "build:before" | "modules:done" | "nitro:build:before", callback: () => void): void
+    (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -1228,17 +1237,25 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
+  // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
   // Generated server files such as the Database middleware import `cloudflare:workers`. `cloudflare-workers.d.ts` declares
   // what they use, without globals. App and shared code also reach server files, through typed server routes and type
   // imports, so they get only that declaration: the global Workers types replace DOM types such as `Element`.
   // `@cloudflare/workers-types` is an optional peer. When the app installs it, the server code gets its full types.
-  const cloudflare = plan.host === "cloudflare"
-  const serverTypes = cloudflare ? [relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration)] : []
-  const appTypes = cloudflare ? [relative(nuxt.options.buildDir, cloudflareWorkersDeclaration)] : []
-  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData)
-  // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
-  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData, "sharedTsConfig")
-  addTypeScriptDefaults((nuxt.options.nitro ??= {}), [...generatedTypes, ...serverTypes], generatedData)
+  // Both files live under `node_modules`, which every Nuxt tsconfig excludes, and `exclude` drops a matching `include`.
+  // A `/// <reference>` in the declaration files that Nuxt writes loads them anyway.
+  if (plan.host === "cloudflare") {
+    const workers = { path: cloudflareWorkersDeclaration }
+    const server = isPackageInstalled("@cloudflare/workers-types") ? { path: cloudflareTypes } : workers
+    nuxt.hook?.("prepare:types", ({ references, sharedReferences, serverReferences }) => {
+      references.push(workers)
+      sharedReferences?.push(workers)
+      serverReferences?.push(server)
+    })
+  }
   if (options.database) {
     const databaseOptions = options.database === true ? {} : { ...options.database }
     // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.

@@ -152,9 +152,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const iconHooks: Array<(icons: Set<string>) => void> = []
   const modulesDoneHooks: Array<() => void> = []
   const buildBeforeHooks: Array<() => void> = []
+  type TypeReference = { path: string } | { types: string }
+  type PrepareTypesContext = { references: TypeReference[], sharedReferences: TypeReference[], serverReferences: TypeReference[] }
+  const prepareTypesHooks: Array<(context: PrepareTypesContext) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "nitro:config" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+    hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "nitro:config" | "prepare:types" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof prepareTypesHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
       if (name === "pages:routerOptions") routerOptionsHooks.push(callback as (typeof routerOptionsHooks)[number])
       else if (name === "nitro:init") nitroInitHooks.push(callback as (typeof nitroInitHooks)[number])
       else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
@@ -169,6 +172,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
+      else if (name === "prepare:types") prepareTypesHooks.push(callback as (typeof prepareTypesHooks)[number])
     },
     options: {
       _installedModules: [] as Array<{ meta: { name: string } }>,
@@ -232,6 +236,11 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       const entries: string[] = []
       for (const hook of doctorExtensionHooks) hook(entries)
       return entries
+    },
+    runPrepareTypesHook() {
+      const context: PrepareTypesContext = { references: [], sharedReferences: [], serverReferences: [] }
+      for (const hook of prepareTypesHooks) hook(context)
+      return context
     },
   }
 }
@@ -3797,37 +3806,45 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("adds the global Workers types to Nitro only, so app code keeps DOM types", async () => {
-    const { nuxt } = createNuxt()
+    const { nuxt, runPrepareTypesHook } = createNuxt()
 
     await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
-    const app = { include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-workers.d.ts")] }
-    expect(nuxt.options).toMatchObject({
-      nitro: {
-        typescript: {
-          tsConfig: {
-            include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
-          },
-        },
-      },
-      typescript: { sharedTsConfig: app, tsConfig: app },
+    // Nuxt excludes `node_modules` from every tsconfig, and `exclude` drops a matching `include`, so an installed
+    // vite-hub must load the declarations through `/// <reference path>` in the files that Nuxt writes.
+    const workers = { path: expect.stringMatching(/cloudflare-workers\.d\.ts$/) }
+    expect(runPrepareTypesHook()).toEqual({
+      references: [workers],
+      sharedReferences: [workers],
+      serverReferences: [{ path: expect.stringMatching(/cloudflare-types\.d\.ts$/) }],
     })
+    for (const typescript of [nuxt.options.nitro.typescript, Reflect.get(nuxt.options, "typescript")]) {
+      expect(JSON.stringify(typescript)).not.toMatch(/cloudflare-(?:types|workers)\.d\.ts/)
+    }
   })
 
   it("declares cloudflare:workers for generated files when the app does not install @cloudflare/workers-types", async () => {
     const installed = vi.mocked(isPackageInstalled).getMockImplementation()!
     vi.mocked(isPackageInstalled).mockImplementation(name => name !== "@cloudflare/workers-types" && installed(name))
     try {
-      const { nuxt } = createNuxt()
+      const { nuxt, runPrepareTypesHook } = createNuxt()
 
       await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
-      const typescript = { tsConfig: { include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-workers.d.ts")] } }
-      expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript: { ...typescript, sharedTsConfig: typescript.tsConfig } })
+      const workers = { path: expect.stringMatching(/cloudflare-workers\.d\.ts$/) }
+      expect(runPrepareTypesHook()).toEqual({ references: [workers], sharedReferences: [workers], serverReferences: [workers] })
     }
     finally {
       vi.mocked(isPackageInstalled).mockImplementation(installed)
     }
+  })
+
+  it("adds no Workers types on another host", async () => {
+    const { nuxt, runPrepareTypesHook } = createNuxt()
+
+    await viteHubNuxtModule({ host: "node" }, nuxt)
+
+    expect(runPrepareTypesHook()).toEqual({ references: [], sharedReferences: [], serverReferences: [] })
   })
 
   it.each([
@@ -3840,10 +3857,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
     await viteHubNuxtModule({ host: "cloudflare", queue }, nuxt)
 
-    const include = (cloudflare: string) => ({
-      tsConfig: { include: ["../.vitehub/types.d.ts", ...(enabled ? ["../.vitehub/queue.d.ts"] : []), expect.stringContaining(cloudflare)] },
-    })
-    expect(nuxt.options).toMatchObject({ nitro: { typescript: include("cloudflare-types.d.ts") }, typescript: include("cloudflare-workers.d.ts") })
+    const include = { tsConfig: { include: ["../.vitehub/types.d.ts", ...(enabled ? ["../.vitehub/queue.d.ts"] : [])] } }
+    expect(nuxt.options).toMatchObject({ nitro: { typescript: include }, typescript: include })
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
