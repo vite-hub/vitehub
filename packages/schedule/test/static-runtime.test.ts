@@ -162,6 +162,20 @@ describe("Static Schedule runtime", () => {
     expect(keys).toEqual(["schedule:report:2026-06-12T12:00:00.000Z", "schedule:report:2026-06-12T12:01:00.000Z"])
   })
 
+  it("matches a Cloudflare trigger with weekday names to the standard cron of a Schedule", async () => {
+    const calls: string[] = []
+    const registry: ScheduleDefinitionRegistry = {
+      monday: async () => ({ cron: "0 4 * * 1", handler: async () => calls.push("monday") }),
+      weekdays: async () => ({ cron: "0 4 * * 1-5", handler: async () => calls.push("weekdays") }),
+    }
+
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * MON" }, { registry })
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * MON,TUE,WED,THU,FRI" }, { registry })
+    // Cloudflare reads weekday 1 as Sunday.
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * 1" }, { registry })
+    expect(calls).toEqual(["monday", "weekdays"])
+  })
+
   it("matches equivalent cron whitespace from provider events", async () => {
     const calls: string[] = []
     await executeMatchingStaticSchedules({

@@ -384,7 +384,7 @@ describe("schedule provider output", () => {
     expect(existsSync(cloudflareWorker)).toBe(true)
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("unwrapScheduleDefinition")
-    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)")
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("cronWithWeekdayNames(cron) !== trigger")
     const { default: cloudflareHandler } = await import(pathToFileURL(cloudflareWorker).href)
     for (const cron of [42, true, {}, ["0 0 * * *"], "   "]) {
       await expect(cloudflareHandler.scheduled({ cron, scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() }))
@@ -1137,6 +1137,55 @@ describe("schedule provider output", () => {
       clientOutDir: "dist/client",
       rootDir,
     })).rejects.toThrow(/must declare a static cron string/)
+  })
+
+  it("writes Cloudflare triggers with weekday names and matches each trigger to its Schedule", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cloudflare-weekdays-")
+    for (const [name, cron, timeZone] of [
+      ["sunday", "0 20 * * 0", "UTC"],
+      ["weekdays", "0 4 * * 1-5", "UTC"],
+      ["list", "0 9 * * 1,3,5", "UTC"],
+      // 01:30 on Monday in Tokyo is 16:30 on Sunday in UTC.
+      ["tokyo", "30 1 * * 1", "Asia/Tokyo"],
+    ]) {
+      await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `export default defineSchedule({ cron: '${cron}', timeZone: '${timeZone}', handler: ({ cron }) => {`,
+        `  globalThis.weekdayRuns = [...(globalThis.weekdayRuns ?? []), '${name} ' + cron]`,
+        "} })",
+      ].join("\n"), "utf8")
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual([
+      "0 0 * * *",
+      "0 9 * * MON,WED,FRI",
+      "0 20 * * SUN",
+      "30 16 * * SUN",
+      "0 4 * * MON,TUE,WED,THU,FRI",
+    ])
+    // Vercel and Netlify read standard weekday numbers.
+    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toContainEqual({
+      path: "/api/vitehub/schedules/vercel/tokyo",
+      schedule: "30 16 * * 0",
+    })
+    const netlifyModule = await import(pathToFileURL(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-weekdays.mjs")).href)
+    expect(netlifyModule.config.schedule).toBe("0 4 * * 1-5")
+
+    const runs = () => (globalThis as { weekdayRuns?: string[] }).weekdayRuns ?? []
+    const { default: cloudflareHandler } = await import(pathToFileURL(join(cloudflareRoot, "index.js")).href)
+    for (const [cron, scheduledTime] of [
+      ["0 20 * * SUN", "2026-11-22T20:00:00Z"],
+      ["0 4 * * MON,TUE,WED,THU,FRI", "2026-11-23T04:00:00Z"],
+      ["0 9 * * MON,WED,FRI", "2026-11-23T09:00:00Z"],
+      ["30 16 * * SUN", "2026-11-22T16:30:00Z"],
+      // Cloudflare reads this as Sunday, so it is not the Monday Schedule.
+      ["0 4 * * 1-5", "2026-11-22T04:00:00Z"],
+    ]) {
+      await cloudflareHandler.scheduled({ cron, scheduledTime: Date.parse(scheduledTime!) }, {}, { waitUntil: vi.fn() })
+    }
+    expect(runs()).toEqual(["sunday 0 20 * * 0", "weekdays 0 4 * * 1-5", "list 0 9 * * 1,3,5", "tokyo 30 16 * * 0"])
   })
 
   it("runs a time-zoned Schedule from a UTC host cron and checks the local time on each wake", async () => {

@@ -8,7 +8,9 @@ import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
-import { isScheduleDue, latestCronMinute } from "./due.ts"
+import { cronWithWeekdayNames, isScheduleDue, latestCronMinute } from "./due.ts"
+
+export { cronWithWeekdayNames }
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -183,6 +185,18 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   ))
 }
 
+// A Cloudflare trigger carries the cron as written in wrangler.json, with weekday names. Cloudflare reads a weekday
+// number as 1-7 from Sunday, so a numeric trigger does not match the standard cron with the same text.
+function isHostCronTrigger(hostCron: string, trigger: string): boolean {
+  try {
+    return cronWithWeekdayNames(hostCron) === trigger
+  }
+  catch {
+    // A cron that does not parse matches no trigger.
+    return false
+  }
+}
+
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
   if (typeof options.cron !== "string" || !options.cron.trim()) {
     throw createScheduleError("SCHEDULE_INVALID_CRON", {
@@ -197,9 +211,10 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     if (!definition) continue
     const override = options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined
     const timeZoneCron = override === undefined && options.timeZoneCrons && Object.hasOwn(options.timeZoneCrons, name) ? options.timeZoneCrons[name] : undefined
-    if (normalizeCron(override ?? timeZoneCron ?? definition.cron) !== cron) continue
+    const hostCron = normalizeCron(override ?? timeZoneCron ?? definition.cron)
+    if (!isHostCronTrigger(hostCron, cron)) continue
     if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
-    runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
+    runs.push({ name, run: executeStaticSchedule({ cron: hostCron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
