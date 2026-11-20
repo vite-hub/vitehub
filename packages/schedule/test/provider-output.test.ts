@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import * as fs from "node:fs"
 import * as fsPromises from "node:fs/promises"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -645,16 +645,14 @@ describe("schedule provider output", () => {
     }
     await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
-    const source = (await readFile(denoCron, "utf8")).replace(
-      JSON.stringify("@vite-hub/schedule/runtime/static"),
-      JSON.stringify(pathToFileURL(fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url))).href),
-    )
+    const packagesDir = join(rootDir, "node_modules", "@vite-hub")
+    await mkdir(packagesDir, { recursive: true })
+    await symlink(packageRoot, join(packagesDir, "schedule"), "junction")
+    await symlink(join(packageRoot, "..", "runtime"), join(packagesDir, "runtime"), "junction")
     const registrations: Record<string, string> = {}
     vi.stubGlobal("Deno", { cron: (name: string, cron: string) => { registrations[name] = cron } })
     try {
-      const nodeEntry = join(rootDir, "deno-node.mjs")
-      await writeFile(nodeEntry, source)
-      await import(pathToFileURL(nodeEntry).href)
+      await import(pathToFileURL(denoCron).href)
       const registered = (name: string) => Object.entries(registrations).find(([id]) => id.endsWith(`-${name}`))?.[1]
       expect(registered("sydney")).toBe("0 22,23 * * SUN,MON,TUE,WED,THU")
       expect(registered("sunday")).toBe("0 9 * * SUN")

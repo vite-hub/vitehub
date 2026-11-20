@@ -122,11 +122,11 @@ export default defineEventHandler(async () => {
 
 ::product-features
   :::product-feature-item{title="Save any file" icon="i-lucide-file-up" to="/docs/blob/server-api#use-it-at-runtime"}
-  Save text, bytes, or streams with `blob.put()`, with a content type and your own metadata.
+  Pass text, bytes, or a stream to `blob.put()` with a content type and your own metadata.
   :::
 
   :::product-feature-item{title="Uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
-  `blob.handleUpload()` checks each file's size and type before it saves anything.
+  `blob.handleUpload()` checks file sizes and types before saving anything.
   :::
 
   :::product-feature-item{title="Upload from a Vue page" icon="i-lucide-upload" to="/docs/blob/server-api#upload-files"}
@@ -134,19 +134,19 @@ export default defineEventHandler(async () => {
   :::
 
   :::product-feature-item{title="Uploads straight to storage" icon="i-lucide-cloud-upload" to="/docs/blob/server-api#direct-uploads"}
-  With `direct: true`, the browser sends the file to R2, S3, or Vercel Blob, past the host's request size limit.
+  Set `direct: true` so the browser sends the file to R2, S3, or Vercel Blob, past the host's request size limit.
   :::
 
   :::product-feature-item{title="Large files in parts" icon="i-lucide-layers" to="/docs/blob/server-api#multipart-uploads"}
-  Send a big file in parts. The server joins them at the end.
+  Upload a large file in parts. The server joins them at the end.
   :::
 
   :::product-feature-item{title="Copy a file" icon="i-lucide-copy" to="/docs/blob/server-api#copy-a-file"}
-  `blob.copy()` copies a file with its content type and metadata, on the server where the provider can.
+  `blob.copy()` copies a file with its content type and metadata on the server where the provider supports it.
   :::
 
   :::product-feature-item{title="Links that expire" icon="i-lucide-link" to="/docs/blob/server-api#signed-requests"}
-  `blob.sign()` makes a short-lived link to read or upload a private file.
+  `blob.sign()` creates a short-lived URL to read or upload a private file.
   :::
 
   :::product-feature-item{title="Images with alt text, crops, and variants" icon="i-lucide-image" to="/docs/blob/media"}
@@ -154,7 +154,7 @@ export default defineEventHandler(async () => {
   :::
 
   :::product-feature-item{title="Many storage services" icon="i-lucide-server" to="/docs/blob/configure#provider-options"}
-  Use your disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more, with the same routes.
+  Use local disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more, with the same routes.
   :::
 ::
 

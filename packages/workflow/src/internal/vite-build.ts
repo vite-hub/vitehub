@@ -19,7 +19,7 @@ import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourc
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import type { WorkflowManifest } from "@workflow/builders"
-import { buildSync, transform } from "esbuild"
+import { build, buildSync, transform } from "esbuild"
 import type { Plugin as EsbuildPlugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
@@ -708,7 +708,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
         const tsconfigOptions = tsconfigPath && (await lstat(tsconfigPath)).isSymbolicLink()
           ? { tsconfigRaw: await readFile(tsconfigPath, "utf8") }
           : { tsconfig: tsconfigPath }
-        await bundleEsbuildEntry(entryFile, options.outfile, {
+        await bundleEsbuildEntry(build, entryFile, options.outfile, {
           ...tsconfigOptions,
           define: bundleDefines,
           extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],

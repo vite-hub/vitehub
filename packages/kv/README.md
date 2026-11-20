@@ -64,11 +64,11 @@ Several Node processes share keys only through a shared store. Without a `driver
 
 `{ driver: "redis", url?, base? }` reads `url` at runtime when it is `env:<NAME>`, and `env:REDIS_URL` is the default. A literal URL goes into the build output. `base` prefixes every key and defaults to `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart. The generated store segment escapes `%`, `:`, `/`, `\`, and `?`; an empty store name uses `%`. This keeps store names separate after key normalization. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. A Redis listing cursor holds its whole state, so another server process can read the next page.
 
-`{ driver: "upstash", url?, token?, base? }` uses the same `base` rule as `redis`: every key gets the prefix `vitehub:kv:<store>` unless `base` sets another one, so `kv.clear()` and `kv.keys()` stay inside the store. Upstash takes whole seconds, so `set()` rounds a TTL up. Its listing cursor also holds its whole state, so the next page works in another serverless invocation.
+`{ driver: "upstash", url?, token?, base? }` uses the same `base` rule as `redis`: every key gets the prefix `vitehub:kv:<store>` unless `base` sets another one, so `kv.clear()` and `kv.list()` stay inside the store. Upstash takes whole seconds, so `set()` rounds a TTL up. Its listing cursor also holds its whole state, so the next page works in another serverless invocation.
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 
-The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, prints a warning with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same warning says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
+The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, reports the hint `KV_REDIS_URL_UNUSED` in the build output and in `.vitehub/hints.json`, with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same hint says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
 This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 
@@ -88,6 +88,8 @@ An explicit `driver` is honored as before; an `upstash` store prints the same no
 
 ## Nitro storage
 
+During Nuxt prerender, the Node worker uses the configured KV stores and ignores the development `remote` option. Cloudflare stores use their local folders, and an app with a Deno KV store keeps the runtime fallback.
+
 When KV is enabled in a Nitro app, the default store is the Nitro storage mount `kv`, and a named store is the mount `kv-<name>`. `useStorage("kv").getItem("a")` reads the same value as `kv.get("a")`, and `clear()` on a mount clears only that store. Store names escape `%`, `:`, `/`, `\\`, and `?` as percent-encoded characters; an empty name uses `%` (for example, `a/b` mounts at `kv-a%2Fb`). A mount with the same name in `nitro.kv` (or the deprecated `nitro.storage`) wins. Nuxt modules that take a mount name, such as nuxt-og-image's `runtimeCacheStorage: "kv"`, store their data in KV this way.
 
 `kvStorageDriver` from `@vite-hub/kv/vite` is the file path of the unstorage driver behind these mounts. Its options are `store` (default: the default store) and `base`, a key prefix. Pass it to a module that takes a driver name, or mount it yourself. The driver opens the store on each call, so on Cloudflare it uses the binding of the current request. Nitro's `ttl` goes to `kv.set()`.
@@ -96,9 +98,9 @@ With `vitehub()`, `cache: { driver: "kv" }` mounts the same driver at Nitro's `c
 
 ## Listing keys
 
-`kv.keys(prefix)` is exhaustive. Use `kv.list({ prefix, limit, cursor })` when the caller needs bounded work. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete.
+`kv.list({ prefix })` returns every key that starts with `prefix`. Add `limit` when the caller needs bounded work: `kv.list({ prefix, limit, cursor })` reads one page. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete. `kv.clear({ prefix })` deletes the keys that `kv.list({ prefix })` lists.
 
-List prefixes use the same key normalization as reads and writes. For example, `users/al` matches the stored key `users:alice`. A trailing separator, such as `users/` or `users:`, limits the prefix to children and does not match `users-other`.
+Prefixes match text, and use the same key normalization as reads and writes. For example, `users/al` matches the stored key `users:alice`, and `user` matches `users:alice` and `user-old:1`. A trailing separator, such as `users/` or `users:`, limits the prefix to children and does not match `users-other`.
 
 Cursors are opaque and provider-specific. Pass a returned cursor back to the same store with the same prefix. Cloudflare KV, Upstash, Deno KV, and `fs-lite` stop enumeration when the requested page is full. Cloudflare KV and Deno KV cursors carry the provider cursor, so a request in another isolate can continue the listing. An `fs-lite` cursor retains a directory iterator in the current process for up to 15 minutes. Upstash uses the same retention window when the provider returns more keys than requested. These process-local cursors can expire sooner when more than 32 listings are left unfinished. Calling `disposeKVStores()` from the application shutdown hook releases these process-local cursors, closes retained directory iterators, and clears their expiry timers. A pending listing cannot retain a new cursor after disposal. Callers must restart listing without a cursor when continuation fails.
 
@@ -126,7 +128,7 @@ Only the drivers in `KVDriversWith<"deleteIfEquals">` (`redis`, `database`, `ups
 
 ## Read-only handles
 
-`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
+`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `getMany()`, `has()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
 
 ```ts
 import { kv } from "@vite-hub/kv"

@@ -9,6 +9,7 @@ import type { Rolldown } from "vite"
 
 import { isPlainObject } from "../object.ts"
 import { encodedAliasExactMarker, encodedAliasPrefixMarker, type ViteAlias } from "./bundle-options.ts"
+import type { Node } from "./scan-module.ts"
 
 type Plugin = Rolldown.Plugin
 type PluginContext = Rolldown.PluginContext
@@ -215,7 +216,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
         // Start every alias resolution at once. Awaiting them one by one costs one resolver round trip per alias.
         const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
         for (const alias of aliases) {
-          if (isAbsolute(alias.specifier)) continue
+          if (isAbsolute(alias.specifier) || (alias.prefix && alias.specifier.startsWith("#"))) continue
           const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
           const aliasSegments = packageAlias.split("/")
           if (!alias.prefix && aliasSegments.length === 1 && packageAlias.startsWith("@")) continue
@@ -230,6 +231,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           }
           const packageMarker = `/node_modules/${packageName}/`
           const packageMarkerIndex = normalizedSpecifier.lastIndexOf(packageMarker)
+          if (alias.prefix && packageMarkerIndex === -1 && !isRelativeSpecifier(alias.specifier)) continue
           const resolutionScope = packageMarkerIndex === -1
             ? ""
             : normalizedSpecifier.slice(0, packageMarkerIndex + packageMarker.length)
@@ -475,16 +477,74 @@ function createWasmModulePlugin(outdir: string, workingDir: string, copy: boolea
 }
 
 /**
- * Leaves every package import as an import, like esbuild's `packages: "external"`. Runs after every other resolver.
- * A `#` import that the package.json `imports` field maps is bundled; one that nothing maps, such as a path that the
- * app's own `imports` field gives at run time, stays an import.
+ * Leaves package imports external. Resolve package.json import mappings first, and preserve unmapped host imports.
  */
 function createExternalPackagesPlugin(): Plugin {
   return {
     name: "vitehub-external-packages",
     async resolveId(source, importer, extra) {
-      if (source.startsWith("#")) return await this.resolve(source, importer, { kind: extra.kind }) ?? { id: source, external: true }
+      if (source.startsWith("npm:") || source.startsWith("jsr:")) return { id: source, external: true }
+      if (source.startsWith("#")) {
+        return await this.resolve(source, importer, { custom: extra.custom, kind: extra.kind }) ?? { id: source, external: true }
+      }
       if (isBareSpecifier(source) && !isBuiltin(source)) return { id: source, external: true }
+    },
+  }
+}
+
+function hasImportRejectionHandler(importNode: Node, parents: WeakMap<Node, Node>): boolean {
+  let expression = importNode
+  let parent = parents.get(expression)
+  while (parent?.type === "MemberExpression" && parent.object === expression) {
+    const call = parents.get(parent)
+    if (call?.type !== "CallExpression" || call.callee !== parent) break
+    const method = parent.property.type === "Identifier" && !parent.computed ? parent.property.name
+      : parent.property.type === "Literal" ? parent.property.value : undefined
+    const handler = call.arguments[method === "then" ? 1 : 0]
+    if ((method === "then" || method === "catch") && handler && handler.type !== "SpreadElement") {
+      if (handler.type !== "Literal" && !(handler.type === "Identifier" && handler.name === "undefined")) return true
+    }
+    if (method !== "then" && method !== "finally") break
+    expression = call
+    parent = parents.get(expression)
+  }
+  if (parent?.type !== "AwaitExpression") return false
+  for (let child: Node = parent, ancestor = parents.get(child); ancestor; ancestor = parents.get(child)) {
+    if (ancestor.type === "TryStatement" && ancestor.block === child && ancestor.handler) return true
+    if (ancestor.type === "ArrowFunctionExpression" || ancestor.type === "FunctionExpression" || ancestor.type === "FunctionDeclaration") break
+    child = ancestor
+  }
+  return false
+}
+
+function createOptionalImportPlugin(): Plugin {
+  const prefix = "\0vitehub-optional-import:"
+  return {
+    name: "vitehub-optional-import",
+    resolveId(source) {
+      if (source.startsWith(prefix)) return { id: source.slice(prefix.length), external: "absolute" }
+    },
+    transform: {
+      order: "post",
+      filter: { code: /\bimport\s*(?:\(|\/)/ },
+      async handler(code, id) {
+        const { scanModule, walk } = await import("./scan-module.ts")
+        const module = scanModule(code, id)
+        if (module.errors.length) return
+        const parents = new WeakMap<Node, Node>()
+        const handled: { source: string, start: number, end: number }[] = []
+        walk(module.program, (node, parent) => {
+          if (parent) parents.set(node, parent)
+          if (node.type !== "ImportExpression" || node.source.type !== "Literal" || typeof node.source.value !== "string") return
+          if (hasImportRejectionHandler(node, parents)) handled.push({ source: node.source.value, start: node.source.start, end: node.source.end })
+        })
+        if (!handled.length) return
+        const resolved = await Promise.all(handled.map(({ source }) => this.resolve(source, id, { kind: "dynamic-import" })))
+        for (const [index, { source, start, end }] of [...handled.entries()].reverse()) {
+          if (!resolved[index]) code = code.slice(0, start) + JSON.stringify(prefix + source) + code.slice(end)
+        }
+        return code
+      },
     },
   }
 }
@@ -554,16 +614,12 @@ export async function bundleEsmEntry(
     ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
     : Object.keys(options.alias || {})
   const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
-  // An installed package can `import()` an optional dependency that the app did not install, such as `zlib-sync` in
-  // `@discordjs/ws`. That import stays in the bundle and fails only when it runs, as it does unbundled. In app code,
-  // a missing package still stops the build.
-  const packageDynamicImports = new Set<string>()
+  // The importer of each specifier, so an external package resolves its package.json as Node.js would.
   const importers = new Map<string, string>()
   const plugins: Plugin[] = [{
     name: "vitehub-import-records",
-    resolveId(source, importer, extra) {
+    resolveId(source, importer) {
       if (importer && !importers.has(source)) importers.set(source, importer)
-      if (extra.kind === "dynamic-import" && importer && /[\\/]node_modules[\\/]/.test(importer)) packageDynamicImports.add(`${importer}\0${source}`)
     },
   }]
   plugins.push(createWasmModulePlugin(dirname(outfile), workingDir, platform !== "node"))
@@ -579,6 +635,7 @@ export async function bundleEsmEntry(
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
   plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime, workingDir))
   if (options.packages === "external") plugins.push(createExternalPackagesPlugin())
+  plugins.push(createOptionalImportPlugin())
   const isExternal = createExternalMatcher(options.external)
   const externalSideEffects = createExternalSideEffects(importers, options.rootDir ?? workingDir)
   const minify = options.minifyIdentifiers || options.minifySyntax || options.minifyWhitespace
@@ -606,7 +663,7 @@ export async function bundleEsmEntry(
     // Rolldown keeps a static import that it cannot resolve and only warns. The bundle would fail when it loads, so
     // stop the build, as esbuild did. Other warnings stay silent.
     onLog(level, log) {
-      if (log.code === "UNRESOLVED_IMPORT" && !packageDynamicImports.has(`${log.id}\0${log.exporter}`)) throw Object.assign(new Error(log.message), { code: log.code })
+      if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
     },
     // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
     moduleTypes: platform === "node" ? { ".wasm": "binary" } : undefined,

@@ -146,8 +146,7 @@ describe("hubEmail", () => {
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
     expect(source).toContain("RESEND_API_KEY")
-    // The bundler may print the string key with backticks.
-    expect(source).toMatch(/options\[["`]apiKey["`]\]\?\.unseal\(\)/)
+    expect(source).toMatch(/options(?:\.apiKey|\[["'`]apiKey["'`]\])\?\.unseal\(\)/)
     expect(source).not.toContain(secret)
   })
 

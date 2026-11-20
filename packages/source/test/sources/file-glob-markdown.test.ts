@@ -4,7 +4,8 @@ import { join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { clearSources, createSource, file, glob, markdown, registerSources, useSource } from "../../src/index.ts"
+import { file, glob, markdown, useSource } from "../../src/index.ts"
+import { clearSources, registerSources } from "../../src/internal/registry.ts"
 import type { FileSourceOptions } from "../../src/index.ts"
 
 const tempDirs: string[] = []
@@ -53,7 +54,7 @@ describe("@vite-hub/source local file sources", () => {
     const root = await createRoot()
     const bytes = Uint8Array.from({ length: size }, (_, index) => index % 256)
     await writeFile(join(root, "bytes.bin"), bytes)
-    const reader = createSource(file("bytes.bin"), { rootDir: root })
+    const reader = useSource(file("bytes.bin"), { rootDir: root })
     const content = await reader.read("bytes.bin", { encoding: "binary" })
 
     expect(content).toEqual(bytes)
@@ -140,11 +141,11 @@ describe("@vite-hub/source local file sources", () => {
     const root = await createRoot()
     await writeFile(join(root, "first.md"), "# First\n")
     const docs = glob({ include: "**/*.md" })
-    const first = createSource(docs, { rootDir: root })
+    const first = useSource(docs, { rootDir: root })
     await expect(first.keys()).resolves.toEqual(["first.md"])
 
     await writeFile(join(root, "second.md"), "# Second\n")
-    const second = createSource(docs, { rootDir: root })
+    const second = useSource(docs, { rootDir: root })
     await expect(second.keys()).resolves.toEqual(["first.md", "second.md"])
 
     await expect(first.keys()).resolves.toEqual(["first.md"])

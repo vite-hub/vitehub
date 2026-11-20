@@ -5,7 +5,7 @@ import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenera
 import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -267,6 +267,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
         })
       }
       options.storeUsage?.add("unknown")
+      if (store.driver === "github") options.storeUsage?.add("github")
       continue
     }
     if (options.storeUsage && !await readStaticWorkspaceStore(definitionFile, loader, definition.export)) {
@@ -712,24 +713,14 @@ function runtimeWorkspaceConfig(
   if (!store || isWorkspaceStore(store) || store.driver !== "github") return config
   const runtimeStore = { ...config.store }
   const isAbsent = (value: unknown) => typeof value === "undefined" || (typeof value === "string" && value.trim().length === 0)
-  for (const key of ["branch", "root", "token"] as const) {
+  for (const key of ["branch", "repo", "root", "token"] as const) {
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
-    else if (isAbsent(store[key])) {
+    // `root: ""` is the repository root, a value and not a missing option.
+    else if (isAbsent(store[key]) && !(key === "root" && store.root === "")) {
       delete runtimeStore[key]
     }
-  }
-  if (typeof store.repository === "function") {
-    runtimeStore.repository = store.repository
-  }
-  else if (typeof store.repo === "function") {
-    runtimeStore.repo = store.repo
-    delete runtimeStore.repository
-  }
-  else if (isAbsent(store.repository) && isAbsent(store.repo)) {
-    delete runtimeStore.repository
-    delete runtimeStore.repo
   }
   return { ...config, store: runtimeStore }
 }
@@ -883,18 +874,21 @@ export function setWorkspaceVitePluginHosting(plugin: unknown, hosting: Workspac
 }
 
 interface InternalWorkspaceModuleOptions extends WorkspaceOptions {
+  assertGitHubStoreAvailable?: () => void
   hosting?: WorkspacePluginHosting
 }
 
 function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undefined): false | WorkspaceOptions | undefined {
-  if (!options || !Object.hasOwn(options, "hosting")) return options
+  if (!options || !["hosting", "assertGitHubStoreAvailable"].some(key => Object.hasOwn(options, key))) return options
   const publicOptions = { ...options } as InternalWorkspaceModuleOptions
+  delete publicOptions.assertGitHubStoreAvailable
   delete publicOptions.hosting
   return publicOptions
 }
 
 export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
-  let hosting = (options ? options as InternalWorkspaceModuleOptions : undefined)?.hosting
+  const internalOptions = options as InternalWorkspaceModuleOptions | false | undefined
+  let hosting = internalOptions ? internalOptions.hosting : undefined
   const publicOptions = stripWorkspaceInternalOptions(options)
   let resolved: ResolvedConfig | undefined
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -967,6 +961,10 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       }
       if (normalized) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
       const definitions = normalized ? discoverDefinitions(roots, serverDirs, contributions) : []
+      const assertGitHubStoreAvailable = internalOptions && isProductionBuild(config, env)
+        ? internalOptions.assertGitHubStoreAvailable
+        : undefined
+      if (normalized && normalized.store.driver === "github") assertGitHubStoreAvailable?.()
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -978,6 +976,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
           definitionOverrides,
           storeUsage,
         })
+        if (normalized.store.driver !== "github" && storeUsage?.has("github")) assertGitHubStoreAvailable?.()
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, definitionOverrides, storeUsage)
@@ -1084,6 +1083,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       },
     },
     async configureServer(devServer) {
+      publishViteHubDevServer(devServer)
       server = devServer
       installHostedWorkspaceRuntime()
       installHostedVercelBlobWorkspaceRuntime()

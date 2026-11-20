@@ -32,7 +32,7 @@ describe("createSync in the browser", () => {
     }, "/docs/")
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", persisted: false, rows: [{ id: "a" }] })
-    expect(urls[0]).toBe("/docs/_vitehub/sync/todos")
+    expect(urls[0]).toBe("/docs/_vitehub/sync/todos?paged=1")
   })
 
   it("shares one store for one name, until the last user destroys it", async () => {
@@ -164,6 +164,61 @@ describe("createSync in the browser", () => {
     expect(server.applied).toEqual([])
   })
 
+  it("keeps the queued writes of each account on clearSync({ keepWrites: true }), and sends them when that account signs in again", async () => {
+    const server = createFakeSyncServer()
+    server.write({ id: "a", ownerId: "ada", title: "Milk" })
+    let gate = Promise.resolve()
+    const store = open(async (input, init) => {
+      await gate
+      return await server.fetch(input, init)
+    })
+    await store.refresh()
+    server.offline = true
+    const write = store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => store.getState().queued === 1)
+    await clearSync({ keepWrites: true })
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
+    expect(write.state).toBe("queued")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    server.offline = false
+    server.user = "bob"
+    let release!: () => void
+    gate = new Promise(resolve => release = resolve)
+    const refreshing = store.refresh()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
+    release()
+    await refreshing
+    await until(() => store.getState().status === "ready")
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
+    expect(server.applied).toEqual([])
+    await clearSync({ keepWrites: true })
+    server.user = "ada"
+    await store.refresh()
+    await expect(write).resolves.toMatchObject({ id: write.key, title: "Eggs", ownerId: "ada" })
+    expect(server.applied).toHaveLength(1)
+    expect(store.getState().rows.map(row => row.title).sort()).toEqual(["Eggs", "Milk"])
+  })
+
+  it("sends the kept writes of a subset that no component shows when the network comes back after clearSync({ keepWrites: true })", async () => {
+    const server = createFakeSyncServer()
+    const list = createSync("todos", { fetch: server.fetch, interval: false, where: { listId: "kept" } })
+    await list.refresh()
+    server.offline = true
+    const write = list.insert({ title: "Milk" })
+    write.then(undefined, () => undefined)
+    await until(() => list.getState().status === "offline")
+    list.destroy()
+    await clearSync({ keepWrites: true })
+    server.offline = false
+    window.dispatchEvent(new Event("online"))
+    await until(() => server.rows.has(write.key))
+    expect(server.rows.get(write.key)).toMatchObject({ title: "Milk", listId: "kept", ownerId: "ada" })
+    await until(() => write.state === "applied")
+    await expect(write).resolves.toMatchObject({ title: "Milk" })
+  })
+
   it("sends writes from pre-upgrade keys, including a subset the page never reopens", async () => {
     const server = createFakeSyncServer()
     server.live = false
@@ -182,6 +237,8 @@ describe("createSync in the browser", () => {
     }
     vi.stubGlobal("indexedDB", {})
     const indexedDBStorage = vi.spyOn(indexeddb, "createIndexedDBStorage").mockReturnValue(storage)
+    const jitter = vi.spyOn(Math, "random").mockReturnValue(1 - Number.EPSILON)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     try {
       server.offline = true
       const store = createSync("todos", { baseURL, fetch, interval: false, where: { listId: "open" } })
@@ -191,7 +248,8 @@ describe("createSync in the browser", () => {
       server.offline = false
       window.dispatchEvent(new Event("online"))
       await store.refresh()
-      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]))
+      await vi.runOnlyPendingTimersAsync()
+      expect(await storage.queuedIds()).toEqual([])
       window.dispatchEvent(new Event("online"))
       await store.refresh()
       expect(await storage.queuedIds()).toEqual([])
@@ -199,6 +257,8 @@ describe("createSync in the browser", () => {
       expect(server.requests.filter(request => request.method === "POST" && request.body).map(request => request.url.pathname)).toEqual([route, route])
     }
     finally {
+      vi.useRealTimers()
+      jitter.mockRestore()
       indexedDBStorage.mockRestore()
       vi.unstubAllGlobals()
     }

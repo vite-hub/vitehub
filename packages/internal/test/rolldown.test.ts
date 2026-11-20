@@ -27,6 +27,54 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("preserves a handled missing dynamic import without tolerating required imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "out.mjs")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const handled = 'export const run = () => import("missing-adapter").then(m => m.default).catch(() => "fallback")'
+    await writeFile(entry, handled)
+    await bundleEsmEntry(entry, outfile)
+    const loaded: { run: () => Promise<string> } = await import(pathToFileURL(outfile).href)
+    await expect(loaded.run()).resolves.toBe("fallback")
+
+    await writeFile(entry, `${handled}\nexport const required = () => import("missing-adapter")`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+    await writeFile(entry, `${handled}\nimport "missing-adapter"`)
+    await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
+  })
+
+  it("resolves a private import alias without probing a synthetic private subpath", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "dependency.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(resolve(rootDir, "package.json"), JSON.stringify({ imports: { "#generated/registry": "./fallback.mjs" } })),
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\nexport { registry } from "#generated/registry"\n`),
+      writeFile(dependency, 'export const value = "dependency"\n'),
+      writeFile(resolve(rootDir, "fallback.mjs"), 'export const registry = "fallback"\n'),
+      writeFile(replacement, 'export const registry = "replacement"\n'),
+    ])
+
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "#generated/registry", replacement }]),
+      packages: "external",
+      plugins: [{
+        name: "strict-private-imports",
+        resolveId(source) {
+          if (source === "#generated/registry/") this.error(`Unexpected private import: ${source}`)
+        },
+      }],
+      workingDir: rootDir,
+    })
+
+    expect(await import(pathToFileURL(outfile).href)).toMatchObject({ registry: "replacement", value: "dependency" })
+  })
+
   it("skips package alias probes for an explicitly selected entry", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
@@ -348,7 +396,7 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     expect(await readFile(outfile, "utf8")).toContain('import "optional-package"')
   })
 
-  it("keeps an installed package's import() of a missing package, and stops on one in app code", async () => {
+  it("keeps an import() of a missing package whose rejection is handled, and stops on an unhandled one", async () => {
     const rootDir = await createTempDir()
     const packageDir = resolve(rootDir, "node_modules/discord-like")
     const entry = resolve(rootDir, "entry.mjs")
@@ -630,6 +678,33 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
 
     expect(await readFile(outfile, "utf8")).toContain("runtime-guard")
     expect(await readFile(outfile, "utf8")).not.toContain("config-only")
+  })
+
+  it("does not probe a synthetic package prefix for unrelated absolute imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "retained.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\n`),
+      writeFile(dependency, 'export const value = "retained"\n'),
+      writeFile(replacement, 'export const value = "replacement"\n'),
+    ])
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "example/server/registry", replacement }]),
+      platform: "node",
+      plugins: [{
+        name: "reject-invalid-package-prefix",
+        resolveId(source) {
+          if (source === "example/server/registry/") this.error(`Cannot resolve ${source}`)
+        },
+      }],
+    })
+
+    expect((await import(pathToFileURL(outfile).href)).value).toBe("retained")
   })
 
   it("matches scope aliases after scoped package imports become absolute", async () => {

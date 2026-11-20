@@ -2,11 +2,10 @@ import { createServer, request } from "node:http"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  defaultViteHubDevServerUrl,
   discoverViteHubDevServer,
   fetchViteHubDevEndpoint,
   readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
+  requireViteHubDevServerUrl,
   viteHubDevEndpointUrl,
 } from "../src/cli.ts"
 import { assertViteHubDevRequestGrant, isViteHubDevHostAllowed, registerViteHubDevEndpoint, validateViteHubDevRequest } from "../src/dev-endpoint.ts"
@@ -28,10 +27,11 @@ const errors = {
   invalidInlineTimeout: (message: string) => new TestError("inline", message),
   invalidTimeout: (message: string) => new TestError("separate", message),
   missingValue: (message: string) => new TestError("missing", message),
+  unknownOption: (message: string) => new TestError("unknown", message),
 }
 
 function parseTarget(args: string[]): ViteHubDevTargetArgs & { rest: string[] } {
-  const target: ViteHubDevTargetArgs & { rest: string[] } = { rest: [], url: defaultViteHubDevServerUrl }
+  const target: ViteHubDevTargetArgs & { rest: string[] } = { rest: [] }
   for (let index = 0; index < args.length; index++) {
     const used = readViteHubDevTargetOption(args, index, target, errors)
     if (used === undefined) target.rest.push(args[index]!)
@@ -46,21 +46,23 @@ function captureStderr() {
 }
 
 describe("dev target options", () => {
-  it("reads the default URL from the environment", () => {
-    expect(resolveViteHubDevServerUrl({})).toBe("http://localhost:5173")
-    expect(resolveViteHubDevServerUrl({ VITEHUB_DEV_SERVER_URL: "http://127.0.0.1:4000" })).toBe("http://127.0.0.1:4000")
+  it("reads the dev server from the environment, and never guesses a port", () => {
+    expect(requireViteHubDevServerUrl([], { VITEHUB_DEV_SERVER_URL: "http://127.0.0.1:4000" }, "agent dev")).toBe("http://127.0.0.1:4000")
+    expect(() => requireViteHubDevServerUrl([], {}, "agent dev")).toThrow(expect.objectContaining({ code: "INTERNAL_DEV_SERVER_NOT_FOUND" }))
   })
 
-  it("reads --url, --server, --url=, --timeout and --timeout= and leaves other arguments", () => {
+  it("reads --url, --url=, --timeout and --timeout= and leaves other arguments", () => {
     expect(parseTarget(["--url", "http://a", "x", "--timeout", "10"])).toEqual({ rest: ["x"], timeout: 10, url: "http://a" })
-    expect(parseTarget(["--server", "http://b", "--timeout=20", "--other"])).toEqual({ rest: ["--other"], timeout: 20, url: "http://b" })
-    expect(parseTarget(["--url=http://c"])).toEqual({ rest: [], url: "http://c" })
+    expect(parseTarget(["--url=http://c", "--timeout=20", "--other"])).toEqual({ rest: ["--other"], timeout: 20, url: "http://c" })
+  })
+
+  it("fails for the removed --server and names --url", () => {
+    expect(() => parseTarget(["--server", "http://b"])).toThrow(expect.objectContaining({ code: "unknown", message: expect.stringContaining("--server is now --url") }))
   })
 
   it("uses the owner error factories", () => {
     expect(() => parseTarget(["--url="])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url=." }))
     expect(() => parseTarget(["--url"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url." }))
-    expect(() => parseTarget(["--server", "--timeout"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --server." }))
     expect(() => parseTarget(["--timeout", "0"])).toThrow(expect.objectContaining({ code: "separate", message: "--timeout must be an integer from 1 to 2147483647 milliseconds." }))
     expect(() => parseTarget(["--timeout=abc"])).toThrow(expect.objectContaining({ code: "inline", message: "--timeout must be an integer from 1 to 2147483647 milliseconds." }))
   })

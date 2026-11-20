@@ -11,6 +11,7 @@ import {
   isServerEnvironment,
   loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
+  publishViteHubDevServer,
   resolveViteHubProjectRoot,
   VITEHUB_APP_BASE_URL,
   VITEHUB_SERVER_DIRS,
@@ -419,6 +420,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       };
     },
     configureServer(server) {
+      publishViteHubDevServer(server);
       // Vite only calls handleHotUpdate for edits. Docs membership also changes on add and unlink.
       server.watcher.add([...new Set(definitions.map(definition => dirname(definition.handler)))]);
       const refreshDocs = (file: string) => {

@@ -12,6 +12,7 @@ export type InputAttachmentSkipReason =
   | "max-images"
   | "no-data"
   | "not-image"
+  | "not-inline"
   | "sandbox"
   | `fetch-failed:${string}`
 
@@ -25,19 +26,17 @@ export interface InputAttachmentEntry {
   partId?: string
 }
 
-export interface PreparedInputAttachment extends InputAttachmentEntry {
+export interface SentInputAttachment extends InputAttachmentEntry {
   bytes: number
-  /** The file that the provider runtime reads. Drivers that pass bytes in the model call have none. */
-  path?: string
 }
 
 export interface SkippedInputAttachment extends InputAttachmentEntry {
   reason: InputAttachmentSkipReason
 }
 
-/** The attachments a Driver prepared and those it left out before handoff. */
+/** The attachments the model received and those left out. */
 export interface InputAttachmentsReport {
-  prepared: PreparedInputAttachment[]
+  sent: SentInputAttachment[]
   skipped: SkippedInputAttachment[]
 }
 

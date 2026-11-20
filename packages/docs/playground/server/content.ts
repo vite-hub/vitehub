@@ -12,12 +12,12 @@ import { z } from "zod"
 // Today the CMS keeps drafts and published documents in R2 and D1 (the Blob + Database store), because the GitHub token
 // for vite-hub/vitehub does not exist yet. Its history and editor sessions are in the `content` Database.
 //
-// With the token, change the options to `{ repo: "vite-hub/vitehub", root: "packages/docs/playground", publish: "commit", access: "roles", database:
+// With the token, change the options to `{ repo: "vite-hub/vitehub", root: "packages/docs/playground", publish: "commit", roles: true, database:
 // "content" }`: a save then commits to the `vitehub/content` branch, and a publish commits to `main`.
 const semver = z.string().regex(/^\d+\.\d+\.\d+$/, "Use a version such as 1.4.0.")
 
 export default defineContent({
-  extends: [cms, { access: "roles", database: "content" }],
+  extends: [cms, { roles: true, database: "content" }],
   collections: {
     docs: docsCollection(),
     blog: documents({

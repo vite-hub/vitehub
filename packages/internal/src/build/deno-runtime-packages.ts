@@ -1,9 +1,10 @@
 import { createRuntimePackageResolver } from "./runtime-package-resolution.ts"
 import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
-import { builtinModules, createRequire } from "node:module"
+import { builtinModules, createRequire, findPackageJSON } from "node:module"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { resolveImports, type PathConditionsMap } from "resolve-pkg-maps"
 
 import type { Rolldown } from "vite"
 
@@ -14,6 +15,7 @@ import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 import { invariant, invariantError } from "../invariant.ts"
+import { isPlainObject } from "../object.ts"
 import { denoDeployRunnerSource } from "./deno-deploy-runner.injected.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
@@ -513,20 +515,40 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
 function runtimePackageResolutionPlugin(
   rootDir: string,
   aliases: ViteAlias[] | undefined,
+  conditions: string[] | undefined,
   packageJsonPaths: Map<string, string>,
   packages: Map<string, RuntimePackage>,
 ): Rolldown.Plugin {
   return {
     name: "vitehub-deno-runtime-packages",
     async resolveId(source, importer, extra) {
-      const name = packageNameFromSpecifier(source)
-      if (!name || aliases?.some((alias) => {
+      if (aliases?.some((alias) => {
         if (!(alias.find instanceof RegExp)) return source === alias.find || source.startsWith(`${alias.find}/`)
         alias.find.lastIndex = 0
         const matches = alias.find.test(source)
         alias.find.lastIndex = 0
         return matches
       })) return
+      if (source.startsWith("#") && importer && isAbsolute(importer)) {
+        const packageJsonPath = findPackageJSON(".", pathToFileURL(importer))
+        if (!packageJsonPath || basename(packageJsonPath) !== "package.json") return
+        const manifest: unknown = JSON.parse(await readFile(packageJsonPath, "utf8"))
+        if (!isPlainObject(manifest) || !isPlainObject(manifest.imports)) return
+        let target: string | undefined
+        try {
+          const kind = extra.kind === "require-call" ? "require" : "import"
+          // SAFETY: Package imports are parsed from JSON and the resolver checks each selected target's shape.
+          target = resolveImports(manifest.imports as PathConditionsMap, source, [kind, ...(conditions ?? [])])[0]
+        }
+        catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return
+          throw error
+        }
+        if (!target || (!packageNameFromSpecifier(target) && !/^(npm|jsr):/.test(target))) return
+        return this.resolve(target, importer, { custom: extra.custom, kind: extra.kind, skipSelf: false })
+      }
+      const name = packageNameFromSpecifier(source)
+      if (!name) return
       const fromDir = importer && isAbsolute(importer) ? dirname(importer) : rootDir
       const resolver = createRequire(importer && isAbsolute(importer) ? importer : join(fromDir, "package.json"))
       const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
@@ -1069,7 +1091,7 @@ async function finalizeStagedDenoDeploymentOutput(
       platform: "neutral",
       preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
-      plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+      plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
@@ -1098,7 +1120,7 @@ async function finalizeStagedDenoDeploymentOutput(
           platform: "neutral",
           preserveSymlinks: options.preserveSymlinks,
           mainFields: options.mainFields,
-          plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+          plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
           rootDir: options.rootDir,
           workingDir: options.rootDir,
         })

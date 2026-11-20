@@ -1,0 +1,12 @@
+{
+  "name": "harbor-journal",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nuxt/ui": "^4.11.0",
+    "@vite-hub/content": "^<version>",
+    "nuxt": "^5.0.0",
+    "vite-hub": "^<version>",
+    "zod": "^3.25.0"
+  }
+}

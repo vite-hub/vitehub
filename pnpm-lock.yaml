@@ -939,9 +939,6 @@ importers:
       '@iconify-json/vscode-icons':
         specifier: catalog:ui
         version: 1.2.84
-      '@takumi-rs/core':
-        specifier: catalog:nuxt
-        version: 2.19.0(csstype@3.2.3)(react@19.2.6)
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -1751,6 +1748,9 @@ importers:
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.1
     devDependencies:
       '@babel/types':
         specifier: ^7.29.8
@@ -2915,6 +2915,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      resolve-pkg-maps:
+        specifier: ^1.0.0
+        version: 1.0.0
       semver:
         specifier: ^7.8.5
         version: 7.8.5

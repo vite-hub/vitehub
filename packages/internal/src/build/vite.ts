@@ -3,8 +3,10 @@ import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "../cli.ts"
+
 import type { NuxtServerDirOptions } from "./paths.ts"
-import type { ConfigEnv, EnvironmentOptions } from "vite"
+import type { ConfigEnv, EnvironmentOptions, ViteDevServer } from "vite"
 
 export type { NuxtServerDirOptions } from "./paths.ts"
 
@@ -405,4 +407,43 @@ export function createViteHubEnvImportAliases(root: string): Record<string, stri
     [VITEHUB_ENV_SERVER_ID]: viteHubEnvServerModulePath(root),
     [VITEHUB_ENV_DESCRIPTION_ID]: viteHubEnvDescriptionModulePath(root),
   }
+}
+
+const publishedDevServers = new WeakSet<NonNullable<ViteDevServer["httpServer"]>>()
+
+/**
+ * Tell `vitehub` commands where this dev server listens: `.vitehub/dev-server.json` in the project root, removed when
+ * the server closes. A host that runs Vite in middleware mode has no listening server and writes nothing.
+ */
+export function publishViteHubDevServer(server: ViteDevServer): void {
+  const http = server.httpServer
+  // In middleware mode another server owns the listener and publishes it, as the Nuxt module does.
+  if (!http || server.config.server.middlewareMode || publishedDevServers.has(http)) return
+  publishedDevServers.add(http)
+  const root = resolve(server.config.root)
+  let publishedUrl: string | undefined
+  const write = () => {
+    const address = http.address()
+    if (!address || typeof address === "string") return
+    const host = address.address === "::" || address.address === "0.0.0.0" ? "localhost" : address.family === "IPv6" ? `[${address.address}]` : address.address
+    const url = server.resolvedUrls?.local[0] ?? `${server.config.server.https ? "https" : "http"}://${host}:${address.port}${server.config.base}`
+    try {
+      writeViteHubDevServerFile(root, { root, url })
+      publishedUrl = url
+    }
+    catch {
+      // A read-only project root only means commands must pass --url.
+    }
+  }
+  const remove = () => {
+    try {
+      if (publishedUrl && readViteHubDevServerFile(root)?.url === publishedUrl) removeViteHubDevServerFile(root)
+    }
+    catch {
+      // The file is advisory.
+    }
+  }
+  if (http.listening) write()
+  else http.once("listening", write)
+  http.once("close", remove)
 }

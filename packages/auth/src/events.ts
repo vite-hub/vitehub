@@ -79,6 +79,7 @@ export interface AuthEventsConfiguration {
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(256))
 const timestamp = v.pipe(v.string(), v.isoTimestamp())
+const queryTimestamp = v.pipe(timestamp, v.check(value => Number.isFinite(Date.parse(value))))
 const actor = v.custom<AuthEventActor>(value => typeof value === "string" && value.length <= 512 && /^(system|user:.+)$/.test(value))
 const metadata = v.object({
   method: v.optional(v.pipe(text, v.regex(/^[a-zA-Z0-9_.:-]+$/))),
@@ -89,10 +90,10 @@ const metadata = v.object({
 })
 const eventSchema = v.object({ id: text, type: v.picklist(authEventTypes), time: timestamp, actor, userId: v.nullable(text), metadata })
 const rowSchema = v.object({ payload: v.string() })
-const cursorSchema = v.tuple([timestamp, text])
+const cursorSchema = v.tuple([queryTimestamp, text])
 const listSchema = v.object({
   type: v.optional(v.union([v.picklist(authEventTypes), v.pipe(v.array(v.picklist(authEventTypes)), v.minLength(1), v.maxLength(authEventTypes.length))])), userId: v.optional(text), actor: v.optional(actor),
-  from: v.optional(timestamp), to: v.optional(timestamp), cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
+  from: v.optional(queryTimestamp), to: v.optional(queryTimestamp), cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
 })
 

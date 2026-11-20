@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import type { Plugin } from "esbuild"
+import type { build, Plugin } from "esbuild"
 
 interface BundleEsbuildEntryOptions {
   define?: Record<string, string>
@@ -152,12 +152,11 @@ function createFileUrlPlugin(): Plugin {
  * plugins and installs esbuild itself. Every other bundle goes through `bundleEsmEntry` of `./rolldown.ts`.
  */
 export async function bundleEsbuildEntry(
+  bundle: typeof build,
   entryFile: string,
   outfile: string,
   options: BundleEsbuildEntryOptions = {},
 ): Promise<void> {
-  // Load esbuild when an entry is bundled, so code that only imports these helpers does not load it.
-  const { build: bundle } = await import("esbuild")
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   await bundle({

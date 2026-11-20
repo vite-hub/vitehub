@@ -49,7 +49,7 @@ export interface ObservabilityEvlogOptions {
 }
 
 /** Where the Console and `vitehub logs` read logs. */
-export type ObservabilityLogsOptions =
+export type LogsOptions =
   /** A server module, relative to the project root, whose default export is a `LogSource` for an existing backend. */
   | { source: string }
   /** A bounded buffer of Evlog events in the `vite dev` process. */
@@ -77,11 +77,6 @@ export interface ObservabilityOptions {
   /** Queue bound for best-effort events and for the log buffer. Defaults to 1,000. */
   maxPending?: number
   /**
-   * Read logs in the Console and with `vitehub logs`. `true` keeps a bounded Evlog buffer in `vite dev`. A production
-   * build needs `{ source }`, which reads an existing backend and starts no logger unless `service` is set.
-   */
-  logs?: boolean | ObservabilityLogsOptions
-  /**
    * Send uncaught browser errors to `POST /_vitehub/browser-errors`. The server logs each one as an error on the
    * request's Evlog event. Same origin only, 16 KiB at most, and 20 reports a minute for each address.
    */
@@ -89,7 +84,7 @@ export interface ObservabilityOptions {
 }
 
 /** Observability options with a service name, which install `useObservability()`. */
-type ObservabilityTelemetryOptions = Omit<ObservabilityOptions, "logs" | "browserErrors"> & { service: string }
+type ObservabilityTelemetryOptions = Omit<ObservabilityOptions, "browserErrors"> & { service: string }
 
 const generatedObservabilityPlugin = ".vitehub/nitro/observability/plugin.mjs"
 
@@ -134,9 +129,9 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
 
 /**
  * Register the evlog Nitro module. With a service name, also register a generated plugin that installs
- * `useObservability()`. `logs` is not read here: `logsVitePlugin()` installs the log source.
+ * `useObservability()`. `logsVitePlugin()` installs the log source of `vitehub({ logs })`.
  */
-export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "logs" | "browserErrors">, target: {
+export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "browserErrors">, target: {
   agent?: boolean | { runtime?: string }
   hosting?: string
 } = {}): Plugin {

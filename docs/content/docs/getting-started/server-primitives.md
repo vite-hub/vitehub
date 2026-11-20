@@ -7,13 +7,9 @@ navigation.group: Next steps
 icon: i-lucide-server-cog
 ---
 
-Server Primitives are APIs for storage, background work, auth, and other
-server features. Call them from routes, handlers, or jobs. Each package has
-its own configuration and server API.
+Server Primitives are APIs for storage, background work, auth, and other server features. Call them from routes, handlers, or jobs. Each package has its own configuration and server API.
 
-Set up your app with [Installation](/docs/getting-started/installation), then
-save and read a value in [your first Server Primitive](/docs/getting-started/first-server-primitive).
-Then pick the feature your app needs. Agents are optional.
+Set up your app in [Installation](/docs/getting-started/installation), save and read a value in [your first Server Primitive](/docs/getting-started/first-server-primitive), then pick the feature your app needs below. Agents are optional.
 
 ## Pick the right primitive
 
@@ -44,9 +40,7 @@ Then pick the feature your app needs. Agents are optional.
 
 Most primitives use the same import on every host. The build connects it to the selected provider.
 
-This example uses the Nitro or Nuxt app from Installation with KV turned on.
-Both serve the file at `PUT /api/settings`. Keep the explicit H3 imports when
-you copy it.
+This example uses the Nitro or Nuxt app from Installation with KV turned on. Both serve the file at `PUT /api/settings`. Keep the explicit H3 imports when you copy it:
 
 ```ts [server/api/settings.put.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -59,34 +53,20 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The route uses the configured KV driver. The
-[KV tutorial](/docs/kv/get-started) adds the configuration, a read after the
-write, and a request to run.
+The route uses the configured KV driver. The [KV tutorial](/docs/kv/get-started) adds the configuration, a read after the write, and a request to run.
 
 ## Add a Definition when the feature needs one
 
-A Queue needs a handler Definition and a Database needs a schema Definition.
-Each tutorial shows the file to create. ViteHub finds these files in
-development and build.
+A Queue needs a handler Definition, and a Database needs a schema Definition. Each tutorial shows the file to create. ViteHub finds these files in development and build.
 
-See [Definition discovery](/docs/development/definition-discovery) for names,
-[File conventions](/docs/reference/file-conventions) for locations, and
-[Configuration](/docs/reference/config-options) for more options.
+See [Definition discovery](/docs/development/definition-discovery) for names, [File conventions](/docs/reference/file-conventions) for paths, and [Configuration](/docs/reference/config-options) for more options.
 
 ## Give an Agent a selected operation
 
-Your server calls each feature directly. An Agent needs a Capability, a
-grant for one selected operation. The [KV capability](/docs/kv/agent-capability)
-gives access to stored values, and the
-[Workspace capability](/docs/workspace/agent-capability) gives access to files.
+Your server calls each feature directly. An Agent needs a Capability, a grant for one selected operation. The [KV capability](/docs/kv/agent-capability) gives access to stored values, and the [Workspace capability](/docs/workspace/agent-capability) gives access to files.
 
-Add a Capability only when the Agent needs it, and set its scope, write mode,
-and approval policy for the task. [Capabilities](/docs/agents/capabilities)
-lists the operations and the constraints each supports.
+Add a Capability only when the Agent needs it, and set its scope, write mode, and approval policy for the task. [Capabilities](/docs/agents/capabilities) lists the operations and the constraints each supports.
 
 ## Choose a host
 
-Your host sets the resources and limits behind an API. Pick a host in
-[Build and deploy](/docs/getting-started/build-and-deploy), then read the
-feature's Hosts page. Check the generated bindings and resource identities
-before you connect production data.
+Your host sets the resources and limits behind an API. Pick a host in [Build and deploy](/docs/getting-started/build-and-deploy), then read the feature's Hosts page. Check the generated bindings and resource identities before you connect production data.

@@ -70,7 +70,7 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
   if (!record) return undefined
-  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults }
+  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults, ...(record.after === undefined ? {} : { after: record.after }) }
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
@@ -206,11 +206,23 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
       await done(transaction)
       return ids
     },
-    async clear() {
+    async clear(options) {
       const database = await open()
-      if (!(database instanceof IDBDatabase)) return database.clear()
+      if (!(database instanceof IDBDatabase)) return database.clear(options)
       const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
-      for (const store of ["rows", "meta", "outbox", "results"]) transaction.objectStore(store).clear()
+      for (const store of ["rows", "meta", "results"]) transaction.objectStore(store).clear()
+      const outbox = transaction.objectStore("outbox")
+      if (!options?.keepWrites) outbox.clear()
+      else {
+        // The writes of an account wait for it. A write made before the first pull has no account.
+        const scan = outbox.openCursor()
+        scan.onsuccess = () => {
+          const cursor = scan.result
+          if (!cursor) return
+          if ((cursor.value as OutboxRecord).account === null) cursor.delete()
+          cursor.continue()
+        }
+      }
       await done(transaction)
     },
   }

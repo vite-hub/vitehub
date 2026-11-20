@@ -27,11 +27,13 @@ import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const sandboxTaskRuntimeStateSpecifier = '@vite-hub/sandbox/task/runtime/state'
-export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/_internal/task/runtime'
+export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/internal/task/runtime'
 export const sandboxTaskRuntimeProviderSpecifiers = {
   cloudflare: `${sandboxTaskRuntimeSpecifier}/providers/cloudflare`,
   vercel: `${sandboxTaskRuntimeSpecifier}/providers/vercel`,
 } as const
+/** Only the `vite dev` facade imports the local provider, so builds do not bundle it. */
+export const sandboxTaskRuntimeLocalProviderSpecifier = `${sandboxTaskRuntimeSpecifier}/providers/local`
 
 export const sandboxTaskRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',

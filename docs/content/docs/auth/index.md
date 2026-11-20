@@ -97,27 +97,27 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Protect a route" icon="i-lucide-lock" to="/docs/auth/server-api#use-it-at-runtime"}
-  Wrap a handler in `withAuth()` so only signed-in users reach it.
+  Wrap a handler in `withAuth()` so only signed-in users can call it.
   :::
 
   :::product-feature-item{title="Protect a Nuxt page" icon="i-lucide-file-lock" to="/docs/auth/protect-pages"}
-  Add `definePageMeta({ auth: 'user' })`, and visitors without a session go to the login page.
+  Set `definePageMeta({ auth: 'user' })` to send signed-out visitors to the login page.
   :::
 
   :::product-feature-item{title="Decide who gets in" icon="i-lucide-shield-check" to="/docs/auth/server-api#authorize-access-routes"}
-  `authorize` checks your roles. Return `false` to send `403`.
+  Check roles in `authorize` and return `false` to reject with `403`.
   :::
 
   :::product-feature-item{title="Session state in Vue" icon="i-lucide-user-check" to="/docs/auth/server-api#use-it-at-runtime"}
-  `useUserSession()` gives the user, `loggedIn`, and sign-in and sign-out actions.
+  `useUserSession()` gives you the user, `loggedIn`, and sign-in and sign-out helpers.
   :::
 
   :::product-feature-item{title="Keep secrets out of your code" icon="i-lucide-key-round" to="/docs/auth/configure#runtime-options"}
-  Read the auth secret and OAuth keys from server environment variables at request time.
+  Read your auth secret and OAuth keys from server environment variables at request time.
   :::
 
   :::product-feature-item{title="Add a database for production" icon="i-lucide-database" to="/docs/auth/configure#keep-users-in-the-app-database"}
-  `authDatabase()` adds the Better Auth tables to the app Database.
+  `authDatabase()` adds the Better Auth tables to your app Database.
   :::
 ::
 

@@ -2,7 +2,7 @@ import { createAuthClient as createBetterAuthClient } from "better-auth/vue"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Better Auth's real Vue client. Only the network and the browser are stand-ins.
-const { createAuthClient, loadAuthClient, setSessionSeedResolver, useSession, useUserSession } = await import("../src/vue.ts")
+const { createAuthClient, loadAuthClient, setSessionSeedResolver, useUserSession } = await import("../src/vue.ts")
 
 const ada = { session: { id: "s", userId: "u", expiresAt: "2999-01-01T00:00:00.000Z" }, user: { id: "u", name: "Ada" } }
 
@@ -114,7 +114,6 @@ describe("a Better Auth client that has loaded already", () => {
     setSessionSeedResolver(() => null)
     const client = await create(server)
     const session = useUserSession(client)
-    const state = useSession(client)
     await settle()
     // Hydration with the server's session reads nothing.
     expect(server.sessionReads()).toBe(0)
@@ -122,7 +121,7 @@ describe("a Better Auth client that has loaded already", () => {
     await session.signIn.email({ email: "ada@example.com", password: "password" })
 
     await vi.waitFor(() => expect(session.user.value).toEqual(ada.user))
-    expect(state.value.data?.user).toEqual(ada.user)
+    expect(session.data.value?.user).toEqual(ada.user)
     expect(server.sessionReads()).toBe(1)
   })
 })

@@ -16,3 +16,7 @@ export type BrowserDefinitionInputArgs<TDefinition>
     : undefined extends BrowserDefinitionInput<TDefinition>
       ? [input?: BrowserDefinitionInput<TDefinition>]
       : [input: BrowserDefinitionInput<TDefinition>]
+
+/** The value that the handler of a Browser Definition returns, after `await`. */
+export type BrowserDefinitionOutput<TDefinition>
+  = TDefinition extends { run: (...args: never[]) => infer TResult } ? Awaited<TResult> : unknown

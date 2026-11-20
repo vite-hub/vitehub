@@ -118,6 +118,7 @@ const contentDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const contentCommands: readonly ContentCliCommand[] = [

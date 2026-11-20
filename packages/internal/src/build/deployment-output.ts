@@ -3,8 +3,6 @@ import { cp, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
-import { parseSync } from "vite"
-
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./rolldown.ts"
@@ -356,7 +354,8 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
-function declaresTopLevelBinding(code: string, name: string): boolean {
+async function declaresTopLevelBinding(code: string, name: string): Promise<boolean> {
+  const { parseSync } = await import("vite")
   return parseSync("bundle.mjs", code).program.body.some((statement) => {
     const node = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
     if (node?.type === "FunctionDeclaration" || node?.type === "ClassDeclaration") return node.id?.name === name
@@ -370,9 +369,13 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
   const literal = stringifyProviderOutputConfig(config)
   // Minification keeps the names of functions and classes, so the bundle can declare its own `config`. Netlify also
   // reads a config that an export list names.
-  const exported = declaresTopLevelBinding(bundled, "config")
-    ? `const vitehubNetlifyFunctionConfig = ${literal}\nexport { vitehubNetlifyFunctionConfig as config }`
-    : `export const config = ${literal}`
+  let exported = `export const config = ${literal}`
+  if (await declaresTopLevelBinding(bundled, "config")) {
+    const baseName = "vitehubNetlifyFunctionConfig"
+    let name = baseName
+    for (let suffix = 2; bundled.includes(name); suffix++) name = `${baseName}${suffix}`
+    exported = `const ${name} = ${literal}\nexport { ${name} as config }`
+  }
   await writeFile(outfile, `${bundled.trimEnd()}\n\n${exported}\n`, "utf8")
 }
 

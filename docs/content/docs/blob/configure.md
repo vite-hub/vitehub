@@ -85,7 +85,7 @@ export default defineConfig({
 
 ### Use the real store in development
 
-`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, the Node runner in `vite dev` and `nuxt dev` uses the local `fs` driver: `.vitehub/data/blob` for the default store and `.vitehub/data/blob-<name>` for a named store. If you use Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the Blob store. Without it, Miniflare reports a missing binding instead of falling back to `fs`.
 
 Set `remote: true` to use the real store in `vite dev`:
 
@@ -127,7 +127,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` other than `cloudflare` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 

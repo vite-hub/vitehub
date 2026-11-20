@@ -5,7 +5,7 @@ import { agentAuth } from "../src/agent.ts"
 // The server module fails to load once, as an import can fail during a development rebuild.
 const server = vi.hoisted(() => ({ failures: 1 }))
 
-vi.mock("../src/server.ts", () => {
+vi.mock("../src/internal/server.ts", () => {
   if (server.failures > 0) {
     server.failures--
     throw new Error("transient server import failure")

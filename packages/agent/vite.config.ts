@@ -1,6 +1,5 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
-import { fileURLToPath } from "node:url";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
@@ -79,6 +78,8 @@ export default defineConfig({
       "src/operations.ts",
       "src/page.ts",
       "src/invocations/index.ts",
+      // `vitehub agent invocations` loads only this entry, so it runs where `vite` is not installed.
+      "src/internal/agent-invocations-cli.ts",
       "src/internal/default-invocations.ts",
       "src/internal/default-invocations-core.ts",
       "src/internal/default-invocations-libsql.ts",
