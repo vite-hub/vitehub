@@ -557,15 +557,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_LOGS_MAX_ENTRIES_INVALID: {
       why: "logs.maxEntries must be an integer from 1 to 10000.",
-      fix: "Set `maxEntries` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 1 to 10000.",
+      fix: "Set `maxEntries` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 1 to 10000.",
     },
     VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID: {
       why: "logs.maxEntryBytes must be an integer from 256 to 262144.",
-      fix: "Set `maxEntryBytes` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 256 to 262144.",
+      fix: "Set `maxEntryBytes` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 256 to 262144.",
     },
     VITE_HUB_LOGS_SOURCE_MISSING: {
-      why: "[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: \"./server/logs.ts\" } }. The local buffer is per process and has no durable history.",
-      fix: "Set `vitehub({ observability: { logs: { source: \"./server/logs.ts\" } } })` to a server file that default-exports a `LogSource`, or remove `observability.logs` from the production build.",
+      why: "[vitehub] Production Logs needs an existing source. Set logs: { source: \"./server/logs.ts\" }. The local buffer is per process and has no durable history.",
+      fix: "Set `vitehub({ logs: { source: \"./server/logs.ts\" } })` to a server file that default-exports a `LogSource`, or remove `logs` from the production build.",
     },
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
