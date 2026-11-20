@@ -319,7 +319,7 @@ With the framework distribution, import from `vite-hub/ui`. There is no separate
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not import `@comark/html`.
 
-Content bundles Comark UI's parser and editor implementation and installs the Tiptap runtime it needs. It leaves Vue to the UI package. Nuxt UI supplies the application's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
+Content bundles Comark UI's parser and editor implementation. The Tiptap packages of `@vite-hub/content/editor` are optional peers: an app that edits Content installs `@tiptap/core`, `@tiptap/pm`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`. Without them, the editor entry throws `CONTENT_EDITOR_PACKAGES_MISSING`. It leaves Vue to the UI package. Nuxt UI supplies the application's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
 
 ## Document collections
 
