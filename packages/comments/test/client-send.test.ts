@@ -244,10 +244,12 @@ describe("createCommentSend", () => {
   })
 
   it("starts a second pairing without sending to the existing agent", async () => {
-    const server = fakeTransport({ count: 2, agent: t3 })
+    const server = fakeTransport({ count: 0, agent: t3 }, { push: true })
     const send = createCommentSend(server.transport)
-    await send.refresh()
-    expect(send.state).toMatchObject({ status: "idle", canPairAnother: true })
+    const stop = send.start()
+    await flush()
+    server.push({ type: "count", count: 2 })
+    expect(send.state).toMatchObject({ status: "idle", count: 2, canPairAnother: true })
     await send.pairAnother(copy)
     expect(copied).toEqual([prompt])
     expect(server.calls).not.toContain("send")
@@ -256,6 +258,7 @@ describe("createCommentSend", () => {
     server.results.push({ status: "sent", id: "send-2" })
     await send.allow()
     expect(server.calls).toContain("allow code-1")
+    stop()
   })
 
   it("shows the agent's send on load, a limit on load, and an inbox", async () => {
