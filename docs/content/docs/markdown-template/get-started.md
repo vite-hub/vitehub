@@ -7,9 +7,9 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Build a short release note from a Markdown template and a data object. You insert the version and status as text, then add a trusted Markdown list. You get a Markdown string to print or pass to an Agent.
+Build a short release note from a Markdown template and a data object. You insert the version and status as text, add a trusted Markdown list, and get back a Markdown string to print or pass to an Agent.
 
-You need Node.js 24.15 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
+You need Node.js 24.15 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You do not need a Vite server, account, or network access.
 
 ::tutorial-step{title="Install the package"}
 ## Install the package
@@ -24,7 +24,7 @@ The renderer takes a full template string and a `data` object. It escapes scalar
 ::tutorial-step{title="Render a document"}
 ## Render a document
 
-Create this file. Double braces insert scalar values as escaped text. `:insert` keeps the Markdown list as is, so pass it only a fragment that your app has checked and trusts.
+Create `server/render-release.ts`. Double braces insert scalar values as escaped text. `:insert` keeps the Markdown list as is, so pass it only a fragment that your app has checked and trusts.
 
 ```ts [server/render-release.ts]
 import { renderMarkdownTemplate } from "vite-hub/markdown-template";
@@ -54,13 +54,13 @@ console.log(markdown);
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Run the file with Node.js 24.15 or newer:
+Run the script with Node.js 24.15 or newer:
 
 ```sh [commands/verify]
 node server/render-release.ts
 ```
 
-The output is Markdown:
+It prints the rendered Markdown:
 
 ```md [output/result.md]
 # Release 0.0.4
@@ -71,7 +71,7 @@ Status: ready
 - Preview checked
 ```
 
-To keep the template in a file, import a `*.template.md` file. In a framework app, `vitehub()` loads it. In a modular Vite config, add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`.
+To keep a template in its own file, import a `*.template.md` file. In a framework app, `vitehub()` loads it automatically. In a modular Vite config, add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`.
 
 Next, read [Markdown templates](/docs/markdown-template) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
 ::

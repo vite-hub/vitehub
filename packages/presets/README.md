@@ -178,6 +178,16 @@ branch rules. A required check that never reported, 10 minutes after the head's
 checks finished, gets a branch update or an Actions rerun once per head every
 six hours.
 
+`forkHeadBranches` (off by default), such as
+`{ "acme/app": "preview/pr-{number}" }`, is for required checks that run only on
+pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
+PR's head. When it is missing, the host pushes the head to that branch, once per
+head. A push runs the workflow files of the pushed commit with the repository's
+permissions, so the host first rereads GitHub and pushes only when a reviewer with
+write access approved that exact head, no change request stands, and the head's
+`.github` folder is the same as the base branch's. It moves and deletes only a
+branch it created, and deletes it once the PR closes.
+
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no
 required check failed, and the head branch is in the repository itself, the host

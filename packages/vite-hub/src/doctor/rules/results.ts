@@ -9,7 +9,7 @@ type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient"
 
 /** Methods that return `[error, value]` for each Runtime Helper handle. */
 const tupleMethods: Record<HandleKind, Set<string>> = {
-  kv: new Set(["clear", "delete", "get", "getAndDelete", "getMany", "has", "increment", "keys", "list", "set", "setIfAbsent", "setMany"]),
+  kv: new Set(["clear", "delete", "get", "getAndDelete", "getMany", "has", "increment", "list", "set", "setIfAbsent", "setMany"]),
   blob: new Set(["copy", "createMultipartUpload", "delete", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
   media: new Set(["createFolder", "get", "handleUpload", "list", "move", "moveFolder", "put", "remove", "removeFolder", "replaceCrop", "update", "variants"]),
   email: new Set(["send"]),
@@ -67,6 +67,8 @@ function tupleCall(r: Resolver, call: { callee: unknown }): string | undefined {
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "browser" && ["runBrowser", "runBrowserContent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "sandbox/task" && reference.name === "runSandboxTask" && reference.path.length === 0) return "runSandboxTask()"
 }
 
 

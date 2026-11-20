@@ -27,7 +27,7 @@ describe("vitehub/no-internal-imports", () => {
         "import { kv } from \"vite-hub/_internal/kv\"",
         "import { isPlainObject } from \"@vite-hub/internal/object\"",
         "import state from \"@vite-hub/queue/internal/runtime/state\"",
-        "export * from \"@vite-hub/sandbox/_internal/task/runtime\"",
+        "export * from \"@vite-hub/sandbox/internal/task/runtime\"",
         "const env = await import(\"../../.vitehub/env/server.ts\")",
         "export { kv, isPlainObject, state, env }",
       ].join("\n"),
@@ -168,6 +168,20 @@ describe("vitehub/destructure-result-tuples", () => {
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003", "VHUB0003"])
+  })
+
+  it("reports Browser and Sandbox Task results used as values", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/render.post.ts": [
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        "export default async () => {",
+        '  const html = await runBrowserContent("https://example.com")',
+        '  const notes = await runSandboxTask("release-notes", {})',
+        '  return { html, notes, page: await runBrowser("page-html", { url: "https://example.com" }) }',
+        "}",
+      ].join("\n"),
+    })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003"])
   })
 
   it("reports auto-imported helpers in Nuxt server files", async () => {
@@ -396,7 +410,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { blob } from "vite-hub/blob"',
         "export default defineEventHandler(async (event) => {",
         '  if ((await kv.get("a")) === null) return',
-        '  for (const key of await kv.keys()) console.log(key)',
+        '  for (const key of await kv.list()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
         '  return blob.get("a.txt")',
         "})",

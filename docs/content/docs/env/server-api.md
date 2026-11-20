@@ -129,7 +129,7 @@ export async function listIssues() {
 }
 ```
 
-`useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING` with its path. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
+`useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING`. Its message names the path and the variables to set. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
 
 On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/runtime/context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
 
@@ -257,7 +257,7 @@ export default defineEnvProvider<{
 
 Call `loadServerEnv()` at the start of each operation. Each call makes a new frozen snapshot, reads each key once, and caches nothing between loads. The next load sees a rotated value, while a running operation keeps its snapshot.
 
-```ts [server/sources/private-repository.ts]
+```ts [server/utils/private-repository.ts]
 import { loadServerEnv } from 'vite-hub/env'
 import { github } from 'vite-hub/workspace'
 
