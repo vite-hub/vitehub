@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { hubWebContainer, matchesWebContainerRoute, webContainerHeaders } from "../src/vite.ts"
+import { hubWebContainer, matchesWebContainerRoute, webContainerHeaders, webContainerRouteRules, webContainerVitePlugin } from "../src/vite.ts"
+import type { UserConfig } from "vite"
 
 describe("matchesWebContainerRoute", () => {
   it("matches exact paths and /** prefixes", () => {
@@ -20,10 +21,41 @@ describe("matchesWebContainerRoute", () => {
   })
 })
 
+describe("webContainerRouteRules", () => {
+  it("gives a rule for the base path and the paths below it, and keeps the other keys of a rule", () => {
+    expect(webContainerRouteRules(["/play/**", "/tutorial/"], { "/play/**": { headers: { "x-frame-options": "DENY" }, prerender: true } })).toEqual({
+      "/play": { headers: webContainerHeaders },
+      "/play/**": { headers: { "x-frame-options": "DENY", ...webContainerHeaders }, prerender: true },
+      "/tutorial": { headers: webContainerHeaders },
+    })
+    expect(webContainerRouteRules(["/**"])).toEqual({ "/": { headers: webContainerHeaders }, "/**": { headers: webContainerHeaders } })
+  })
+})
+
 describe("hubWebContainer", () => {
+  it("points to vitehub({ webContainer })", () => {
+    expect(() => hubWebContainer({ routes: ["/playground/**"] })).toThrow(expect.objectContaining({
+      code: "WEB_CONTAINER_PLUGIN_MOVED",
+      fix: expect.stringContaining("vitehub({ webContainer: { routes: [\"/playground/**\"] } })"),
+    }))
+  })
+})
+
+describe("webContainerVitePlugin", () => {
   it("rejects missing or relative routes", () => {
-    expect(() => hubWebContainer({ routes: [] })).toThrow(/at least one route/)
-    expect(() => hubWebContainer({ routes: ["playground"] })).toThrow(/must start with "\/"/)
+    expect(() => webContainerVitePlugin({ routes: [] })).toThrow(/at least one route/)
+    expect(() => webContainerVitePlugin({ routes: ["playground"] })).toThrow(/must start with "\/"/)
+  })
+
+  it("adds the Nitro route rules, next to the rules of the app", async () => {
+    const config: UserConfig & { nitro?: { routeRules?: Record<string, unknown> } } = { nitro: { routeRules: { "/api/**": { cors: true } } } }
+    const hook = webContainerVitePlugin({ routes: ["/play/**"] }).config
+    await (typeof hook === "function" ? hook : hook!.handler).call({} as never, config, { command: "build", mode: "production" })
+    expect(config.nitro?.routeRules).toEqual({
+      "/api/**": { cors: true },
+      "/play": { headers: webContainerHeaders },
+      "/play/**": { headers: webContainerHeaders },
+    })
   })
 
   let root: string
@@ -53,7 +85,7 @@ describe("hubWebContainer", () => {
     const server = await createServer({
       configFile: false,
       logLevel: "silent",
-      plugins: [hubWebContainer({ routes: ["/playground/**"] })],
+      plugins: [webContainerVitePlugin({ routes: ["/playground/**"] })],
       root,
       server: { host: "127.0.0.1", port: 0 },
     })
@@ -75,7 +107,7 @@ describe("hubWebContainer", () => {
     const server = await preview({
       configFile: false,
       logLevel: "silent",
-      plugins: [hubWebContainer({ routes: ["/playground/**"] })],
+      plugins: [webContainerVitePlugin({ routes: ["/playground/**"] })],
       preview: { host: "127.0.0.1", port: 0 },
       root,
     })
