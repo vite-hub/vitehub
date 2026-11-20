@@ -25,7 +25,7 @@ Send needs https. Its routes answer with a setup code and a signing secret, and 
 
 ## Set it up
 
-1. Run `vitehub database generate` and `vitehub database migrate`. They add the `vitehub_comment_sends` and `vitehub_comment_send_codes` tables, and the endpoint table of Webhooks. `vite dev` applies the migration for you.
+1. Run `vitehub database generate` and `vitehub database migrate`. They add the `vitehub_comment_sends` table, and the endpoint and pairing tables of Webhooks. `vite dev` applies the migration for you.
 2. Set `VITEHUB_WEBHOOKS_KEY` as a secret on the host, from `openssl rand -base64 32`. It seals the URL and the secret of each agent. `vite dev` makes one in `.vitehub/data/webhooks-key`.
 
 ## Pair your T3 Code thread

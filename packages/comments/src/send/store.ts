@@ -1,13 +1,12 @@
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
 
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
-import { commentSendCodes, commentSends } from "./database.ts"
+import { commentSends } from "./database.ts"
 
 import type { CommentsDatabase } from "../operations-core/store.ts"
-import type { CommentSendCodeState, CommentSendState } from "./database.ts"
+import type { CommentSendState } from "./database.ts"
 
 export type SendRow = typeof commentSends.$inferSelect
-export type CodeRow = typeof commentSendCodes.$inferSelect
 
 /** One thread of a send: its id, the last message when the member sent it, and whether it is the member's ask. */
 export interface SentThread {
@@ -16,15 +15,8 @@ export interface SentThread {
   role: "ask" | "quote"
 }
 
-/** The sends of one member, or of one subject, and the setup codes, in the Database of Comments. */
+/** The sends of one member, or of one subject, in the Database of Comments. */
 export interface CommentSendStore {
-  insertCode: (row: CodeRow) => Promise<void>
-  code: (id: string) => Promise<CodeRow | undefined>
-  /** Moves a code from `from` to `to` and writes `set`, when it is still in `from` and not expired. */
-  moveCode: (id: string, from: CommentSendCodeState, to: CommentSendCodeState, now: number, set?: Partial<Pick<CodeRow, "agent" | "host" | "thread" | "sealed">>) => Promise<CodeRow | undefined>
-  removeCode: (id: string, member: string) => Promise<void>
-  /** Deletes the codes that expired, and the other codes of `member`. */
-  pruneCodes: (member: string, now: number) => Promise<void>
   insertSend: (row: SendRow) => Promise<void>
   send: (id: string) => Promise<SendRow | undefined>
   /** The latest send of a member with this key, among `states`. */
@@ -40,7 +32,7 @@ export interface CommentSendStore {
   setSendState: (id: string, from: readonly CommentSendState[], to: CommentSendState, now: number, set?: Partial<Pick<SendRow, "delivery" | "error">>) => Promise<boolean>
 }
 
-const tableNames = ["vitehub_comment_sends", "vitehub_comment_send_codes"]
+const tableNames = ["vitehub_comment_sends"]
 
 /** The first column of each row: libSQL and D1 return objects, the SQLite proxy returns arrays. */
 function names(rows: unknown): string[] {
@@ -72,27 +64,8 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
     await gate()
     return query(...args)
   }
-  const codes = commentSendCodes
   const sends = commentSends
   return {
-    insertCode: run(async (row) => {
-      await db.insert(codes).values(row)
-    }),
-    code: run(async (id) => {
-      const [row] = await db.select().from(codes).where(eq(codes.id, id)).limit(1)
-      return row
-    }),
-    moveCode: run(async (id, from, to, now, set = {}) => {
-      const [row] = await db.update(codes).set({ ...set, state: to }).where(and(eq(codes.id, id), eq(codes.state, from), gte(codes.expiresAt, now))).returning()
-      return row
-    }),
-    removeCode: run(async (id, member) => {
-      await db.delete(codes).where(and(eq(codes.id, id), eq(codes.member, member)))
-    }),
-    pruneCodes: run(async (member, now) => {
-      await db.delete(codes).where(lt(codes.expiresAt, now))
-      await db.delete(codes).where(and(eq(codes.member, member), inArray(codes.state, ["used", "refused"])))
-    }),
     insertSend: run(async (row) => {
       await db.insert(sends).values(row)
     }),

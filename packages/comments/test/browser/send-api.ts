@@ -71,7 +71,7 @@ export async function createSendApi() {
     },
     /** Makes every setup code too old. */
     expireCodes: async () => {
-      await client.execute("UPDATE vitehub_comment_send_codes SET expires_at = 0")
+      await client.execute("UPDATE vitehub_webhook_pairings SET expires_at = 0")
     },
   }
 }

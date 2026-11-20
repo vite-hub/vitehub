@@ -234,7 +234,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
     const migrations = join(root, "server/databases/default/migrations")
     const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
     const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
-    for (const table of ["vitehub_comment_threads", "vitehub_comment_sends", "vitehub_comment_send_codes", "vitehub_webhook_endpoints"]) expect(sql).toContain(`CREATE TABLE \`${table}\``)
+    for (const table of ["vitehub_comment_threads", "vitehub_comment_sends", "vitehub_webhook_endpoints", "vitehub_webhook_pairings"]) expect(sql).toContain(`CREATE TABLE \`${table}\``)
     expect((await runCli(root, vitehub(options), ["database", "migrate"])).exitCode).toBe(0)
 
     await build(root, options)
