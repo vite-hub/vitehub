@@ -372,15 +372,16 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 ## channels
 
-`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+`channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. The adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
 
 ```bash [Terminal]
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
 ```diff [server/agents/support.ts]
--import { http, slack } from 'vite-hub/agent/channels'
-+import { channelAdapter, slack } from 'vite-hub/agent/channels'
+-import { defineChannelTrigger, http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/channels/adapters'
++import { defineChannelTrigger } from 'vite-hub/channels'
 
  export default defineAgent({
 -  channels: { portal: http({ route: true }), slack: slack() },
@@ -388,7 +389,9 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
  })
 ```
 
-The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+It also moves `webhook` and `stripe` imports from `vite-hub/channels` to `vite-hub/channels/adapters`. A namespace import, a re-export, an `import()` call, and a `vi.mock()` path move to `vite-hub/channels/adapters`, which has every name. The report lists each mock, because the names that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
+
+The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
 
 It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
 

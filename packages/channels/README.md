@@ -55,7 +55,7 @@ The adapter receives `Build finished.` and the original options object. Channels
 
 `deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not deduplicate sends.
 
-The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/agent/channels`. `ChannelMessage<typeof adapter>` names it.
+The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/channels/adapters`. `ChannelMessage<typeof adapter>` names it.
 
 ## Discover named Channels
 
@@ -117,7 +117,8 @@ The integration writes Channel registry types to `.vitehub/types/channels.d.ts` 
 
 ```ts
 // server/channels/stripe.ts
-import { defineChannel, stripe } from "@vite-hub/channels";
+import { defineChannel } from "@vite-hub/channels";
+import { stripe } from "@vite-hub/channels/adapters";
 
 export default defineChannel({
   adapter: stripe(),

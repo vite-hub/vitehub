@@ -270,14 +270,14 @@ describe("vitehub/valid-channel", () => {
     expect(await codes(validChannel, {
       "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
       "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
-      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
     })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
   it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
     expect(await codes(validChannel, {
-      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
-      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { stripe } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { teams } from "vite-hub/channels/adapters"\nimport { defineChannelTrigger } from "vite-hub/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
       "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })
