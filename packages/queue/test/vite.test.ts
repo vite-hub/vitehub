@@ -157,7 +157,9 @@ describe("hubQueue", () => {
     // The Nuxt module configures Nitro in the project root. Nuxt's own Vite config has the source directory as its root.
     const configureNitro = () => createQueueNitroConfig(plugin, { development: true, nitro, projectRoot: root, root })
     if (order === "before") await configureNitro()
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "serve", nitro, plugins: [], root: viteRoot, [VITEHUB_PROJECT_ROOT]: root })
+    const config = { command: "serve", nitro, plugins: [], root: viteRoot, [VITEHUB_PROJECT_ROOT]: root }
+    await (plugin.config as (config: unknown) => Promise<void>)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     if (order === "after") await configureNitro()
 
     expect(existsSync(join(viteRoot, ".vitehub"))).toBe(false)
@@ -165,6 +167,20 @@ describe("hubQueue", () => {
     expect(registry).toContain('"sync"')
     expect(registry).toContain('"app/sync"')
     expect(await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")).toContain("app/sync")
+
+    const resources = await collectViteHubResourceSummaries([plugin])
+    expect(resources.map(resource => resource.definition)).toEqual(["app/sync", "sync"])
+    expect(config.nitro).toHaveProperty("cloudflare.wrangler.queues.producers", resources.map(resource => ({ binding: resource.binding, queue: resource.name })))
+    const cli = await plugin.vitehub!.cli!()
+    const step = cli.provision![0]!
+    const env = { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" }
+    const actions = await step.plan({
+      env,
+      fetch: async () => new Response(JSON.stringify({ success: true, result: [] })),
+      logger: { log: () => {}, warn: () => {} },
+    })
+    expect(actions.map(action => action.name)).toEqual(resources.map(resource => resource.name))
+    expect(step.recordedState?.({ env })[0]?.declared).toEqual(["app/sync", "sync"])
   })
 
   it("registers absolute generated paths when Nitro owns the Vite config", async () => {
@@ -423,20 +439,30 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain('"vitehub-drop-pm-20260719-image-optimization": "image-optimization"')
   })
 
-  it("provisions inferred Cloudflare queues with the configured prefix in plain Vite builds", async () => {
+  it("uses only the Vite root for Cloudflare Queue discovery and provisioning in plain Vite builds", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-provision-prefix-"))
     roots.push(root)
-    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const viteRoot = join(root, "app")
+    await mkdir(viteRoot)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "package.json"), "{}")
+    await writeFile(join(root, "server", "queues", "sync.ts"), "export default { handler: async () => undefined }\n")
+    await writeFile(join(viteRoot, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
     const plugin = hubQueue({ namePrefix: "preview-" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
       build: { outDir: "dist" },
       command: "serve",
+      nitro: { preset: "cloudflare_module" },
       plugins: [],
       [VITEHUB_FEATURES]: { queue: { namePrefix: "preview-" } },
       resolve: { alias: [] },
-      root,
+      root: viteRoot,
     } as never)
+    const registry = await readFile(join(viteRoot, ".vitehub", "queue", "registry.mjs"), "utf8")
+    expect(registry).toContain('"welcome"')
+    expect(registry).not.toContain('"sync"')
+    expect((await collectViteHubResourceSummaries([plugin])).map(resource => resource.definition)).toEqual(["welcome"])
     const cli = await plugin.vitehub!.cli!()
     const fetch = vi.fn(async () => new Response(JSON.stringify({ success: true, result: [] }))) as unknown as typeof globalThis.fetch
     const actions = await cli.provision![0]!.plan({
@@ -445,7 +471,7 @@ describe("hubQueue", () => {
       logger: { log: () => {}, warn: () => {} },
     })
 
-    expect(actions[0]!.name).toBe("preview-queue--77656c636f6d65")
+    expect(actions.map(action => action.name)).toEqual(["preview-queue--77656c636f6d65"])
   })
 
   it("bounds Cloudflare physical queue names at the provider limit", async () => {

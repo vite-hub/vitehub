@@ -301,6 +301,10 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       ? discoverQueueDefinitions({ contributions: found, rootDir: viteRoot })
       : discoverQueueDefinitions({ contributions: found, rootDir: outputRoot, serverDirs })
   }
+  function discoverCurrentQueueDefinitions(): DiscoveredQueueDefinition[] {
+    return resolveNuxtDefinitions?.() ?? (resolved && buildStates.get(resolved)?.resolveDefinitions())
+      ?? discoverQueueDefinitions({ contributions, rootDir: resolved?.root ?? process.cwd() })
+  }
   let databasePlugin: DatabaseVitePlugin | undefined
   // The Default Database is on Postgres. Read when the Nitro config is made, and again at `buildStart`.
   let postgresDatabase = false
@@ -341,14 +345,15 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         const resolvedQueue = normalizeQueueOptions(queue, { hosting })
         if (!resolvedQueue?.driver) return
         const rootDir = resolved?.root ?? process.cwd()
+        const projectRoot = nuxtProjectRoot ?? (resolved && frameworkProjectRoot(resolved)) ?? resolveViteHubProjectRoot(rootDir)
         return {
           definitions: [{
             kind: "queue",
             label: "Queues",
-            list: () => inspectQueueDefinitions({ contributions, projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs }),
+            list: () => inspectQueueDefinitions({ projectRoot, rootDir }, discoverCurrentQueueDefinitions()),
           }],
           resources: () => resolvedQueue.driver === "cloudflare"
-            ? inspectQueueResources({ binding: resolvedQueue.binding, contributions, namePrefix: resolvedQueue.namePrefix, projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs })
+            ? inspectQueueResources({ binding: resolvedQueue.binding, namePrefix: resolvedQueue.namePrefix, projectRoot, rootDir }, discoverCurrentQueueDefinitions())
             : [],
         }
       },
@@ -356,12 +361,11 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
         return {
           namespaces: [],
           provision: [createQueueProvisionStep(
-            () => resolved?.root ?? process.cwd(),
+            discoverCurrentQueueDefinitions,
             () => {
               const resolvedQueue = normalizeQueueOptions(queue, { hosting: "cloudflare" })
               return resolvedQueue?.driver === "cloudflare" ? resolvedQueue.namePrefix : undefined
             },
-            () => contributions,
           )],
         }
       },
