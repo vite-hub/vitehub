@@ -184,7 +184,6 @@ async function assertOk(response: Response): Promise<void> {
   throw blobBrowserDiagnostics.BLOB_UPLOAD_REQUEST_FAILED({ body: message, status: response.status })
 }
 
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The matching upload route defines each response shape at its call site.
 async function readJson<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
   await assertOk(response)
   let body: unknown
@@ -247,7 +246,7 @@ async function uploadDirect(apiBase: string, files: File[], options: UploadFiles
   return objects
 }
 
-// The `fs` driver signs links on the app origin, such as `/_vitehub/blob/signed/...`. Resolve them like the route.
+// The `fs` driver signs links on the app origin, such as `/_vitehub/blob-signed/...`. Resolve them like the route.
 function resolveUrl(url: string, apiBase: string): string {
   try {
     return new URL(url, apiBase).href

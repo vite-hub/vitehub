@@ -75,7 +75,7 @@ To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection
 The built-in Drivers reuse T3 Code's Codex and Claude Code runtime. ViteHub owns Agents, Capabilities, Workspaces, Invocations, and lifecycle events. Install only the provider packages you use:
 
 ```sh
-pnpm add @openai/codex@0.149.1
+pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
@@ -89,7 +89,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -109,7 +108,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -128,7 +126,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -219,6 +216,10 @@ export default defineAgent({
 ```
 
 ViteHub resolves `env` once, then calls `launch` with the environment, `command` (the executable to start), `providerCommand` (the original provider executable), the temporary working directory, and an abort signal. Build wrapper arguments from `command` and pick a provider runner from `providerCommand`. They are equal during Invocations. The wrapper gets its own arguments, then the provider arguments. ViteHub writes an owner-only temporary launcher outside the Workspace and removes it when the provider stops.
+
+With `launch`, a set `PATH` in `env`, a `toolchain`, or the managed browser, Codex runs its shell commands without a login shell (`allow_login_shell=false`). A login profile, such as Debian's `/etc/profile`, sets `PATH` again and hides commands such as `apply_patch`.
+
+When Codex runs unattended with Agent tools, it calls them through the `vitehub-invocation` MCP server. This is separate from the Console's `vitehub` MCP server. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN` for each Invocation and lists it in `requiredEnvironment`. Do not set it in `env`. If `env` sets only the old `T3_MCP_BEARER_TOKEN` key, ViteHub reports `AGENT_MCP_BEARER_TOKEN_RENAMED`. Remove the old key and update any wrapper that forwards it by name. Wrappers that forward `requiredEnvironment` need no change.
 
 Launch wrappers need a POSIX host. They change only process startup. Your app owns authorization, remote isolation, and wrapper credentials. Agent inspection shows whether `env` and `launch` are static or dynamic, without resolving them.
 
@@ -503,7 +504,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -523,7 +523,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -542,7 +541,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },

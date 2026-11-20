@@ -6,6 +6,7 @@ import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { isScheduleDue, latestCronMinute } from "./due.ts"
@@ -193,7 +194,16 @@ export function createStaticScheduleRun(
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
   const scheduledAt = validateScheduledAt(options.scheduledAt)
   const execute = () => runInRunScopes(() => runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, scheduledAt, waitUntil })),
+    async (waitUntil) => {
+      const run = createStaticScheduleRun({ ...options, scheduledAt, waitUntil })
+      try {
+        return await options.definition.handler(run)
+      }
+      catch (error) {
+        await emitRunFailed({ event: "schedule.failed", schedule: run.scheduleId, runId: run.id, error: toRunFailedError(error), failedAt: new Date().toISOString() })
+        throw error
+      }
+    },
     options.waitUntil,
   ))
   // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
@@ -340,7 +350,7 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

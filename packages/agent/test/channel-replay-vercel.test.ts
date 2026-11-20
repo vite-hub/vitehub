@@ -71,8 +71,8 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   })
   setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
-    [name]: async () => ({ default: { handler: native, options: { native } } }),
-    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, options: { native: recoveryNative } } }),
+    [name]: async () => ({ default: { handler: native, native } }),
+    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, native: recoveryNative } }),
   })
   setAgentWorkflowRuntimeLoaders({ state: () => import("../../workflow/src/runtime/state.ts"), workflow: () => import("../../workflow/src/index.ts") })
   const primaryStarts = () => vi.mocked(start).mock.calls.filter(([handler]) => handler === native)
@@ -81,7 +81,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
 
 it("uses provider IDs with the real native Vercel adapter and omits caller IDs for primary and recovery starts", async () => {
   const test = fixture()
-  await expect(createWorkflow(test.name).start({}, { id: "logical-id" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  expect(await createWorkflow(test.name).start({}, { id: "logical-id" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(test.start).not.toHaveBeenCalled()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.primaryStarts()).toHaveLength(1)
@@ -134,7 +134,7 @@ it("fails before SDK submission if dispatch intent cannot be persisted", async (
 it("cancels the physical provider run and reconciles the logical journal through native recovery", async () => {
   const test = fixture()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1 })
-  await createWorkflow(test.name).cancel("wrun_1")
+  expect(await createWorkflow(test.name).cancel("wrun_1")).toMatchObject([undefined, { id: "wrun_1", status: "cancelled" }])
   expect(test.cancel).toHaveBeenCalledWith("wrun_1")
   const recoveryContext = vi.mocked(test.start).mock.calls[1]![1][0] as Parameters<typeof runAgentWorkflowDefinition>[1]
   await runAgentWorkflowDefinition(test.agent, { ...recoveryContext, id: "wrun_2", provider: "vercel" }, (definition, runtime, input) => runAgentInline(definition, runtime, input))

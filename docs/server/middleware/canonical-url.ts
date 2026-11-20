@@ -1,4 +1,4 @@
-import { defineEventHandler, getRequestURL, sendRedirect } from "h3";
+import { defineEventHandler, getRequestURL, redirect } from "h3";
 
 const canonicalOrigin = "https://vitehub.dev";
 
@@ -20,5 +20,5 @@ export function getCanonicalRedirect(input: { method: string, url: URL }) {
 // Runs before `static-assets.ts`, so prerendered pages also redirect.
 export default defineEventHandler((event) => {
   const location = getCanonicalRedirect({ method: event.method, url: getRequestURL(event) });
-  if (location) return sendRedirect(event, location, 301);
+  if (location) return redirect(location, 301);
 });

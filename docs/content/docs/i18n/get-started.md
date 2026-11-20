@@ -8,13 +8,13 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Write a page and a server route in English. Then translate them to Spanish. A request with `Accept-Language: es` gets Spanish, and a request in English gets English, from the same server at the same time.
+Write a Vue page and an API route in English. Then translate them into Spanish. A request with `Accept-Language: es` gets Spanish, and a request in English gets English, from the same server at the same time.
 
 You write no message keys. You write the English text, and ViteHub makes the keys for you.
 
-Start with the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Run the commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
+Start with the **Vite with Nitro** path in [Installation](/docs/getting-started/installation) and run commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
 
-Add the i18n package, Vue, and the Vue plugin for Vite:
+Install the i18n package, Vue, and Vite's Vue plugin:
 
 ```bash [commands/install-i18n]
 pnpm add @vite-hub/i18n vue
@@ -24,14 +24,14 @@ pnpm add -D @vitejs/plugin-vue
 ::tutorial-step{title="Enable i18n"}
 ## Enable i18n
 
-Add `i18n` to the ViteHub options. In a Vite app, also add the Vue plugin. Keep your other plugins and options.
+Add `i18n` to your ViteHub options. In a Vite app, also add the Vue plugin. Keep your other plugins and options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host: "node", i18n: { locales: ["en", "es"] } },
+  vitehub: { i18n: { locales: ["en", "es"] } },
 })
 ```
 ::::
@@ -47,7 +47,7 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ i18n: { locales: ["en", "es"] } }),
     nitro(),
   ],
 })
@@ -64,14 +64,14 @@ export default defineConfig({
   server: { port: 3000, strictPort: true },
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ i18n: { locales: ["en", "es"] } }),
   ],
 })
 ```
 ::::
 :::
 
-The first locale is the **source locale**. It is the language that you write in the code. Here it is English. Every other locale is a translation.
+The first entry in `locales` is your **source locale**, the language you write in code. Here it is English. Every other locale is a translation.
 
 ::
 
@@ -94,7 +94,7 @@ Create the page at the root of your app:
 </html>
 ```
 
-`createI18n()` picks the locale of the browser, loads its translations, and returns a Vue plugin:
+`createI18n()` detects the browser locale, loads its translations, and returns a Vue plugin:
 
 ```ts [src/main.ts]
 import { createApp } from "vue"
@@ -104,7 +104,7 @@ import App from "./App.vue"
 createApp(App).use(await createI18n()).mount("#app")
 ```
 
-Create `src/App.vue`. Write each message in English inside ``t`...` ``. Use `<Trans>` for a message that has markup in it. Both work in templates with no import.
+Create `src/App.vue`. Write each message in English inside ``t`...` ``. Use `<Trans>` for a message that has markup in it. Both work in templates without an import:
 
 ```vue [src/App.vue]
 <script setup lang="ts">
@@ -120,14 +120,14 @@ const { locale, setLocale } = useLocale()
 </template>
 ```
 
-The button switches between English and Spanish. `useLocale()` gives the active locale and `setLocale()`.
+The button toggles between English and Spanish using `locale` and `setLocale()` from `useLocale()`.
 
 ::
 
 ::tutorial-step{title="Write a server route"}
 ## Write a server route
 
-Create `server/api/greeting.ts`. In server code, import `t` and `plural` from `vite-hub/i18n`.
+Create `server/api/greeting.ts`. In server code, import `t` and `plural` from `vite-hub/i18n`:
 
 ```ts [server/api/greeting.ts]
 import { defineEventHandler, getQuery } from "h3"
@@ -143,14 +143,14 @@ export default defineEventHandler((event) => {
 })
 ```
 
-You do not pass the event to `t`. Each request has its own locale, and `t` reads the locale of the request that runs it. In `plural()`, `#` is the number.
+You do not pass `event` to `t`. Each request has its own locale, and `t` reads the locale of the request that runs it. In `plural()`, `#` is the number.
 
 ::
 
 ::tutorial-step{title="See what is missing"}
 ## See what is missing
 
-Run the status command. It reads the messages in your code and compares them with the translations of each locale.
+Run `status` to scan your code for messages and compare them against each locale's translations:
 
 ```bash [commands/status]
 pnpm vitehub i18n status
@@ -161,7 +161,7 @@ en           4 messages  source
 es           4 messages  0% translated, 4 missing  locales/es
 ```
 
-The command found four messages: two in the page and two in the route. The English text is the source, so `en` needs no translations. The `<Trans>` message is `Read the <0>docs</0> first.`. The `<0>` tag stands for the link, so a translator cannot break its `href`.
+The command found four messages: two in the page and two in the route. English is the source locale, so `en` needs no translations. The `<Trans>` message is `Read the <0>docs</0> first.`. The `<0>` tag stands for the link, so a translator cannot break its `href`.
 
 ::
 
@@ -174,7 +174,7 @@ Export the Spanish messages as a [PO file](https://www.gnu.org/software/gettext/
 pnpm vitehub i18n export es --output es.po
 ```
 
-Each entry has the English text in `msgid` and an empty translation in `msgstr`. Fill in three of the four translations. Leave the `<Trans>` message empty, to see what happens to a message without a translation.
+Each entry has the English text in `msgid` and an empty translation in `msgstr`. Fill in three of the four translations. Leave the `<Trans>` message empty to see what happens to a message without a translation:
 
 ```diff [es.po]
  msgid "Deploy your agent"
@@ -190,7 +190,7 @@ Each entry has the English text in `msgid` and an empty translation in `msgstr`.
 +msgstr "{count, plural, one {# artículo} other {# artículos}}"
 ```
 
-Import the file:
+Import the translated file:
 
 ```bash [commands/import]
 pnpm vitehub i18n import es es.po
@@ -237,7 +237,7 @@ curl -H 'accept-language: es-MX,es;q=0.9,en;q=0.5' 'http://localhost:3000/api/gr
 }
 ```
 
-`es-MX` is not a configured locale, so the server takes the same language: `es`. Now send the same request with a `locale` cookie. The cookie wins over `Accept-Language`:
+Because `es-MX` is not configured, the server matches its base language `es`. Now send the same request with a `locale` cookie, which overrides `Accept-Language`:
 
 ```bash [commands/request-cookie]
 curl -H 'accept-language: es' -H 'cookie: locale=en' 'http://localhost:3000/api/greeting?count=2'
@@ -256,9 +256,9 @@ curl -H 'accept-language: es' -H 'cookie: locale=en' 'http://localhost:3000/api/
 ::tutorial-step{title="Switch the language in the page"}
 ## Switch the language in the page
 
-Open `http://localhost:3000`. With an English browser, the page shows the English text and a button with `en`.
+Open `http://localhost:3000`. In an English browser, the page shows the English text and an `en` button.
 
-Click the button. The page changes to Spanish without a reload:
+Click the button to switch to Spanish without a reload:
 
 ```text [output/page-es.txt]
 Despliega tu agente
@@ -268,13 +268,13 @@ es
 
 The second line stays in English, because it has no Spanish translation. A message without a translation shows the source text.
 
-Reload the page. It stays in Spanish. `setLocale()` saved `es` in the `locale` cookie, and the cookie wins over the browser languages.
+Reload the page. It stays in Spanish. `setLocale()` saved `es` in the `locale` cookie, which overrides browser language headers.
 
 ::
 
 ## What you built
 
-You wrote English text in a page and in a server route, with no keys. One command collected the messages, and you translated them in one file. The server picked a locale for each request, and the page changed its locale in the browser.
+You wrote English text in a Vue page and in a server route, with no keys. One command collected the messages, and you translated them in one file. The server picked a locale for each request, and the page changed its locale in the browser.
 
 The build changed each message to a short ID. The app code that ships to the browser has no English text, and the Spanish translations are in their own chunk.
 

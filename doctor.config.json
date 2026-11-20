@@ -1,15 +1,30 @@
 {
-  "extends": ["vite-doctor/typescript/strict"],
-  "exclude": ["docs/**", "playground/**"],
+  "extends": [],
   "rules": {
-    "typescript/boundaries/no-cross-realm-web-instanceof": "off",
-    "typescript/evidence/no-known-value-widening": "off",
-    "typescript/evidence/no-object-parameters": "off",
-    "typescript/evidence/no-unknown-type-aliases": "off",
-    "typescript/performance/no-array-filter-map": "off",
-    "typescript/performance/no-reduce-accumulator-copy": "off",
-    "typescript/strict/no-runtime-typeof": "off",
-    "typescript/strict/require-safety-comment-for-type-assertion": "off",
-    "typescript/style/no-conditional-empty-object-spread": "off"
-  }
+    "typescript/evidence/no-chained-type-assertions": "error",
+    "typescript/evidence/no-caller-chosen-result-type": "error",
+    "typescript/boundaries/no-unvalidated-deserialization": "error",
+    "typescript/evidence/no-widen-then-assert": "error",
+    "nitro/h3/prefer-nitro-h3": "error",
+    "nitro/dependencies/declare-nitro": "error",
+    "vite/config/no-url-pathname-as-fs-path": "error",
+    "vite/plugin/no-fragment-in-virtual-id": "error"
+  },
+  "overrides": [
+    {
+      "files": ["packages/*/src/**"],
+      "rules": {
+        "vue/props/no-unused-props": "error"
+      }
+    },
+    {
+      "files": ["**/playground/**", "docs/**", "**/examples/**"],
+      "rules": {
+        "typescript/evidence/no-chained-type-assertions": "off",
+        "typescript/evidence/no-caller-chosen-result-type": "off",
+        "typescript/boundaries/no-unvalidated-deserialization": "off",
+        "typescript/evidence/no-widen-then-assert": "off"
+      }
+    }
+  ]
 }

@@ -105,6 +105,7 @@ const packageEntries = [
 const bundledInternal: Record<string, string[]> = {
   agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
   blob: ["@valibot/to-json-schema", "birpc"],
+  bundle: ["@valibot/to-json-schema"],
   cli: ["@babel/parser", "birpc"],
   comments: ["@valibot/to-json-schema", "birpc"],
   content: ["@valibot/to-json-schema", "birpc"],
@@ -116,6 +117,7 @@ const bundledInternal: Record<string, string[]> = {
   // Operation definitions are bundled from the private owner into Runtime.
   runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
+  sync: ["birpc"],
   "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
@@ -260,6 +262,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        ".github/scripts/claim-npm-packages.mjs",
         // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read
         // (https://github.com/webpro-nl/knip/issues/2406).
         "test/package-metadata.mjs",
@@ -301,8 +304,6 @@ const config: KnipConfiguration = {
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
         "@better-auth/cimd",
         "@chat-adapter/slack",
-        // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
-        "@takumi-rs/core",
         // Nuxt UI installs `@nuxt/icon` by name, and Nuxt resolves it from the app first, so this pins the copy that loads.
         "@nuxt/icon",
         // On Cloudflare, the MCP endpoint of `@nuxtjs/mcp-toolkit` imports `agents/mcp`.

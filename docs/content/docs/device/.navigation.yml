@@ -1,0 +1,5 @@
+title: Device
+icon: i-vitehub-device
+order: 14
+category: Data
+related: [auth, database, kv]

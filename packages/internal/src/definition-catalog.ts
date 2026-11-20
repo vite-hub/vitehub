@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs"
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -133,6 +133,16 @@ export function isDefinitionSourceFile(name: string): boolean {
 
 export function listSourceFiles(root: string, options: { includeHidden?: boolean } = {}): string[] {
   return listMatchingFiles(root, isDefinitionSourceFile, options)
+}
+
+/**
+ * Whether `path` is a file, or a folder that holds a Definition source file. A Definition file in a server directory,
+ * such as `server/auth.ts` or a file in `server/queues/`, turns its feature on without a key. An empty folder, which
+ * Git does not keep, turns nothing on.
+ */
+export function hasDefinitionFiles(path: string): boolean {
+  if (!existsSync(path)) return false
+  return statSync(path).isFile() || listSourceFiles(path).length > 0
 }
 
 export function normalizePathDefinitionName(rootDir: string, file: string): string {

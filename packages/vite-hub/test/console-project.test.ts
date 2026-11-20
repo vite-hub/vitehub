@@ -52,11 +52,11 @@ describe("Console project transport", () => {
   })
 
   it("puts the served URLs of media files on the project origin", () => {
-    expect(consoleMediaUrl("/api/_vitehub/blob/", "a b.png")).toBe("/api/_vitehub/blob/a%20b.png")
+    expect(consoleMediaUrl("/_vitehub/blob/", "a b.png")).toBe("/_vitehub/blob/a%20b.png")
 
     setConsoleProject({ origin: "https://agents.example.com", base: "/portal" })
 
-    expect(consoleMediaUrl("/api/_vitehub/blob/", "a b.png")).toBe("https://agents.example.com/api/_vitehub/blob/a%20b.png")
+    expect(consoleMediaUrl("/_vitehub/blob/", "a b.png")).toBe("https://agents.example.com/_vitehub/blob/a%20b.png")
     expect(consoleMediaFileUrl({ pathname: "a.png", url: "/files/a.png" }, null)).toBe("https://agents.example.com/files/a.png")
     expect(consoleMediaFileUrl({ pathname: "a.png", url: "https://cdn.example.com/a.png" }, null)).toBe("https://cdn.example.com/a.png")
     expect(resolveProjectUrl("//cdn.example.com/a.png")).toBe("//cdn.example.com/a.png")

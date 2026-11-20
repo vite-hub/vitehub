@@ -16,13 +16,13 @@ icon: i-lucide-git-pull-request
   ```
 
   ```ts [server/api/issues.post.ts]
-  import { createError, defineEventHandler } from 'h3'
+  import { defineEventHandler, HTTPError } from 'h3'
   import { useForge } from 'vite-hub/forge'
 
   // Sends the installation token of acme/web
   export default defineEventHandler(async () => {
     const [error, github] = await useForge().provider({ repository: 'acme/web' })
-    if (error) throw createError({ status: 502, message: error.why })
+    if (error) throw new HTTPError({ status: 502, message: error.why })
 
     const { data } = await github.request<{ html_url: string }>('POST', '/repos/acme/web/issues', {
       body: { title: 'Nightly build failed' },
@@ -52,15 +52,15 @@ For production, [provide credentials for your host](/docs/forge/get-started#in-p
   :::
 
   :::product-feature-item{title="A typed Forge client" icon="i-lucide-code-2" to="/docs/forge/server-api#call-the-api-as-the-app"}
-  `provider()` returns a `forges` client. A GitHub client also has `graphql()`.
+  `provider()` returns a `forges` client, including `graphql()` on GitHub.
   :::
 
   :::product-feature-item{title="GitHub, GitLab, and Forgejo" icon="i-lucide-git-branch" to="/docs/forge/server-api#use-gitlab-or-forgejo"}
-  Pass `forge`, and the client type follows it.
+  Pass `forge` and the client type follows it.
   :::
 
   :::product-feature-item{title="One set of env names" icon="i-lucide-key-round" to="/docs/forge/configure"}
-  Routes, the GitHub Channel, and Agents read the same `VITEHUB_GITHUB_*` names.
+  Routes, the GitHub Channel, and Agents share the same `VITEHUB_GITHUB_*` variables.
   :::
 
   :::product-feature-item{title="Repository tools for Agents" icon="i-lucide-bot" to="/docs/agents/capabilities/forge"}
@@ -68,7 +68,7 @@ For production, [provide credentials for your host](/docs/forge/get-started#in-p
   :::
 
   :::product-feature-item{title="Errors without try/catch" icon="i-lucide-circle-alert" to="/docs/forge/limits-and-errors"}
-  Each call returns `[error, data]`. A configuration that cannot work throws at the first call.
+  Each call returns `[error, data]`. Configuration that cannot work throws at the first call.
   :::
 ::
 

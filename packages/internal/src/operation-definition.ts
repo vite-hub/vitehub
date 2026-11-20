@@ -48,6 +48,11 @@ export interface OperationContext {
   surface: "console" | "cli" | "mcp" | "agent"
   /** Set by the host from generated build identity, never from request input or runtime NODE_ENV. */
   development?: boolean
+  /**
+   * The project root of a development server, for operations that read build files, such as `bundle.report`. Hosts set
+   * it only with `development`, so a deployed server never reads project files through it.
+   */
+  projectRoot?: string
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
@@ -190,7 +195,7 @@ function checkDefinition(definition: unknown): void {
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
 /** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain", "login", "logout", "whoami"]
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain", "login", "logout", "update", "whoami"]
 
 /** CLI namespaces owned by built-in commands. */
 export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", "seed", ...setupCommandNames]

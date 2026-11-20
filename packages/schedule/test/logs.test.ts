@@ -144,12 +144,10 @@ describe("Schedule runs in logs", () => {
       return updateRun(id, patch)
     })
 
-    const run = await executeSchedule({ captureHandlerFailure: true, definition: { handler: () => "sent" }, runStore: store, scheduleId: "digest", scheduledAt: new Date("2026-11-17T08:00:00Z"), target: "digest" })
-
-    expect(run.status).toBe("failed")
+    await expect(executeSchedule({ captureHandlerFailure: true, definition: { handler: () => "sent" }, runStore: store, scheduleId: "digest", scheduledAt: new Date("2026-11-17T08:00:00Z"), target: "digest" })).rejects.toMatchObject({ code: "KV_OPERATION_FAILED" })
     expect(events.map(event => event.fields)).toEqual([
       { action: "schedule", message: "Schedule run succeeded", schedule: expect.objectContaining({ name: "digest", outcome: "success" }) },
-      { action: "schedule", message: "Schedule could not record a finished run", schedule: { op: "record-run", name: "digest", runId: run.id, code: "KV_OPERATION_FAILED" } },
+      { action: "schedule", message: "Schedule could not record a finished run", schedule: { op: "record-run", name: "digest", runId: expect.any(String), code: "KV_OPERATION_FAILED" } },
     ])
   })
 

@@ -59,6 +59,40 @@ describe("migration data loss", () => {
     ])
   })
 
+  // D1 enforces foreign keys during the run, and SQLite ignores `PRAGMA foreign_keys=OFF` in the migration transaction,
+  // so dropping the old table deletes the rows that reference it. An Auth migration lost every `member` row this way.
+  it("flags a SQLite table rebuild that runs the ON DELETE action of a referencing table", () => {
+    const references = new Map([["notes", [
+      { table: "comments", columns: ["note_id"], onDelete: "CASCADE" },
+      { table: "pins", columns: ["note_id"], onDelete: "SET NULL" },
+    ]]])
+    const [loss] = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(loss).toMatchObject({
+      reason: "rebuilds table \"notes\", and dropping the old table deletes the rows of \"comments\".\"note_id\" (ON DELETE CASCADE), clears \"pins\".\"note_id\" (ON DELETE SET NULL)",
+      statement: "DROP TABLE `notes`;",
+      tables: ["comments", "pins"],
+    })
+  })
+
+  it("retains losses through a new cascading intermediate table, including cycles", () => {
+    const references = new Map([
+      ["notes", [{ table: "membership", columns: ["note_id"], onDelete: "CASCADE" }]],
+      ["membership", [{ table: "document", columns: ["membership_id"], onDelete: "CASCADE" }]],
+      ["document", [{ table: "membership", columns: ["document_id"], onDelete: "CASCADE" }]],
+    ])
+    const dataLoss = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(dataLoss[0]?.tables).toEqual(["membership", "document"])
+    const filtered = withoutNewTableDataLoss([
+      { statements: ["CREATE TABLE membership (id integer PRIMARY KEY);"], dataLoss: [] },
+      { statements: rebuild, dataLoss },
+    ])
+    expect(filtered[1]?.dataLoss).toHaveLength(1)
+  })
+
+  it("accepts a SQLite table rebuild that only the table itself references", () => {
+    expect(findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), new Map([["notes", [{ table: "notes", columns: ["parent_id"], onDelete: "CASCADE" }]]]))).toEqual([])
+  })
+
   it("flags a SQLite table rebuild when the previous columns are unknown", () => {
     expect(reasons(rebuild)).toEqual([
       "rebuilds table \"notes\", and ViteHub cannot confirm that the copy keeps every column",

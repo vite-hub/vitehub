@@ -13,7 +13,7 @@ export const consoleProjectProtocol = 1
 /** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
 export interface ConsoleProjectBuild {
   time: string
-  commit?: { sha: string, message?: string, author?: string, branch?: string }
+  commit?: { sha: string, message?: string, author?: string, branch?: string, repository?: string }
 }
 
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
@@ -66,7 +66,20 @@ export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | und
     const entry = field(commitValue, key)
     if (entry) commit[key] = entry
   }
+  const repository = field(commitValue, "repository")
+  if (repository && /^[\w.-]+\/[\w.-]+$/.test(repository)) commit.repository = repository
   return { time, commit }
+}
+
+/**
+ * The GitHub page that compares the deployed commit with the default branch of its repository, which shows the
+ * commits that are not live yet. `HEAD` on GitHub names the default branch. A build without a github.com repository or
+ * a commit SHA has none.
+ */
+export function consoleCompareUrl(build: ConsoleProjectBuild | undefined): string | undefined {
+  const commit = build?.commit
+  if (!commit?.repository || !/^[0-9a-f]{7,64}$/i.test(commit.sha)) return undefined
+  return `https://github.com/${commit.repository}/compare/${commit.sha}...HEAD`
 }
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []

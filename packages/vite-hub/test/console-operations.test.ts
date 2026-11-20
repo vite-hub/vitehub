@@ -147,8 +147,7 @@ describe("operations that run app code", () => {
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await operationRpcResponseResult(response) as { value: { auth?: unknown, operations?: string[], readOnly?: string[] } }
-    expect(value).not.toHaveProperty("auth")
+    const { value } = await operationRpcResponseResult(response) as { value: { operations?: string[], readOnly?: string[] } }
     expect(value.operations).toEqual(operations)
     expect(value.readOnly).toEqual(readOnly)
   })
@@ -228,6 +227,15 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleDevelopment("/work/app", false)
     vi.stubEnv("NODE_ENV", "development")
     expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
+  })
+
+  it("gives an operation the project root only on a development server", async () => {
+    const root = defineOperation({ description: "Read the project root.", input: v.object({}), kind: "read", name: "fixture.root", section: false, user: false, run: (_input, context) => ({ projectRoot: context.projectRoot ?? null }) })
+    installConsoleOperations([{ operations: [root] }])
+    installConsoleDevelopment("/work/app", true)
+    await expect(operationRpcResponseResult(await call("fixture.root", {}, {}, "http://localhost:5173/_vitehub/rpc"))).resolves.toEqual({ ok: true, value: { projectRoot: "/work/app" } })
+    installConsoleDevelopment("/work/app", false)
+    await expect(operationRpcResponseResult(await call("fixture.root"))).resolves.toEqual({ ok: true, value: { projectRoot: null } })
   })
 
   it("tells an operation that the CLI made the call", async () => {

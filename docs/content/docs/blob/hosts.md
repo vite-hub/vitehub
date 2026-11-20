@@ -12,7 +12,7 @@ Nitro writes the host output. `hubBlob()` adds a Nitro plugin that picks the sto
 
 ## Read and write blobs during development
 
-`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+`vite dev` uses a local store unless the store sets `remote: true`, or an explicit `driver` other than `cloudflare`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 `hubBlob()` adds the `vitehub blob` CLI commands. Start the dev server, then run them from another terminal.
 
@@ -34,7 +34,7 @@ pnpm vitehub blob variants avatars/ada.png
 - `put` sends the file as base64 JSON, so `put` and `get` handle files up to 8 MiB.
 - The commands do not print blob URLs.
 
-Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every option.
+Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uses the same operations. Read [CLI](/docs/cli/primitives#read-and-write-blobs) for every option.
 
 ## Cloudflare R2 bucket
 

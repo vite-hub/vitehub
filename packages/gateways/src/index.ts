@@ -2,7 +2,7 @@ export { chatgpt } from "./chatgpt.ts"
 export type { ChatGPTGateway } from "./chatgpt.ts"
 export { ask } from "./ask.ts"
 export { askWithModel } from "./ask-model.ts"
-export type { AskModel } from "./ask-model.ts"
+export type { AskError, AskModel, AskOptions, AskResult, AskSchema } from "./ask-model.ts"
 export type {
   AskAnswer,
   AskAnswers,
@@ -40,7 +40,9 @@ export type {
 export type {
   AiGateway,
   AiGatewayAsk,
+  AiGatewayAskError,
   AiGatewayAskOptions,
+  AiGatewayAskResult,
   AiGatewayCapabilities,
   AiGatewayContext,
   AiGatewayDefinition,

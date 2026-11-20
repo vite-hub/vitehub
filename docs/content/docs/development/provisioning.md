@@ -20,11 +20,11 @@ sets `readReplication`.
 | Cloudflare | Queues | Queue |
 | Vercel | Blob stores, connected to the project | Blob |
 
-`vitehub provision` accepts only `--host cloudflare` and `--host vercel`. The old `--provider` flag exits with a fix line that names `--host`.
+`vitehub provision` supports `--host cloudflare` and `--host vercel`. Without `--host`, it picks the host the same way as `vitehub deploy`: the default target of `.vitehub/link.json`, else the only target, else `host` in `vitehub()`. The old `--provider` flag exits with a fix line that names `--host`. Like `vitehub deploy --host`, it loads the config of a build for that host, with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`. A config that picks its stores with `detectHost()` gets the stores of that host.
 
 `vitehub deploy` runs the same plan before each build on Cloudflare and Vercel,
 so you rarely need `provision run` yourself. See
-[Create the host resources](/docs/development/cli#create-the-host-resources).
+[Create the host resources](/docs/cli/project#create-the-host-resources).
 Both commands read credentials the same way: environment variables first, then
 a `wrangler login`. A Cloudflare login with several accounts needs
 `CLOUDFLARE_ACCOUNT_ID`.

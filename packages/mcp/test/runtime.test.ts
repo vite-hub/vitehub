@@ -127,12 +127,10 @@ describe("app MCP server", () => {
     expect(rejected.response.headers.get("www-authenticate")).toBe("Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"invalid_token\", error_description=\"The access token is not valid: 'exp' claim failed\"")
   })
 
-  it("rejects a tool that sets public when the server has no publicRoute", () => {
-    for (const visibility of [true, false]) {
-      const tools = { add, secret: defineMcpTool({ description: "Secret.", public: visibility, handler: () => "secret" }) }
-      expect(() => createMcpHandler({ name: "fixture", route: "/mcp", tools })).toThrow(expect.objectContaining({ name: "MCP_R0001" }))
-    }
-    const tools = { search: defineMcpTool({ description: "Search.", public: true, handler: () => "results" }) }
+  it("rejects a tool that sets access when the server has no publicRoute", () => {
+    const secret = { add, secret: defineMcpTool({ description: "Secret.", access: "public", handler: () => "secret" }) }
+    expect(() => createMcpHandler({ name: "fixture", route: "/mcp", tools: secret })).toThrow(expect.objectContaining({ name: "MCP_R0001" }))
+    const tools = { search: defineMcpTool({ description: "Search.", access: "public", handler: () => "results" }) }
     expect(() => createMcpHandler({ name: "fixture", publicRoute: "/mcp", route: "/mcp/account", tools })).not.toThrow()
   })
 
@@ -295,10 +293,10 @@ describe("MCP Apps metadata", () => {
 describe("optional sign-in on one route", () => {
   const missing = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
   const signedIn = { clientId: "client", clientName: "ChatGPT", scopes: ["lessons:read"], user: { id: "u1", name: "Ada" } }
-  const showLesson = defineMcpTool({ description: "Play a lesson.", public: true, scopes: ["lessons:read"], handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello guest" })
+  const showLesson = defineMcpTool({ description: "Play a lesson.", access: "public", scopes: ["lessons:read"], handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello guest" })
   const createHandler = vi.fn(() => "created")
   const createLesson = defineMcpTool({ description: "Create a lesson.", input: z.object({ title: z.string() }), scopes: ["lessons:write"], handler: createHandler })
-  const player = { uri: "ui://lessons/player.html", public: true, handler: () => "<html>" } satisfies McpResourceDefinition
+  const player = { uri: "ui://lessons/player.html", access: "public", handler: () => "<html>" } satisfies McpResourceDefinition
   const notes = { uri: "notes://mine", handler: () => "private" } satisfies McpResourceDefinition
   const options = { optional: true, resources: { notes, player }, tools: { create_lesson: createLesson, show_lesson: showLesson }, verify: missing }
 

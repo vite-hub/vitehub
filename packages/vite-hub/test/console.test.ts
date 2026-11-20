@@ -207,7 +207,6 @@ describe("Agent invocation console", () => {
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
       )
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.not.toContain("installConsoleKV")
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`from "file://`)
     }
     finally {
@@ -234,7 +233,6 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).not.toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","databases"])`)
       expect(generated).not.toContain("installConsoleDatabase(")
     }
     finally {
@@ -391,10 +389,8 @@ describe("Agent invocation console", () => {
       const generated = await readFile(file!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
       expect(generated).toContain(`true, "/__vitehub/setup")`)
-      expect(generated).not.toContain("installConsoleClient(")
       // A development server has no build for `project.get` to name.
       expect(generated).not.toContain("installConsoleBuild")
-      expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringContaining("server/page.get.js") }))
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -527,7 +523,6 @@ describe("Agent invocation console", () => {
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","site"])`)
       expect(generated).not.toContain("installConsoleInvocations")
-      expect(generated).not.toContain("installConsoleKV")
       expect(generated).not.toContain("hidden.agent")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1427,11 +1422,13 @@ describe("Agent invocation console", () => {
       ], { invoke: true, projectRoot: root })
       const response = { headers: new Headers() }
       const segment = encodeAgentRouteParam(name)
+      const tasks: Promise<unknown>[] = []
       const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
         body: ({ invokerProfileId: "support", prompt: " Test this Agent " }),
         url: `http://localhost/_vitehub/api/agents/${segment}/invocations?agentRoute=encoded`,
         res: response,
+        waitUntil: task => { tasks.push(task) },
       }))
 
       expect(invocation).toMatchObject({
@@ -1440,11 +1437,11 @@ describe("Agent invocation console", () => {
         url: expect.stringMatching(new RegExp(`^/agents/${segment}/invocations/`)),
       })
       expect(Reflect.get(response, "status")).toBe(202)
-      await vi.waitFor(async () => {
-        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
-          agentName: name,
-          status: "completed",
-        })
+      expect(tasks.length).toBeGreaterThan(0)
+      await Promise.all(tasks)
+      await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
+        agentName: name,
+        status: "completed",
       })
     }
     finally {

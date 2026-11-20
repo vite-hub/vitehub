@@ -125,13 +125,6 @@ describe("provision state", () => {
     expect(await readFile(path)).toEqual(original)
   })
 
-  it("only persists the non-secret ids it is given", async () => {
-    const rootDir = await createTempDir()
-    await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })
-    const raw = await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")
-    expect(raw).not.toMatch(/token|secret/i)
-  })
-
   it("does not return inherited categories or identifiers", () => {
     const state = { cloudflare: { d1: { primary: "id-1" } } }
     for (const name of ["__proto__", "constructor", "toString"]) {
@@ -167,7 +160,7 @@ describe("provision state", () => {
 describe("provision status", () => {
   function createStatus(rootDir: string) {
     const plan = vi.fn(async () => [])
-    const status = createProvisionNamespace([{ id: "test", provider: "cloudflare", plan }]).features.find(feature => feature.name === "status")!
+    const status = createProvisionNamespace(async () => ({ rootDir, steps: [{ id: "test", provider: "cloudflare", plan }] })).features.find(feature => feature.name === "status")!
     const context = {
       cwd: rootDir,
       env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },

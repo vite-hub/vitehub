@@ -281,7 +281,7 @@ describe("API key management", () => {
       requests.push(init ?? {})
       return await handler.fetch(new Request(input, init))
     }
-    return { output, requests, run: (args: string[]) => runConnectionsCli("set-key", args, context, { fetch: fetcher, stdin }) }
+    return { output, requests, run: (args: string[]) => runConnectionsCli("set-key", args.includes("--url") ? args : [...args, "--url", origin], context, { fetch: fetcher, stdin }) }
   }
 
   it("sets the key through the management route", async () => {

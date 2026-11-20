@@ -2,7 +2,11 @@
 // plain. The host reads the error that it writes to the output file.
 export const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
 
-export function createEntrySource(definitionPath: string, execution: 'definition' | 'module' = 'definition') {
+export function createEntrySource(
+  definitionPath: string,
+  execution: 'definition' | 'module' = 'definition',
+  env?: Record<string, string>,
+) {
   const invocation = execution === 'module'
     ? [
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
@@ -294,6 +298,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `export async function main(argv = process.argv.slice(2)) {`,
     `  const [inputPath, outputPath] = argv`,
     `  try {`,
+    ...Object.entries(env ?? {}).map(([name, value]) => `    process.env[${JSON.stringify(name)}] = ${JSON.stringify(value)}`),
     `    const raw = await readFile(inputPath, 'utf8')`,
     `    const input = await reviveValue(JSON.parse(raw || '{}'), inputPath + '.files', 'input')`,
     `    input.context ??= {}`,

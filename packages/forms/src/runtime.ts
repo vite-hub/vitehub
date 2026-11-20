@@ -1,4 +1,5 @@
 import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 
 import { createDrizzleFormsStore } from "./database.ts"
 import { isFormDefinition } from "./define.ts"
@@ -6,24 +7,28 @@ import { formsDiagnostics } from "./errors.ts"
 import { handleFormRequest } from "./handler.ts"
 import { createFormsInbox } from "./inbox.ts"
 import { createMemoryFormsStore } from "./memory.ts"
+import { formsTableNames } from "./table-names.ts"
 
 import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
 import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
 import type { FormDefinition, FormEmailMessage, FormServices, FormsStore, FormUser } from "./types.ts"
 
-/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
-export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undefined>
+/**
+ * `useDatabase()` of `@vite-hub/database/runtime/registry`, as the generated handler passes it. Without a name it returns
+ * the Database that `vitehub database generate` adds the Forms table to: `default`, else the only one.
+ */
+export type FormsUseDatabase = (name?: string) => { db: FormsDatabase }
 
 /** What the generated route of a ViteHub app passes. Each service is there only when the app has its feature. */
 export interface FormsRuntimeOptions {
   /** The default export of each `server/forms/<name>.ts`, by name. */
   forms: Record<string, unknown>
-  /** The Database registry, and the name that the forms use. */
-  databases?: FormsDatabaseRegistry
+  /** Returns the Database, and the name that the forms use. */
+  useDatabase?: FormsUseDatabase
   database?: string
   /**
-   * Without `databases`, keep submissions in the memory of this process. The generated handler sets it only on a
+   * Without `useDatabase`, keep submissions in the memory of this process. The generated handler sets it only on a
    * development server. Without both, a form that stores submissions answers 503.
    */
   memory?: boolean
@@ -44,22 +49,17 @@ export interface FormsRuntimeOptions {
 /** The part of `checkRateLimit()` from `vite-hub/rate-limit` that Forms calls. */
 export type FormsSharedRateLimit = SharedRateLimit
 
-/** The Database that `database` names, else `default`, else the only one. */
-function selectDatabase(databases: FormsDatabaseRegistry, name?: string): FormsDatabase | undefined {
-  if (name) return databases[name]?.db
-  if (databases.default) return databases.default.db
-  const names = Object.keys(databases)
-  return names.length === 1 ? databases[names[0]!]?.db : undefined
-}
-
 const installedKey = Symbol.for("vitehub.forms.installed")
+const rejectMissingStore = () => Promise.reject(new Error("[vitehub] Forms has no store."))
 
 /** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
 const emptyFormsStore: FormsStore = {
-  insert: () => Promise.reject(new Error("[vitehub] Forms has no store.")),
+  insert: rejectMissingStore,
+  insertWith: rejectMissingStore,
   list: async () => [],
   get: async () => undefined,
   setStatus: async () => undefined,
+  deleteUser: async () => undefined,
 }
 
 /** The forms and inbox of the running app, for the Console and MCP tools. */
@@ -75,21 +75,25 @@ export function installedForms(): InstalledForms | undefined {
 }
 
 /**
- * The `{ fetch }` route of every form at `<base>api/_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
+ * The `{ fetch }` route of every form at `<base>_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
  */
-export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
+export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response>, registerUserData: (app: unknown) => void } {
   const forms = new Map<string, FormDefinition>()
   for (const [name, form] of Object.entries(options.forms)) {
     if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_C0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
     forms.set(name, form)
   }
-  const { databases } = options
-  const store: FormsStore | undefined = databases
+  const { useDatabase } = options
+  const store: FormsStore | undefined = useDatabase
     ? createDrizzleFormsStore(() => {
-        const db = selectDatabase(databases, options.database)
-        if (!db) throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: options.database })
-        return db
+        // The registry also holds a placeholder `default` that throws, so ask it which Database the forms use.
+        try {
+          return useDatabase(options.database).db
+        }
+        catch (cause) {
+          throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: options.database, cause })
+        }
       })
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
@@ -112,6 +116,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     }
   }
   return {
+    registerUserData(app) {
+      if (store) registerViteHubUserData(app, { owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
+    },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
       let name = segment

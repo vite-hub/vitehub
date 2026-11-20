@@ -189,7 +189,7 @@ A [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 
 | `settings.list(options?)` | A page with the document, if it exists on the ref. |
 | `settings.id`, `settings.path` | The document id (the file name without extension) and its Workspace path. |
 
-Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton can omit `id`:
+Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_SINGLETON_ID_MISMATCH`. `publish({ expect })` entries for a singleton can omit `id`:
 
 ```ts [server/utils/settings.ts]
 import content from '../content'
@@ -359,14 +359,14 @@ export async function recentPublishes() {
 ### Access
 
 ```ts [server/api/posts/publish.post.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
 import content from '../../content'
 
 export default defineEventHandler(
   withAuth(async (event, { user }) => {
     if (!await content.can({ user, collection: 'posts', action: 'publish' }))
-      throw createError({ statusCode: 403 })
+      throw new HTTPError({ status: 403 })
     return await content.publish({ collection: 'posts' })
   }),
 )
@@ -378,7 +378,7 @@ export default defineEventHandler(
 await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
 ```
 
-An unknown collection, a `user` that is not an object or `null`, or an `actor` without `id` throws `CONTENT_R0008`.
+An unknown collection throws `CONTENT_COLLECTION_UNKNOWN`. A `user` that is not an object or `null`, or an `actor` without `id`, throws `CONTENT_CAN_INPUT_INVALID`.
 
 ### Comark refs
 
@@ -406,4 +406,4 @@ With a valid preview cookie, every Content read above uses `draft`. A preview fr
 <span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
 ```
 
-The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws a `TypeError` for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.
+The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.

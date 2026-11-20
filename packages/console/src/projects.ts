@@ -75,6 +75,8 @@ export interface ConsoleProjectStore {
   get(id: string): Promise<ConsoleProject | undefined>
   /** Link a project with a new key pair. Returns `undefined` when the team already linked the URL. */
   create(input: { url: string, label?: string, createdBy: string }): Promise<ConsoleProject | undefined>
+  /** Change the label of a project. An empty label removes it. Returns `undefined` when the team has no such project. */
+  rename(id: string, label: string | null): Promise<ConsoleProject | undefined>
   /** The project and its signing key, or `undefined` when there is no such project or the secret cannot open its key. */
   target(id: string): Promise<{ project: ConsoleProject, key: ConsoleSigningKey } | undefined>
   remove(id: string): Promise<boolean>
@@ -91,6 +93,7 @@ export function scopeConsoleProjectStore(store: ConsoleProjectStore, projectIds:
     list: async () => (await store.list()).filter(project => allowed.has(project.id)),
     get: async id => allowed.has(id) ? store.get(id) : undefined,
     create: async () => undefined,
+    rename: async (id, label) => allowed.has(id) ? store.rename(id, label) : undefined,
     target: async id => allowed.has(id) ? store.target(id) : undefined,
     remove: async id => allowed.has(id) && store.remove(id),
   }
@@ -123,6 +126,10 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
       }
       await db().insert(consoleProjects).values(values)
       return toProject(values)
+    },
+    async rename(id, label) {
+      const [renamed] = await db().update(consoleProjects).set({ label: label?.trim() || null }).where(and(inTeam, eq(consoleProjects.id, id))).returning()
+      return renamed ? toProject(renamed) : undefined
     },
     async target(id) {
       const found = await row(id)

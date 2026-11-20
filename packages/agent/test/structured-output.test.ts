@@ -62,6 +62,24 @@ describe("Agent structured output", () => {
     })
   })
 
+  it.each([
+    ["a provider reasoning event", { id: "reasoning_summary_text:rs_1:0", text: "**Checking the summary**", type: "reasoning-delta" }],
+    ["text marked as reasoning", { delta: "Private reasoning.", phase: "reasoning", type: "text-delta" }],
+  ])("keeps %s out of streamed structured output", async (_label, reasoning) => {
+    const agent = defineAgent({
+      driver: {
+        output: { schema: summarySchema() },
+        run: async function* () {
+          yield reasoning
+          yield { text: JSON.stringify({ summary: "All checks passed.", title: "Done" }), type: "text-delta" as const }
+        },
+      },
+      runtime: false,
+    })
+
+    await expect(runAgentInline(agent, runtime(), {})).resolves.toEqual({ summary: "All checks passed.", title: "Done" })
+  })
+
   it("preserves custom schema failures exactly", async () => {
     const cause = new Error("private validator failure")
     const agent = defineAgent({

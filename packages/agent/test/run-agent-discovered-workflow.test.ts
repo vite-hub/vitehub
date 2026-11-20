@@ -30,7 +30,7 @@ function discoveredWorkflowHost() {
         name,
         start: async () => {
           started.push({ inline: Boolean(handler), name })
-          return { id: "hello-run", provider: "openworkflow", status: "queued" }
+          return [undefined, { id: "hello-run", provider: "openworkflow", status: "queued" }]
         },
       })) as never,
     }),

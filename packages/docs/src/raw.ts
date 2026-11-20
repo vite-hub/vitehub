@@ -816,6 +816,9 @@ const presentationDirectives = new Set([
   "example",
   "examples",
   "incorrect",
+  // Humans pick one client; agents get every client's steps under its name.
+  "mcp-client",
+  "mcp-install",
   "page-list",
   "important",
   "note",
@@ -863,6 +866,11 @@ function directiveLabel(name: string, attributes: string | undefined) {
 
   if (["note", "tip", "warning", "important"].includes(name)) {
     return `> **${name[0]!.toUpperCase()}${name.slice(1)}**`;
+  }
+
+  if (name === "mcp-client") {
+    const label = attributes?.match(/\blabel=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    return label ? `### ${label}` : "";
   }
 
   if (name === "tabs-item") {
