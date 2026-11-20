@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
+import { mount } from "@vue/test-utils";
+import { h, nextTick, ref } from "vue";
+import { MorphText, RollNumber } from "../src/components/motion.ts";
 import { morphText, rollNumber, ring } from "../src/motion.ts";
 import { diffDigits } from "../src/motion/helpers/number.ts";
 import { diffText } from "../src/motion/helpers/text.ts";
@@ -57,6 +60,22 @@ describe("cubicBezier", () => {
 });
 
 describe("the helpers with no motion", () => {
+  it("keeps the current text and count when Vue replaces the root tag", async () => {
+    const tag = ref("span");
+    const value = ref(2);
+    const wrapper = mount(() => h("div", { "data-motion": "none" }, [
+      h(MorphText, { as: tag.value, text: value.value === 2 ? "Save" : "Saved" }),
+      h(RollNumber, { as: tag.value, value: value.value }),
+    ]), { attachTo: document.body });
+    value.value = 3;
+    await nextTick();
+    expect(wrapper.text()).toBe("Saved3");
+    tag.value = "strong";
+    await nextTick();
+    expect(wrapper.findAll("strong").map(node => node.text())).toEqual(["Saved", "3"]);
+    wrapper.unmount();
+  });
+
   it("set the change at once on an element that is not on the page", () => {
     const label = document.createElement("span");
     label.textContent = "Copy";

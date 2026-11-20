@@ -59,12 +59,18 @@ after(async () => {
   await server.close()
 })
 
-async function open(options = {}) {
+async function open(options = {}, csp) {
   const context = await browser.newContext({ viewport: { width: 900, height: 1400 }, permissions: ["clipboard-read", "clipboard-write"], ...options })
   const page = await context.newPage()
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => message.type() === "error" && errors.push(message.text()))
+  if (csp) {
+    await page.route(base, async (route) => {
+      const response = await route.fetch()
+      await route.fulfill({ response, headers: { ...response.headers(), "content-security-policy": csp } })
+    })
+  }
   await page.goto(base)
   await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
   return { context, errors, page }
@@ -112,6 +118,99 @@ function maxStep(values) {
   for (let index = 1; index < values.length; index++) step = Math.max(step, Math.abs(values[index] - values[index - 1]))
   return step
 }
+
+test("labels and counts update without glyph frames when hidden or blocked by CSP", async () => {
+  for (const hidden of [true, false]) {
+    const { context, page } = await open({}, hidden ? undefined : "style-src 'self'")
+    try {
+      const result = await page.evaluate(async (hidden) => {
+        const host = document.createElement("div")
+        host.hidden = hidden
+        host.innerHTML = `<button><span data-slot="label">Publish</span></button><span>Publish</span><span>9</span>`
+        document.body.append(host)
+        const label = host.querySelector("[data-slot=label]")
+        const [, text, count] = host.children
+        label.textContent = "Publishing"
+        window.motionText.morphText(text, "Publishing")
+        window.motionText.rollNumber(count, 10)
+        await new Promise(requestAnimationFrame)
+        host.hidden = false
+        return [label, text, count].map(node => [node.textContent, node.childElementCount])
+      }, hidden)
+      assert.deepEqual(result, [["Publishing", 0], ["Publishing", 0], ["10", 0]])
+    }
+    finally {
+      await context.close()
+    }
+  }
+})
+
+test("automatic label motion leaves new markup in place, even during a morph", async () => {
+  const { context, page } = await open()
+  try {
+    const label = page.locator("[data-test=label-toggle] > [data-slot=label]")
+    await label.evaluate(async (node) => {
+      node.textContent = "Saving"
+      await new Promise(requestAnimationFrame)
+      node.innerHTML = "Saved <strong>now</strong>"
+    })
+    await page.waitForFunction(() => !document.querySelector("[data-test=label-toggle] [data-motion-glyphs]"))
+    assert.equal(await label.locator("strong").textContent(), "now")
+    assert.equal(await label.getAttribute("style"), null)
+  }
+  finally {
+    await context.close()
+  }
+})
+
+test("a UButton without a resting icon draws and removes its loading spinner", async () => {
+  const { context, page } = await open()
+  try {
+    const toggle = page.locator("[data-test=loading-toggle]")
+    const button = page.locator("[data-test=loading-only]")
+    assert.equal(await button.locator("svg").count(), 0)
+    await toggle.click()
+    await button.locator("svg.animate-spin [stroke-dashoffset]").first().waitFor({ state: "attached" })
+    await toggle.click()
+    await button.locator("svg[aria-hidden=true]:not([data-slot])").waitFor({ state: "attached" })
+    await button.locator("svg").waitFor({ state: "detached" })
+  }
+  finally {
+    await context.close()
+  }
+})
+
+test("overlapping and opted-out swaps restore caller styles", async () => {
+  const { context, page } = await open()
+  try {
+    const container = page.locator("[data-test=icon-box]")
+    await container.evaluate((node) => {
+      node.style.setProperty("position", "static", "important")
+      const next = document.createElement("span")
+      const last = document.createElement("span")
+      next.textContent = "B"
+      last.textContent = "C"
+      last.style.setProperty("opacity", "0.5", "important")
+      window.motionText.swapIcon(node, next)
+      window.motionText.swapIcon(node, last)
+    })
+    await page.waitForFunction(() => document.querySelector("[data-test=icon-box]").children.length === 1)
+    await page.waitForFunction(() => document.querySelector("[data-test=icon-box]").firstElementChild.style.getPropertyPriority("opacity") === "important")
+    assert.equal(await container.evaluate(node => node.style.position), "static")
+    assert.equal(await container.evaluate(node => node.firstElementChild.style.opacity), "0.5")
+    const filter = await container.evaluate((node) => {
+      node.setAttribute("data-motion", "none")
+      const icon = document.createElement("span")
+      icon.style.filter = "contrast(2)"
+      window.motionText.swapIcon(node, icon)
+      return icon.style.filter
+    })
+    assert.equal(filter, "contrast(2)")
+  }
+  finally {
+    await context.close()
+  }
+})
 
 describe("label morph", () => {
   test("a UButton label types in letter by letter, its width follows with no jump and ends at its natural width", async () => {
@@ -381,9 +480,17 @@ async function record({ name, url, selector, click, hold, cssRate, prototype }) 
   const page = await context.newPage()
   await page.goto(url)
   if (!prototype) await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
-  // Only the rows of this file, the last three of the motion page, so every subject is on screen without a scroll.
-  await page.addStyleTag({ content: `body { transform: scale(2); transform-origin: 0 0 }${prototype ? "" : " .page > section:not(:nth-last-child(-n+3)) { display: none }"}` })
+  await page.addStyleTag({ content: "body { transform: scale(2); transform-origin: 0 0 }" })
   const element = page.locator(selector)
+  if (!prototype) {
+    await element.evaluate((node, click) => {
+      const subject = node.closest("section")
+      const trigger = click ? document.querySelector(click)?.closest("section") : null
+      for (const section of document.querySelectorAll(".page > section")) {
+        if (section !== subject && section !== trigger) section.style.display = "none"
+      }
+    }, click)
+  }
   // The body draws at twice its size, so scroll by its drawn box.
   await element.evaluate(node => node.scrollIntoView({ block: "center" }))
   if (prototype) {

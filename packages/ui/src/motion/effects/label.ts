@@ -1,12 +1,12 @@
 import { isOwnNode, own } from "../helpers/frame.ts";
 import { enterIcon, leaveIcon, offsetIn } from "../helpers/icon.ts";
-import { morph, morphTarget } from "../helpers/text.ts";
+import { discardMorph, morph, morphTarget } from "../helpers/text.ts";
 import type { MotionEffect } from "../registry.ts";
 
 const controls = ":is(button, a, [role=button])";
 
 /**
- * Rule 4 for every button: when the label of a Nuxt UI button, or of any control with a `[data-slot=label]` child,
+ * Rule 4 for every button: when the text-only label of a Nuxt UI button, or of a control with a `[data-slot=label]` child,
  * changes, its letters morph and the button's width follows. The app only changes the label, such as
  * `:label="loading ? 'Publishing' : 'Publish'"`.
  */
@@ -15,6 +15,10 @@ export const label: MotionEffect = {
   selector: `${controls} > [data-slot=label]`,
   content(element, { added, removed, oldText }) {
     if (!(element instanceof HTMLElement)) return;
+    if ([...element.childNodes].some(node => node.nodeType !== Node.TEXT_NODE && !isOwnNode(node))) {
+      discardMorph(element);
+      return;
+    }
     // The morph's own letters, or a change that did not write new text.
     if (added.length ? added.every(isOwnNode) : removed.length > 0) return;
     const before = morphTarget(element) ?? oldText;
@@ -30,8 +34,27 @@ export const label: MotionEffect = {
  */
 export const buttonIcon: MotionEffect = {
   name: "button-icon",
-  selector: `${controls} > svg:is([data-slot=leadingIcon], [data-slot=trailingIcon])`,
+  selector: `${controls}, ${controls} > svg:is([data-slot=leadingIcon], [data-slot=trailingIcon])`,
   content(svg, { added, removed }) {
+    if (svg instanceof HTMLElement) {
+      for (const slot of ["leadingIcon", "trailingIcon"]) {
+        const isIcon = (node: Node): node is SVGSVGElement => node instanceof SVGSVGElement
+          && node.getAttribute("data-slot") === slot && !isOwnNode(node);
+        const next = added.find((node): node is SVGSVGElement => isIcon(node) && node.parentNode === svg);
+        const previous = removed.find(isIcon);
+        if (previous) {
+          const ghost = own(previous.cloneNode(true) as SVGSVGElement);
+          ghost.classList.remove("animate-spin");
+          ghost.removeAttribute("data-slot");
+          if (next) next.after(ghost);
+          else if (slot === "leadingIcon") svg.prepend(ghost);
+          else svg.append(ghost);
+          leaveIcon(svg, ghost, offsetIn(svg, next ?? ghost), "blur", old => old.remove());
+        }
+        if (next) enterIcon(next, undefined, 0);
+      }
+      return;
+    }
     const container = svg.parentElement;
     if (!(svg instanceof SVGSVGElement) || !container || !removed.length || added.every(isOwnNode)) return;
     if (!removed.some(node => node instanceof SVGElement)) return;

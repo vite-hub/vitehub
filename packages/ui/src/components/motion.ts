@@ -1,4 +1,4 @@
-import { defineComponent, h, nextTick, onMounted, type PropType, ref, watch } from "vue";
+import { defineComponent, h, nextTick, type PropType, ref, watch } from "vue";
 import type { Directive } from "vue";
 import { swapIcon } from "../motion/helpers/icon.ts";
 import type { IconEnter, IconExit } from "../motion/helpers/icon.ts";
@@ -20,12 +20,18 @@ export const MorphText = defineComponent({
   },
   setup(props) {
     const element = ref<HTMLElement>();
-    // Vue renders the first text only. Later texts go through the morph, which owns the children of the element.
-    const first = props.text;
+    let tag = props.as;
+    let seed = props.text;
     watch(() => props.text, (text) => {
       if (element.value) morphText(element.value, text);
     }, { flush: "post" });
-    return () => h(props.as, { "ref": element, "data-slot": "morph-text" }, first);
+    return () => {
+      if (tag !== props.as) {
+        tag = props.as;
+        seed = props.text;
+      }
+      return h(tag, { "ref": element, "data-slot": "morph-text" }, seed);
+    };
   },
 });
 
@@ -44,13 +50,18 @@ export const RollNumber = defineComponent({
   setup(props) {
     const element = ref<HTMLElement>();
     const format = (value: number) => props.text ?? (props.format ?? String)(value);
-    const first = format(props.value);
-    // The first call names the value the element shows, so the next one knows which way to roll.
-    onMounted(() => element.value && rollNumber(element.value, props.value, format));
-    watch(() => [props.value, props.text, props.format] as const, ([value]) => {
-      if (element.value) rollNumber(element.value, value, format);
+    let tag = props.as;
+    let seed = format(props.value);
+    watch(() => [element.value, props.value, props.text, props.format] as const, ([root, value]) => {
+      if (root) rollNumber(root, value, format);
     }, { flush: "post" });
-    return () => h(props.as, { "ref": element, "data-slot": "roll-number", "style": { fontVariantNumeric: "tabular-nums" } }, first);
+    return () => {
+      if (tag !== props.as) {
+        tag = props.as;
+        seed = format(props.value);
+      }
+      return h(tag, { "ref": element, "data-slot": "roll-number", "style": { fontVariantNumeric: "tabular-nums" } }, seed);
+    };
   },
 });
 

@@ -1,6 +1,6 @@
 import { iconShape } from "../effects/icon-shape.ts";
 import type { IconShape } from "../effects/icon-shape.ts";
-import { writeMotionStyle } from "../registry.ts";
+import type { MotionStyleProperty } from "../registry.ts";
 import { motionSkipped, reduced } from "./frame.ts";
 import { cubicBezier, easeIn, easeOut, tween } from "./tween.ts";
 import type { Tween } from "./tween.ts";
@@ -43,9 +43,12 @@ interface IconState {
   leaving: boolean;
   /** The shapes of a stroke that draws in, put back when the draw ends or stops. */
   stroke?: IconShape;
+  styles?: Map<string, () => void>;
+  restorePlacement?: () => void;
 }
 
 const states = new WeakMap<Element, IconState>();
+const positioned = new WeakMap<HTMLElement, { exits: number; restore: () => void }>();
 
 function stateOf(icon: Element): IconState {
   let state = states.get(icon);
@@ -71,27 +74,54 @@ function strokes(icon: Element): { shape: IconShape; parts: SVGGeometryElement[]
   return shape && parts.length ? { shape, parts } : undefined;
 }
 
-function clear(icon: Element): void {
+function saveStyle(style: CSSStyleDeclaration, property: string): () => void {
+  const value = style.getPropertyValue(property);
+  const priority = style.getPropertyPriority(property);
+  return () => {
+    if (value) style.setProperty(property, value, priority);
+    else style.removeProperty(property);
+  };
+}
+
+function paintIcon(icon: Element, state: IconState, values: Partial<Record<MotionStyleProperty, string>>): void {
+  if (!styled(icon)) return;
+  const styles = state.styles ??= new Map();
+  for (const [property, value] of Object.entries(values)) {
+    if (!styles.has(property)) styles.set(property, saveStyle(icon.style, property));
+    icon.style.setProperty(property, value);
+  }
+}
+
+function clear(state: IconState): void {
+  state.stroke?.restore();
+  state.stroke = undefined;
+  for (const restore of state.styles?.values() ?? []) restore();
+  state.styles = undefined;
+}
+
+function stopIcon(icon: Element): void {
   const state = states.get(icon);
-  state?.stroke?.restore();
-  if (state) state.stroke = undefined;
-  if (styled(icon)) writeMotionStyle(icon, { opacity: null, filter: null, scale: null, translate: null });
+  if (!state) return;
+  state.fade?.stop();
+  clear(state);
+  state.restorePlacement?.();
+  states.delete(icon);
 }
 
 function leave(icon: Element, kind: IconExit, reducedMotion: boolean, done: () => void): void {
   const state = stateOf(icon);
   state.fade?.stop();
+  clear(state);
   state.leaving = true;
   const [x, y] = kind === "blur" ? [0, 0] : directions[kind];
   state.fade = tween(state.shown, 0, { duration: reducedMotion ? crossfade : exit.duration, ease: reducedMotion ? easeOut : easeIn }, (value) => {
     state.shown = value;
-    if (!styled(icon)) return;
     const gone = 1 - value;
-    writeMotionStyle(icon, {
+    paintIcon(icon, state, {
       opacity: String(value),
-      filter: reducedMotion || kind !== "blur" ? null : `blur(${(exit.blur * gone).toFixed(2)}px)`,
-      scale: reducedMotion || kind !== "blur" ? null : String(1 - (1 - exit.scale) * gone),
-      translate: reducedMotion || kind === "blur" ? null : `${x * exit.travel * gone}px ${y * exit.travel * gone}px`,
+      ...reducedMotion ? {} : kind === "blur"
+        ? { filter: `blur(${(exit.blur * gone).toFixed(2)}px)`, scale: String(1 - (1 - exit.scale) * gone) }
+        : { translate: `${x * exit.travel * gone}px ${y * exit.travel * gone}px` },
     });
   }, () => {
     state.fade = undefined;
@@ -102,25 +132,21 @@ function leave(icon: Element, kind: IconExit, reducedMotion: boolean, done: () =
 function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: number): void {
   const state = stateOf(icon);
   state.fade?.stop();
-  if (state.leaving && styled(icon)) {
-    // An old icon that comes back takes its place in the flow again.
-    for (const property of ["position", "left", "top", "margin", "pointer-events"]) icon.style.removeProperty(property);
-    icon.removeAttribute("aria-hidden");
-  }
+  state.restorePlacement?.();
+  state.restorePlacement = undefined;
   state.leaving = false;
-  // A draw that an earlier swap started puts its stroke back first, so the new draw keeps the icon's own values.
-  state.stroke?.restore();
+  clear(state);
   const stroke = kind === "draw" && !reducedMotion ? strokes(icon) : undefined;
   state.stroke = stroke?.shape;
   const finish = () => {
     state.fade = undefined;
     state.shown = 1;
-    clear(icon);
+    clear(state);
   };
   if (reducedMotion) {
     state.fade = tween(from, 1, { duration: crossfade, ease: easeOut }, (value) => {
       state.shown = value;
-      if (styled(icon)) writeMotionStyle(icon, { opacity: String(value) });
+      paintIcon(icon, state, { opacity: String(value) });
     }, finish);
     return;
   }
@@ -133,7 +159,6 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
       shape.set(part, "stroke-dashoffset", "1");
     }
     shape.commit();
-    if (styled(icon)) writeMotionStyle(icon, { opacity: null, filter: null, scale: null, translate: null });
     const spins = icon.matches(".animate-spin") || !!icon.querySelector(".animate-spin");
     state.shown = 1;
     state.fade = tween(1, 0, { duration: spins ? draw.spinner : draw.duration, delay: draw.delay, ease: draw.ease }, (value) => {
@@ -147,9 +172,8 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
   if (effective === "blur") {
     state.fade = tween(from, 1, { duration: enterBlur.duration, delay: from ? 0 : enterBlur.delay, ease: enterBlur.ease }, (value) => {
       state.shown = Math.min(1, value);
-      if (!styled(icon)) return;
       const gone = 1 - value;
-      writeMotionStyle(icon, {
+      paintIcon(icon, state, {
         opacity: String(Math.min(1, Math.max(0, value))),
         filter: `blur(${Math.max(0, enterBlur.blur * gone).toFixed(2)}px)`,
         scale: String(1 - (1 - enterBlur.scale) * gone),
@@ -160,9 +184,8 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
   const [x, y] = directions[effective];
   state.fade = tween(from, 1, { duration: enterSlide.duration, delay: from ? 0 : enterSlide.delay, ease: enterSlide.ease }, (value) => {
     state.shown = value;
-    if (!styled(icon)) return;
     const gone = 1 - value;
-    writeMotionStyle(icon, { opacity: String(Math.min(1, value)), translate: `${-x * enterSlide.travel * gone}px ${-y * enterSlide.travel * gone}px` });
+    paintIcon(icon, state, { opacity: String(Math.min(1, value)), translate: `${-x * enterSlide.travel * gone}px ${-y * enterSlide.travel * gone}px` });
   }, finish);
 }
 
@@ -188,13 +211,10 @@ export function swapIcon(container: HTMLElement, icon: Element, options: SwapIco
   const leavingNow = [...container.children].filter(child => child !== icon && states.get(child)?.leaving);
   if (motionSkipped(container)) {
     for (const old of [...others, ...leavingNow]) {
-      states.get(old)?.fade?.stop();
-      states.delete(old);
+      stopIcon(old);
       remove(old);
     }
-    states.get(icon)?.fade?.stop();
-    clear(icon);
-    states.delete(icon);
+    stopIcon(icon);
     return;
   }
   // A first icon with no old one to replace shows as it is, and the icon that shows already stays.
@@ -213,20 +233,38 @@ export function swapIcon(container: HTMLElement, icon: Element, options: SwapIco
  */
 export function leaveIcon(container: HTMLElement, old: Element, at: { left: number; top: number }, exit: IconExit, remove: (old: Element) => void): void {
   const reducedMotion = reduced();
-  const setPosition = getComputedStyle(container).position === "static";
-  if (setPosition) container.style.position = "relative";
-  if (styled(old)) {
-    old.style.position = "absolute";
-    old.style.left = `${at.left}px`;
-    old.style.top = `${at.top}px`;
-    old.style.margin = "0";
-    old.style.pointerEvents = "none";
+  let position = positioned.get(container);
+  if (!position && getComputedStyle(container).position === "static") {
+    position = { exits: 0, restore: saveStyle(container.style, "position") };
+    positioned.set(container, position);
+    container.style.position = "relative";
   }
+  if (position) position.exits++;
+  const restores: (() => void)[] = [];
+  if (styled(old)) {
+    const placement = {
+      position: "absolute", left: `${at.left}px`, top: `${at.top}px`, "pointer-events": "none",
+      "margin-top": "0", "margin-right": "0", "margin-bottom": "0", "margin-left": "0",
+    };
+    for (const [property, value] of Object.entries(placement)) {
+      restores.push(saveStyle(old.style, property));
+      old.style.setProperty(property, value);
+    }
+  }
+  const hidden = old.getAttribute("aria-hidden");
   old.setAttribute("aria-hidden", "true");
+  stateOf(old).restorePlacement = () => {
+    for (const restore of restores) restore();
+    if (hidden === null) old.removeAttribute("aria-hidden");
+    else old.setAttribute("aria-hidden", hidden);
+    if (position && --position.exits === 0) {
+      position.restore();
+      positioned.delete(container);
+    }
+  };
   leave(old, exit, reducedMotion, () => {
-    states.delete(old);
+    stopIcon(old);
     remove(old);
-    if (setPosition && ![...container.children].some(child => states.get(child)?.leaving)) container.style.removeProperty("position");
   });
 }
 
