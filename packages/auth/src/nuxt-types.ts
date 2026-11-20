@@ -11,10 +11,11 @@ export type AuthPageMeta = boolean | AuthPageMode | {
   redirectTo?: string
 }
 
-/** Where the Nuxt page guard sends visitors. */
-export interface AuthRedirects {
-  /** The login page for `auth: 'user'` pages. The guard adds `?redirect=<the page>`. Default `/login`. */
-  login?: string
-  /** Where signed-in users go from `auth: 'guest'` pages. Default `/`. */
-  guest?: string
+/** What the Nuxt page guard reads from the public runtime config: the Auth path and `access` of the Auth Definition. */
+export interface AuthPageGuardConfig {
+  basePath: string
+  /** The sign-in page of `access.signIn`, or `null` when the Auth route starts a provider sign-in. */
+  signInPage: string | null
+  /** `access.afterSignIn`, where signed-in users go from `auth: 'guest'` pages. */
+  afterSignIn: string
 }

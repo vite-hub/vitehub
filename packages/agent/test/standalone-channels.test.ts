@@ -4,11 +4,15 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { H3 } from 'h3'
 import { build, createServer } from 'vite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
 import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
 
 const roots: string[] = []
+// A string `secret` of a Channel names the server variable that holds the secret.
+beforeEach(() => {
+  vi.stubEnv('HOOKS_SECRET', 'secret')
+})
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -24,14 +28,14 @@ async function app(files: Record<string, string>) {
   return root
 }
 
-async function server(root: string, aliases: Record<string, string> = {}) {
+async function server(root: string, aliases: Record<string, string> = {}, options?: Parameters<typeof hubAgent>[0]) {
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))
   await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
   await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
   await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
   await symlink(join(packageRoot, '../channels'), join(root, 'node_modules/@vite-hub/channels'), 'dir')
   await symlink(join(packageRoot, '../../node_modules/h3'), join(root, 'node_modules/h3'), 'dir')
-  return await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()],
+  return await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent(options)],
     resolve: { alias: { '@vite-hub/agent/server/internal': join(packageRoot, 'src/server/internal.ts'), ...aliases } },
     server: { middlewareMode: true, watch: null } })
 }
@@ -53,7 +57,7 @@ const intake = `import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import { defineChannel, webhook } from '@vite-hub/channels'
 import { label } from './label'
 export default defineChannel({
-  adapter: webhook({ kind: 'intake', path: '/api/intake/webhook', aliases: ['/hooks/intake'], header: 'x-test-secret', secret: 'secret', signature: 'token' }),
+  adapter: webhook({ kind: 'intake', path: '/api/intake/webhook', aliases: ['/hooks/intake'], header: 'x-test-secret', secret: 'HOOKS_SECRET', signature: 'token' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ channel: context.trigger.channelId, label: label() }) }) },
 })
 `
@@ -65,6 +69,28 @@ export default defineChannel({ adapter: webhook({ path: '/api/label/webhook', se
 `
 
 describe('standalone Channel folders', () => {
+  it('serves standalone webhooks only from the configured Channels root', async () => {
+    const source = `import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+export default defineChannel({
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' }),
+  on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
+})`
+    const root = await app({ 'custom/server/channels/builds.ts': source, 'server/channels/ignored.ts': source })
+    const frameworkOptions = { channelProjectRoot: 'custom', routes: {} }
+    const vite = await server(root, {}, frameworkOptions)
+    try {
+      const { app, routes } = await nitroApp(vite)
+      expect(routes).toContain('/_vitehub/channels/builds')
+      expect(routes).not.toContain('/_vitehub/channels/ignored')
+      const request = { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } }
+      const delivered = await app.request('/_vitehub/channels/builds', request)
+      expect(delivered.status).toBe(200)
+      expect(await delivered.json()).toEqual({ received: true })
+      expect((await app.request('/_vitehub/channels/ignored', request)).status).toBe(404)
+    } finally { await vite.close() }
+  }, 30_000)
+
   it('serves a Channel folder webhook at its path and aliases without an Agent Definition', async () => {
     const root = await app({ 'server/channels/intake/index.ts': intake, 'server/channels/intake/label.ts': label })
     const vite = await server(root)
@@ -88,7 +114,7 @@ describe('standalone Channel folders', () => {
     const root = await app({ 'src/payments.channel.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks/payments' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET', path: '/hooks/payments' }),
   on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
 })
 ` })
@@ -165,7 +191,7 @@ export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\`, s
       [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import { defineChannel, webhook } from '@vite-hub/channels'
 export default defineChannel({
-  adapter: webhook({ signature: 'bearer', secret: 'secret' }),
+  adapter: webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },
 })
 `,

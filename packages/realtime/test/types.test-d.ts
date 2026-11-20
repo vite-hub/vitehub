@@ -4,7 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
 
-import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestError, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRequestResult, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
 import { requestRealtimeRoom } from "../src/server.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
 import { defineRealtime } from "../src/index.ts"
@@ -21,14 +21,16 @@ describe("realtime client result types", () => {
       | "REALTIME_MISSING_DOCUMENT"
       | "REALTIME_REQUEST_FAILED"
     >()
-    expectTypeOf(realtime.save).returns.toEqualTypeOf<Promise<Result<RealtimeSaved, RealtimeRequestErrorCode>>>()
-    expectTypeOf(realtime.history.checkpoint).returns.toEqualTypeOf<Promise<Result<RealtimeCheckpoint, RealtimeRequestErrorCode>>>()
-    expectTypeOf(realtime.refresh).returns.toEqualTypeOf<Promise<Result<{ digest: string | null, reseeded: boolean }, RealtimeRequestErrorCode>>>()
+    expectTypeOf(realtime.save).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeSaved>>>()
+    expectTypeOf(realtime.history.checkpoint).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeCheckpoint>>>()
+    expectTypeOf(realtime.refresh).returns.toEqualTypeOf<Promise<RealtimeRequestResult<{ digest: string | null, reseeded: boolean }>>>()
+    expectTypeOf<RealtimeRequestResult<RealtimeSaved>>().toExtend<Result<RealtimeSaved, RealtimeRequestErrorCode>>()
   })
 
   it("narrows a checkpoint result by the error element", async () => {
     const [error, checkpoint] = await realtime.history.checkpoint()
     if (error) {
+      expectTypeOf(error).toEqualTypeOf<RealtimeRequestError>()
       expectTypeOf(error.code).toEqualTypeOf<RealtimeRequestErrorCode>()
       expectTypeOf(checkpoint).toEqualTypeOf<undefined>()
       // @ts-expect-error A room error goes into the WebSocket stream, not into the request tuple.
@@ -36,6 +38,15 @@ describe("realtime client result types", () => {
       return
     }
     expectTypeOf(checkpoint).toEqualTypeOf<RealtimeCheckpoint>()
+  })
+
+  it("types the HTTP status of a failed request", async () => {
+    const [error] = await realtime.history.checkpoint()
+    if (error?.code === "REALTIME_REQUEST_FAILED") {
+      expectTypeOf(error.data.status).toEqualTypeOf<number | undefined>()
+      void (error.data.status === 409)
+    }
+    if (error && error.code !== "REALTIME_REQUEST_FAILED") expectTypeOf(error.data).toEqualTypeOf<undefined>()
   })
 })
 
