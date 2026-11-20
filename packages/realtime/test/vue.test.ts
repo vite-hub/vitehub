@@ -229,6 +229,7 @@ describe("useRealtimeTiptap", () => {
     responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
     await expect(second).resolves.toMatchObject([{
       code: "REALTIME_REQUEST_FAILED",
+      data: { status: 500 },
       why: "The realtime `checkpoint()` request failed with HTTP 500: publisher unavailable",
     }, undefined])
     expect(realtime.history.pending.value).toBe(false)

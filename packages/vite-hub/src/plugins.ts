@@ -70,12 +70,11 @@ import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
-import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
+import { observabilityVitePlugin, type LogsOptions, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
-import type { AuthOptions } from "@vite-hub/auth"
 import type { BlobOptions } from "@vite-hub/blob"
 import type { BrowserOptions } from "@vite-hub/browser/vite"
 import type { ChannelsOptions } from "@vite-hub/channels/vite"
@@ -107,7 +106,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { RedirectsOptions } from "./redirects-vite.ts"
-export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { LogsOptions, ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
 export type { DeployOptions } from "./deploy-options.ts"
 export type { SeoOptions } from "./seo/vite.ts"
@@ -534,7 +533,8 @@ export interface ViteHubOptions {
    */
   security?: SecurityOptions
   agent?: boolean | AgentOptions
-  auth?: boolean | AuthOptions
+  /** `false` turns Auth off. `server/auth.ts` turns it on, and `defineAuth()` in that file holds every Auth option. */
+  auth?: boolean
   blob?: boolean | BlobOptions
   browser?: boolean | BrowserOptions
   /**
@@ -594,14 +594,18 @@ export interface ViteHubOptions {
   deploy?: DeployOptions
   kv?: boolean | KVOptions
   /**
+   * Read logs in the Console and with `vitehub logs`. `true` keeps a bounded Evlog buffer in `vite dev`. A production
+   * build needs `{ source }`, a server module that reads an existing backend. `{ source }` starts no logger.
+   */
+  logs?: boolean | LogsOptions
+  /**
    * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
    * from `vite-hub/auth/mcp`, so it needs `auth`, unless `mcp: { auth: false }` lets anyone call every tool. Needs
    * `@vite-hub/mcp`.
    */
   mcp?: boolean | McpOptions
   /**
-   * Request logs through Evlog, the logs that the Console and `vitehub logs` read with `logs`, and, with `service`, Agent
-   * telemetry and papercut reports through `useObservability()`.
+   * Request logs through Evlog, and, with `service`, Agent telemetry and papercut reports through `useObservability()`.
    */
   observability?: boolean | ObservabilityOptions
   /**
@@ -1474,7 +1478,7 @@ function doctorPlugin(): Plugin {
  * turns KV on for the head commits of the Sources. See `withCmsPresetPlugins()`.
  */
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
-function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
+function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boolean): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
   assertNoProviderKey(options)
   const host = resolveBuildHost(options.host)
@@ -1508,8 +1512,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueDriver(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
-  const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
-  const observabilityLogs = logsOption === true ? {} : logsOption || undefined
+  const { browserErrors, ...observabilityOptions } = observability ?? {}
+  const logs = options.logs === true ? {} : options.logs || undefined
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = Boolean(options.workflow)
   // The packages of these features are optional peers. One error lists every package that the app must add, also the
@@ -1539,7 +1543,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
-  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options))
+  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options), reportVersionError)
   const { blobVite, browserVite, channelsVite, connectionsVite, emailVite, kvVite, markdownTemplateVite, queueVite, rateLimitVite, sandboxTaskVite, workflowVite } = ownerModules
   const configuredBlob = blobEnabled ? hostBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
@@ -1621,15 +1625,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
-  // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
-  const evlogRegistered = Boolean(observability) && (telemetry || !(observabilityLogs && "source" in observabilityLogs))
-  if (observability) {
-    if (observabilityOptions.papercuts && !(configuredConsole && options.agent)) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
-    }
-    if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
+  // `logs: true` fills its buffer from Evlog. `logs: { source }` reads an existing pipeline, so it starts no logger.
+  const evlogRegistered = Boolean(observability) || Boolean(logs && !("source" in logs))
+  if (observabilityOptions.papercuts && !(configuredConsole && options.agent)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
   }
-  if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
+  if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
+  if (logs) plugins.push(logsVitePlugin(logs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   const security = resolveSecurityPolicy(options.security)
@@ -1679,7 +1681,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
       resolveAuthConfig: options.auth
         ? (root, serverDirs) => requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
-            options.auth === true ? undefined : options.auth,
+            undefined,
             root,
             { serverDirs },
           )
@@ -1722,9 +1724,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   if (options.auth) {
     plugins.push(requireOptionalOwner(ownerModules.authVite, "auth").hubAuth(
-      options.auth === true ? {} : options.auth || false,
+      // `true` comes from `server/auth.ts`. `hubAuth()` fails for the removed object form with its move fix.
+      options.auth === true ? undefined : options.auth,
       {
-      importBase: "vite-hub/auth",
+        importBase: "vite-hub/auth",
       },
     ))
   }
@@ -1752,6 +1755,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({
       ...agentOptions,
+      channelProjectRoot: typeof options.channels === "object" ? options.channels.projectRoot : undefined,
       kvImport: "vite-hub/kv",
       processDiscordGateway: plan.host === "node",
       providerImportAliases,
@@ -1914,7 +1918,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...options.seo?.sitemap || options.seo?.robots ? { appSeo: { sitemap: Boolean(options.seo.sitemap), robots: options.seo.robots !== false } } : {},
     auth: options.auth
       ? ({ projectRoot, serverDirs }) => Boolean(requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
-          options.auth === true ? undefined : options.auth,
+          undefined,
           projectRoot,
           { serverDirs },
         ))
@@ -2020,19 +2024,20 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  * The ViteHub plugins without Nitro. `vitehub()` adds Nitro's Vite plugin to them. `vite-hub/nuxt` uses them as they
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
-export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
+export function viteHubPlugins(options: ViteHubOptions, reportVersionError = true): PluginOption[] {
   assertNoRemovedViteHubOptions(options, "`vitehub()`")
   // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
-  const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant)))
+  const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant, reportVersionError)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.
   if (featureOptionsResolved(options)) return create(options)
-  const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()) }
+  const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()), viteRoot: process.cwd() }
+  const rootPlugin = (validate?: () => void) => withPrintedDiagnostics(definitionFeaturesRootPlugin(options, project, validate))
   try {
     const resolved = resolveDefinitionFeatures(options, project)
-    if (resolved !== options) return [...create(resolved), definitionFeaturesRootPlugin(options, project)]
+    if (resolved !== options) return [...create(resolved), rootPlugin()]
   }
   catch (error) {
-    return [definitionFeaturesRootPlugin(options, project, () => { throw error })]
+    return [rootPlugin(() => { throw error })]
   }
-  return [...create(options), definitionFeaturesRootPlugin(options, project)]
+  return [...create(options), rootPlugin()]
 }

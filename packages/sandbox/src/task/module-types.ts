@@ -1,5 +1,6 @@
 import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
+import type { sandboxTaskRunErrors } from './runtime/result'
 import type { SandboxTaskSizeOptions } from './size'
 
 export type { SandboxTaskSizeOptions } from './size'
@@ -113,9 +114,13 @@ export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) =
     handler: THandler
   }
 
-/** The result of a sandbox invocation. HTTP semantics are used for both
- * successful values and failures. */
-export type SandboxTaskRunResult = Response
+/**
+ * What `runSandboxTask()` returns: `[error, data]`. `data` is the decoded handler result. A failed run returns
+ * `SANDBOX_TASK_RUN_FAILED`, with the failure in `error.cause`.
+ */
+export type SandboxTaskRunResult<TResult = unknown> =
+  | [error: ReturnType<typeof sandboxTaskRunErrors.SANDBOX_TASK_RUN_FAILED>, data: undefined]
+  | [error: undefined, data: TResult]
 
 export function getSandboxTaskFeatureDriver(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionDriverOptions | undefined {
   if (!config || typeof config !== 'object' || typeof config.driver !== 'string')

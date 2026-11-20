@@ -10,7 +10,7 @@ function hookAgent() {
     hook: channelAdapter("hook", {
       messages: false,
       triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
-      webhooks: { aliases: ["/old-hook/"], path: "hook/", provider: "hook", secretToken: false },
+      webhooks: { aliases: ["/old-hook/"], path: "hook/", provider: "hook", secret: false },
     }),
   }
   const reads = { count: 0, fail: false }

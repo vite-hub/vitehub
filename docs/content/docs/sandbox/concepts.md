@@ -11,9 +11,9 @@ A Sandbox Task runs a named package in a Sandbox, away from your app process. Th
 
 ## A run has two sides
 
-The app calls `runSandboxTask(name, payload, options)` and gets a native `Response`. The task gets the payload in its entry point. Validate requests and authenticate users in the app. Pass only the data the task needs.
+The app calls `runSandboxTask(name, payload, options)` and gets `[error, data]`. The task gets the payload in its entry point. Validate requests and authenticate users in the app. Pass only the data the task needs.
 
-The response reports the run outcome. A success status means the entry point returned. It does not give the Sandbox access to your app's filesystem or credentials.
+The result reports the run outcome. No `error` means the entry point returned. It does not give the Sandbox access to your app's filesystem or credentials.
 
 ## Provider choice changes the boundary
 

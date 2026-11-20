@@ -7,25 +7,25 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-A Sandbox runs code on a separate, isolated machine, so that code cannot touch your server. You put the code in its own small package. Your app sends it input and gets the result back.
+A Sandbox runs code on a separate, isolated machine, so that code cannot touch your server. You put the code in its own small package, send it input from your app, and get the result back.
 
-In this tutorial, you make a package that takes the width and height of an image and returns the number of pixels. It does not change an image. A simple calculation makes the first run easy to check. Then you call the package from an API route.
+In this tutorial, you create a package that takes an image's width and height and returns the pixel count. It does not change an image. A simple calculation makes the first run easy to check. Then you call the package from an API route.
 
-A Sandbox is a separate package project, not another server route. It has its own `package.json`.
+Each Sandbox Task is a separate package project with its own `package.json`, not another server route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). You also need a Vercel project with Sandbox access. The dev server runs the package on your computer. After you build, it runs on Vercel, so each run can cost money. Run every command from the app root.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. The dev server runs the package on your computer. To run the built app, you need a Vercel project with Sandbox access. Each run on Vercel can cost money.
 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
 
-Add the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeScript from Installation to read your package at build time.
+Install the Sandbox package and the Vercel Sandbox SDK. Sandbox also uses the TypeScript from Installation to read your package at build time.
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/sandbox @vercel/sandbox
 ```
 
-In the ViteHub options of your app, set `host: 'vercel'` and add `sandboxTask: true`. Keep the other options of your app.
+Set `host: 'vercel'` and `sandboxTask: true` in your ViteHub options, keeping your other app options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -61,9 +61,9 @@ export default defineConfig({
 ::::
 :::
 
-- `host: 'vercel'` runs the Sandbox on Vercel. The `node` host has no Sandbox provider, so `sandboxTask: true` fails during configuration with that host.
+- `host: 'vercel'` runs the Sandbox on Vercel. The `node` host has no Sandbox provider, so `sandboxTask: true` fails during config on `node`.
 
-Set your Vercel keys in the terminal where you will start the server. Replace the values with the ones of your Vercel project:
+If you run the built app, export your Vercel keys in the terminal where you start it, using the values from your Vercel project:
 
 ```bash [commands/credentials]
 export VERCEL_TOKEN='your-vercel-token'
@@ -78,7 +78,7 @@ To use Cloudflare instead, you need more than `host: 'cloudflare'`. Install `@cl
 ::tutorial-step{title="Create the package project"}
 ## Create the package project
 
-Create the folder `server/sandbox-tasks/image-optimizer`. The folder name is the name of the task: `image-optimizer`. This folder is the package that runs in the Sandbox.
+Create the folder `server/sandbox-tasks/image-optimizer`. The folder name is the task name: `image-optimizer`. This folder is the package that runs in the Sandbox.
 
 First, create its `package.json`:
 
@@ -94,10 +94,10 @@ First, create its `package.json`:
 }
 ```
 
-- `exports` points to the file that runs: `index.ts`.
+- `exports` points to the entry file, `index.ts`.
 - `timeout: 30000` stops the run after 30 seconds.
 
-Then create `index.ts`. It multiplies the width by the height:
+Next, create `index.ts` to multiply the width and height:
 
 ```ts [server/sandbox-tasks/image-optimizer/index.ts]
 type ImageInput = { width: number, height: number }
@@ -110,34 +110,35 @@ export default async function optimize({ width, height }: ImageInput) {
 }
 ```
 
-- The file is normal TypeScript. It does not import anything from ViteHub.
-- `format: 'webp'` is only a sample value. The function does not make an image.
-- If the package needs a dependency, add it to this `package.json`, not to the one of your app. It is installed and bundled with the package.
+- The file is plain TypeScript with no ViteHub imports.
+- `format: 'webp'` is only a sample field. This function does not make an image.
+- If the package needs dependencies, add them to this `package.json`, not your app's root `package.json`. They are installed and bundled with the task.
 
 ::
 
 ::tutorial-step{title="Call it from a route"}
 ## Call it from a route
 
-Create `server/api/image-optimizer.post.ts`. This route sends the input to the Sandbox and returns the result.
+Create `server/api/image-optimizer.post.ts` to send input to the Sandbox and return its result.
 
 ```ts [server/api/image-optimizer.post.ts]
-import { defineEventHandler, HTTPError, readBody } from 'h3'
+import { defineEventHandler, readBody } from 'h3'
+import { toResponse } from 'vite-hub/runtime'
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ width: number, height: number }>(event)
-  const response = await runSandboxTask('image-optimizer', input)
+  const [error, result] = await runSandboxTask('image-optimizer', input)
 
-  if (!response.ok)
-    throw new HTTPError({ status: response.status, data: await response.json() })
+  if (error)
+    return toResponse(error)
 
-  return await response.json()
+  return result
 })
 ```
 
-- `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns a normal `Response`.
-- If the run fails, `response.ok` is `false`. Always check it before you read the body.
+- `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns `[error, result]`.
+- If the run fails, `error` is set. `toResponse(error)` answers with its status and `{ code, why, fix }`.
 
 Start the dev server on macOS, Linux, or WSL. It runs the package as a process on your computer and does not use the Vercel keys:
 
@@ -145,7 +146,7 @@ Start the dev server on macOS, Linux, or WSL. It runs the package as a process o
 pnpm dev
 ```
 
-Open a second terminal, and send an image size to the route:
+Open a second terminal and send an image size to the route:
 
 ```bash [commands/request]
 curl -X POST http://localhost:3000/api/image-optimizer \
@@ -153,20 +154,20 @@ curl -X POST http://localhost:3000/api/image-optimizer \
   -d '{"width":1024,"height":768}'
 ```
 
-The response is:
+The route returns:
 
 ```json [output/image-optimizer.json]
 { "pixels": 786432, "format": "webp" }
 ```
 
-This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the response has an error status and a `SANDBOX_TASK_TIMEOUT` error. In dev, the process can access your filesystem and network. In a deployed app, the provider decides what the code can reach.
+This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the route answers 504, and `error.data.code` is `SANDBOX_TASK_TIMEOUT`. In dev, the process can access your filesystem and network. In a deployed app, the provider decides what the code can reach.
 
 ::
 
 ::tutorial-step{title="Inspect and continue"}
 ## Inspect and continue
 
-Build the app, and list the Sandbox tasks that ViteHub found:
+Build the app and list the Sandbox tasks that ViteHub found:
 
 ```bash [commands/inspect]
 pnpm build
@@ -181,13 +182,13 @@ Sandbox Tasks (sandbox-task): 1
     Kind: Package entry
 ```
 
-The `vercel` host writes the build to `.vercel/output`, not to `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal where you set the Vercel keys, preview the build on your computer:
+The `vercel` host writes its output to `.vercel/output` instead of `.output`, so `pnpm start` does not apply. Stop the dev server. In the terminal with your Vercel keys, preview the build locally:
 
 ```bash [commands/server]
 pnpm vite preview --port 4173
 ```
 
-Call the route again from the second terminal. The preview uses port 4173:
+Call the route on port 4173 from your second terminal:
 
 ```bash [commands/request-built]
 curl -X POST http://localhost:4173/api/image-optimizer \
@@ -195,7 +196,7 @@ curl -X POST http://localhost:4173/api/image-optimizer \
   -d '{"width":1024,"height":768}'
 ```
 
-You get the same JSON as before.
+You get the same JSON response.
 
 ::
 
@@ -203,14 +204,14 @@ You get the same JSON as before.
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/sandbox/configure"}
-Set up package projects and see every task option.
+Set up package projects and review all task options.
 :::
 
 :::card{title="Limits and errors" icon="i-lucide-triangle-alert" to="/docs/sandbox/limits-and-errors"}
-Set timeouts and handle failed runs.
+Configure timeouts and handle failed runs.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts"}
-Compare Vercel and Cloudflare before you change provider.
+Compare Vercel and Cloudflare before switching providers.
 :::
 ::

@@ -7,9 +7,7 @@ navigation.order: 201
 icon: i-lucide-file-text
 ---
 
-Use these resources when a coding agent writes or changes your app. You do not
-need them when you code by hand. An agent can use more than one: the skill
-gives it a process, and the MCP server gives it live lookups.
+Use these resources when a coding agent writes or changes your app. You do not need them when you code by hand. An agent can use more than one. The skill gives it a process, and the MCP server gives it live lookups.
 
 ## Choose by task
 
@@ -29,24 +27,24 @@ npx skills add https://vitehub.dev --skill vitehub --agent claude-code
 claude mcp add --transport http vitehub https://vitehub.dev/mcp
 ```
 
-Then ask for a result, not a package recipe:
+Then ask for the result you want, not a package recipe:
 
 ```txt [Prompt]
 Add durable rate limiting to this server route with ViteHub and prove it locally.
 ```
 
-For Cursor, VS Code, Windsurf, and Codex, the [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/console/mcp) have a snippet for each.
+The [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/console/mcp) have a snippet for Cursor, VS Code, Windsurf, and Codex.
 
 ## Load a documentation index
 
-Each index links every docs page to its raw Markdown version. Raw pages, `llms-full.txt`, and the MCP server hold all the site text plus agent-only notes that the site hides: routing hints, exact commands, and common agent mistakes.
+Each index links every docs page to its raw Markdown version. Raw pages, `llms-full.txt`, and the MCP server include all site text, plus agent-only notes that the site hides: routing hints, exact commands, and common agent mistakes.
 
 | URL | Content |
 | --- | --- |
 | `https://vitehub.dev/llms.txt` | Every docs page, plus trust and developer resources. Start here. |
 | `https://vitehub.dev/llms-full.txt` | The complete documentation in one file. |
 
-Give the agent the index and let it pick only the pages the task needs. An app that uses KV and Queue without Agents needs only those two pages:
+Give the agent `llms.txt` and let it load only the pages the task needs. An app using KV and Queue without Agents only needs those two pages:
 
 ```txt [Agent flow]
 1. Read https://vitehub.dev/llms.txt.
@@ -69,9 +67,8 @@ Use `llms-full.txt` for a broad audit, not routine work. One raw page usually gi
 | [ViteHub MCP server](/docs/console/mcp) | `https://vitehub.dev/mcp`, the Streamable HTTP endpoint for MCP clients. |
 | [ViteHub CLI on npm](https://www.npmjs.com/package/vite-hub) | The `vite-hub` package includes the official `vitehub` command. |
 
-The OpenAPI document describes `vitehub.dev`, not a hosted runtime API.
-ViteHub runs inside your app, so your endpoints come from the Agent Definitions, Channels, and server routes you declare.
+The OpenAPI spec describes `vitehub.dev`, not a hosted runtime API. ViteHub runs inside your app, so your endpoints come from the Agent Definitions, Channels, and server routes you define.
 
 ::note
-The docs describe the current published release. When an example and the installed package differ, follow the installed exports and types, and ask the agent to report the difference.
+The docs describe the current published release. If an example and your installed package differ, follow the installed exports and types and have the agent report the difference.
 ::

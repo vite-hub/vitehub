@@ -18,7 +18,6 @@ type GeneratedSandboxTaskRuntimeRegistryEntry = {
 type GeneratedSandboxTaskRuntimeRegistry = Record<string, GeneratedSandboxTaskRuntimeRegistryEntry>
 
 let sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined
-let sandboxTaskDevelopment = false
 let sandboxTaskLocalProvider: (() => Promise<ResolvedTaskSandbox>) | undefined
 let sandboxTaskRegistry: SandboxTaskRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxTaskRuntimeRegistry>()
@@ -87,15 +86,6 @@ export function setSandboxTaskRuntimeConfig(config: false | AgentSandboxTaskConf
   sandboxTaskConfig = config
 }
 
-/** `vite dev` sets this. Task error Responses then keep the stack and process output. */
-export function isSandboxTaskRuntimeDevelopment() {
-  return sandboxTaskDevelopment
-}
-
-export function setSandboxTaskRuntimeDevelopment(development: boolean) {
-  sandboxTaskDevelopment = development
-}
-
 /** The provider that runs Sandbox Tasks on this machine. Only the `vite dev` facade sets it. */
 export function getSandboxTaskRuntimeLocalProvider() {
   return sandboxTaskLocalProvider
@@ -114,7 +104,6 @@ export function setSandboxTaskRuntimeRegistry(registry: SandboxTaskRuntimeRegist
 
 export function resetSandboxTaskRuntimeState() {
   sandboxTaskConfig = undefined
-  sandboxTaskDevelopment = false
   sandboxTaskLocalProvider = undefined
   sandboxTaskRegistry = undefined
   generatedRegistries.clear()

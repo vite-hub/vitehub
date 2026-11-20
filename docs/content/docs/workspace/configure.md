@@ -28,7 +28,7 @@ A file in `server/workspaces/` turns on Workspace, so you do not add a `workspac
 | Memory | `{ driver: 'memory' }` | Temporary storage for tests or short-lived runtimes. |
 | Cloudflare Artifacts | `{ driver: 'cloudflare', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
 | Vercel Blob | `{ driver: 'vercel', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
-| GitHub | `{ driver: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
+| GitHub | `{ driver: 'github', repo?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
 | Custom | `WorkspaceStore` | Your own implementation of the Store contract. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host. Pass the returned Store to a Workspace Definition. |
 
@@ -53,6 +53,7 @@ GitHub Stores also keep other answers, so a read asks GitHub only for what chang
 - A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
 - History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
 - `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
+- `history.open(id).lastChanged(paths)` checks up to 100 paths per GraphQL request. It returns changes it can confirm on the first-parent history and omits paths it cannot confirm. Confirmed answers also go to KV.
 
 One GitHub Store serves every request of an instance, and it keeps writes until `workspace.snapshot()`. When a request, a Schedule run, or a Queue job throws before its snapshot, the Store forgets its writes, so the next snapshot does not commit them. Two requests that run at the same time share their writes until one of them snapshots.
 
@@ -152,7 +153,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 export default defineWorkspace({
   store: {
     driver: 'github',
-    repository: 'acme/docs',
+    repo: 'acme/docs',
     branch: 'main',
     root: '',
     refs: { published: 'main', draft: 'vitehub/content' },
@@ -313,7 +314,7 @@ import does not change it:
   `markdown()` from `vite-hub/workspace` or `vite-hub/source`, and to the
   `'README.md'` and `{ path }` shorthands. `readme: file('README.md')` appears
   at `README.md`.
-- `fetch()` also puts its one file at its own path.
+- `url()` also puts its one file at its own path.
 - Every other Source mounts under its binding key. `docs: glob({ ... })` puts
   the key `intro.md` at `docs/intro.md`.
 
@@ -361,9 +362,9 @@ Without `sources`, it selects every Source with `materialize: 'startup'`. A fail
 
 The state is readiness for this process only. It is not an ongoing upstream health or liveness signal.
 
-### Fetch Sources
+### URL Sources
 
-`fetch(options)` declares a Source that reads one HTTP URL. With `workspacePath`, the response appears at one read-only path. Without it, the Source is request-only, for runtime Source request integrations. `fetch(resolver)` receives the Source Resolution Context of the current invocation and returns the same options, or `false`, `null`, or `undefined`.
+`url(options)` declares a Source that reads one HTTP URL. With `workspacePath`, the response appears at one read-only path. Without it, the Source is request-only, for runtime Source request integrations. `url(resolver)` receives the Source Resolution Context of the current invocation and returns the same options, or `false`, `null`, or `undefined`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -386,13 +387,13 @@ The state is readiness for this process only. It is not an ongoing upstream heal
 | `probeKeys` | `string[]` | inferred from `workspacePath` | Overrides the known Source item keys. |
 | `sync` | `boolean \| WorkspaceSourceSyncPolicy` | `false` | Allows explicit Source Sync. |
 
-A plain object Source with `url` counts as Fetch. In that form, `path` sets the Workspace path. Without `path` or `workspacePath`, ViteHub makes a file path from a URL with no query. For a request-only Source, use `fetch()`.
+A plain object Source with `url` counts as a URL Source. In that form, `path` sets the Workspace path. Without `path` or `workspacePath`, ViteHub makes a file path from a URL with no query. For a request-only Source, use `url()`.
 
 ## Resolve custom Sources
 
 Use `custom({ files })` when a Custom Source knows its paths before it loads content. It lists the paths without loading content, and a path-scoped read calls only that file's `content` callback.
 
-Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `fetch(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
+Per-invocation resolution belongs in Source helpers and custom Source definitions, not in the binding. Use a resolver form such as `url(resolver)`, then add binding options such as `mount`, `cache`, or `sync` around it.
 
 ```ts [server/workspaces/support.ts]
 import { custom, defineWorkspace } from 'vite-hub/workspace'

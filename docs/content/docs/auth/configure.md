@@ -34,12 +34,13 @@ export default defineAuth({
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
-| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
+| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open, with the Auth route `<basePath>/**`, which is always public. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
 | `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
-| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. Also serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
+| `access.signIn` | `string` or `{ provider, errorCallbackURL?, requestSignUp?, scopes? }` | `'/login'` | Where a signed-out visitor signs in. A path is your sign-in page, which the [Nuxt page guard](/docs/auth/protect-pages#choose-where-visitors-go) opens. A provider is also where `withAuth()` and `requireAuth()` send HTML requests, and it serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
+| `access.afterSignIn` | `string` | `'/'` | Where a provider sign-in without `?redirect=` comes back to, and where the page guard sends signed-in users from `'guest'` pages. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes`, `access.public`, `access.signIn`, and `access.afterSignIn` must be static so the Vite integration can register middleware and the page guard.
 
 ### Secret
 
@@ -538,7 +539,7 @@ export default defineAuth({
 - Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
 - Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
 - The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
-- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- `accessToken` is stored on the account, so server code can use it, for example with [`checkGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
 - Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
 - When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
 

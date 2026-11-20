@@ -65,15 +65,15 @@ icon: i-lucide-waypoints
   :::
 
   :::product-feature-item{title="Ask typed questions" icon="i-lucide-list-checks" to="/docs/gateways/server-api#ask-questions"}
-  `ask()` sends questions to TypeSafe Jev, and TypeScript infers each answer type.
+  `ask()` sends questions to TypeSafe Jev and TypeScript infers each answer type.
   :::
 
   :::product-feature-item{title="A preset for each provider" icon="i-lucide-waypoints" to="/docs/gateways/configure#presets"}
-  Vercel, Cloudflare, OpenRouter, LiteLLM, CLIProxyAPI, Ollama, OpenAI, Anthropic, and TypeSafe. The type tells what each one serves.
+  Presets cover Vercel, Cloudflare, OpenRouter, LiteLLM, CLIProxyAPI, Ollama, OpenAI, Anthropic, and TypeSafe. The type tells what each one serves.
   :::
 
   :::product-feature-item{title="Keys stay on the server" icon="i-lucide-key-round" to="/docs/gateways/configure#credentials"}
-  A preset reads its key for each request, so a rotated key applies at once.
+  Presets read their API key on each request, so rotated keys apply at once.
   :::
 
   :::product-feature-item{title="No framework code" icon="i-lucide-box" to="/docs/gateways/server-api"}

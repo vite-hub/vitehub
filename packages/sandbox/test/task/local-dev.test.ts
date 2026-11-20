@@ -66,12 +66,15 @@ describe("Sandbox Tasks in vite dev", () => {
       const runner = await app.task.resolveSandboxTaskRunner("release-notes")
       expect(runner.executionAuthority).toMatchObject({ isolation: "none", filesystem: { scope: "host" } })
 
-      const response = await app.task.runSandboxTask("release-notes", { notes: "Added digest\nFixed invite" })
-      const result = await response.json() as { items: string[], pid: number }
-      expect(response.status, JSON.stringify(result)).toBe(200)
-      expect(result.items).toEqual(["Added digest", "Fixed invite"])
-      expect(result.pid).not.toBe(process.pid)
-      expect(result).toMatchObject({ home: "/tmp/tool-home", appHome: "release-notes" })
+      const [error, result] = await app.task.runSandboxTask("release-notes", { notes: "Added digest\nFixed invite" })
+      expect(error?.cause ?? error).toBeUndefined()
+      expect(result).toMatchObject({
+        items: ["Added digest", "Fixed invite"],
+        pid: expect.any(Number),
+        home: "/tmp/tool-home",
+        appHome: "release-notes",
+      })
+      expect(result).not.toMatchObject({ pid: process.pid })
     }
     finally {
       await app.close()
@@ -89,9 +92,8 @@ describe("Sandbox Tasks in vite dev", () => {
         code: "SANDBOX_TASK_LOCAL_NETWORK_POLICY",
         fix: expect.stringContaining("remote: true"),
       })
-      const response = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
-      expect(response.status).toBe(500)
-      expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_LOCAL_NETWORK_POLICY" } })
+      const [error] = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
+      expect(error).toMatchObject({ status: 500, data: { code: "SANDBOX_TASK_LOCAL_NETWORK_POLICY" } })
     }
     finally {
       await app.close()
@@ -108,9 +110,8 @@ describe("Sandbox Tasks in vite dev", () => {
   it("uses the host's Sandbox with remote: true", async () => {
     const app = await startDevApp({ driver: "cloudflare", remote: true })
     try {
-      const response = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
-      expect(response.status).toBe(500)
-      expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_R0071" } })
+      const [error] = await app.task.runSandboxTask("release-notes", { notes: "Added digest" })
+      expect(error).toMatchObject({ status: 500, data: { code: "SANDBOX_TASK_R0071" } })
     }
     finally {
       await app.close()
@@ -126,7 +127,7 @@ describe("Sandbox Tasks in vite dev", () => {
     await configResolved({ root, resolve: { alias: [] } })
 
     const facade = await readFile(join(root, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"), "utf8")
-    expect(facade).toContain("setSandboxTaskRuntimeDevelopment(false)")
+    expect(facade).not.toContain("setSandboxTaskRuntimeLocalProvider")
     expect(facade).not.toContain("providers/local")
   })
 })

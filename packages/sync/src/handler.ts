@@ -56,6 +56,14 @@ export interface SyncServices {
    */
   live?: { interval?: number, seconds?: number, calls?: number }
   /**
+   * Pushes. `calls` is the most Database calls of one push, where a batch is one call (default 40). A plain write makes
+   * 2: the read of its row and its batch. The server applies the mutations in order. Before a call that would leave no
+   * room for the answer, it stops, and the mutation that it was checking goes in the next push with the others, which is
+   * a new Worker invocation. The budget does not count request setup or stop the first mutation, so a long queue
+   * can drain when each mutation fits in its own Worker invocation.
+   */
+  push?: { calls?: number }
+  /**
    * The Sync definitions of the app by name, so an action can write another one with `sync(name)`, and the live stream
    * serves each of them. A ViteHub app passes every definition of `server/sync/`. They all use the Database of `db`.
    */
@@ -73,6 +81,11 @@ interface Resolved {
   now: number
   version: string
   services: SyncServices
+  /**
+   * The Database calls of the request so far, where a batch is one call, and the most that it may make. Every scope of
+   * the request shares it.
+   */
+  calls: { count: number, limit: number }
 }
 
 interface Scoped extends Resolved {
@@ -86,6 +99,10 @@ interface Held {
   cursor?: number | undefined
   scope?: string | undefined
   version?: string | undefined
+  /** The client takes a snapshot in pages. */
+  paged?: boolean | undefined
+  /** The key after which the snapshot of the client goes on. */
+  after?: SyncKey | undefined
 }
 
 const compactions = new WeakMap<SyncServices, Map<string, number>>()
@@ -182,10 +199,10 @@ async function whereOf(resolved: Resolved, context: SyncContext): Promise<[Refus
 }
 
 /** Before any rows go out or change, the triggers must record a move of each column that the scope uses. */
-async function captureScope(resolved: Resolved, whereValues: SyncValues): Promise<void> {
+async function captureScope(resolved: Resolved, whereValues: SyncValues, reserve?: (calls: number) => void): Promise<void> {
   const { table } = resolved
   const subsets: readonly string[] = resolved.definition.options.subsets ?? []
-  await captureChanges(resolved.services.db, resolved.db, table.name, column(table, table.key).name, [...new Set([...Object.keys(whereValues), ...subsets])].map(name => column(table, name).name))
+  await captureChanges(resolved.services.db, resolved.db, table.name, column(table, table.key).name, [...new Set([...Object.keys(whereValues), ...subsets])].map(name => column(table, name).name), reserve)
 }
 
 /** The definition of a Sync name, for `sync(name)` in an action. */
@@ -204,11 +221,11 @@ async function otherScope(scoped: Scoped, name: string): Promise<[Refusal, undef
   const { services } = scoped
   const found = definitionOf(scoped, name)
   const table = describeSyncTable(found.options.table)
-  const resolved: Resolved = { name, definition: found, table, db: scoped.db, now: scoped.now, version: await syncTableVersion(table), services }
+  const resolved: Resolved = { name, definition: found, table, db: scoped.db, now: scoped.now, version: await syncTableVersion(table), services, calls: scoped.calls }
   const context = found.options.identify === scoped.definition.options.identify ? scoped.context : await callerContext(resolved, scoped.context.request, services)
   const [refused, values] = await whereOf(resolved, context)
   if (refused) return [refused, undefined]
-  await captureScope(resolved, values)
+  await captureScope(resolved, values, calls => spend(scoped, calls))
   return [undefined, { ...resolved, context, scope: { id: await fingerprint(`${name}\n${canonical(values)}`), values }, account: scoped.account }]
 }
 
@@ -284,13 +301,54 @@ function floorQuery(db: SyncDatabase, table: string) {
   return db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.tableName, table))
 }
 
-/** A full snapshot of the scope, with the newest `seq` of the table as its cursor. */
-function snapshotPart(scoped: Scoped): Part<SyncPullResponse> {
+/** The rows of the scope after `after`, by key, at most one page and one row more. */
+function pageQuery(scoped: Scoped, after: SyncKey | undefined) {
+  const keyColumn = column(scoped.table, scoped.table.key)
+  return scoped.db.select().from(scoped.table.table)
+    .where(and(scopeSql(scoped.table, scoped.scope.values), after === undefined ? undefined : gt(keyColumn, after)))
+    .orderBy(asc(keyColumn))
+    .limit(pageSize + 1)
+}
+
+/** One page of rows, and the `after` of the next page, or `null` after the last one. */
+function pageOf(rows: Record<string, unknown>[], key: string): { rows: Record<string, unknown>[], after: SyncKey | null } {
+  const page = rows.slice(0, pageSize)
+  return { rows: page, after: rows.length > pageSize ? String(page.at(-1)![key]) : null }
+}
+
+/**
+ * A full snapshot of the scope, with the newest `seq` of the table as its cursor. A paged snapshot holds the first page
+ * of rows by key.
+ */
+function snapshotPart(scoped: Scoped, paged = false): Part<SyncPullResponse> {
   const { db, scope, account, version } = scoped
   const { table, name, key, defaults } = scoped.table
+  const answer = (state: { floor: number }[], last: { seq: number | null }[]) => ({ key, scope, account, version, defaults, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, deleted: [] })
+  if (paged) {
+    return part([floorQuery(db, name), headQuery(db, name), pageQuery(scoped, undefined)], ([state, last, rows]) => {
+      const page = pageOf(rows, key)
+      return { ...answer(state, last), ...page, more: page.after !== null }
+    })
+  }
   return part([floorQuery(db, name), headQuery(db, name), db.select().from(table).where(scopeSql(scoped.table, scope.values))], ([state, last, rows]) => (
-    { key, scope, account, version, defaults, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, rows, deleted: [], more: false }
+    { ...answer(state, last), rows, more: false }
   ))
+}
+
+/**
+ * The next page of a paged snapshot, as the rows are now. It keeps the cursor of the client: the changes since then
+ * come with the next pull, so a row that changed during the snapshot is never missed.
+ */
+function snapshotPagePart(scoped: Scoped, cursor: number, after: SyncKey): Part<SyncPullResponse | undefined> {
+  const { db, scope, account, version } = scoped
+  const { name, key, defaults } = scoped.table
+  return part([floorQuery(db, name), headQuery(db, name), pageQuery(scoped, after)], ([state, last, rows]) => {
+    const lowest = state[0]?.floor ?? 0
+    const highest = Math.max(last[0]?.seq ?? 0, lowest)
+    if (cursor < lowest || cursor > highest) return undefined
+    const page = pageOf(rows, key)
+    return { key, scope, account, version, defaults, cursor, reset: false, ...page, deleted: [], more: page.after !== null || highest > cursor }
+  })
 }
 
 /**
@@ -301,7 +359,8 @@ function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined
   const { db, scope, account, version } = scoped
   const { table, name, key, defaults } = scoped.table
   const { cursor } = held
-  if (cursor === undefined || held.scope !== scope.id || held.version !== version) return snapshotPart(scoped)
+  if (cursor === undefined || held.scope !== scope.id || held.version !== version) return snapshotPart(scoped, held.paged)
+  if (held.paged && held.after !== undefined) return snapshotPagePart(scoped, cursor, held.after)
   const keyColumn = column(scoped.table, key)
   const where = scopeSql(scoped.table, scope.values)
   return part([
@@ -355,7 +414,7 @@ function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined
  */
 async function pullAll(db: SyncDatabase, pulls: readonly { scoped: Scoped, held: Held }[]): Promise<{ answers: SyncPullResponse[], calls: number }> {
   const answers = await runParts(db, pulls.map(({ scoped, held }) => pullPart(scoped, held)))
-  const snapshots = await runParts(db, pulls.flatMap(({ scoped }, index) => answers[index] ? [] : [snapshotPart(scoped)]))
+  const snapshots = await runParts(db, pulls.flatMap(({ scoped, held }, index) => answers[index] ? [] : [snapshotPart(scoped, held.paged)]))
   const calls = (pulls.length ? 1 : 0) + (snapshots.length ? 1 : 0)
   return { answers: answers.map(answer => answer ?? snapshots.shift()!), calls }
 }
@@ -433,6 +492,7 @@ type Reads = Map<string, { scoped: Scoped, key: SyncKey, scopedOnly: boolean, js
 
 async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?: Reads): Promise<Record<string, unknown> | undefined> {
   const { db, table } = scoped
+  spend(scoped)
   const [found] = await db.select({ row: getTableColumns(table.table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
     .where(and(eq(column(table, table.key), key), scopedOnly ? scopeSql(table, scoped.scope.values) : undefined))
     .limit(1)
@@ -488,6 +548,7 @@ function ledgerStatement({ db, name, now }: Scoped, id: string, guard: SQL | und
 }
 
 async function guardHolds(scoped: Scoped, guard: SQL): Promise<boolean> {
+  spend(scoped)
   const row = await scoped.db.get<{ ok: number }>(sql`SELECT CASE WHEN ${guard} THEN 1 ELSE 0 END AS ok`)
   return row?.ok === 1
 }
@@ -609,11 +670,38 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
   return [undefined, [db.update(target).set(patch).where(inScope)]]
 }
 
+/** Thrown before a Database call that would pass the call budget of a push. The mutation then goes in the next push. */
+const deferred = new Error("The push reached its Database call budget.")
+
+function spend(scoped: Scoped, calls = 1): void {
+  if (scoped.calls.count + calls > scoped.calls.limit) {
+    scoped.calls.limit = scoped.calls.count
+    throw deferred
+  }
+  scoped.calls.count += calls
+}
+
+function duplicateOf(id: string, result: string | null): SyncMutationResult {
+  return result === null ? { id, status: "duplicate" } : { id, status: "duplicate", result: JSON.parse(result) }
+}
+
 /** The answer for a mutation id that the server applied before, with the stored result of an action, or `undefined`. */
 async function duplicate(scoped: Scoped, id: string): Promise<SyncMutationResult | undefined> {
+  spend(scoped)
   const [done] = await scoped.db.select({ result: syncMutations.result }).from(syncMutations).where(eq(syncMutations.id, id)).limit(1)
-  if (!done) return undefined
-  return done.result === null ? { id, status: "duplicate" } : { id, status: "duplicate", result: JSON.parse(done.result) }
+  return done ? duplicateOf(id, done.result) : undefined
+}
+
+/**
+ * The mutation ids of a push that the server applied before, with their answers, in one Database call. The ids are one
+ * `json_each()` parameter, so D1's limit of 100 parameters never applies.
+ */
+async function duplicates(scoped: Scoped, ids: readonly string[]): Promise<Map<string, SyncMutationResult>> {
+  if (!ids.length) return new Map()
+  spend(scoped)
+  const done = await scoped.db.select({ id: syncMutations.id, result: syncMutations.result }).from(syncMutations)
+    .where(sql`${syncMutations.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`)
+  return new Map(done.map(({ id, result }) => [id, duplicateOf(id, result)]))
 }
 
 /** An action as the handler calls it, with a loose row type. */
@@ -723,6 +811,7 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
     result = await action(context, mutation.args)
   }
   catch (error) {
+    if (error === deferred) throw error
     return [actionRefusal(mutation.name, error), undefined]
   }
   finally {
@@ -755,12 +844,15 @@ const maxConflicts = 3
  * the whole batch, and the rows stay as they are. When a write that ran at the same time changed a row that the checks
  * read, the batch fails, and the mutation is checked again from the start.
  */
-async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string>): Promise<SyncMutationResult> {
+async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string>, applied: Map<string, SyncMutationResult>): Promise<SyncMutationResult> {
   const { id } = mutation
-  const before = await duplicate(scoped, id)
+  const before = applied.get(id)
   if (before) return before
   // An action is server code, so `write: false` does not stop the writes of the definition's own actions.
   if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
+  // `applied` was read when the push started. A push that runs at the same time can apply the id after that, and then
+  // its row makes the checks refuse the mutation.
+  const refuse = async (refusal: Refusal) => await duplicate(scoped, id) ?? rejected(id, refusal)
   for (let attempt = 1; ; attempt++) {
     const reads: Reads = new Map()
     let statements: Statement[]
@@ -768,20 +860,22 @@ async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string
     let tables = new Set<string>()
     if (mutation.op === "action") {
       const [refused, done] = await runAction(scoped, mutation, reads)
-      if (refused) return rejected(id, refused)
+      if (refused) return await refuse(refused)
       statements = done.statements
       result = done.result
       tables = done.tables
     }
     else {
       const [refused, planned] = await plan(scoped, mutation, new Map(), reads)
-      if (refused) return rejected(id, refused)
+      if (refused) return await refuse(refused)
       statements = planned
     }
     const guard = guardSql(reads)
+    spend(scoped)
     try {
       await scoped.db.batch([ledgerStatement(scoped, id, guard, result), ...statements])
       for (const table of tables) touched.add(table)
+      applied.set(id, result === undefined ? { id, status: "duplicate" } : { id, status: "duplicate", result })
       return result === undefined ? { id, status: "applied" } : { id, status: "applied", result }
     }
     catch (error) {
@@ -806,6 +900,7 @@ async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string
  */
 async function compact(scoped: Scoped): Promise<void> {
   const { db, name, now } = scoped
+  spend(scoped)
   const table = scoped.table.name
   const removable = and(eq(syncChanges.tableName, table), ne(syncChanges.op, "put"), lt(syncChanges.createdAt, now - exitRetention))
   await db.batch([
@@ -839,6 +934,8 @@ const pushSchema = v.object({
   scope: v.optional(v.string()),
   version: v.optional(v.string()),
   where: v.optional(v.unknown()),
+  paged: v.optional(v.boolean()),
+  after: v.optional(v.pipe(v.string(), v.minLength(1))),
   mutations: v.array(v.unknown()),
 })
 
@@ -906,6 +1003,7 @@ const liveSchema = v.object({
     cursor: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     scope: v.optional(v.string()),
     version: v.optional(v.string()),
+    paged: v.optional(v.boolean()),
   })),
 })
 
@@ -940,7 +1038,7 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
   const once: SyncServices = identify ? { ...services, identify: request => caller ??= identify(request) } : services
   const entries: LiveEntry[] = []
   const refusals: SyncLiveEvent[] = []
-  for (const { name, where, cursor, scope, version } of body.output.pulls) {
+  for (const { name, where, cursor, scope, version, paged } of body.output.pulls) {
     const store = { name, ...(where ? { where } : {}) }
     const refuse = (error: Diagnostic) => refusals.push({ type: "error", ...store, error: wire({ error }) })
     const definition = Object.hasOwn(definitions, name) ? definitions[name] : undefined
@@ -960,7 +1058,7 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
     }
     const [stopped, scoped] = await resolveScope(resolved, request, once, subset)
     if (stopped) refuse(stopped.error)
-    else entries.push({ scoped, held: { cursor, scope, version }, store, more: false })
+    else entries.push({ scoped, held: { cursor, scope, version, paged }, store, more: false })
   }
   // The highest `seq` of the change log that the stream read.
   let seen = 0
@@ -1000,8 +1098,9 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
       calls += pulled.calls
       for (const [index, entry] of due.entries()) {
         const answer = pulled.answers[index]!
-        entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version }
-        entry.more = answer.more
+        entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version, paged: entry.held.paged }
+        // The client pulls the other pages of a snapshot itself.
+        entry.more = answer.after ? false : answer.more
         if (answer.reset || answer.rows.length || answer.deleted.length) events.push({ type: "pull", ...entry.store, pull: answer })
       }
       return { events, again: entries.some(entry => entry.more) }
@@ -1014,7 +1113,7 @@ async function resolve(name: string, definition: unknown, services: SyncServices
   // The handler reads rows as plain objects. `where` and `write` get the rows that the table returns.
   if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
   const table = describeSyncTable(definition.options.table)
-  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table), services }
+  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table), services, calls: { count: 0, limit: Number.POSITIVE_INFINITY } }
 }
 
 /**
@@ -1037,14 +1136,15 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
     if (wrong !== undefined) return badRequest(wrong)
     const [stopped, scoped] = await resolveScope(resolved, request, services, subset)
     if (stopped) return fail(stopped.status, stopped.error)
-    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined }))
+    const after = url.searchParams.get("after") || undefined
+    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined, paged: url.searchParams.get("paged") === "1", after }))
   }
 
   const [refused, raw] = await readJson(request, "push", "Send fewer mutations in one push.")
   if (refused) return refused
   const body = v.safeParse(pushSchema, raw)
   if (!body.success) return badRequest("The body must be a `SyncPushRequest`: `{ account, cursor?, scope?, version?, where?, mutations }`.")
-  const { account, cursor, scope: clientScope, version, mutations: input } = body.output
+  const { account, cursor, scope: clientScope, version, paged, after, mutations: input } = body.output
   if (input.length > syncPushLimit) return fail(413, syncErrors.SYNC_TOO_MANY_MUTATIONS({ count: input.length, limit: syncPushLimit }))
   const mutations: SyncMutation[] = []
   for (const item of input) {
@@ -1063,10 +1163,23 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
   const results: SyncMutationResult[] = []
   // Other tables that actions wrote.
   const touched = new Set<string>()
-  for (const mutation of mutations) results.push(await apply(scoped, mutation, touched))
+  const applied = await duplicates(scoped, mutations.map(mutation => mutation.id))
+  for (const mutation of mutations) {
+    try {
+      results.push(await apply(scoped, mutation, touched, applied))
+    }
+    catch (error) {
+      if (error === deferred) break
+      throw error
+    }
+    // The budget does not stop the first mutation. Each later one stops before a call that leaves no room for compaction
+    // and the pull of the answer, up to 3 calls, and goes in the next push.
+    scoped.calls.limit = (services.push?.calls ?? 40) - 3
+  }
+  scoped.calls.limit = Number.POSITIVE_INFINITY
   if (results.some(result => result.status === "applied")) {
     for (const name of [table.name, ...touched]) wakeLiveStreams(services.db, name)
     await maybeCompact(scoped, services)
   }
-  return json(200, { results, pull: await pull(scoped, { cursor, scope: clientScope, version }) })
+  return json(200, { results, pull: await pull(scoped, { cursor, scope: clientScope, version, paged, after }) })
 }

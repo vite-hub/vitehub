@@ -27,7 +27,7 @@ import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const sandboxTaskRuntimeStateSpecifier = '@vite-hub/sandbox/task/runtime/state'
-export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/_internal/task/runtime'
+export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/internal/task/runtime'
 export const sandboxTaskRuntimeProviderSpecifiers = {
   cloudflare: `${sandboxTaskRuntimeSpecifier}/providers/cloudflare`,
   vercel: `${sandboxTaskRuntimeSpecifier}/providers/vercel`,

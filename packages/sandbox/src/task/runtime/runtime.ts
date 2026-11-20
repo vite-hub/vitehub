@@ -15,8 +15,8 @@ import {
   resolveTaskSandbox,
   withSandboxTaskProvider,
 } from './provider-resolution'
-import { err, ok } from './result'
-import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeLocalProvider, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
+import { runFailed } from './result'
+import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeLocalProvider, getSandboxTaskRuntimeRegistry, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
 
 import type {
   AgentSandboxTaskConfig,
@@ -289,16 +289,16 @@ export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknow
   name?: string,
   payload?: TPayload,
   options?: SandboxTaskExecutionOptions,
-): Promise<SandboxTaskRunResult> {
+): Promise<SandboxTaskRunResult<TResult>> {
   try {
     options?.signal?.throwIfAborted()
     const sandbox = await resolveSandboxTaskRunner<TPayload | undefined, TResult>(name)
-    return await ok(await sandbox.run(payload, options))
+    return [undefined, await sandbox.run(payload, options)]
   }
   catch (error) {
     if (options?.signal?.aborted)
       throw options.signal.reason ?? error
-    return err(toSandboxTaskError(error), isSandboxTaskRuntimeDevelopment())
+    return [runFailed(name ?? '', toSandboxTaskError(error)), undefined]
   }
 }
 

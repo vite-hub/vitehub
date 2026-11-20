@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `url`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
 | `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
@@ -168,7 +168,7 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. On the GitHub Store, revisions from `head()` and `list()` have no `files` and `bytes`, because counting them needs one more request per commit. `open(id).revision` has them. |
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
-| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 

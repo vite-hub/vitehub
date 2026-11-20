@@ -195,7 +195,6 @@ function createSandboxTaskRuntimeFacadeContents(
   file: string,
   runtimeConfig: AgentSandboxTaskConfig | false,
   registryFile: string,
-  development: boolean,
   localDev: boolean,
   providerLoaderImport?: string,
 ) {
@@ -204,10 +203,9 @@ function createSandboxTaskRuntimeFacadeContents(
     ...(providerLoaderImport
       ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(providerLoaderImport)}`]
       : []),
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, ${localDev ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
+    `import { setSandboxTaskRuntimeConfig, ${localDev ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
-    `setSandboxTaskRuntimeDevelopment(${development})`,
     // A dynamic import keeps `node:child_process` out of the dev server until a Task runs locally.
     ...(localDev
       ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
@@ -524,7 +522,6 @@ export async function prepareSandboxTaskRuntime(options: {
       file,
       context.runtimeConfig.sandboxTask,
       registryFile,
-      context.command === 'serve',
       localDev,
       providerLoaderImport,
     ),
