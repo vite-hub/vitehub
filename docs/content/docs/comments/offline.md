@@ -84,7 +84,7 @@ When the app is open in several tabs, one tab sends. The others hear each change
 | `dismiss(id)` | Removes the entry. A comment takes its waiting replies with it. |
 | `clear()` | Removes every entry of the account, such as at sign-out. It cannot cancel a request already sent. |
 
-`edit` and `dismiss` return `false` while the entry is on its way or if the server may already have it after a lost answer. In those cases, `comments.edit()` and `comments.delete()` fail with `COMMENTS_OUTBOX_SENDING`. Wait for the server copy, then edit or delete it.
+`edit` and `dismiss` return `false` while the entry is on its way or if the server may already have it after a lost write answer. A later refusal does not unlock it. Retry to recover the server copy, then edit or delete it. A lost attachment upload or thread lookup answer does not lock the draft on its own. When the draft is locked, `comments.edit()` and `comments.delete()` fail with `COMMENTS_OUTBOX_SENDING`.
 
 `comments.onChange()` tells every change of the outbox. `comments.start()` also sends what an earlier page saved.
 

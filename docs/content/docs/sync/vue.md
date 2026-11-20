@@ -203,7 +203,7 @@ Each write belongs to the account that was signed in when it was made: the user 
 
 Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
 
-With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync()` for you, after the server ended the session and before the next page opens. In a Vue app without Nuxt, add it once with `onSignOut()`:
+With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync({ keepWrites: true })` for you, after the server ended the session and before the next page opens. Signing in again also retries writes from subsets that are no longer open. A write made before the first pull waits for the same Auth user; that user's first pull establishes the Sync account, including for definitions with `identify`. To drop every queued write on sign-out instead, add `onSignOut(() => clearSync())` in a plugin: it runs after the one of ViteHub. In a Vue app without Nuxt, add it once with `onSignOut()`:
 
 ```ts [src/main.ts] fragment
 import { onSignOut } from 'vite-hub/auth/vue'
@@ -225,14 +225,18 @@ export async function signOutEverywhere() {
 
 If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
 
-To clear the rows and keep the writes that wait, such as changes that a person made offline, pass `keepWrites: true`. Each write stays in IndexedDB with its account, hidden from the next person, and goes out when its person signs in again. Its promise stays pending until then. A write made before the first pull has no account, so it goes with the rows:
+To clear the rows and keep the writes that wait, such as changes that a person made offline, pass `keepWrites: true`. Each write stays in IndexedDB with its account, hidden from the next person, and goes out when its person signs in again. Its promise stays pending until then. A write made before the first pull belongs to the user that `setSyncUser()` named, with the id that `user.id` has on the server. Without one, it has no account, so it goes with the rows:
 
 ```ts [app/composables/sign-out.ts] fragment
-import { clearSync } from 'vite-hub/sync/client'
+import { clearSync, setSyncUser } from 'vite-hub/sync/client'
+
+// After each sign-in, and on start once the session is known.
+setSyncUser(user.id)
 
 export async function signOut() {
   await $fetch('/api/logout', { method: 'POST' })
   await clearSync({ keepWrites: true })
+  setSyncUser(null)
 }
 ```
 

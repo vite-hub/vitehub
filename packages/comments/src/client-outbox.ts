@@ -2,6 +2,7 @@
 // shows, and goes to the server one at a time, in order, with its `requestId` as the retry key. One tab sends at a time.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
+import { failedCommentPreparation } from "./client-files.ts"
 import { replyMessageId } from "./reply-id.ts"
 
 import type { BrowserEnvironment } from "@vite-hub/internal/browser-environment"
@@ -37,7 +38,7 @@ interface CommentsOutboxEntryBase {
   createdAt: number
   /** The place in the queue. */
   order: number
-  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry`, `edit`, or `dismiss`. */
+  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry` or a safe `edit` or `dismiss`. */
   status: "pending" | "sending" | "failed"
   /** Why the last try did not go out. */
   error?: CommentDeliveryError
@@ -47,6 +48,10 @@ interface CommentsOutboxEntryBase {
   retryAt?: number
   held?: boolean
   uploaded?: string[]
+}
+
+function changeable(entry: CommentsOutboxEntryBase) {
+  return entry.status !== "sending" && !entry.uncertain
 }
 
 /** A comment or reply that the outbox holds. */
@@ -426,21 +431,24 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       if (current && current.claim === entry.claim) return change(current, drafts)
     })
     let thread: CommentThread
+    let writing = false
+    const outbox: NonNullable<CommentFiles["outbox"]> = {
+      account,
+      async uploaded(key) {
+        const saved = await withClaim((current, drafts) => drafts.set(entry.id, { ...current, uploaded: [...(current.uploaded ?? []), key] }))
+        if (!saved) throw new DOMException("This draft is no longer in the outbox.", "AbortError")
+      },
+    }
     try {
       const files: CommentFiles = {
         files: entry.files.slice(entry.uploaded?.length ?? 0),
-        outbox: {
-          account,
-          async uploaded(key) {
-            const saved = await withClaim((current, drafts) => drafts.set(entry.id, { ...current, uploaded: [...(current.uploaded ?? []), key] }))
-            if (!saved) throw new DOMException("This draft is no longer in the outbox.", "AbortError")
-          },
-        },
+        outbox,
       }
       const attachments = [...(entry.input.attachments ?? []), ...(entry.uploaded ?? [])]
       const extra = { ...files, requestId: entry.requestId, ...(attachments.length ? { attachments } : {}) }
       if (entry.kind === "create") {
         if (!await withClaim(() => true)) return
+        writing = true
         thread = await host.transport.create({ ...entry.input, ...extra })
       }
       else {
@@ -448,17 +456,20 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         const subject = entry.subject ?? serverThread(threadId)?.subject ?? (files.files?.length ? (await host.transport.get({ id: threadId }))?.subject : undefined)
         if (files.files?.length && !subject) throw Object.assign(new Error("The thread for this reply does not exist."), { status: 404 })
         if (!await withClaim(() => true)) return
+        writing = true
         thread = await host.transport.reply({ ...entry.input, ...extra, threadId, ...(subject ? { subject } : {}) })
       }
     }
     catch (cause) {
+      const preparation = failedCommentPreparation.get(outbox)
+      const beforeWrite = preparation !== undefined && Object.is(preparation.cause, cause)
       const { retryAfter, ...error } = deliveryError(cause)
       const outcome = outcomeOf(error.status)
       const attempts = entry.attempts ?? 0
       const saved = await withClaim((current, drafts) => drafts.set(entry.id, {
         ...current,
         status: outcome === "fail" ? "failed" : "pending",
-        uncertain: entry.uncertain || (outcome === "wait" && error.status !== 429),
+        uncertain: entry.uncertain || (writing && !beforeWrite && outcome === "wait" && error.status !== 429),
         held: outcome === "hold",
         retryAt: outcome === "wait" ? Date.now() + Math.max(1, retryAfter ?? backoffDelay(attempts, environment.random())) : undefined,
         attempts: attempts + 1,
@@ -616,7 +627,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async dismiss(id) {
       const removed = await update((drafts) => {
         const entry = drafts.get(id)
-        if (!entry || entry.status === "sending" || entry.uncertain) return false
+        if (!entry || !changeable(entry)) return false
         if (entry.kind === "create") {
           for (const reply of drafts.values()) if (reply.kind === "reply" && reply.input.threadId === id) drafts.delete(reply.id)
         }
@@ -631,7 +642,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async edit(id, body, mentions) {
       const edited = await update((drafts) => {
         const entry = drafts.get(id)
-        if (!entry || entry.status === "sending" || entry.uncertain) return false
+        if (!entry || !changeable(entry)) return false
         const fields = { body, ...(mentions ? { mentions } : {}) }
         if (entry.kind === "create") drafts.set(id, { ...entry, input: { ...entry.input, ...fields }, status: "pending", error: undefined })
         else drafts.set(id, { ...entry, input: { ...entry.input, ...fields }, status: "pending", error: undefined })

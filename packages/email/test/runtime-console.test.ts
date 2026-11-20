@@ -90,8 +90,8 @@ describe("Email outbox runtime reader", () => {
     expect(shortHtml).toBe(message.html)
     const longHtml = long?.fields.find(field => field.label === "HTML source")?.value
     expect(typeof longHtml).toBe("string")
-    expect(String(longHtml)).toHaveLength(emailConsoleHtmlSourceLimit + "\n... 21 more characters. Use `vitehub email outbox show outbox-2 --html`.".length)
-    expect(String(longHtml)).toContain("Use `vitehub email outbox show outbox-2 --html`.")
+    expect(String(longHtml)).toHaveLength(emailConsoleHtmlSourceLimit + "\n... 21 more characters. Use `vitehub email outbox get outbox-2 --html`.".length)
+    expect(String(longHtml)).toContain("Use `vitehub email outbox get outbox-2 --html`.")
   })
 
   it("declares a runtime record-table section that the Console renders as text", async () => {

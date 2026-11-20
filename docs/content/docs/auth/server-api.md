@@ -72,7 +72,7 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, but only an `http:` or `https:` page. Better Auth's `callbackURL` option sets the page after that. With `disableRedirect: true`, `signOut()` returns that page in `data.url` and opens `redirectTo`.
 
-To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, it also adds `onSignOut(() => clearSync())`.
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, it also adds `onSignOut(() => clearSync({ keepWrites: true }))`.
 
 ```ts [src/main.ts] fragment
 import { onSignOut } from 'vite-hub/auth/vue'
@@ -345,6 +345,20 @@ The same callback protects [Blob serve routes](/docs/blob/configure#protect-serv
 The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. A route has no other pattern syntax: `*`, `:name`, `(`, `{`, and `?`, also when percent-encoded, and `.` or `..` segments fail with `AUTH_C0068`. A `GET` route also guards `HEAD`. The middleware reads the path as the Nitro router does, so `/api/billing/` and `/api/%62illing` match `/api/billing`. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
 The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
+
+Other generated ViteHub routes check access on every request, even without an app rule. These are Realtime and Comments, Blob signed links, Connections, MCP with `auth: true` and its `publicRoute`, the Content GitHub webhook, and the page tools session. Each runs a required `authorize` policy, an explicit `access` rule, a required access token, or a signature check. The access routes still apply to them, so an app rule such as an admin check stays in force. Routes that can run without a check stay unmarked: `/_vitehub/browser-errors`, Forms, Sync, Blob serve routes, and Agent webhooks. Middleware of your own that guards the whole app can skip the marked routes and the Console with `checksOwnAccess(event)`:
+
+```ts [server/middleware/members-only.ts]
+import { checksOwnAccess } from 'vite-hub/auth'
+import { defineHandler } from 'h3'
+
+export default defineHandler((event) => {
+  if (checksOwnAccess(event)) return
+  // Check the session of every other request here.
+})
+```
+
+The check reads the route that Nitro matched, so an app route file on the same path gets `false`.
 
 ### Make every route private
 

@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
@@ -39,15 +40,11 @@ it("registers Nuxt Schedules with Deno.cron in the Deno host output", async () =
   const root = await mkdtemp(join(cache, "nuxt-deno-schedule-"))
   try {
     const packageRoot = resolve(import.meta.dirname, "..")
-    const installedPackage = join(root, "node_modules/vite-hub")
-    await mkdir(installedPackage, { recursive: true })
-    await cp(join(packageRoot, "dist"), join(installedPackage, "dist"), { recursive: true })
-    await copyFile(join(packageRoot, "package.json"), join(installedPackage, "package.json"))
-    await symlink(join(packageRoot, "node_modules"), join(installedPackage, "node_modules"), "dir")
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
-    for (const name of ["@vite-hub/schedule", "nuxt", "vue"]) {
-      const target = await realpath(join(packageRoot, "node_modules", name))
+    // vite-hub is linked like a workspace package, with its tests and the temporary folders that other tests create.
+    for (const name of ["@vite-hub/schedule", "nuxt", "vite-hub", "vue"]) {
+      const target = name === "vite-hub" ? packageRoot : await realpath(join(packageRoot, "node_modules", name))
       await symlink(target, join(root, "node_modules", name), "dir")
     }
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module", dependencies: { "@vite-hub/schedule": "*", nuxt: "*", "vite-hub": "*", vue: "*" } }))
@@ -70,6 +67,10 @@ it("registers Nuxt Schedules with Deno.cron in the Deno host output", async () =
       tasks: { start: "deno run --unstable-cron -A ./main.ts" },
     })
     await expect(readFile(join(output, "schedule/deno-cron.mjs"), "utf8")).resolves.toContain("Deno.cron(")
+    // The retained Schedule sources hold vite-hub's published files, not its tests.
+    const retainedPackage = join(root, ".vitehub/schedule/sources/0/packages/vite-hub")
+    expect(existsSync(join(retainedPackage, "dist"))).toBe(true)
+    expect(existsSync(join(retainedPackage, "test"))).toBe(false)
     const { stdout } = await execFile("deno", ["eval", probe], { cwd: output, timeout: 60_000 })
     expect(JSON.parse(stdout.trim().split("\n").at(-1)!)).toEqual({
       crons: [{ name: "vitehub-0-heartbeat", schedule: "*/5 * * * *" }],
