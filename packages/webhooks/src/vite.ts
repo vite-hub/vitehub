@@ -331,11 +331,12 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
             : [],
         ]
       },
-      // The Queue may read this before the `config` hook below runs, so it writes the files itself.
+      // The Queue may read the handler before `config` runs. Only `config` owns the registry.
       async queues(context) {
         const { root, webhooks, features } = await usage(context)
         if ((!webhooks.length && !features.memberEndpoints) || !features.queue) return []
-        const files = writeWebhooksFiles(root, webhooks, imports, features)
+        const files = webhooksGeneratedFiles(root)
+        writeIfChanged(files.queue, renderWebhooksQueue(imports))
         return [{ name: webhooksQueueName, definition: { module: files.queue }, reason: "Delivers the webhooks of `server/webhooks/` and retries member deliveries." }]
       },
     },

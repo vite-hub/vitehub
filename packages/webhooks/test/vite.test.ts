@@ -108,6 +108,20 @@ describe("member endpoints at build time", () => {
     expect(await readFile(registry, "utf8")).not.toContain(JSON.stringify(file))
   })
 
+  it("keeps the development key file in the registry when Queue collects contributions", async () => {
+    const root = await project()
+    const options = { database: true, queue: true }
+    const early = hubWebhooks(options)
+    const files = webhooksGeneratedFiles(root)
+    const contribution = [{ name: "vitehub-webhooks", definition: { module: files.queue }, reason: expect.any(String) }]
+    expect(await early.vitehub.queues({ root, projectRoot: root, plugins: [early, sendPlugin] })).toEqual(contribution)
+    expect(await readFile(files.queue, "utf8")).toContain("./registry.mjs")
+
+    const { plugin } = await configure(root, options, [sendPlugin], "serve")
+    expect(await plugin.vitehub.queues({ root, projectRoot: root, plugins: [plugin, sendPlugin] })).toEqual(contribution)
+    expect(await readFile(files.registry, "utf8")).toContain(JSON.stringify(webhooksDevelopmentKeyFile(root)))
+  })
+
   it("does not generate a development key when an explicit key is configured", async () => {
     const root = await project({ ".env.development": "VITEHUB_WEBHOOKS_KEY=explicit-key\n" })
     await configure(root, { database: true }, [sendPlugin], "serve")
