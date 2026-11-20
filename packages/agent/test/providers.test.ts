@@ -1249,6 +1249,26 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const gatewayRuntime = join(root, "gateway-runtime.mjs")
+      await writeFile(gatewayRuntime, [
+        `export { isViteHubBearerSecretEqual } from ${JSON.stringify(resolve(import.meta.dirname, "../../internal/src/secret.ts"))}`,
+        "export const agentWithColocatedInstructions = agent => agent",
+        "export const inheritAgentLayerOptions = agent => agent",
+        "export const markDiscoveredAgentName = () => {}",
+        "export const withDiscoveredAgentName = agent => agent",
+        "export const resetPublicUrlAgentNames = () => {}",
+        "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
+        "export const workspaceDefinitionFromOptions = () => undefined",
+        "export const setAgentWorkspaceDefinitions = () => {}",
+        "export const agentGeneratedRuntimeError = (_code, message) => new Error(message)",
+        "export const createAgentWebhookRequest = () => { throw new Error('Unexpected webhook request') }",
+        "export const createChannelChatRouteHandler = () => { throw new Error('Unexpected chat handler') }",
+        "export const createChannelWebhookRouteHandler = () => undefined",
+        "export const hasChannelChatRoute = () => false",
+        "export const namedChannelHosts = () => ({})",
+        "export const resolvePublicUrl = () => undefined",
+        "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
+      ].join("\n"), "utf8")
       const plugin = hubAgent({ providers: { state: { driver: "memory" } }, routes: { discordGateway: true } })
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = plugin.configResolved as (config: {
@@ -1257,7 +1277,14 @@ describe("agent Vite plugin", () => {
         resolve: { alias: Array<{ find: string; replacement: string }> }
         root: string
       }) => Promise<void>
-      await configResolved({ build: { outDir: "dist/client" }, command: "build", resolve: { alias: agentProviderOutputAliases() }, root })
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: {
+          alias: (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: gatewayRuntime })),
+        },
+        root,
+      })
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
@@ -1272,11 +1299,11 @@ describe("agent Vite plugin", () => {
       for (const authorization of [undefined, "Bearer gateway", "Bearer gateway-secret-", "Bearer gateway-secreT", "Basic gateway-secret"]) {
         expect((await gateway(authorization)).status).toBe(401)
       }
-      expect((await gateway("Bearer gateway-secret")).status).not.toBe(401)
+      expect((await gateway("Bearer gateway-secret")).status).toBe(204)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-}, 60_000)
+  }, netlifyBuildTestTimeout)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
