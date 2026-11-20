@@ -39,7 +39,7 @@ it("reports a failed dev run as failed after the inline run state expires", asyn
   vi.useFakeTimers({ toFake: ["Date"] })
   try {
     enableWorkflowDevRuns()
-    cloudflareWorkerWithoutBinding(vi.fn(async () => {
+    const handler = cloudflareWorkerWithoutBinding(vi.fn(async () => {
       throw new Error("boom")
     }))
     await unwrap(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" }))
@@ -48,6 +48,9 @@ it("reports a failed dev run as failed after the inline run state expires", asyn
     // The dev server keeps its run history longer than the five minutes of the inline run state.
     vi.setSystemTime(Date.now() + 6 * 60 * 1000)
     await expect(unwrap(getWorkflowRun("welcome", "run-1"))).resolves.toMatchObject({ error: { message: "boom" }, provider: "cloudflare", status: "failed" })
+    // A second start with the same id returns that run and does not run the handler again.
+    await expect(unwrap(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" }))).resolves.toMatchObject({ provider: "cloudflare", status: "failed" })
+    expect(handler).toHaveBeenCalledTimes(1)
   }
   finally {
     vi.useRealTimers()
