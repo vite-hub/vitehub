@@ -2,6 +2,7 @@ import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
+import { deliveryAttributes } from "../internal/comment-status.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
@@ -111,6 +112,7 @@ export const CommentList = defineComponent({
                       "data-focus-inset": "",
                       "data-slot": "comment-list-item",
                       "data-status": thread.status,
+                      ...deliveryAttributes(thread.delivery),
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
