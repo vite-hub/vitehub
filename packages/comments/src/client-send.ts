@@ -153,7 +153,8 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     timer = setTimeout(() => at === step && then(), ms)
   }
   const inbox = (): boolean => Boolean(agent && !agent.host)
-  const idle = (): void => set({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
+  const idleState = (): CommentSendState => ({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
+  const idle = (): void => set(idleState())
   const working = (): void => {
     set({ status: "working", count, ...(agent ? { agent } : {}), ...(thread ? { thread } : {}) })
     // Without pushed events, ask until the agent is done. A failed ask tries again later.
@@ -270,7 +271,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
           count = event.count
           // A new count keeps the step: its timers and its answers on the way still count.
           if (state.status !== "sending") {
-            state = { ...state, count }
+            state = state.status === "idle" ? idleState() : { ...state, count }
             notify()
           }
           return
