@@ -1,7 +1,9 @@
 import { parseMarkdown } from "comark"
 import type { ElementNode, Node } from "comark"
 
-import { hasMarkdownHtmlChildren, parserOptions } from "../parser.ts"
+import { assertBindingRoot } from "../bindings.ts"
+import { markdownTemplateErrorDiagnostics as diagnostics } from "../error-diagnostics.ts"
+import { hasMarkdownHtmlChildren, literalHtmlTags, parserOptions } from "../parser.ts"
 import { prepareTemplate } from "../prepare.ts"
 
 // `scalar` comes from `{{ data.x }}` and bound attributes, `markdown` from `:insert`, `condition` from `::if` props.
@@ -48,6 +50,7 @@ function addAttributes(root: DataField, [tag, attributes]: ElementNode, required
   const condition = conditionTags.has(tag)
   for (const [key, value] of Object.entries(attributes)) {
     if (!key.startsWith(":")) continue
+    if (typeof value === "string") assertBindingRoot(value)
     const parts = dataPath(value)
     if (!parts) continue
     // A missing condition value is falsy, so it never fails a render.
@@ -108,4 +111,33 @@ export async function inferMarkdownTemplateDataType(template: string, indent = "
   await visit(root, (await parseMarkdown(prepared.template, parserOptions)).nodes, true)
   if (!root.children.size) return { required: false, type: "Record<string, never>" }
   return { required: [...root.children.values()].some(field => field.required), type: renderField(root, indent) }
+}
+
+// `{{ data.path }}` as text, the way the parser keeps a binding inside inline code or a code block.
+const literalBinding = /\{\{\s*(data(?:\.[^\s{}]+)+)\s*\}\}/
+
+function findBindingInCode(nodes: Node[], literal: boolean): string | undefined {
+  for (const node of nodes) {
+    if (typeof node === "string") {
+      const match = literal ? literalBinding.exec(node) : null
+      if (match) return match[1]
+      continue
+    }
+    // Comment nodes hold no rendered text.
+    if (node[0] === null) continue
+    // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
+    const found = findBindingInCode(node.slice(2) as Node[], literal || literalHtmlTags.has(node[0]))
+    if (found) return found
+  }
+  return undefined
+}
+
+/**
+ * Rejects a `{{ data.path }}` binding inside inline code or a code block. The renderer keeps it as text, which suits a
+ * page that documents the syntax, but a template file such as an Email template expects the value there.
+ */
+export async function assertNoBindingsInCode(template: string): Promise<void> {
+  const prepared = await prepareTemplate(template)
+  const path = findBindingInCode((await parseMarkdown(prepared.template, parserOptions)).nodes, false)
+  if (path) throw diagnostics.MARKDOWN_TEMPLATE_BINDING_IN_CODE({ path })
 }

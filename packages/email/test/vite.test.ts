@@ -315,7 +315,7 @@ describe("hubEmail", () => {
     const template = join(root, "server", "emails", "monthly-recap.md")
     const nestedTemplate = join(root, "server", "emails", "monthly-recap", "index.mjs", "detail.md")
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
-    await writeFile(template, "Hello {{name}}")
+    await writeFile(template, "Hello there")
     await writeFile(nestedTemplate, "Nested detail")
     const plugin = hubEmail({ driver: "cloudflare" })
 
@@ -356,7 +356,7 @@ describe("hubEmail", () => {
         "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"),
       })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Hello {{name}}")
+      .toContain("Hello there")
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"), "utf8"))
       .toContain("Nested detail")
     await rm(template)
@@ -372,10 +372,32 @@ describe("hubEmail", () => {
       .toThrow("is not valid")
   })
 
+  it("stops the build for a template written before `data.` bindings, and names the file", async () => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "analysis-error.md")
+    await mkdir(dirname(file), { recursive: true })
+    // Strata's notification template before ViteHub moved bindings under `data.`.
+    await writeFile(file, "Strata could not complete the run for `{{ repoPath }}`.\n\n```text\n{{ errorMessage }}\n```\n\n[Open the analysis]({{ resultUrl }})\n")
+    const plugin = hubEmail({ driver: "log" })
+
+    const error = await plugin.api.prepareTypes({ projectRoot: root }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ code: "EMAIL_TEMPLATE_SYNTAX_INVALID", message: expect.stringContaining("server/emails/analysis-error.md") })
+    expect((error as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA" })
+
+    // The same template with `data.` bindings still keeps a binding in code unfilled, so the build stops there too.
+    await writeFile(file, "Strata could not complete the run for `{{ data.repoPath }}`.\n")
+    const inCode = await plugin.api.prepareTypes({ projectRoot: root }).catch((caught: unknown) => caught)
+    expect((inCode as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_IN_CODE" })
+
+    await writeFile(file, "Strata could not complete the run for **{{ data.repoPath }}**.\n")
+    await plugin.api.prepareTypes({ projectRoot: root })
+    expect(await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")).toContain("\"repoPath\": string | number | boolean")
+  })
+
   it("materializes templates before Cloudflare builds", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
-    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello there")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
       driver: "cloudflare",
@@ -393,7 +415,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Hello {{name}}")
+      .toContain("Hello there")
     const buildStart = functionHook(plugin.buildStart, "buildStart")
     const addWatchFile = vi.fn()
     await buildStart.call({ addWatchFile })
@@ -421,7 +443,7 @@ describe("hubEmail", () => {
   it("exposes its generated definition to directly composed Vercel Workflows", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
-    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello there")
     await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
     const workflow = hubWorkflow({ driver: "vercel" })
     const server = await createServer({
@@ -449,7 +471,7 @@ describe("hubEmail", () => {
       })
       expect(contributions[1]).toMatchObject({ bundleAlias: contributions[0]?.bundleAlias })
       await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-        .resolves.toContain("Hello {{name}}")
+        .resolves.toContain("Hello there")
     }
     finally {
       await server.close()
