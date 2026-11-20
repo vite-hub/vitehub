@@ -685,6 +685,7 @@ Contributed tables go everywhere the Definition schema goes:
 - The generated Drizzle schema exports each contributed table, so `vitehub database generate` writes their migrations.
 - `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro. With `relations`, `with` follows their relations too.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field, with the plugin.
+- A production build checks that the migrations create every contributed table and column. When a new version of the package adds one, the build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED` until you run `vitehub database generate`. A database whose newest migration is hand-written SQL, without a Drizzle snapshot, is not checked.
 
 The Definition object you import from its file has only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
 
@@ -718,7 +719,7 @@ vitehub: {
 
 - A file named `<name>.<dialect>.sql`, such as `0001_init.postgresql.sql`, applies only to a database of that dialect.
 - ViteHub puts a `--> statement-breakpoint` between statements, at the semicolons outside quotes and comments. A file that already has breakpoints is copied as written. Use breakpoints when a statement has its own semicolons, such as a trigger.
-- `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`.
+- `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`. A production build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED` while a file is not added.
 
 ### Contribute a Database
 

@@ -301,6 +301,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding, first, kind, second }: { binding: string, first: string, kind: "D1" | "Hyperdrive", second: string }) => `${first} and ${second} use the same Cloudflare ${kind} binding "${binding}".`,
       fix: "Set `cloudflare.binding` to a different name for each Database Definition.",
     },
+    DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED: {
+      why: ({ databases, missing }: { databases: readonly string[], missing: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList(missing)}\nA new version of the plugin changed them, or no migration added them yet. Requests that use them would fail after the deploy.`,
+      fix: "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy. Then build again.",
+    },
     DATABASE_DUPLICATE_DEFINITION: {
       why: ({ database, files }: { database: string, files: readonly string[] }) => `${database === "default" ? "Only one default Database Definition is allowed." : `Only one definition is allowed for the database "${database}".`}${fileList(files)}`,
       fix: "Remove one of the definitions, or give it another name.",
