@@ -1,4 +1,4 @@
-import { createBlobStorage } from "../storage.ts"
+import { checkBlobDriverHealth, checkBlobStorageHealth, createBlobStorage, registerBlobStorageHealthCheck } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
@@ -76,7 +76,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   return importRuntimeDriverModule(config)
 }
 
-async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
+async function importRuntimeDriverModule<Config extends ResolvedBlobStoreConfig>(config: Config) {
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
@@ -85,7 +85,8 @@ async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   const modulePath = isSourceRuntime
     ? new URL(`../drivers/${moduleName}.ts`, import.meta.url).href
     : `@vite-hub/blob/drivers/${moduleName}`
-  const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+  // SAFETY: The driver name selects the module whose factory accepts this config.
+  const module = await import(modulePath) as { createDriver: (options: Config) => BlobDriverAdapter<Config> }
   return module.createDriver(config)
 }
 
@@ -105,11 +106,13 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, na
     ...config,
     store: resolveRuntimeBlobStore(config.store),
   }
-  const driver = await importRuntimeDriver(resolvedConfig.store)
-  return createBlobStorage(driver, name, {
+  const driver: BlobDriverAdapter<ResolvedBlobStoreConfig> = await importRuntimeDriver(resolvedConfig.store)
+  const storage = createBlobStorage(driver, name, {
     ...(config.images === undefined ? {} : { images: config.images }),
     url: pathname => servedBlobUrl(name, pathname),
   })
+  registerBlobStorageHealthCheck(storage, () => checkBlobDriverHealth(driver))
+  return storage
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
@@ -164,6 +167,10 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
   const result = await blobResult(operation, name, () => resolveStorage(name))
   if (result[0]?.cause instanceof UnknownBlobStoreError) throw result[0].cause
   return result
+}
+
+export async function checkBlobStoreHealth(name: string): Promise<void> {
+  await checkBlobStorageHealth(await resolveStorage(name))
 }
 
 // Completed multipart objects get the served URL, like put().
