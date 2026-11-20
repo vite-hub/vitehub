@@ -129,7 +129,7 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
   "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
   // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
-  "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
+  "packages/comments/src/overlay/styles.ts": { count: 5, wave: "W5" },
   "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
   "packages/internal/src/runtime/page-tools-loader.ts": { count: 7, wave: "W5" },
   "packages/internal/src/runtime/page-tools-shared.ts": { count: 2, wave: "W5" },
