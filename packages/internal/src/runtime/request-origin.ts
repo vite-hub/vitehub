@@ -22,3 +22,18 @@ export function forwardedRequestOrigin(request: Pick<Request, "headers" | "url">
     return url.origin
   }
 }
+
+/**
+ * Whether a browser treats `origin` as secure: `https:`, or `http:` on a loopback host (`localhost`, `*.localhost`,
+ * `127.0.0.0/8`, or `[::1]`). A route that answers with a secret, or builds a URL that carries one, needs this.
+ */
+export function isSecureOrigin(origin: string): boolean {
+  if (!URL.canParse(origin)) return false
+  const { protocol, hostname } = new URL(origin)
+  if (protocol === "https:") return true
+  if (protocol !== "http:") return false
+  const host = hostname.toLowerCase()
+  if (host === "localhost" || host.endsWith(".localhost") || host === "[::1]") return true
+  const octets = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  return octets !== null && octets.slice(1).every(octet => Number(octet) <= 255)
+}
