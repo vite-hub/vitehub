@@ -250,6 +250,7 @@ interface WorkflowSignals {
 function createSignals(context: WorkflowProviderContext, wait?: () => Promise<never>): WorkflowSignals {
   let count = 0
   const inlineTokens: string[] = []
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The value comes from a resumeWorkflow() call in another request, so no input at this call site can type it.
   const createSignal = <TValue>(): WorkflowSignal<TValue> => {
     if (context.provider === "vercel") throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED({ name: context.name })
     const step = context.step

@@ -264,6 +264,7 @@ export interface WorkflowExecutionContext<TPayload = unknown> extends Omit<Workf
    * `WORKFLOW_ROOT_STEP_SIGNAL`. The wait is durable on Cloudflare and OpenWorkflow. Inline runs (`vite dev`) wait in
    * memory. Vercel does not support signals yet: `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`.
    */
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The value comes from a resumeWorkflow() call in another request, so no input at this call site can type it.
   createSignal: <TValue = unknown>() => WorkflowSignal<TValue>
   /** The provider step runner. Use `context.sleep()` to sleep and `context.createSignal()` to wait for a signal. */
   step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil" | "waitForSignal">
