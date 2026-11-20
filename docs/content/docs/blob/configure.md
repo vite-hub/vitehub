@@ -592,8 +592,12 @@ The value must be in exactly one env variable at build time. When two variables 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
-| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob`, with `-<name>` after it for a named store | Storage folder. Each named store without `base` gets its own folder, such as `.vitehub/data/blob-avatars`, so stores do not share files. |
+| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. A named store without `base` uses a sibling folder with `-<name>` added to the folder name, such as `.vitehub/data/blob-avatars`. |
 | `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`. |
+
+ViteHub uses the same folder rule for the Node development fallback of a `cloudflare` store. Store names used to generate folders can contain letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters. `BLOB_FS_BASE` must name a folder, not a filesystem root, when ViteHub needs to generate a sibling folder.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
 Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 

@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { basename, normalize } from "pathe"
 
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -188,10 +189,18 @@ export function resolveRuntimeBlobSecrets<TStore extends ResolvedBlobStoreConfig
   return (Object.keys(lazy).length ? { ...resolved, secretEnv: lazy } : resolved) as TStore
 }
 
-/**
- * Resolves an `fs` store. Without `base`, the default store uses `BLOB_FS_BASE` or `.vitehub/data/blob`, and a named
- * store adds `-<name>` to that folder, so two stores never share files.
- */
+function namedFsBase(folder: string, store: string): string {
+  if (!/^[\w-]+(?:\.[\w-]+)*$/.test(store)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: `Blob store ${JSON.stringify(store)} cannot form a folder name.` })
+  }
+  const stem = normalize(folder).replace(/\/+$/, "")
+  const name = basename(stem)
+  if (!name || name === "." || name === ".." || /^[a-z]:$/i.test(stem) || /^\/\/[^/]+\/[^/]+$/.test(stem)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: "BLOB_FS_BASE must name a folder to derive a sibling folder for a named store." })
+  }
+  return `${stem}-${store}`
+}
+
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
@@ -199,7 +208,7 @@ function resolveFsStore(
 ): ResolvedFsBlobStoreConfig {
   const urlBaseUrl = trimmed(config.urlBaseUrl)
   const folder = readEnv(env, "BLOB_FS_BASE") ?? ".vitehub/data/blob"
-  return { base: trimmed(config.base) ?? (store === "default" ? folder : `${folder}-${store}`), driver: "fs", ...(urlBaseUrl ? { urlBaseUrl } : {}) }
+  return { base: trimmed(config.base) ?? (store === "default" ? folder : namedFsBase(folder, store)), driver: "fs", ...(urlBaseUrl ? { urlBaseUrl } : {}) }
 }
 
 const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>
