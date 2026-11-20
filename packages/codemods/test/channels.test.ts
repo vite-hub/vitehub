@@ -124,4 +124,17 @@ describe("channels", () => {
       "server/utils/channels.ts": "export * from 'vite-hub/channels/adapters'\nexport type { DiscordAdapterOptions } from 'vite-hub/channels/adapters'\n",
     })
   })
+
+  it("moves webhook() and stripe() from the root of vite-hub/channels to its adapters entry", async () => {
+    const { after, run } = await migrate({
+      "server/channels/builds.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nimport { slack } from 'vite-hub/agent/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\nexport const chat = slack()\n",
+      "server/channels/payments.ts": "import { stripe } from '@vite-hub/channels'\nimport type { StripeEvent } from '@vite-hub/channels'\nexport const adapter = stripe()\nexport type Event = StripeEvent\n",
+      "server/channels/ns.ts": "import * as channels from 'vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.webhook({ secret: false }) })\n",
+    })
+    expect(after).toEqual({
+      "server/channels/builds.ts": "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nimport { slack } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\nexport const chat = slack()\n",
+      "server/channels/payments.ts": "import { stripe } from '@vite-hub/channels/adapters'\nimport type { StripeEvent } from '@vite-hub/channels/adapters'\nexport const adapter = stripe()\nexport type Event = StripeEvent\n",
+    })
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/ns.ts", line: 1, message: expect.stringContaining("vite-hub/channels/adapters") })])
+  })
 })
