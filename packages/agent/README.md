@@ -107,7 +107,7 @@ See [AI gateways](../../docs/content/docs/gateways/index.md).
 
 ## External Agents
 
-`driver: "external"` defines an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner. The Agent keeps its description, Workspace, and Invocation journal. Write its runs with `importAgentSession()` from `@vite-hub/agent/sessions`. It has no runtime: `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`.
+`driver: "external"` defines an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner. The Agent keeps its description, Workspace, and Invocation journal. Write its runs with `importAgentSession()` from `@vite-hub/agent/sessions`. It has no runtime: `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`. Workflow discovery skips it, and Dev Loop Workspace commands (`vitehub agent dev "!cmd"`) still run.
 
 ```ts
 // server/agents/coding-agent.ts

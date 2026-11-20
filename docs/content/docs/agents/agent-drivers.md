@@ -557,7 +557,7 @@ export default defineAgent({
 })
 ```
 
-Write the runs to the journal with [`importAgentSession()`](/docs/agents/invocations#import-a-session-that-ran-elsewhere). An external Agent has no runtime. `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`.
+Write the runs to the journal with [`importAgentSession()`](/docs/agents/invocations#import-a-session-that-ran-elsewhere). An external Agent has no runtime. `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`. ViteHub makes no Workflow for it, so a Workflow can use the same name. A Workspace command such as `vitehub agent dev --agent coding-agent "!pnpm test"` does not start the Driver, so it still runs.
 
 ## Use an ask Driver
 

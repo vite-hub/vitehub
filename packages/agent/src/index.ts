@@ -1197,9 +1197,15 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
 }
 installAgentChannelItemReservation(reserveAgentChannelItem)
 
-/** An Agent with `driver: "external"` runs outside the app. Fail before ViteHub writes an activity or a journal record. */
+/** The Agent Dev Loop marks the copy of an Agent whose `run` runs a Workspace command instead of the Driver. */
+const workspaceCommandRun = Symbol.for("vitehub.agentWorkspaceCommandRun")
+
+/**
+ * An Agent with `driver: "external"` runs outside the app. Fail before ViteHub writes an activity or a journal record.
+ * A Dev Loop Workspace command (`vitehub agent dev "!cmd"`) does not start the Driver, so it can still use the Workspace.
+ */
 function assertAgentRunsInApp(agent: unknown, context: Pick<AgentRuntimeContext, "agentIdentity">): void {
-  if (!hasAgentDefinition(agent)) return
+  if (!hasAgentDefinition(agent) || Reflect.get(agent, workspaceCommandRun) === true) return
   // SAFETY: defineBaseAgent sets this private Driver kind on every Agent Definition.
   if ((agent as { [baseAgentDriverKind]?: AgentDriverKind })[baseAgentDriverKind] !== "external") return
   throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUN({ agent: agentInvocationName(agent, context) ?? "agent" })
