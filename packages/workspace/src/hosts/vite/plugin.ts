@@ -871,6 +871,8 @@ const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHo
 type WorkspacePluginHosting = string | (() => string | undefined)
 
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & {
+  /** Nitro module that reads the app's dev runner. Typed here because a program without Nitro's Vite types has no `nitro` on `Plugin`. */
+  nitro?: ReturnType<typeof createNativePackageLoading>["nitro"]
   [setWorkspacePluginHosting]?: (hosting: WorkspacePluginHosting) => void
   api: WorkspaceVitePluginAPI
 }
@@ -924,11 +926,13 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
 
   function invalidateVirtualWorkspaceModules() {
     if (!server) return
-    const moduleGraph = server.moduleGraph
     const ids = [RESOLVED_WORKSPACE_REGISTRY_ID, RESOLVED_WORKSPACES_ID, ...manifest.workspaces.map(w => `${RESOLVED_WORKSPACE_PREFIX}${w.name}`)]
-    for (const id of ids) {
-      const mod = moduleGraph.getModuleById(id)
-      if (mod) moduleGraph.invalidateModule(mod)
+    // `server.moduleGraph` covers only `client` and `ssr`. Nuxt 5 loads these modules in the `nitro` environment.
+    for (const { moduleGraph } of Object.values(server.environments)) {
+      for (const id of ids) {
+        const mod = moduleGraph.getModuleById(id)
+        if (mod) moduleGraph.invalidateModule(mod)
+      }
     }
   }
 

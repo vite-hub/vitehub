@@ -16,6 +16,7 @@ function createWorkflowDevRecorder(): WorkflowDevRecorder {
       runs.clear()
       return count
     },
+    get: (workflow, id) => runs.get(JSON.stringify([workflow, id])),
     list: () => [...runs.values()].reverse(),
     start(workflow, id, provider) {
       const key = JSON.stringify([workflow, id])

@@ -2306,14 +2306,12 @@ describe("agent Vite plugin", () => {
           } as never,
         )
       }
-      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
-        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await netlifyPlugin.closeBundle.handler.call({} as never)
-      }
+      await runProviderOutputHooks(netlifyPlugin)
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(netlifyFunction).toContain("@vite-hub/database/runtime/registry")
+      const netlifyBundle = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
+      expect(netlifyBundle).toContain("api.resend.com")
     } finally {
       await rm(root, { force: true, recursive: true })
     }

@@ -1343,7 +1343,7 @@ They are trusted text from code, read when the Invocation runs, so queued delive
 
 ## Handle attachments
 
-Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. To resend recent history photos, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
+Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. Codex and Claude Code Drivers get the 4 newest history photos again. To change that number, or to resend history photos to another Driver, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
 
 Every Channel that gives normalized `replyTo.attachments` gets this. Thread ids, link previews, and URLs in text are not reply content and are never resolved. If a provider does not normalize its native reply into `replyTo`, fix its adapter instead of guessing a thread root in the Agent.
 

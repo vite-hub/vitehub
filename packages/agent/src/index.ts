@@ -84,6 +84,7 @@ import {
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
+import { retainedUserMessages } from "./internal/input-attachments.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
 import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
@@ -498,6 +499,8 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
+  AgentModelsEmulateSeed,
+  AgentModelsOptions,
   AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
@@ -1065,8 +1068,8 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
-async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
-  const materialized = await materializeMessageAttachmentData(messages)
+async function portableWorkflowMessages(messages: Message[], optionalImage?: (message: Message) => boolean): Promise<Message[]> {
+  const materialized = await materializeMessageAttachmentData(messages, optionalImage)
   return await Promise.all(materialized.map(async message => ({
     ...message,
     parts: await Promise.all(message.parts.map(async (part) => {
@@ -1084,14 +1087,25 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   })))
 }
 
-export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
+export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>, messageId?: string): Promise<AgentRunInput<CALL_OPTIONS>> {
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   delete workflowInput.abortSignal
   if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
-  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+  if (workflowInput.messages) {
+    const messages = workflowInput.messages
+    const currentIndex = messageId ? messages.findIndex(message => message.id === messageId) : messages.findLastIndex(message => message.role === "user")
+    const history = new Set<Message>()
+    if (isAgentChannelDeliveryWorkflowBinding(delivery) && delivery.state === "chat" && currentIndex > 0) {
+      const queued = new Set(retainedUserMessages(messages, messageId))
+      for (const message of messages.slice(0, currentIndex)) {
+        if (message.role === "user" && !queued.has(message)) history.add(message)
+      }
+    }
+    workflowInput.messages = await portableWorkflowMessages(messages, message => history.has(message))
+  }
   if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
-  const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
   if (isAgentChannelDeliveryWorkflowBinding(delivery) && isRuntimeObject(delivery.steer) && isRuntimeObject(delivery.steer.lock)) {
     const { lock } = delivery.steer
     // State adapters may return RPC objects; only the lock fields cross runtimes.
@@ -1308,7 +1322,7 @@ async function runAgentAsWorkflow<
         parsedInputData = false
       }
     }
-    workflowInput = await portableAgentWorkflowInput(parsedInput)
+    workflowInput = await portableAgentWorkflowInput(parsedInput, context.run?.messageId)
   }
   catch (error) {
     await recordPreparationFailure(error)
