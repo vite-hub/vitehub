@@ -1,4 +1,5 @@
 import { cubicBezier, playTween } from "./helpers/tween.ts";
+import { visualCopy } from "./helpers/visual-copy.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
 import { writeMotionStyle } from "./registry.ts";
@@ -146,12 +147,8 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
     if (!onScreen(before)) return;
     const box = container.getBoundingClientRect();
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
-    // SAFETY: cloneNode of an HTMLElement returns an HTMLElement.
-    const ghost = element.cloneNode(true) as HTMLElement;
+    const ghost = visualCopy(element);
     ghost.setAttribute(ghostAttribute, "");
-    ghost.setAttribute("aria-hidden", "true");
-    ghost.inert = true;
-    ghost.removeAttribute("id");
     Object.assign(ghost.style, {
       boxSizing: "border-box",
       height: `${before.height}px`,
@@ -221,7 +218,7 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
         const rect = element.getBoundingClientRect();
         const shift = offset(motions.get(element));
         const now = center(rect);
-        return { element, rect, layout: { x: now.x - shift.x, y: now.y - shift.y } };
+        return { element, rect, now, layout: { x: now.x - shift.x, y: now.y - shift.y } };
       });
       const origins = reads.map(({ element }) => {
         if (before.has(element) || !play.origin) return undefined;
@@ -236,17 +233,17 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
         if (!off && !element.hasAttribute("data-motion-leaving")) leave(element, rect, play.target);
       }
       starting = true;
-      reads.forEach(({ element, rect, layout }, index) => {
+      reads.forEach(({ element, rect, now, layout }, index) => {
         if (off) return stopItem(element);
         const old = before.get(element);
         if (old) {
-          const dx = old.x - layout.x;
-          const dy = old.y - layout.y;
+          const dx = old.x - now.x;
+          const dy = old.y - now.y;
           if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
           if (!onScreen(old.rect) && !onScreen(rect)) return stopItem(element);
           const motion = motionOf(element);
-          travel(motion.x, dx);
-          travel(motion.y, dy);
+          travel(motion.x, motion.x.value + dx);
+          travel(motion.y, motion.y.value + dy);
           return;
         }
         if (!onScreen(rect)) return;

@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "../reduced-motion.ts";
 import { onEachFrame } from "../spring.ts";
 
 /** An easing curve: progress from 0 to 1 in, eased progress out. */
@@ -44,10 +45,12 @@ export function tween(from: number, to: number, options: TweenOptions, onFrame: 
   const delay = (options.delay ?? 0) / 1000;
   const duration = options.duration / 1000;
   const ease = options.ease ?? linear;
+  const reducedAtStart = prefersReducedMotion();
   let elapsed = 0;
   const stop = onEachFrame((seconds) => {
     elapsed += seconds;
-    const progress = duration > 0 ? Math.min(1, Math.max(0, (elapsed - delay) / duration)) : elapsed >= delay ? 1 : 0;
+    const settle = !reducedAtStart && prefersReducedMotion();
+    const progress = settle || elapsed >= delay + duration ? 1 : duration > 0 ? Math.max(0, (elapsed - delay) / duration) : 0;
     onFrame(from + (to - from) * ease(progress));
     if (progress < 1) return true;
     onDone?.();
