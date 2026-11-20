@@ -401,6 +401,35 @@ describe("vitehub-options codemod", () => {
     expect(output).not.toMatch(/\b(?:hubKv|hubDb)\b/)
   })
 
+  it("migrates the vite-hub options of a file that nuxt.config.ts imports", async () => {
+    // strata builds its options in `build/host-profile.ts` and passes them as `vitehub: hostProfile.vitehub`.
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    await writeFile(join(cwd, "nuxt.config.ts"), lines(
+      "import { createHostProfile } from './build/host-profile'",
+      "const hostProfile = createHostProfile()",
+      "export default defineNuxtConfig({ modules: hostProfile.modules, vitehub: hostProfile.vitehub })",
+    ))
+    await mkdir(join(cwd, "build"))
+    const profile = (preset: string, sandbox: string) => lines(
+      "export function createHostProfile() {",
+      "  return {",
+      "    modules: ['vite-hub/nuxt'],",
+      "    vitehub: {",
+      "      name: 'strata',",
+      `      ${preset}: 'cloudflare' as const,`,
+      `      ${sandbox}: true,`,
+      "      schedule: true,",
+      "    },",
+      "  }",
+      "}",
+    )
+    await writeFile(join(cwd, "build/host-profile.ts"), profile("preset", "sandbox"))
+    const run = await runCodemod("vitehub-options", { cwd })
+    expect(run.result.edits.map(edit => edit.path)).toEqual(["build/host-profile.ts"])
+    expect(await readFile(join(cwd, "build/host-profile.ts"), "utf8")).toBe(profile("host", "sandboxTask"))
+  })
+
   it("edits config files and reports renamed option types", async () => {
     await mkdir(scratch, { recursive: true })
     const cwd = await mkdtemp(join(scratch, "app-"))

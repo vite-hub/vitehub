@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { glob } from "tinyglobby"
 
 import { codemodError } from "../error-diagnostics.ts"
+import { configImportedFiles, vitehubKeyParents } from "../shared/config-imports.ts"
 import { migrateViteHubOptions } from "./transform.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
@@ -46,6 +47,21 @@ async function configFiles(cwd: string): Promise<string[]> {
   return (await glob(configPatterns, { cwd, ignore: ignored })).sort()
 }
 
+/** Each config file, then each file that a config file imports, with the migration of its vite-hub options. */
+async function migrations(cwd: string) {
+  const files = await configFiles(cwd)
+  const results = []
+  for (const file of files) {
+    const before = await readFile(join(cwd, file), "utf8")
+    results.push({ before, file, result: migrateViteHubOptions(file, before) })
+  }
+  for (const file of configImportedFiles(cwd, files)) {
+    const before = await readFile(join(cwd, file), "utf8")
+    results.push({ before, file, result: migrateViteHubOptions(file, before, vitehubKeyParents, { keyed: true }) })
+  }
+  return results
+}
+
 /** Source lines that name a renamed option type. The codemod reports them and edits nothing. */
 async function renamedTypeReferences(cwd: string): Promise<FollowUp[]> {
   const followUps: FollowUp[] = []
@@ -65,16 +81,13 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
   const notes: string[] = []
-  const files = await configFiles(cwd)
-  for (const file of files) {
-    const before = await readFile(join(cwd, file), "utf8")
-    const result = migrateViteHubOptions(file, before)
+  for (const { before, file, result } of await migrations(cwd)) {
     followUps.push(...result.followUps)
     notes.push(...result.notes)
     if (result.changed) edits.push({ path: file, before, after: result.code })
   }
   followUps.push(...await renamedTypeReferences(cwd))
-  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config sets preset, sandbox, devtools, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
+  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config, or a file that one imports, sets preset, sandbox, devtools, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
   return {
     summary: edits.length
       ? `Moved vite-hub options in ${edits.length} config file${edits.length === 1 ? "" : "s"}.`
@@ -91,8 +104,7 @@ export const vitehubOptions: Codemod = {
   description: "Renames preset to host, moves observability.logs to logs and Env declarations into vitehub({ env }), and removes devtools and contentImportBase",
   usage: "[dir]",
   async detect({ cwd }) {
-    for (const file of await configFiles(cwd)) {
-      const result = migrateViteHubOptions(file, await readFile(join(cwd, file), "utf8"))
+    for (const { file, result } of await migrations(cwd)) {
       if (result.changed || result.followUps.length) return { reason: `${file} uses vite-hub options that moved` }
     }
     return undefined

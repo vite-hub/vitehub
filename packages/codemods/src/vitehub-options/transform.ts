@@ -152,7 +152,11 @@ function reindent(text: string, from: string, to: string): string {
  * Moves the vite-hub options of a config file. `findRoots` selects other config objects, such as the inline configs of
  * a test file. Without it, the file's default export is the config.
  */
-export function migrateViteHubOptions(file: string, code: string, findRoots?: (program: File) => ObjectExpression[]): OptionsMigration {
+/**
+ * `findRoots` picks the config objects. With `keyed`, each root holds the vite-hub options in its `vitehub` key, the
+ * same way as a Nuxt config, such as an object that `nuxt.config.ts` imports from another file.
+ */
+export function migrateViteHubOptions(file: string, code: string, findRoots?: (program: File) => ObjectExpression[], { keyed = false } = {}): OptionsMigration {
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
@@ -164,10 +168,10 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   catch {
     return unchanged
   }
-  const defaultRoot = findConfigRoot(program, followUps, file)
+  const defaultRoot = findRoots ? undefined : findConfigRoot(program, followUps, file)
   const roots = findRoots ? findRoots(program) : defaultRoot ? [defaultRoot] : []
   if (!roots[0]) return unchanged
-  const nuxt = basename(file).startsWith("nuxt.config")
+  const nuxt = keyed || basename(file).startsWith("nuxt.config")
   const editor = new ConfigEditor({ code, fileName: file, path: file, program, root: roots[0] })
   const resolveBinding = bindingResolver(program)
   const removed = new Set<Node>()

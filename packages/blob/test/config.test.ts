@@ -1039,3 +1039,38 @@ describe("renamed Blob drivers", () => {
     }))
   })
 })
+
+describe("unknown Blob store options", () => {
+  it("throws for a driver option of a store without driver, and names the driver that reads it", () => {
+    // A plain config object skips TypeScript's unknown-key check. Without `driver`, the store would ignore `token`.
+    const config = { token: "env:BLOB_READ_WRITE_TOKEN" }
+    expect(() => normalizeBlobOptions(config as never, { env: {}, hosting: "vercel" })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      fix: expect.stringContaining("Set `driver` to \"netlify-blobs\" or \"vercel\", which reads `token`."),
+      why: "`blob.token` is not an option of a Blob store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+    // The Cloudflare host reads these without `driver`.
+    expect(normalizeBlobOptions({ binding: "BLOB", bucketName: "strata-og-images" }, { env: {}, hosting: "cloudflare" })?.store).toMatchObject({ binding: "BLOB", bucketName: "strata-og-images", driver: "cloudflare" })
+  })
+
+  it("throws for an option of another driver, in a store and next to stores", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", bucketName: "assets" } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      fix: "Remove `bucketName`, or set `driver` to \"cloudflare\", which reads it.",
+      why: "`blob.bucketName` is not an option of the `fs` Blob driver.",
+    }))
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs", cacheControl: "no-store" } } } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      why: "`blob.stores.default.cacheControl` is not an option of the `fs` Blob driver.",
+    }))
+    expect(() => normalizeBlobOptions({ driver: "fs", stores: { default: { driver: "fs" } } } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      why: "`blob.driver` is not an option of a Blob store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+  })
+
+  it("keeps serve and images next to a store or stores", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", base: ".data/blob", images: false, serve: { access: "public" } }, { env: {} })).not.toThrow()
+    expect(() => normalizeBlobOptions({ images: false, serve: { access: "public" }, stores: { default: { driver: "fs", urlBaseUrl: "https://app.example" } } }, { env: {} })).not.toThrow()
+  })
+})

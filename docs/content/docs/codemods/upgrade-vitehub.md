@@ -56,7 +56,7 @@ The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBO
 
 ## vitehub-options
 
-`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app, and each `vitehub: { ... }` object in a file that one of them imports with a relative path, such as `./build/host-profile.ts`:
 
 ```bash [Terminal]
 npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
@@ -204,7 +204,7 @@ The report lists what the codemod leaves: `getAgent()` and the root helpers that
 
 ## driver-key
 
-`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and the old driver names:
+`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and the old driver names in config files, in the calls that take these options, and in each `vitehub: { ... }` object of a file that a config file imports with a relative path:
 
 ```bash [Terminal]
 npx @vite-hub/codemods driver-key [dir] [--dry-run]
