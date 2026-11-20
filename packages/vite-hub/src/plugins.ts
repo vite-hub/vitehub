@@ -21,7 +21,7 @@ import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentP
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNativePackageLoading, createNoExternalAddition, generatedViteHubWatchIgnoredAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { formatDiagnostic } from "nostics"
@@ -1472,8 +1472,10 @@ function normalizePublicUrl(value: string): string {
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
 function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: boolean): Plugin & ViteHubCliContributingPlugin {
+  const packageLoading = createNativePackageLoading()
   return {
     name: "vite-hub/public-url",
+    nitro: packageLoading.nitro,
     // `channels sync` and `channels history` use one public origin as their default `--url`.
     ...(typeof publicUrl === "string" ? { vitehub: { cli: () => ({ namespaces: [], publicUrl: normalizePublicUrl(publicUrl) }) } } : {}),
     config(config, { command }) {
@@ -1502,7 +1504,7 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: 
     configEnvironment(name, config, env) {
       // The shared URL helper reads the public URL and app base defines, so server code must inline it.
       // In `vite dev`, Nitro loads it with Node, and the dev defines plugin sets the same values as globals.
-      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return
+      if (!isServerEnvironment(name, config) || packageLoading.configureEnvironment(name, env)) return
       const noExternal = addRuntimeNoExternal(config.resolve?.noExternal)
       if (noExternal) return { resolve: { noExternal } }
     },
