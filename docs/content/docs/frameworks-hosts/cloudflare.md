@@ -201,11 +201,11 @@ Declare the binding and its migration in your project Wrangler config. ViteHub d
 }
 ```
 
-A route then reaches the class through `env.COUNTER` from `cloudflare:workers`.
+A route then reaches the class through `env.COUNTER` from `cloudflare:workers`. For the types of `DurableObject`, install `@cloudflare/workers-types`.
 
-- In Nuxt, the app's `server/cloudflare.ts` wins over a layer's.
-- The file must not have a default export, because the entry's default export is the app. A name that the entry already exports fails the build with `VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT`. Do not reuse the class name of a ViteHub Workflow or Sandbox Task.
-- Other hosts ignore the file, and `vite dev` does not load it.
+- ViteHub reads the file from Nitro's `serverDir`. In Nuxt, the app's `server/cloudflare.ts` wins over a layer's.
+- The file must not have a default export, because the entry's default export is the app. A name that the entry already exports, such as the class of a ViteHub Workflow or Sandbox Task, fails the build with `VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT`.
+- Other hosts, the prerender build, and `vite dev` do not load the file.
 
 ### Node.js compatibility in Nuxt
 

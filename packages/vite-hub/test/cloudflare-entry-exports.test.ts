@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process"
 import { readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import { Miniflare } from "miniflare"
 import { createBuilder } from "vite"
@@ -41,16 +43,17 @@ const files = {
   }),
 }
 
-async function build(options: ViteHubOptions, extra: Record<string, string>): Promise<string> {
-  const root = await createProject({ ...files, ...extra })
+async function build(options: ViteHubOptions, extra: Record<string, string>, nitroOptions: Record<string, unknown> = {}, base: Record<string, string> = files): Promise<string> {
+  const root = await createProject({ ...base, ...extra })
   const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub(options), nitro()], root } as never)
+  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", nitro: nitroOptions, plugins: [vitehub(options), nitro()], root } as never)
   await builder.buildApp()
   return root
 }
 
 async function startWorker(root: string) {
   const server = join(root, ".output/server")
+  await promisify(execFile)(process.execPath, ["--check", join(server, "index.mjs")])
   const wrangler = JSON.parse(await readFile(join(server, "wrangler.json"), "utf8")) as { compatibility_flags?: string[] }
   const modules = (await readdir(server, { recursive: true })).filter(file => file.endsWith(".mjs"))
   return new Miniflare({
@@ -94,6 +97,50 @@ describe("server/cloudflare.ts on Cloudflare", () => {
     finally {
       await worker.dispose()
     }
+  }, 300_000)
+
+  it("adds the names that `export *` and string aliases export", async () => {
+    const root = await build({ host: "cloudflare" }, {
+      "server/cloudflare.ts": "export * from './utils/counter'\nexport { Counter as \"counter-class\" } from './utils/counter'\n",
+      "server/utils/counter.ts": counter,
+    })
+    expect(await readFile(join(root, ".output/server/index.mjs"), "utf8")).toContain(`export { Counter, "counter-class" } from "./app-cloudflare-exports.mjs"`)
+    const worker = await startWorker(root)
+    try {
+      expect(await (await worker.dispatchFetch("https://example.com/count")).json()).toEqual({ count: 1 })
+    }
+    finally {
+      await worker.dispose()
+    }
+  }, 300_000)
+
+  it("reads the file from Nitro's serverDir", async () => {
+    const backend = Object.fromEntries(Object.entries(files).map(([file, source]) => [file.replace(/^server\//, "backend/"), source]))
+    const root = await build({ host: "cloudflare" }, { "backend/cloudflare.ts": counter }, { serverDir: "backend" }, backend)
+    const worker = await startWorker(root)
+    try {
+      expect(await (await worker.dispatchFetch("https://example.com/count")).json()).toEqual({ count: 1 })
+    }
+    finally {
+      await worker.dispose()
+    }
+  }, 300_000)
+
+  it("keeps the file out of the prerender build", async () => {
+    const root = await build({ host: "cloudflare" }, {
+      "server/cloudflare.ts": `${counter}import { WorkerEntrypoint } from 'cloudflare:workers'\nexport class Entry extends WorkerEntrypoint {}\n`,
+      "server/routes/hello.ts": "export default () => 'hello'\n",
+    }, { prerender: { routes: ["/hello"] } })
+    expect(await readFile(join(root, ".output/server/index.mjs"), "utf8")).toContain("export { Counter, Entry }")
+  }, 300_000)
+
+  it("rejects a name that another plugin adds to the entry", async () => {
+    const appendCounter = {
+      name: "test:append-counter",
+      renderChunk: (code: string, chunk: { fileName: string }) => chunk.fileName === "index.mjs" ? `${code}\nclass Counter {}\nexport { Counter }\n` : null,
+    }
+    await expect(build({ host: "cloudflare" }, { "server/cloudflare.ts": counter }, { rollupConfig: { plugins: [appendCounter] } }))
+      .rejects.toThrow(/VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT: .*cloudflare\.ts exports Counter/)
   }, 300_000)
 
   it("rejects a default export, since the Worker's default export is the app", async () => {
