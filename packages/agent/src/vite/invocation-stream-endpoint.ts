@@ -1,9 +1,10 @@
-import { createExecutionContext } from "@vite-hub/runtime"
+import { createExecutionContext, formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { join } from "node:path"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { isRecord } from "@vite-hub/internal/object"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
@@ -765,7 +766,8 @@ export { writeResponse }
 
 function errorResponse(error: unknown): Response {
   if (error instanceof Response) return error
-  return new Response("Agent Invocation Stream endpoint failed.", {
+  // The CLI prints this text, so a broken Agent module shows its own error. Only guarded local requests reach this endpoint.
+  return new Response(redactInspectionText(formatRuntimeDiagnosticError(error)), {
     status: 500,
   })
 }

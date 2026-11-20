@@ -1,7 +1,7 @@
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { isViteHubDevServerUrl, requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperation, operationCredentialHint } from "@vite-hub/internal/operations"
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
@@ -266,7 +266,8 @@ export async function runAgentChannelReplayCli(
     const fetchImpl = options.fetch || globalThis.fetch
     const target = replayTarget(parsed, context)
     if (!target.remote) {
-      const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch(() => {
+      const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch((error: unknown) => {
+        if (isRuntimeDiagnostic(error) && error.code === "AGENT_DEV_LOOP_FAILED") throw error
         throw cliError(`No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
       })
       for (const [name, value] of Object.entries(tokenHeaders)) target.headers.set(name, value)

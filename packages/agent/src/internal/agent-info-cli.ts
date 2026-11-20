@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { formatRuntimeDiagnosticError, isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, isExecutionAuthority, isRuntimeDiagnostic, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
@@ -39,13 +39,17 @@ export function isCompatibleAgentDevServerRoot(rootDir: string, serverRoot: stri
 /**
  * Reads the private Agent Dev Loop token for the server at `endpoint`. The discovery `GET` returns the server root and
  * the token server ID, and the CLI reads the token file locally. Returns no header when the server publishes no token
- * scope or its root is outside `rootDir`. The endpoint then rejects the request.
+ * scope or its root is outside `rootDir`. The endpoint then rejects the request. Throws `AGENT_DEV_LOOP_FAILED` with the
+ * server's error when the discovery fails on the server, for example because an Agent module does not load.
  */
 export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<Record<string, string>> {
   const response = await fetchImpl(endpoint, {
     headers: { accept: "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue },
     ...(signal ? { signal } : {}),
   })
+  if (response.status >= 500) {
+    throw agentDiagnostics.AGENT_DEV_LOOP_FAILED({ message: (await response.text()).trim(), status: response.status })
+  }
   if (!response.ok) {
     await response.body?.cancel()
     return {}
@@ -274,6 +278,10 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
   catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
       context.stderr.write(`Agent inspection request timed out after ${timeout}ms.\n`)
+      return 1
+    }
+    if (isRuntimeDiagnostic(error) && error.code === "AGENT_DEV_LOOP_FAILED") {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
       return 1
     }
     context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)

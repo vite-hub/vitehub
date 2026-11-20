@@ -4389,6 +4389,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ file, name }: { file: string, name: string }) => `[vitehub] Agent "${name}" has no default export in ${file}. Every file that Agent discovery finds must export its Agent Definition as default.`,
       fix: "Export the Agent from the file with `export default defineAgent({ ... })`. If the file holds helpers and not an Agent, move it out of `server/agents/`, or set `agent: false` in `vitehub()` when the app has no Agents.",
     },
+    AGENT_DEV_LOOP_FAILED: {
+      why: ({ message, status }: { message: string, status: number }) => `The dev server answered the Agent Dev Loop with HTTP ${status}: ${message}`,
+      fix: "Fix the error that the message names, for example an Agent module that does not load, and run the command again.",
+    },
     AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
       why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
       fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
