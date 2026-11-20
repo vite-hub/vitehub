@@ -64,7 +64,7 @@ describe("Agent Dev Loop lazy route", () => {
     loading.resolve({ handleAgentInvocationStreamEndpoint: handleEndpoint })
     await vi.dynamicImportSettled()
 
-    expect(handleEndpoint).toHaveBeenCalledExactlyOnceWith(server, req, res, grant, { serverId: "test-server" }, runtimeOptions)
+    expect(handleEndpoint).toHaveBeenCalledExactlyOnceWith(server, req, res, grant, { serverId: "test-server" }, runtimeOptions, true)
     expect(res.listenerCount("close")).toBe(0)
   })
 

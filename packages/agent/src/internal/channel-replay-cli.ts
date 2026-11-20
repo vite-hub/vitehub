@@ -5,7 +5,7 @@ import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/run
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
-import { readAgentDevLoopTokenHeaders } from "./agent-info-cli.ts"
+import { readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ChannelReplayCliContext {

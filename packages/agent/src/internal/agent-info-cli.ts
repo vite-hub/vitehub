@@ -1,13 +1,11 @@
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError, isExecutionAuthority, isRuntimeDiagnostic, type ExecutionAuthority } from "@vite-hub/runtime"
 
-import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
-
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
+import { readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -29,36 +27,6 @@ interface ParsedInfoArgs {
   help: boolean
   json: boolean
   url: string
-}
-
-export function isCompatibleAgentDevServerRoot(rootDir: string, serverRoot: string): boolean {
-  const nestedPath = relative(resolve(rootDir), resolve(serverRoot))
-  return nestedPath === "" || (nestedPath !== ".." && !nestedPath.startsWith(`..${sep}`) && !isAbsolute(nestedPath))
-}
-
-/**
- * Reads the private Agent Dev Loop token for the server at `endpoint`. The discovery `GET` returns the server root and
- * the token server ID, and the CLI reads the token file locally. Returns no header when the server publishes no token
- * scope or its root is outside `rootDir`. The endpoint then rejects the request. Throws `AGENT_DEV_LOOP_FAILED` with the
- * server's error when the discovery fails on the server, for example because an Agent module does not load.
- */
-export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<Record<string, string>> {
-  const response = await fetchImpl(endpoint, {
-    headers: { accept: "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue },
-    ...(signal ? { signal } : {}),
-  })
-  if (response.status >= 500) {
-    throw agentDiagnostics.AGENT_DEV_LOOP_FAILED({ message: (await response.text()).trim(), status: response.status })
-  }
-  if (!response.ok) {
-    await response.body?.cancel()
-    return {}
-  }
-  const discovery: unknown = await response.json().catch(() => undefined)
-  if (!isRuntimeRecord(discovery) || typeof discovery.root !== "string" || typeof discovery.workspaceDevTokenServerId !== "string") return {}
-  if (!isCompatibleAgentDevServerRoot(rootDir, discovery.root)) return {}
-  const token = await readWorkspaceDevToken(discovery.root, { serverId: discovery.workspaceDevTokenServerId })
-  return token ? { [workspaceDevTokenHeader]: token } : {}
 }
 
 function writeInfoUsage(context: AgentInfoCliContext): void {

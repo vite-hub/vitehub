@@ -118,6 +118,7 @@ describe("dev server discovery", () => {
       { fetch: async () => new Response("no", { status: 404 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
       { fetch: async () => new Response("Cannot find package 'missing-sdk'\n", { status: 500 }), message: "The Vite Development Server at http://localhost:2 failed with HTTP 500: Cannot find package 'missing-sdk'\n", serverUrl: "http://localhost:2" },
       { fetch: async () => new Response("", { status: 500 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
+      { fetch: async () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("terminated")) } }), { status: 502 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
       { fetch: async () => Response.json({ root: 123 }), message: "Invalid Vite Development Server discovery root.\n", serverUrl: "http://localhost:4" },
       { fetch: async () => Response.json({ root: "/other" }), message: "Compatible Vite Development Server root mismatch: /other\n", serverUrl: "http://localhost:3" },
       { fetch: async () => Response.json({ root: "https://host/project?token=hidden" }), message: "Compatible Vite Development Server root mismatch: https://host/project?token=[redacted]\n", serverUrl: "http://localhost:4" },
