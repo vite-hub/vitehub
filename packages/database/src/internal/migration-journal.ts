@@ -48,7 +48,7 @@ export function migrationSqlFile(migrationsDir: string, tag: string): string {
  */
 export function readMigrations(migrationsDir: string, database?: string, options: { flat?: boolean } = {}): MigrationEntry[] {
   if (!existsSync(migrationsDir)) return []
-  const layout = readOldMigrationsLayout(migrationsDir)
+  const layout = readOldMigrationsLayout(migrationsDir, { existsSync, readdirSync })
   if (layout && !(layout === "flat" && options.flat)) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database, dir: migrationsDir, layout })
   return readdirSync(migrationsDir, { withFileTypes: true })
     // A generated folder without its SQL is incomplete history, even though Drizzle 1.0 silently skips it.

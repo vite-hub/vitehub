@@ -231,7 +231,7 @@ pnpm vitehub database migrate
 pnpm vitehub database up
 ```
 
-`database up` converts each migrations folder of Drizzle Kit 0.x, with `meta/_journal.json`, and each folder of hand-written `.sql` files to one folder per migration, as Drizzle Kit 1.0 writes them. `database generate` and `database migrate` refuse these folders with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
+`database up` converts complete Drizzle Kit 0.x folders and folders of hand-written SQLite or D1 `.sql` files to one folder per migration. For hand-written files, it replays the SQL on a temporary database to record the schema. `database generate` and `database migrate` refuse the old layouts with `DATABASE_MIGRATIONS_OLD_LAYOUT`, except that D1 HTTP can migrate flat SQL directly.
 
 `database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
 

@@ -52,7 +52,7 @@ export function addStatementBreakpoints(sql: string): string {
   let result = ""
   let start = 0
   for (const cut of cuts) {
-    result += `${sql.slice(start, cut)}\n--> statement-breakpoint`
+    result += `${sql.slice(start, cut)}\n--> statement-breakpoint\n`
     start = cut
   }
   return result + sql.slice(start)
