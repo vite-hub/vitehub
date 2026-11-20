@@ -168,6 +168,8 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const hasChannelChatRoute = () => false",
     "export const namedChannelHosts = () => ({})",
     "export const resolvePublicUrl = () => undefined",
+    "export const setAgentHostCapabilities = capabilities => { globalThis.__testAgentHostCapabilities = capabilities }",
+    "export const setAgentWorkflowCapabilityLoaders = () => {}",
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
   ].join("\n"), "utf8")
   return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
@@ -2276,7 +2278,10 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      const netlifyPlugin = hubAgent()
+      const netlifyPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
+      const runtimeAliases = await stubNetlifyAgentRuntime(root)
+      const databaseRegistry = join(root, "database-registry.mjs")
+      await writeFile(databaseRegistry, "export const agentDb = () => { throw new Error('Unexpected database access') }", "utf8")
       if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2288,26 +2293,22 @@ describe("agent Vite plugin", () => {
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
             vitehub: { host: "netlify" },
             resolve: {
-              alias: agentProviderOutputAliases([
-                // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
+              alias: [
+                ...runtimeAliases,
                 { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
-                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
-                // Since #2493 the Netlify function also imports the host database capability.
-                { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/src/runtime/registry.ts") },
-              ]),
+                { find: "@vite-hub/database/runtime/registry", replacement: databaseRegistry },
+              ],
             },
             root,
           } as never,
         )
       }
-      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
-        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await netlifyPlugin.closeBundle.handler.call({} as never)
-      }
+      await runProviderOutputHooks(netlifyPlugin)
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(netlifyFunction).toContain("@vite-hub/database/runtime/registry")
+      const netlifyBundle = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
+      expect(netlifyBundle).toContain("api.resend.com")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
