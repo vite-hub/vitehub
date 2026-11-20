@@ -13,7 +13,8 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
-import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { agentDevLoopDiscoveryFetch, isCompatibleAgentDevServerRoot } from "./internal/agent-dev-loop-cli.ts"
+import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
@@ -769,7 +770,7 @@ async function readDiscovery(
 ): Promise<AgentDevTarget | undefined> {
   const server = await discoverViteHubDevServer<Partial<AgentDevLoopDiscoveryResponse>>({
     endpoint: agentDevEndpoint,
-    fetch: fetchImpl,
+    fetch: agentDevLoopDiscoveryFetch(fetchImpl, context.rootDir),
     isCompatibleRoot: isCompatibleAgentDevServerRoot,
     rootDir: context.rootDir,
     serverUrl: parsed.url,
@@ -1292,9 +1293,9 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
       description: "Inspect a discovered Agent through a running Vite Development Server.",
-      name: "info",
+      name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent info [--agent <name>] [--json]",
+      usage: "vitehub agent get [--agent <name>] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
@@ -1306,7 +1307,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
     },
   ]
   if (evalFiles.length) {

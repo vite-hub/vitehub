@@ -51,6 +51,7 @@ function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     [agentRuntimeModule("server/registry"), `export { resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/server/registry.ts"))}`],
     [agentRuntimeModule("server/internal"), [
+      `export { opensLibsqlAgentState } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/agent-state-runtime.ts"))}`,
       `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
       `export { resolveAgentInspectionMetadata, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,

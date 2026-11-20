@@ -1106,8 +1106,8 @@ describe("Agent invocation console", () => {
         // The way in from a page: it sends the browser to the Console, which signs it in with Site access.
         expect.objectContaining({ route: "/_vitehub", meta: { vitehubAuthAccess: "handler" } }),
         expect.objectContaining({ route: "/_vitehub/**", meta: { vitehubAuthAccess: "handler" } }),
-        // The page tools session of the Console link. It reads no Console data.
-        { handler: expect.stringMatching(/server\/page-session\.js$/), route: "/_vitehub/page/session" },
+        // The page tools session of the Console link. It reads no Console data and runs the access check of each tool.
+        { handler: expect.stringMatching(/server\/page-session\.js$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/page/session" },
       ])
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
@@ -1422,11 +1422,13 @@ describe("Agent invocation console", () => {
       ], { invoke: true, projectRoot: root })
       const response = { headers: new Headers() }
       const segment = encodeAgentRouteParam(name)
+      const tasks: Promise<unknown>[] = []
       const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
         body: ({ invokerProfileId: "support", prompt: " Test this Agent " }),
         url: `http://localhost/_vitehub/api/agents/${segment}/invocations?agentRoute=encoded`,
         res: response,
+        waitUntil: task => { tasks.push(task) },
       }))
 
       expect(invocation).toMatchObject({
@@ -1435,11 +1437,11 @@ describe("Agent invocation console", () => {
         url: expect.stringMatching(new RegExp(`^/agents/${segment}/invocations/`)),
       })
       expect(Reflect.get(response, "status")).toBe(202)
-      await vi.waitFor(async () => {
-        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
-          agentName: name,
-          status: "completed",
-        })
+      expect(tasks.length).toBeGreaterThan(0)
+      await Promise.all(tasks)
+      await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
+        agentName: name,
+        status: "completed",
       })
     }
     finally {
