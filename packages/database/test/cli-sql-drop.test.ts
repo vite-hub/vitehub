@@ -204,11 +204,11 @@ describe("vitehub database drop", () => {
       INSERT INTO users VALUES (1);
       INSERT INTO posts VALUES (1, 1);
     `)
-    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0 })
+    expect(await project.run("drop", ["--yes"])).toMatchObject({ exitCode: 0 })
     expect(await sqliteObjects(file)).toEqual([])
   })
 
-  it("needs --force without a terminal, and refuses a remote database without --remote", async () => {
+  it("needs --yes without a terminal, and refuses a remote database without --remote", async () => {
     const project = await createProject({ default: { connection: { url: "file:app.db" } } })
     const file = join(project.rootDir, "app.db")
     await seedSqlite(file, sqliteSeed)
@@ -217,14 +217,19 @@ describe("vitehub database drop", () => {
     const refused = await project.run("drop", [])
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("DATABASE_DROP_NOT_CONFIRMED")
-    expect(refused.stderr).toContain("add `--force`")
+    expect(refused.stderr).toContain("add `--yes`")
     expect(await sqliteObjects(file)).not.toEqual([])
 
-    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0 })
+    const renamed = await project.run("drop", ["--force"])
+    expect(renamed.exitCode).toBe(1)
+    expect(renamed.stderr).toContain("--force is now --yes")
+    expect(await sqliteObjects(file)).not.toEqual([])
+
+    expect(await project.run("drop", ["--yes"])).toMatchObject({ exitCode: 0 })
     expect(await sqliteObjects(file)).toEqual([])
 
     const libsql = await createProject({ default: { connection: { url: "libsql://db.example.turso.io" } } })
-    const remote = await libsql.run("drop", ["--force"])
+    const remote = await libsql.run("drop", ["--yes"])
     expect(remote.exitCode).toBe(1)
     expect(remote.stderr).toContain("DATABASE_DROP_FAILED")
     expect(remote.stderr).toContain("Add `--remote`")
@@ -232,7 +237,7 @@ describe("vitehub database drop", () => {
 
   it("drops nothing for a local file that does not exist, and does not create it", async () => {
     const project = await createProject({ default: { connection: { url: "file:.vitehub/data/app.db" } } })
-    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("it does not exist, so there is nothing to drop") })
+    expect(await project.run("drop", ["--yes"])).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("it does not exist, so there is nothing to drop") })
     expect(existsSync(join(project.rootDir, ".vitehub/data/app.db"))).toBe(false)
   })
 
@@ -250,7 +255,7 @@ describe("vitehub database drop", () => {
       return Response.json({ result: [{ results, success: true }], success: true })
     })
 
-    const result = await project.run("drop", ["--remote", "--force"], { fetch: fetch as typeof globalThis.fetch })
+    const result = await project.run("drop", ["--remote", "--yes"], { fetch: fetch as typeof globalThis.fetch })
 
     expect(result).toMatchObject({ exitCode: 0, stdout: "[vitehub] Database \"default\" (D1 HTTP proxy https://d1.example.com/query): dropped table d1_migrations, table users.\n" })
     expect(sqls.at(-1)).toBe("PRAGMA defer_foreign_keys = ON;\nDROP TABLE IF EXISTS \"d1_migrations\";\nDROP TABLE IF EXISTS \"users\";")
@@ -297,7 +302,7 @@ describe("vitehub database sql and drop on PGlite", () => {
     expect(dropped.exitCode).toBe(0)
     expect(dropped.stdout).toBe("[vitehub] Database \"default\" (PGlite .vitehub/data/database/pglite): dropped view \"public\".\"titles\", table \"billing\".\"invoices\", table \"drizzle\".\"__drizzle_migrations\", table \"public\".\"posts\", table \"public\".\"users\", sequence \"public\".\"tickets\", type \"public\".\"mood\".\n")
 
-    expect(await project.run("drop", ["--force"])).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("it has no tables to drop") })
+    expect(await project.run("drop", ["--yes"])).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("it has no tables to drop") })
 
     const check = new PGlite(dir)
     try {
@@ -328,7 +333,7 @@ describe("vitehub database sql and drop on PGlite", () => {
       ALTER ${dependency === "view" ? "VIEW kept_view" : "TABLE kept_table"} OWNER TO other_owner;
     `)
     await seed.close()
-    const result = await project.run("drop", ["--force"])
+    const result = await project.run("drop", ["--yes"])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("DATABASE_DROP_FAILED")
     const check = new PGlite(dir)
@@ -386,7 +391,7 @@ describe.skipIf(!postgresUrl)("vitehub database sql and drop on Postgres", () =>
     const single = await remote.run("sql", ["--remote", "SELECT count(*)::int AS n FROM posts"])
     expect(single).toMatchObject({ exitCode: 0, stdout: "n\n-\n1\n(1 row)\n" })
 
-    const dropped = await remote.run("drop", ["--remote", "--force"])
+    const dropped = await remote.run("drop", ["--remote", "--yes"])
     expect(dropped.exitCode).toBe(0)
     expect(dropped.stdout).not.toContain("kept")
 
