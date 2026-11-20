@@ -127,7 +127,7 @@ const ticketOpened = v.object({
 })
 
 export default defineChannel({
-  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: () => process.env.TICKETING_WEBHOOK_SECRET }),
+  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: 'TICKETING_WEBHOOK_SECRET' }),
   on: {
     webhook: defineChannelTrigger({
       input: ticketOpened,

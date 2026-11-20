@@ -170,7 +170,7 @@ afterEach(() => {
 function store() {
   return createGitHubWorkspaceStore({
     driver: "github",
-    repository: "onmax/repo",
+    repo: "onmax/repo",
     token: "token",
     branch: "main",
     root,

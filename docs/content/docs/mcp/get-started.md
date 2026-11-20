@@ -1,20 +1,20 @@
 ---
 title: Give an Agent your first tool
-description: Turn on the MCP server of your app, write one tool, and call it from Claude Code.
+description: Turn on your app's MCP server, write one tool, and call it from Claude Code.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-[MCP](https://modelcontextprotocol.io) (Model Context Protocol) is how Agents such as Claude Code, Codex, or ChatGPT call tools. Your app can serve its own MCP server. Each file in `server/mcp/tools/` is one tool, and the server answers at `/mcp`.
+[MCP](https://modelcontextprotocol.io), the Model Context Protocol, is how Agents such as Claude Code, Codex, or ChatGPT call tools. Your app can serve its own MCP server at `/mcp`. Each file in `server/mcp/tools/` is one tool.
 
-In this tutorial, you write a tool that adds two numbers, and you call it from Claude Code.
+In this tutorial, you write a tool that adds two numbers and call it from Claude Code.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. To connect an Agent, you need [Claude Code](https://code.claude.com) or another MCP client.
+> Start from the app in [Installation](/docs/getting-started/installation) and run commands from its root directory. To connect an Agent, you need [Claude Code](https://code.claude.com) or another MCP client.
 
-This is not the [ViteHub MCP](/docs/console/mcp) of the Console, which gives the operations of your apps to the people of your Console team.
+This is not the Console's [ViteHub MCP](/docs/console/mcp). That one gives the people of your Console team the operations of your apps.
 
 ::tutorial-step{title="Turn it on"}
 ## Turn it on
@@ -25,7 +25,7 @@ Install `@vite-hub/mcp`:
 pnpm add @vite-hub/mcp
 ```
 
-Turn on `mcp` in the ViteHub options. The MCP server needs sign-in by default. For this tutorial, `auth: false` turns sign-in off, so that you can connect without an account:
+Turn on `mcp` in your ViteHub options. The MCP server needs sign-in by default. For this tutorial, `auth: false` turns sign-in off so you can connect without an account:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -82,10 +82,10 @@ export default defineMcpTool({
 })
 ```
 
-- The file name is the tool name, so this tool is `add`.
-- `description` tells the Agent what the tool does and when to call it.
-- `input` is a Standard Schema that also gives its JSON Schema, such as a Zod 4 object. The server checks the arguments before the handler runs.
-- The handler returns an object, so the Agent gets it as JSON text and as `structuredContent`.
+- The file name is the tool name, so this tool is called `add`.
+- `description` tells the Agent what the tool does and when to use it.
+- `input` is a Standard Schema that also gives its JSON Schema, such as a Zod 4 object. The server checks the arguments before your handler runs.
+- Returning an object sends the result to the Agent as both JSON text and `structuredContent`.
 
 ::
 
@@ -103,30 +103,30 @@ vitehub inspect definitions --kind mcp-tool
 ::tutorial-step{title="Connect an Agent"}
 ## Connect an Agent
 
-Start the dev server with `pnpm dev`. Then add the server to Claude Code:
+Start the dev server with `pnpm dev`, then add the server to Claude Code:
 
 ```bash [commands/connect]
 claude mcp add --transport http my-app http://localhost:3000/mcp
 ```
 
-Ask Claude Code to add 2 and 3 with the `my-app` tools. It calls `add` and reads `{ "sum": 5 }`.
+Ask Claude Code to add 2 and 3 using the `my-app` tools. It calls `add` and gets `{ "sum": 5 }`.
 
 ::
 
 ## In production
 
-In production, the server answers at `/mcp` of your app, such as `https://app.example.com/mcp`. With `auth: false`, anyone who knows the URL can call every tool. Remove `auth: false`, set `auth` in the ViteHub options, and add `mcpOAuth()`, so that the server needs an access token. See [Sign in with MCP OAuth](/docs/mcp/configure#sign-in-with-mcp-oauth).
+In production, your server answers at `/mcp` on your app's domain, such as `https://app.example.com/mcp`. With `auth: false`, anyone who knows the URL can call every tool. Before you go to production, remove `auth: false`, set `auth` in your ViteHub options, and add `mcpOAuth()` so every caller needs an access token. See [Sign in with MCP OAuth](/docs/mcp/configure#sign-in-with-mcp-oauth).
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/mcp/configure"}
-Change the route, and sign MCP clients in with OAuth.
+Change the endpoint path and require OAuth sign-in for MCP clients.
 :::
 
 :::card{title="Server API" icon="i-lucide-code-2" to="/docs/mcp/server-api"}
-Read every option of `defineMcpTool()` and what a handler returns.
+See all `defineMcpTool()` options and handler return types.
 :::
 
 :::card{title="Limits and errors" icon="i-lucide-circle-alert" to="/docs/mcp/limits-and-errors"}
-Know what the server supports, and fix its build errors.
+Check protocol support and fix build errors.
 :::
 ::

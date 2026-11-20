@@ -94,7 +94,7 @@ export default defineEventHandler(async (event) => {
 
 ::product-features
   :::product-feature-item{title="Choose the allowed commands" icon="i-lucide-list-checks" to="/docs/shell/configure#drivers"}
-  List the commands a shell can run. Network access is off unless you turn it on.
+  List the commands a shell can run. Network access stays off unless you turn it on.
   :::
 
   :::product-feature-item{title="Work on your files" icon="i-lucide-folder-open" to="/docs/shell/server-api#workspace-filesystem"}
@@ -102,19 +102,19 @@ export default defineEventHandler(async (event) => {
   :::
 
   :::product-feature-item{title="Clear results" icon="i-lucide-terminal" to="/docs/shell/server-api#shell-observation-shape"}
-  Each command returns its exit code, output, and errors. A blocked command returns exit code `126`.
+  Every call returns its exit code, stdout, and stderr. Blocked commands exit with `126`.
   :::
 
   :::product-feature-item{title="Limits across commands" icon="i-lucide-gauge" to="/docs/shell/server-api#use-shell-sessions"}
-  A session shares one limit for calls, output size, and time across many commands.
+  A session shares one call limit, output cap, and timeout across many commands.
   :::
 
   :::product-feature-item{title="Check a command first" icon="i-lucide-search" to="/docs/shell/server-api#analyze-commands"}
-  `analyzeShellCommand()` lists the programs, pipes, and redirects in a command, so you decide what to allow.
+  `analyzeShellCommand()` lists the programs, pipes, and redirects in a command, so you can decide what to allow.
   :::
 
   :::product-feature-item{title="Stop slow commands" icon="i-lucide-timer" to="/docs/shell/configure#session-and-exec-options"}
-  Set a timeout, or cancel a command with an `AbortSignal`.
+  Set a timeout or cancel a running command with an `AbortSignal`.
   :::
 ::
 

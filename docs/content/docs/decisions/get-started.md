@@ -175,7 +175,7 @@ You get a selection. Each group has its own shape:
 }
 ```
 
-- `supplier` lists the values to include and the values to exclude.
+- `supplier` lists the values to include and exclude.
 - `chart` has the best value, how sure the model is, and every option from most to least likely.
 - Every value is one of your option values.
 

@@ -321,8 +321,8 @@ export default defineChannel({
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
     header: 'x-airtable-content-mac',
-    secret: () => process.env.AIRTABLE_MAC_SECRET,
-    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+    secret: 'AIRTABLE_MAC_SECRET',
+    signature: { type: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -333,9 +333,9 @@ export default defineChannel({
 
 ### Verify a webhook signature
 
-Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()` or `defineChannelTrigger()`, set `secretHeader`, `secret`, and `signature`. In both, a string `secret` is the name of the server variable that holds the secret, as in Webhooks, and a function returns the secret. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
 
-Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secretToken`, `secretHeader`, or `signature`, or set `secretToken: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
+Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secret`, `secretHeader`, or `signature`, or set `secret: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
 
 `webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
 
@@ -353,12 +353,12 @@ export default defineChannel({
 | --- | --- |
 | `'token'` on `webhook()`, not set on a registration | The secret itself, compared in constant time. Set `header`, such as `'x-gitlab-token'`. |
 | `'bearer'` | `Bearer <secret>`. The header defaults to `'authorization'`. |
-| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
-| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
-| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `'github'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe'` or `{ type: 'stripe', tolerance? }` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`, at most `tolerance` old (default `'5m'`). |
+| `{ type: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
 | `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
 
-`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
+`github` is the HMAC signature with `prefix: 'sha256='`. The names are the ones of [Webhooks](/docs/webhooks). Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
 
 `bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When the secret function gives no secret, the webhook does not run the trigger: `bearer` answers `500` naming the Channel, and the other signatures answer `401`. A missing secret never leaves the route open. Return `false` from the secret function to turn verification off for that request.
 
@@ -443,8 +443,8 @@ export default defineChannel({
     kind: 'airtable',
     path: '/api/airtable/webhook',
     header: 'x-airtable-content-mac',
-    secret: () => process.env.AIRTABLE_MAC_SECRET,
-    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+    secret: 'AIRTABLE_MAC_SECRET',
+    signature: { type: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -459,7 +459,7 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - If admission finishes in time, the provider gets the trigger's answer.
 - Otherwise it gets `202 { accepted: true, deferred: true, ok: true }` and admission continues in the background. The provider never sees the trigger's own answer, such as `ignored()` or a returned `Response`.
 - The stored request is removed when admission ends. If the process stops first, or admission ends in a 5xx, the next process replays it through the route at startup.
-- Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
+- Replays check the signature again. A timestamped signature such as `stripe` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
 - A second delivery of a request that is still being admitted gets `202` once the first delivery's copy is stored. If that copy is not stored within `ackTimeoutMs` of arrival, it gets a `503` with `retry-after`.
 
