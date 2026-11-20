@@ -52,6 +52,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`cli-url-flag`](/docs/codemods/upgrade-vitehub#cli-url-flag) | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL |
 | [`cms-roles`](/docs/codemods/upgrade-vitehub#cms-roles) | The `cms` preset option `access: "roles"` to `roles: true` |
 | [`choices-package`](/docs/codemods/upgrade-vitehub#choices-package) | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices` |
+| [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 

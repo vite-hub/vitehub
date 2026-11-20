@@ -15,6 +15,12 @@ type Lockfile = {
   importers: Record<string, LockEntry>
   snapshots: Record<string, LockEntry>
 }
+type Catalogs = { catalogs: Record<string, Record<string, string>> }
+type Manifest = { dependencies?: Record<string, string>, optionalDependencies?: Record<string, string> }
+
+async function readLockfile(): Promise<Lockfile> {
+  return parseAllDocuments(await readFile(resolve(repoRoot, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS()
+}
 
 function productionDependencies(entry: LockEntry | undefined): [string, string][] {
   return Object.entries({ ...entry?.dependencies, ...entry?.optionalDependencies })
@@ -47,7 +53,7 @@ function installedVersions(lockfile: Lockfile, importer: string): Map<string, Se
 
 describe("AI SDK packages", () => {
   it("installs one version of each AI SDK package with @vite-hub/agent", async () => {
-    const lockfile: Lockfile = parseAllDocuments(await readFile(resolve(repoRoot, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS()
+    const lockfile = await readLockfile()
     const versions = installedVersions(lockfile, "packages/agent")
     expect(versions.has("ai")).toBe(true)
     // Two versions of one package are two copies in every Agent server bundle. Import AI SDK internals that `ai`
@@ -55,5 +61,22 @@ describe("AI SDK packages", () => {
     const duplicates = [...versions].filter(([name, set]) => name.startsWith("@ai-sdk/") && set.size > 1)
       .map(([name, set]) => `${name}: ${[...set].sort().join(", ")}`)
     expect(duplicates).toEqual([])
+  })
+
+  it("pins the AI SDK packages of @vite-hub/agent to the versions that its AI SDK dependencies pin", async () => {
+    // The lockfile above holds one copy, but a fresh install resolves each range again. `ai` pins @ai-sdk/provider, so
+    // a range such as ^4.0.24 next to it installs the newest 4.0.x as a second copy. A `languageModel()` model then
+    // has the newer LanguageModelV4 type and no longer fits the Driver's `LanguageModel`.
+    const lockfile = await readLockfile()
+    const { catalogs }: Catalogs = parseAllDocuments(await readFile(resolve(repoRoot, "pnpm-workspace.yaml"), "utf8")).at(-1)?.toJS()
+    const manifest: Manifest = JSON.parse(await readFile(resolve(repoRoot, "packages/agent/package.json"), "utf8"))
+    const ranges = new Map(Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })
+      .filter(([name]) => name === "ai" || name.startsWith("@ai-sdk/"))
+      .map(([name, specifier]) => [name, specifier.startsWith("catalog:") ? catalogs[specifier.slice("catalog:".length)]![name]! : specifier]))
+    const installed = new Map(productionDependencies(lockfile.importers["packages/agent"]))
+    const mismatches = [...ranges.keys()].flatMap(name => productionDependencies(lockfile.snapshots[`${name}@${installed.get(name)}`])
+      .filter(([dependency, version]) => ranges.has(dependency) && ranges.get(dependency) !== version.replace(/\(.*$/, ""))
+      .map(([dependency, version]) => `${dependency}: @vite-hub/agent asks ${ranges.get(dependency)}, ${name} pins ${version}`))
+    expect(mismatches).toEqual([])
   })
 })

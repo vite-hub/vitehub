@@ -1299,7 +1299,7 @@ Delivery custody shows what happened to each incoming message, so you can find w
 No ViteHub record can prove a provider event that never reached the process. Use provider audit logs and Gateway session history for that.
 ::
 
-Timelines live in the Channel's State Adapter, for the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
+Timelines live in the Channel's State Adapter, for at least the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. The index trims at most once a minute, so it can briefly hold the extra admissions of that minute. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
 
 Hooks and Drivers get the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`. JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. Host integrations read records with the webhook handler's `handler.deliveries(request, webhookId, options)`, through the Channel's scoped State Adapter.
 
@@ -1351,7 +1351,7 @@ They are trusted text from code, read when the Invocation runs, so queued delive
 
 ## Handle attachments
 
-Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. To resend recent history photos, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
+Adapter Channels keep incoming images, audio, and files as typed message parts. Attachments on the message being answered are current Agent input. History attachments are not, so old media is not downloaded again, and the header marks each `(not shown)`. Codex and Claude Code Drivers get the 4 newest history photos again. To change that number, or to resend history photos to another Driver, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
 
 Every Channel that gives normalized `replyTo.attachments` gets this. Thread ids, link previews, and URLs in text are not reply content and are never resolved. If a provider does not normalize its native reply into `replyTo`, fix its adapter instead of guessing a thread root in the Agent.
 

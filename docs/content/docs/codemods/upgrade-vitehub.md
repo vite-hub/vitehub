@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, and `choices-package`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, and `cli-get-list`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -578,3 +578,33 @@ npx @vite-hub/codemods choices-package [dir] [--dry-run]
 | `vitehub decisions list` in a package script | `vitehub choices list` |
 
 Check the manual follow-ups before you install again. A Choices release may not match a Decisions version. Named CLI imports keep their local names; for other CLI references, use `listChoices` and `createChoicesCliNamespace` from `@vite-hub/choices/cli`. The diagnostic codes keep their `DECISIONS_` names.
+
+## cli-get-list
+
+`cli-get-list` renames the read commands in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `get` reads one record and `list` reads many:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-get-list [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub agent info` | `vitehub agent get` |
+| `vitehub agent invocations show` | `vitehub agent invocations get` |
+| `vitehub content show`, `vitehub workspace show` | `get` |
+| `vitehub email outbox show`, `vitehub queue jobs show` | `outbox get`, `jobs get` |
+| `vitehub workflow get` | `vitehub workflow runs get --json` |
+| `vitehub workflow runs show` | `vitehub workflow runs get` (use `--run-id` for `--id`) |
+| `vitehub schedule runs <schedule>` | `vitehub schedule runs list <schedule>` |
+| `vitehub schedule attempts <run>` | `vitehub schedule runs get <run>` |
+| `vitehub env inspect` | `vitehub env list` |
+| `vitehub env status --url <app>` | `vitehub env list --url <app> --json` |
+| `vitehub project info` | `vitehub project get` |
+| `vitehub definitions list` | `vitehub inspect definitions --kind <kind>` for local definitions; use the Console for runtime records |
+
+The codemod updates simple shell invocations. It skips scripts and steps with complex shell syntax, such as command substitutions or parameter defaults, to avoid editing text that is not a command. It reports recognized calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
+
+```diff [package.json]
+-    "check:env": "vitehub env status --url https://app.example.com"
++    "check:env": "vitehub env list --json --url https://app.example.com"
+```
