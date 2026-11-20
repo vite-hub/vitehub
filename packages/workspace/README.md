@@ -346,7 +346,7 @@ placement, materialization, sync, and access rules. Source owns retrieval.
 Without a `mount` path, the Source kind picks the mount, not the import. A file
 Source (`file()` or `markdown()` from either package, or the `"README.md"` and
 `{ path }` shorthands) puts its one file at its own key, so
-`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+`readme: file("README.md")` appears at `README.md`. `url()` also puts its one
 file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
 `readme: { source: file("README.md"), mount: "docs" }` appears at
 `docs/README.md`.
@@ -420,7 +420,7 @@ export default defineNuxtConfig({
     workspace: {
       store: {
         driver: "github",
-        repository: "owner/repo",
+        repo: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
       },
@@ -484,7 +484,7 @@ import { defineWorkspace } from "@vite-hub/workspace"
 export default defineWorkspace({
   store: {
     driver: "github",
-    repository: "owner/repo",
+    repo: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",
   },

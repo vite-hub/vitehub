@@ -15,6 +15,7 @@ import { workspaceStoreDiscard } from "../../storage/discard.ts";
 import { workspaceStoreTarget } from "../../storage/target.ts";
 import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
+  assertNoGitHubRepositoryKey,
   commitGitHubChanges,
   connectGitHubRepository,
   githubBranchMovedConflict,
@@ -912,5 +913,6 @@ export function createGitHubWorkspaceStore(
   options: GitHubWorkspaceStoreOptions,
   workspaceName: string,
 ): WorkspaceStore {
+  assertNoGitHubRepositoryKey(options);
   return new GitHubWorkspaceStore(options, workspaceName);
 }

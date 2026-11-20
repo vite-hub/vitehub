@@ -16,7 +16,7 @@ Manual follow-ups (3):
   3. package.json:7 `vitehub kv del` and `vitehub blob del` are now `vitehub kv delete` and `vitehub blob delete`.
 
 Notes:
-  - Renamed 4 import(s) of `hubDb`, `hubKv`, `createWorkspaceDriver`, `console`, or `createSource`.
+  - Renamed 4 import(s) of ViteHub APIs.
   - Renamed 5 `del()` call(s) on KV and Blob to `delete()`.
   - Moved the event of 2 `deriveSecret()` call(s) into `{ event }`.
   - Renamed 4 operation or MCP tool name(s) from `del` to `delete`.

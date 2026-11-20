@@ -19,6 +19,8 @@ const renamedExports = new Map<string, ReadonlyMap<string, string>>([
   ["@vite-hub/kv/vite", new Map([["hubKv", "hubKV"]])],
   ["@vite-hub/workspace/mountx", new Map([["createWorkspaceDriver", "createMountxDriver"]])],
   ["vite-hub/console/server", new Map([["console", "agentConsole"]])],
+  ["vite-hub/workspace", new Map([["fetch", "url"]])],
+  ["@vite-hub/workspace", new Map([["fetch", "url"]])],
   ["vite-hub/source", new Map([["createSource", "useSource"]])],
   ["@vite-hub/source", new Map([["createSource", "useSource"]])],
 ])
@@ -50,7 +52,7 @@ const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const sourceDefinitionPath = /(?:^|\/)server\/sources\/.+\.[cm]?[jt]s$/
 const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|\bcreateSource\b|\bregisterSources?\b|\bclearSources\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
+const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|\bcreateSource\b|\bregisterSources?\b|\bclearSources\b|vite-hub\/workspace|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
 
 interface Block {
   code: string
@@ -201,7 +203,8 @@ function rewriteExports(context: FileContext) {
         overwrite(context, specifier.imported, to)
         continue
       }
-      overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
+      if (name === "fetch") overwrite(context, specifier.imported, `${to} as ${name}`)
+      else overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
     }
   }
 
@@ -236,6 +239,10 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
     context.counts.exports++
     if (!property.shorthand) {
       overwrite(context, property.key, to)
+      continue
+    }
+    if (from === "fetch") {
+      overwrite(context, property.key, `${to}: ${from}`)
       continue
     }
     if (property.value.type === "AssignmentPattern") {
@@ -338,15 +345,19 @@ function sourceRegistryFollowUps(context: FileContext) {
   }
 }
 
-function sourceFileFollowUp(context: FileContext) {
-  const hasDefault = context.program.program.body.some((statement) => {
-    if (statement.type === "ExportDefaultDeclaration") return statement.declaration.type !== "TSInterfaceDeclaration"
-    return statement.type === "ExportNamedDeclaration" && statement.exportKind !== "type" && statement.specifiers.some((specifier) => {
-      if (specifier.type === "ExportDefaultSpecifier" || (specifier.type === "ExportSpecifier" && specifier.exportKind === "type")) return false
-      return (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default"
-    })
+function isRuntimeDefaultExport(statement: Node): boolean {
+  if (statement.type === "ExportDefaultDeclaration") {
+    const { type }: { type: string } = statement.declaration
+    return type !== "TSInterfaceDeclaration"
+  }
+  return statement.type === "ExportNamedDeclaration" && statement.exportKind !== "type" && statement.specifiers.some((specifier) => {
+    if (specifier.type === "ExportDefaultSpecifier" || (specifier.type === "ExportSpecifier" && specifier.exportKind === "type")) return false
+    return (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default"
   })
-  if (hasDefault) return
+}
+
+function sourceFileFollowUp(context: FileContext) {
+  if (context.program.program.body.some(isRuntimeDefaultExport)) return
   context.followUps.push({ file: context.file, message: "Each file under `server/sources/` must now default-export a Source. Add a default export and keep any named exports that other files import, or move the file outside `server/sources/` if you only use it directly." })
 }
 
@@ -425,7 +436,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   followUps.push(...await appSecretFollowUps(cwd), ...await scriptFollowUps(cwd))
   const notes = [
-    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of \`hubDb\`, \`hubKv\`, \`createWorkspaceDriver\`, \`console\`, or \`createSource\`.`] : []),
+    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of ViteHub APIs.`] : []),
     ...(counts.deletes ? [`Renamed ${counts.deletes} \`del()\` call(s) on KV and Blob to \`delete()\`.`] : []),
     ...(counts.secrets ? [`Moved the event of ${counts.secrets} \`deriveSecret()\` call(s) into \`{ event }\`.`] : []),
     ...(counts.strings ? [`Renamed ${counts.strings} operation or MCP tool name(s) from \`del\` to \`delete\`.`] : []),
@@ -444,13 +455,14 @@ const detections: [RegExp, string][] = [
   [/\bhubKv\b/, "hubKv"],
   [/\bcreateWorkspaceDriver\b/, "createWorkspaceDriver"],
   [/\bcreateSource\b/, "createSource"],
+  [/\bfetch\b[^;]*from ["']@?vite-hub\/workspace["']/, "fetch() from vite-hub/workspace"],
   [/\b(?:kv|blob)\.del\(/, "del()"],
   [/\bderiveSecret\([^),]+,/, "deriveSecret() with a positional event"],
 ]
 
 export const renamedApis: Codemod = {
   name: "renamed-apis",
-  description: "Rename hubDb, hubKv, createWorkspaceDriver, createSource, kv.del(), blob.del(), and the positional deriveSecret() event, and list registerSources() calls to move to server/sources/",
+  description: "Rename hubDb, hubKv, createWorkspaceDriver, the Workspace fetch() Source to url(), createSource, kv.del(), blob.del(), and the positional deriveSecret() event, and list registerSources() calls to move to server/sources/",
   usage: "[dir]",
   async detect({ cwd }) {
     // Reuse the edit planner so detection covers every supported migration form.

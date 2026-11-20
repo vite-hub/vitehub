@@ -156,7 +156,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
+The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. A target that a server route of the app answers is not a docs URL, such as `/api/auth/sign-in` from Auth when a section is at `/api`. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
 
 Rules added in a module's `nitro:config` hook are also checked, and keep the link checker's own redirect warnings.
 

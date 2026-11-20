@@ -294,7 +294,7 @@ async function resolveBuildDeclaration(
   const valueForSchema = defaulted ? defaultValue : resolvedSource.value
   if (typeof valueForSchema === "undefined") {
     if (declaration.required) {
-      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
+      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path, source.kind === "env" ? source.names || [source.name] : [])
     }
     return { source: resolvedSource.label, status: "missing" as const, value: undefined }
   }

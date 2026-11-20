@@ -170,7 +170,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       token: "token",
     }, "docs");
 
@@ -183,14 +183,14 @@ describe("GitHub workspace store", () => {
   it("rejects a truncated remote tree", async () => {
     fake.state.truncated = true
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts")
-    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token" }, "docs")
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token" }, "docs")
     await expect(store.list()).rejects.toThrow("could not compare the remote tree because GitHub returned a truncated tree")
   })
 
   it("matches glob patterns relative to cwd", async () => {
     for (const path of globCwdPaths) seedRemote(`.vitehub/workspaces/docs/${path}`, path);
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token" }, "docs");
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token" }, "docs");
     await checkGlobCwd(store);
   });
 
@@ -201,7 +201,7 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "files/0.txt", "120000");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
     const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
@@ -228,7 +228,7 @@ describe("GitHub workspace store", () => {
   it("coalesces concurrent first materializations of one revision archive", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
     const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
@@ -251,7 +251,7 @@ describe("GitHub workspace store", () => {
     vi.mocked(fetch).mockImplementationOnce(async () => await new Promise<Response>(() => {}));
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
     const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
@@ -266,7 +266,7 @@ describe("GitHub workspace store", () => {
     fake.state.archiveFailures = 2;
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
 
@@ -279,7 +279,7 @@ describe("GitHub workspace store", () => {
   it("falls back to the current Store state when it has staged writes", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
     await store.writeFile("staged.txt", { content: "staged", path: "staged.txt" });
@@ -305,7 +305,7 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "same\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
 
@@ -342,7 +342,7 @@ describe("GitHub workspace store", () => {
     } = await import("../src/providers/github/shared.ts");
     const options = {
       branch: () => undefined,
-      repository: () => undefined,
+      repo: () => undefined,
       root: () => undefined,
       token: () => undefined,
     };
@@ -369,7 +369,7 @@ describe("GitHub workspace store", () => {
     } = await import("../src/providers/github/shared.ts");
     const options = {
       branch: () => undefined,
-      repository: () => undefined,
+      repo: () => undefined,
       root: () => undefined,
       token: () => undefined,
     };
@@ -388,7 +388,7 @@ describe("GitHub workspace store", () => {
       const store = createGitHubWorkspaceStore(
         {
           driver: "github",
-          repository: "onmax/repo",
+          repo: "onmax/repo",
           root: ".vitehub/workspaces/<workspace>",
           token: maskedToken,
         },
@@ -410,7 +410,7 @@ describe("GitHub workspace store", () => {
       const store = createGitHubWorkspaceStore(
         {
           driver: "github",
-          repository: "onmax/repo",
+          repo: "onmax/repo",
           root: ".vitehub/workspaces/<workspace>",
         },
         "docs",
@@ -432,7 +432,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
       },
       "docs",
@@ -449,7 +449,7 @@ describe("GitHub workspace store", () => {
     const normalized = normalizeWorkspaceStoreOptions(
       {
         driver: "github",
-        repository: () => "onmax/repo",
+        repo: () => "onmax/repo",
         root: () => ".vitehub/workspaces/<workspace>",
         token: () => "callback-token",
       },
@@ -476,7 +476,7 @@ describe("GitHub workspace store", () => {
       {
         branch: () => " ",
         driver: "github",
-        repository: () => " ",
+        repo: () => " ",
         root: () => " ",
         token: () => " ",
       },
@@ -496,7 +496,7 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/visible.txt", "visible");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({
-      driver: "github", repository: "onmax/repo", token: "token",
+      driver: "github", repo: "onmax/repo", token: "token",
       root: ".vitehub/workspaces/<workspace>",
     }, "docs");
 
@@ -512,7 +512,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -573,7 +573,7 @@ describe("GitHub workspace store", () => {
     const freshStore = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -598,7 +598,7 @@ describe("GitHub workspace store", () => {
   it("removes metadata set to undefined and reads an empty metadata file as absent", async () => {
     seedRemote(".vitehub/workspaces/docs/.vitehub/meta/legacy.json", "");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const options = { driver: "github" as const, repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" };
+    const options = { driver: "github" as const, repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" };
     const store = createGitHubWorkspaceStore(options, "docs");
     await expect(store.getMeta!("legacy")).resolves.toBeUndefined();
 
@@ -616,7 +616,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       root: ".vitehub/workspaces/<workspace>",
       token: "token",
     }, "docs");
@@ -647,7 +647,7 @@ describe("GitHub workspace store", () => {
 
   it("persists sidecars for suffix-related and escaped paths without tree collisions", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const options = { driver: "github" as const, repository: "onmax/repo", root: "/", token: "token" };
+    const options = { driver: "github" as const, repo: "onmax/repo", root: "/", token: "token" };
     const store = createGitHubWorkspaceStore(options, "docs");
     const paths = ["a", "a.json/b", "x%2Fy", "x/y", "café.txt"];
     for (const path of paths) {
@@ -672,7 +672,7 @@ describe("GitHub workspace store", () => {
       metadata: { gitMode: "100644", symlinkTarget: "stale", label: "portable" },
     }));
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const options = { driver: "github" as const, repository: "onmax/repo", root: "/", token: "token" };
+    const options = { driver: "github" as const, repo: "onmax/repo", root: "/", token: "token" };
     const store = createGitHubWorkspaceStore(options, "docs");
     await expect(store.readFile("link")).resolves.toMatchObject({
       content: textBytes("current target"),
@@ -702,7 +702,7 @@ describe("GitHub workspace store", () => {
       {
         branch: "mirror",
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -735,7 +735,7 @@ describe("GitHub workspace store", () => {
       {
         branch: "feature?audio#draft",
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         token: "token",
       },
       "docs",
@@ -754,7 +754,7 @@ describe("GitHub workspace store", () => {
       {
         branch: "mirror",
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         token: "token",
       },
       "docs",
@@ -776,7 +776,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       token: "token",
     }, "docs");
 
@@ -793,7 +793,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -816,7 +816,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -827,7 +827,7 @@ describe("GitHub workspace store", () => {
     expect(requests.at(-1)?.rawPath).toBe(`/repos/onmax/repo/git/blobs/${textSha("content\n")}`);
 
     const missingStore = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
     seedRemote(".vitehub/workspaces/docs/missing.txt", "missing\n");
@@ -844,7 +844,7 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "first\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
 
@@ -869,7 +869,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -892,7 +892,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       token: "token",
     }, "docs");
 
@@ -908,7 +908,7 @@ describe("GitHub workspace store", () => {
       {
         branch: "mirror",
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -935,7 +935,7 @@ describe("GitHub workspace store", () => {
     });
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
-      { driver: "github", repository: "onmax/repo", token: "token" },
+      { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
 
@@ -961,7 +961,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -980,7 +980,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -995,7 +995,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1026,7 +1026,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1061,7 +1061,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1084,7 +1084,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1109,7 +1109,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1138,7 +1138,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1174,7 +1174,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1209,7 +1209,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1233,7 +1233,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1259,7 +1259,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const options = {
       driver: "github" as const,
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       root: ".vitehub/workspaces/<workspace>",
       token: "token",
     };
@@ -1291,7 +1291,7 @@ describe("GitHub workspace store", () => {
     const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
 
     // The first request writes, then fails before its snapshot.
@@ -1318,7 +1318,7 @@ describe("GitHub workspace store", () => {
     const { runInRunScopes } = await import("@vite-hub/runtime/internal/run-scope");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
 
     // Schedule and Queue run each handler this way. This run mirrors a record, then fails before its snapshot.
@@ -1346,7 +1346,7 @@ describe("GitHub workspace store", () => {
     const { executeStaticSchedule: executeStored } = await import("../../schedule/src/runtime.ts");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
     for (const handlerThrows of [false, true]) {
       const options = {
@@ -1384,7 +1384,7 @@ describe("GitHub workspace store", () => {
     const { createLocalQueueEngine } = await import("../../queue/src/providers/local.ts");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
     const base = await mkdtemp(join(tmpdir(), "workspace-failed-queue-"));
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1421,7 +1421,7 @@ describe("GitHub workspace store", () => {
     const { getCachedWorkspaceStore } = await import("../src/core/workspace-cache.ts");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
     // A module-level Workspace serves every request.
     const workspace = createWorkspace(definition);
@@ -1451,7 +1451,7 @@ describe("GitHub workspace store", () => {
     const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
     const definition: WorkspaceDefinition = {
       name: "docs",
-      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+      store: { driver: "github", repo: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
     };
     let release!: () => void;
     const written = new Promise<void>(resolve => { release = resolve; });
@@ -1478,7 +1478,7 @@ describe("GitHub workspace store", () => {
     const { githubHeadCacheMs } = await import("../src/providers/github/history.ts");
     const store = createGitHubWorkspaceStore({
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       root: ".vitehub/workspaces/<workspace>",
       token: "token",
     }, "docs");
@@ -1503,7 +1503,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const options = {
       driver: "github" as const,
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       root: ".vitehub/workspaces/<workspace>",
       token: "token",
     };
@@ -1533,7 +1533,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1557,7 +1557,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1579,7 +1579,7 @@ describe("GitHub workspace store", () => {
       {
         branch: "mirror",
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1600,7 +1600,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1662,7 +1662,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1698,7 +1698,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "onmax/repo",
+        repo: "onmax/repo",
         root: ".vitehub/workspaces/<workspace>",
         token: "token",
       },
@@ -1738,7 +1738,7 @@ describe("GitHub workspace store", () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
 
     // The Store is created without them, and the first request fails with a coded error.
-    const withoutToken = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "" }, "docs");
+    const withoutToken = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "" }, "docs");
     await expect(withoutToken.list()).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a token") });
     const withoutRepository = createGitHubWorkspaceStore({ driver: "github", token: "token" }, "docs");
     await expect(withoutRepository.list()).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a repository") });
@@ -1746,7 +1746,7 @@ describe("GitHub workspace store", () => {
       createGitHubWorkspaceStore(
         {
           driver: "github",
-          repository: "malformed",
+          repo: "malformed",
           token: "token",
         },
         "docs",
@@ -1755,7 +1755,7 @@ describe("GitHub workspace store", () => {
     const store = createGitHubWorkspaceStore(
       {
         driver: "github",
-        repository: "malformed",
+        repo: "malformed",
         token: "token",
       },
       "docs",

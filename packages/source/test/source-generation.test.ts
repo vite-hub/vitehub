@@ -9,6 +9,14 @@ import { useSource } from "../src/index.ts"
 import { clearSources } from "../src/internal/registry.ts"
 import { prepareSourceGeneration } from "../src/vite.ts"
 
+import type { Source } from "../src/index.ts"
+
+declare global {
+  interface ViteHubSourceMap {
+    __proto__: Source
+  }
+}
+
 const roots: string[] = []
 
 afterEach(async () => {
