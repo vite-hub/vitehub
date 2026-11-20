@@ -424,6 +424,62 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 
 The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 
+### Content only at build
+
+A site that prerenders every page needs Content only while it builds. Keep Content out of the server bundle:
+
+- Define Content in a file other than `server/content.ts`, such as `server/pages.ts`. ViteHub serves `server/content.ts` at run time, with `/api/content/**`, the Content operations, and the parsed documents.
+- Read it only from routes that the prerender needs, as the two forms below show.
+- List the routes that no page links, such as `/llms.txt`, in the Nitro `prerender.routes` option. In `nuxt.config.ts`, it is `nitro.prerender.routes`.
+
+```ts [server/pages.ts]
+import fs from 'comark-content/sources/fs'
+import { defineContent } from 'vite-hub/content'
+
+export const pages = defineContent({ source: fs('pages') })
+```
+
+A route file with the `.prerender` suffix, such as `server/routes/llms.txt.get.prerender.ts`, is part of the prerender build only. It can import Content directly. The server serves the prerendered file, and the server bundle has no code for the route. `vite dev` does not serve it either:
+
+```ts [server/routes/llms.txt.get.prerender.ts]
+import { defineHandler } from 'h3'
+import { pages } from '../pages'
+
+export default defineHandler(async () => {
+  const home = await pages.get('/')
+  return new Response(`# ${home?.data.title}\n`, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+})
+```
+
+A route that must also work in `vite dev` loads Content behind `import.meta.dev || import.meta.prerender`. Both values are `false` in the server build, so the bundler removes the `import()` and the server bundle leaves out Content, Comark, and their plugins:
+
+```ts [server/routes/search.json.get.ts]
+import { defineHandler, HTTPError } from 'h3'
+
+const loadPages = () => import.meta.dev || import.meta.prerender ? import('../pages') : undefined
+
+export default defineHandler(async () => {
+  const content = await loadPages()
+  if (!content) throw new HTTPError({ status: 404 })
+  return await content.pages.navigation()
+})
+```
+
+`fs()` reads the disk, so the dev server must run in Node. The prerender always runs in Node. With the Nitro `cloudflare-module` preset, `vite dev` runs the server in workerd, where `fs()` finds no files.
+
+Nuxt types `import.meta.dev` and `import.meta.prerender`. A Nitro app declares them once:
+
+```ts [server/import-meta.d.ts]
+declare global {
+  interface ImportMeta {
+    dev: boolean
+    prerender: boolean
+  }
+}
+
+export {}
+```
+
 ## Providers
 
 Content has no hosted provider. Comark Content keeps its query and search index in the database you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
