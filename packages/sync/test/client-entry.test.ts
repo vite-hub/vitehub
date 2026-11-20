@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { clearSync, createSync } from "../src/client.ts"
+import { clearSync, createSync, setSyncUser } from "../src/client.ts"
 import * as indexeddb from "../src/client/indexeddb.ts"
 import { createMemoryStorage, type SyncMeta } from "../src/client/storage.ts"
 import { syncRoute } from "../src/protocol.ts"
@@ -13,6 +13,7 @@ const stores: { destroy: () => void }[] = []
 afterEach(async () => {
   for (const store of stores.splice(0)) store.destroy()
   await clearSync()
+  await setSyncUser(null)
 })
 
 function open(fetch: typeof globalThis.fetch, baseURL?: string) {
@@ -199,6 +200,28 @@ describe("createSync in the browser", () => {
     await expect(write).resolves.toMatchObject({ id: write.key, title: "Eggs", ownerId: "ada" })
     expect(server.applied).toHaveLength(1)
     expect(store.getState().rows.map(row => row.title).sort()).toEqual(["Eggs", "Milk"])
+  })
+
+  it("keeps a write made before the first pull for the signed-in user, and never sends it as another account", async () => {
+    const server = createFakeSyncServer()
+    server.offline = true
+    await setSyncUser("ada")
+    const store = open(server.fetch)
+    const write = store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => store.getState().status === "offline")
+    await clearSync({ keepWrites: true })
+    expect(write.state).toBe("queued")
+    await setSyncUser("bob")
+    server.offline = false
+    server.user = "bob"
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready", rows: [], queued: 0 })
+    expect(server.applied).toEqual([])
+    await clearSync({ keepWrites: true })
+    server.user = "ada"
+    await store.refresh()
+    await expect(write).resolves.toMatchObject({ id: write.key, title: "Eggs", ownerId: "ada" })
   })
 
   it("sends the kept writes of a subset that no component shows when the network comes back after clearSync({ keepWrites: true })", async () => {

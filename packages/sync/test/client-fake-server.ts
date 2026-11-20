@@ -2,6 +2,8 @@
 // entries for rows that leave a scope, list values in `where`, subsets, a ledger of mutation ids, 409 for another
 // account, table versions and defaults, actions with results, resets below the compaction floor, and live streams of
 // several stores at `syncLiveRoute`.
+import { createHash } from "node:crypto"
+
 import { syncLiveRoute, syncRoute } from "../src/protocol.ts"
 
 import type { SyncKey, SyncLivePull, SyncLiveRequest, SyncMutation, SyncMutationResult, SyncPullResponse, SyncPushRequest, SyncRow, SyncScope, SyncValues, SyncWireError } from "../src/protocol.ts"
@@ -64,7 +66,7 @@ export interface FakeSyncServer {
 }
 
 export function accountOf(user: string): string {
-  return `account-${user}`
+  return createHash("sha256").update(`account\n${user}`).digest("hex").slice(0, 32)
 }
 
 /** The scope id of resolved values. */

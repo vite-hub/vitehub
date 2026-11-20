@@ -2,6 +2,7 @@ import { backoffDelay, randomUUID } from "@vite-hub/internal/browser-environment
 
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
+import { knownAccount } from "./account.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
 import { buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, toMutation, toWireError, whereKey } from "./view.ts"
@@ -1125,6 +1126,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
 
+  /** The account of a new write: the one of the stored copy, else the one of the signed-in user, else nobody yet. */
+  function owner(): string | null {
+    return meta?.account ?? knownAccount()
+  }
+
   return {
     // SAFETY: the rows are the JSON rows of the table of `TRow`.
     getState: () => current() as SyncState<TRow>,
@@ -1138,13 +1144,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const fields: SyncRow = { ...value }
       const given = fields[keyColumnOf(meta)]
       const key = typeof given === "string" && given ? given : randomUUID()
-      return enqueue({ id: randomUUID(), account: meta?.account ?? null, key, op: "insert", value: fields })
+      return enqueue({ id: randomUUID(), account: owner(), key, op: "insert", value: fields })
     },
     update(key, patch) {
       assertOpen()
       // A later patch of the same row in the same tick merges into the update that waits, so one push sends one update.
       const target = mergeTarget(local, key, meta?.account, storing)
-      const write: SyncNewWrite = { id: randomUUID(), account: meta?.account ?? null, key, op: "update", patch: { ...target?.patch, ...patch } }
+      const write: SyncNewWrite = { id: randomUUID(), account: owner(), key, op: "update", patch: { ...target?.patch, ...patch } }
       if (target) {
         local = local.filter(item => item !== target)
         moveHandles(target.id, write.id)
@@ -1152,12 +1158,12 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       return enqueue(write)
     },
     delete(key) {
-      return enqueue({ id: randomUUID(), account: meta?.account ?? null, key, op: "delete" })
+      return enqueue({ id: randomUUID(), account: owner(), key, op: "delete" })
     },
     actions: actionCalls<TArgs>((action, args) => {
       // The key of an action is its id, so the rows that its optimistic function inserts keep their keys on a replay.
       const mutationId = randomUUID()
-      return enqueue({ id: mutationId, account: meta?.account ?? null, key: mutationId, op: "action", name: action, args: structuredClone(args) })
+      return enqueue({ id: mutationId, account: owner(), key: mutationId, op: "action", name: action, args: structuredClone(args) })
     }),
     refresh() {
       paused = false

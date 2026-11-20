@@ -4928,10 +4928,60 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
       const src = resolve(root, ".vitehub/sync/nuxt-sign-out.mjs")
       expect(nuxt.options.plugins).toContainEqual({ src, mode: "client" })
-      expect(await readFile(src, "utf8")).toContain("onSignOut(() => clearSync())")
     }
     finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the queued writes of the user who signs out, and names the user of each write to Sync", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-auth-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    await mkdir(resolve(root, "server/sync"), { recursive: true })
+    const { nuxt } = createNuxt()
+    nuxt.options.rootDir = root
+    nuxt.options.serverDir = resolve(root, "server")
+    await viteHubNuxtModule({ auth: true, host: "node" }, nuxt)
+
+    const { computed, ref } = await import("vue")
+    const calls: string[] = []
+    const signOut = { listener: undefined as (() => unknown) | undefined }
+    const state = ref<{ pending: boolean, error: Error | null, user: { id: string } | null }>({ pending: true, error: null, user: null })
+    vi.doMock("#imports", async () => ({ defineNuxtPlugin: <T>(plugin: T) => plugin, watch: (await import("vue")).watch }))
+    vi.doMock("vite-hub/sync/client", () => ({
+      clearSync: async (options?: { keepWrites?: boolean }) => void calls.push(`clear ${JSON.stringify(options ?? {})}`),
+      setSyncUser: async (id: string | null) => void calls.push(`user ${id}`),
+    }))
+    vi.doMock("vite-hub/auth/vue", () => ({
+      onSignOut: (listener: () => unknown) => {
+        signOut.listener = listener
+        return () => undefined
+      },
+      useUserSession: () => ({
+        ready: computed(() => !state.value.pending),
+        error: computed(() => state.value.error),
+        user: computed(() => state.value.user),
+      }),
+    }))
+    const copy = await mkdtemp(resolve(import.meta.dirname, ".sync-plugin-"))
+    try {
+      await writeFile(resolve(copy, "plugin.mjs"), await readFile(resolve(root, ".vitehub/sync/nuxt-sign-out.mjs"), "utf8"))
+      // SAFETY: the generated plugin is the object that `defineNuxtPlugin()` got, which the fake returns as is.
+      const { default: plugin } = await import(pathToFileURL(resolve(copy, "plugin.mjs")).href) as { default: { dependsOn?: string[], setup: () => void } }
+      plugin.setup()
+      expect(plugin.dependsOn).toEqual(["vitehub:auth"])
+      expect(calls).toEqual([])
+      state.value = { pending: false, error: null, user: { id: "ada" } }
+      state.value = { pending: false, error: new Error("Failed to fetch"), user: null }
+      expect(calls).toEqual(["user ada"])
+      await signOut.listener?.()
+      expect(calls).toEqual(["user ada", "clear {\"keepWrites\":true}", "user null"])
+    }
+    finally {
+      await rm(copy, { recursive: true, force: true })
+      vi.doUnmock("#imports")
+      vi.doUnmock("vite-hub/sync/client")
+      vi.doUnmock("vite-hub/auth/vue")
     }
   })
 

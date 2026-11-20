@@ -34,3 +34,8 @@ export async function fingerprint(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("").slice(0, 32)
 }
+
+/** The account of a user, as the server names it in a pull and the browser on the writes it queues. */
+export function accountOf(userId: string): Promise<string> {
+  return fingerprint(`account\n${userId}`)
+}

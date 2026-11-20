@@ -1,6 +1,7 @@
 // The stores of the browser: one per Sync name and subset, shared by every caller of the page. `createSync()` and
 // `useSync()` check their options and call `openSync()`.
 import { syncLiveRoute, syncRoute } from "../protocol.ts"
+import { setKnownUser } from "./account.ts"
 import { createBrowserEnvironment, postClear } from "./environment.ts"
 import { createIndexedDBStorage } from "./indexeddb.ts"
 import { createSyncLive } from "./live.ts"
@@ -221,8 +222,8 @@ function openSync<TName extends SyncName>(name: TName, options: SyncOptions<Sync
 interface ClearSyncOptions {
   /**
    * Keeps the queued writes of each account, so writes that a person made offline go out when that person signs in
-   * again. They stay hidden from other accounts, as writes of another account always are. Writes made before the first
-   * pull have no account, and go. Default `false`.
+   * again. They stay hidden from other accounts, as writes of another account always are. A write made before the first
+   * pull belongs to the user that `setSyncUser()` named, and goes when no user was named. Default `false`.
    */
   keepWrites?: boolean
 }
@@ -243,5 +244,16 @@ async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
   postClear(keepWrites)
 }
 
-export { clearSync, openSync }
+/**
+ * Names the signed-in user, with the id that the server's Sync user has (`user.id`), or `null` after a sign-out. A
+ * write queued before the first pull then belongs to that user: `clearSync({ keepWrites: true })` keeps it, and it
+ * goes out only with a session of that user. ViteHub Auth in Nuxt calls it for you.
+ * @experimental
+ */
+async function setSyncUser(userId: string | null): Promise<void> {
+  if (!isBrowser()) return
+  await setKnownUser(userId)
+}
+
+export { clearSync, openSync, setSyncUser }
 export type { ClearSyncOptions }

@@ -3,7 +3,7 @@ import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origi
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import * as v from "valibot"
 
-import { canonical, fingerprint, jsonReplacer, toJson } from "./canonical.ts"
+import { accountOf, canonical, fingerprint, jsonReplacer, toJson } from "./canonical.ts"
 import { captureChanges } from "./capture.ts"
 import { syncChanges, syncMutations, syncState } from "./database.ts"
 import { describeSyncTable, isSyncDefinition, syncTableVersion } from "./define.ts"
@@ -184,7 +184,7 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   await captureScope(resolved, whereValues)
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
   const id = accountId(resolved, context, whereValues)
-  const account = id === null ? scope.id : await fingerprint(`account\n${id}`)
+  const account = id === null ? scope.id : await accountOf(id)
   return [undefined, { ...resolved, context, scope, account }]
 }
 
