@@ -27,6 +27,31 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it("resolves a private import alias alongside unrelated absolute imports", async () => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const dependency = resolve(rootDir, "dependency.mjs")
+    const replacement = resolve(rootDir, "replacement.mjs")
+    const outfile = resolve(rootDir, "output.mjs")
+    await Promise.all([
+      writeFile(resolve(rootDir, "package.json"), JSON.stringify({ imports: { "#generated/registry": "./fallback.mjs" } })),
+      writeFile(entry, `export { value } from ${JSON.stringify(dependency)}\nexport { registry } from "#generated/registry"\n`),
+      writeFile(dependency, 'export const value = "dependency"\n'),
+      writeFile(resolve(rootDir, "fallback.mjs"), 'export const registry = "fallback"\n'),
+      writeFile(replacement, 'export const registry = "replacement"\n'),
+    ])
+
+    const { encodeProviderOutputAliases } = await import("../src/build/bundle-options.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: encodeProviderOutputAliases([{ find: "#generated/registry", replacement }]),
+      packages: "external",
+      workingDir: rootDir,
+    })
+
+    expect(await import(pathToFileURL(outfile).href)).toMatchObject({ registry: "replacement", value: "dependency" })
+  })
+
   it("skips package alias probes for an explicitly selected entry", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")

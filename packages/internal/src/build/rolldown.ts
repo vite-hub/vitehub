@@ -481,7 +481,7 @@ function createExternalPackagesPlugin(): Plugin {
     name: "vitehub-external-packages",
     async resolveId(source, importer, extra) {
       if (source.startsWith("#")) {
-        return await this.resolve(source, importer, { kind: extra.kind }) ?? { id: source, external: true }
+        return await this.resolve(source, importer, { custom: extra.custom, kind: extra.kind }) ?? { id: source, external: true }
       }
       if (isBareSpecifier(source) && !isBuiltin(source)) return { id: source, external: true }
     },
