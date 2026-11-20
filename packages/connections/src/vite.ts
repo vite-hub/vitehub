@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path";
 
 import * as v from "valibot";
+import { normalizePath } from "vite";
 
 import {
   createNoExternalAddition,
@@ -46,8 +47,8 @@ const legacyTypesManifests = [".vitehub/connections-types.json", ".vitehub/conne
  * Writes `contents` when the bytes change, through a unique temporary file and a rename. Two servers that prepare the
  * same root at once each publish a complete file, so a reader never sees a mix of two results.
  */
-async function writeFileIfChanged(file: string, contents: string): Promise<void> {
-  if (await readFile(file, "utf8").catch(() => undefined) === contents) return;
+async function writeFileIfChanged(file: string, contents: string): Promise<boolean> {
+  if (await readFile(file, "utf8").catch(() => undefined) === contents) return false;
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${globalThis.crypto.randomUUID()}.tmp`;
   try {
@@ -57,6 +58,7 @@ async function writeFileIfChanged(file: string, contents: string): Promise<void>
   finally {
     await rm(temporary, { force: true });
   }
+  return true;
 }
 
 async function removeLegacyTypesManifests(root: string): Promise<void> {
@@ -257,23 +259,34 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
     return definitions;
   }
 
-  async function refreshGeneratedFiles(): Promise<void> {
+  async function refreshGeneratedFiles(): Promise<boolean> {
     // The declaration is a pure function of the discovered definitions, so two servers that write it at once converge.
-    await Promise.all([
+    const [registryChanged] = await Promise.all([
+      nitroRegistryFile ? writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName)) : false,
       writeFileIfChanged(resolve(projectRoot, generatedTypesPath), renderRegistryTypes(definitions)),
-      ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
       removeLegacyTypesManifests(defaultProjectRoot),
       // A custom `projectRoot` retires the declaration that the default root had before.
       ...(projectRoot === defaultProjectRoot ? [] : [removeGeneratedTypes(defaultProjectRoot), removeLegacyTypesManifests(projectRoot)]),
     ]);
+    return registryChanged;
   }
 
   async function refreshRegistry(server: ViteDevServer): Promise<void> {
     resolved = server.config;
     refresh();
-    await refreshGeneratedFiles();
+    const registryChanged = await refreshGeneratedFiles();
     const module = server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
     if (module) server.moduleGraph.invalidateModule(module);
+    if (!registryChanged || !nitroRegistryFile) return;
+
+    const registryPath = normalizePath(nitroRegistryFile);
+    for (const [name, environment] of Object.entries(server.environments)) {
+      if (!isServerEnvironment(name, environment.config)) continue;
+      const modules = environment.moduleGraph.getModulesByFile(registryPath);
+      if (!modules?.size) continue;
+      for (const registry of modules) environment.moduleGraph.invalidateModule(registry);
+      environment.hot.send({ type: "full-reload", triggeredBy: registryPath });
+    }
   }
 
   return {
