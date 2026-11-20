@@ -26,6 +26,7 @@ import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitr
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -735,6 +736,12 @@ function resolveLibsqlAgentState(
     ...(tablePrefix ? { tablePrefix } : {}),
     ...(resolvedUrl ? { url: resolvedUrl } : {}),
   }
+}
+
+function warnMissingServerlessStateUrl(config: ViteHubHintsConfig, state: GeneratedLibsqlAgentStateOptions | undefined): void {
+  if (!state?.durableUrlRequired || (state.ephemeralHosting !== "vercel" && state.ephemeralHosting !== "netlify")) return
+  if (process.env.VITEHUB_AGENT_STATE_URL?.trim()) return
+  reportViteHubHint(config, agentDiagnostics.AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD({ host: state.ephemeralHosting }))
 }
 
 /** The Agent state store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
@@ -2869,6 +2876,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }))
     }
     if (normalized && hasHostedAgents) {
+      if (normalized.runtime !== "deno" && config.command === "build" && !Reflect.get(config, VITEHUB_NUXT_HINTS)) {
+        warnMissingServerlessStateUrl(config, resolveLibsqlAgentState(normalized, config))
+      }
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(generatedRoot, {
           sourceRootDir: viteHubProjectRoot(config),
@@ -3219,6 +3229,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
+      if (resolved && hasHostedAgents && !denoOutput && environment?.command === "build" && typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function") {
+        const buildConfig = { ...config, root, command: environment.command }
+        warnMissingServerlessStateUrl(buildConfig, resolveLibsqlAgentState(resolved, buildConfig))
+      }
       const stateDriver = resolved && resolved.providers.state.driver
       stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState) : undefined
       const installWebhookQueue = Boolean(
@@ -3400,6 +3414,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       return result
     },
     async configResolved(config) {
+      if (config.command === "build") startViteHubHints(config)
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)

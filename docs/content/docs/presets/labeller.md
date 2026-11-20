@@ -65,6 +65,21 @@ The defaults are `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: fal
 
 A message that fails a sync is tried again on the next sync. After `maxAttempts` syncs (default `5`), the Gmail Channel skips it so that later mail is not blocked. `vitehub channels status` lists the skipped messages.
 
+The Agent's Gmail Channel is `channels.gmail`. Pass it to `pollGmailChannel()` or `syncGmailChannel()` from a [Schedule](/docs/agents/gmail#poll-without-pubsub):
+
+```ts [server/schedules/poll.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { pollGmailChannel } from 'vite-hub/agent/channels'
+import inbox from '../agents/inbox'
+
+export default defineSchedule({
+  cron: '*/5 * * * *',
+  async handler() {
+    await pollGmailChannel(inbox.channels.gmail)
+  },
+})
+```
+
 ## Clean up old mail
 
 `cleanup` moves labelled mail to Trash after some days. Each rule names a declared label and an age in days. Starred mail stays. `cleanup` is empty by default, so cleanup is off.
