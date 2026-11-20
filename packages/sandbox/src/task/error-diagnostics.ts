@@ -129,7 +129,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0074: { ...dynamicError, fix: "Restart the dev server or build again, so that ViteHub generates the Sandbox Task Definition again. Check that its file still exists." },
     SANDBOX_TASK_R0075: { ...dynamicError, fix: "Restart the dev server or build again, so that ViteHub generates the Sandbox Task Definition again. Check that its file still exists." },
     SANDBOX_TASK_R0076: { ...dynamicError, fix: "Use the Sandbox driver that the build selected, or build again with `driver` in `vitehub({ sandboxTask: { driver } })` or `hubSandboxTask()` set to the driver that you need." },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL: {
       why: ({ className, instanceType, size }: { className: string, instanceType: string, size: string }) => `[vitehub] The Cloudflare containers entry of class ${className} sets the instance type ${instanceType}, which is smaller than the Sandbox Task size (${size}).`,
       fix: "Remove `instance_type` from your `containers` entry so that ViteHub writes the size from `cpu` and `memory`, or set a larger `instance_type`, or lower `cpu` and `memory`. ViteHub never changes an instance type that you wrote.",

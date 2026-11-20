@@ -1,7 +1,6 @@
 import { defineErrors } from "@vite-hub/runtime"
 import { defineDiagnostics } from "nostics"
 
-// Runtime errors.
 export const channelErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {

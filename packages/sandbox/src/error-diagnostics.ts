@@ -134,7 +134,7 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ runtime, signal }: { runtime: string; signal: string }) => `${runtime} Sandbox cannot send the signal ${signal}.`,
       fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number. On Cloudflare, use SIGALRM, SIGHUP, SIGINT, SIGKILL, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, or a signal number.",
     },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     SANDBOX_CLOUDFLARE_COMMAND_TIMED_OUT: {
       why: ({ timeout }: { timeout: number }) => `Command timed out after ${timeout}ms.`,
       fix: "Give `exec()` a larger `timeout`, or make the command finish sooner. The Sandbox and its other processes keep running.",

@@ -3,7 +3,7 @@ import { defineErrors, type ViteHubError } from '@vite-hub/runtime'
 export const sandboxTaskRunErrors = /*#__PURE__*/ defineErrors({
   docs: 'https://vitehub.dev/docs/sandbox/diagnostics',
   codes: {
-    // Runtime error. `runSandboxTask()` returns it as `[error, undefined]`.
+    // Runtime error.
     SANDBOX_TASK_RUN_FAILED: {
       why: ({ name, code }: { name: string, code: string }) => `Sandbox Task ${JSON.stringify(name)} failed with ${code}.`,
       fix: 'Read `error.cause` for the message, `details`, and process output of the failure. `error.data.code` is its code, such as `SANDBOX_TASK_TIMEOUT`.',

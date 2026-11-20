@@ -36,7 +36,7 @@ const codes = {
     why: "The ChatGPT grant does not include permission to use the plan.",
     fix: "Run `vitehub connections connect <name>` and allow ChatGPT plan usage. ViteHub does not switch to an API key.",
   },
-  // Runtime errors. Connection client calls return them as `[error, undefined]`.
+  // Runtime errors.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
     fix: ({ approval, connection }: { approval: string, connection: string }): string => `Ask a manager of Connection "${connection}" to run \`vitehub connections approvals approve ${approval}\`. ViteHub then runs the call.`,
@@ -101,7 +101,7 @@ const codes = {
     fix: "Try the call again after a short wait. Another request refreshes the token now.",
   },
 
-  // Approval errors. `approve()` returns them through the management routes.
+  // Approval errors.
   CONNECTIONS_EXECUTION_UNKNOWN: {
     why: ({ approval }: { approval: string }): string => `The provider may have completed this write. Check the provider before requesting another approval. Approval: ${approval}.`,
     fix: "Check the provider for the result before you send the call again.",
@@ -117,7 +117,7 @@ const codes = {
     fix: "Check the key in the provider dashboard, then set it again.",
   },
 
-  // Config errors. ViteHub throws them, because the code or the deployment must change.
+  // Config errors.
   CONNECTIONS_INVALID_ACTOR: {
     why: ({ problem }: { problem: "access" | "agent" | "id" | "missing" }): string => {
       if (problem === "missing") return "This Connections runtime method records who made the decision, so it requires `actor`. It has no default."
@@ -204,7 +204,7 @@ const codes = {
     fix: "Call a method of the API catalog of the provider, or select the API in the Connection Definition.",
   },
 
-  // Management route errors. The routes return them as `{ error: { code, message, fix, docs } }`.
+  // Management route errors.
   CONNECTIONS_AUTH_REQUIRED: {
     why: ({ problem }: { problem: "actor-policy" | "development" | "management-actor" }): string => {
       if (problem === "actor-policy") return "createConnectionsHandler() requires an actor policy."
@@ -278,7 +278,7 @@ const codes = {
     why: "The callback has no `state` cookie of this browser, or the cookie does not match.",
     fix: "Start the connection again in this browser. Each authorization link works one time, for 10 minutes.",
   },
-  // CLI errors. `vitehub connections` prints them with their fix. Keep these codes in alphabetical order.
+  // CLI errors.
   CONNECTIONS_CLI_ARGUMENTS_INVALID: {
     why: ({ problem }: { problem: string }): string => problem,
     fix: "Run `vitehub connections --help` for the commands and their options, and pass the value that the message names.",
