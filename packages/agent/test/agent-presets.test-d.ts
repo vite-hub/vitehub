@@ -449,3 +449,16 @@ it("rejects conflicting preset option selectors", () => {
   // @ts-expect-error Tuple options cannot also use legacy options.
   defineAgent({ extends: [preset, { enabled: true }], options: { enabled: false } })
 })
+
+it("types the declared Channels of an Agent and of its children", () => {
+  const channel = github()
+  const agent = defineAgent({ driver: codexDriver(), channels: { github: channel } })
+  expectTypeOf(agent.channels.github).toEqualTypeOf<typeof channel>()
+  const child = defineAgent({ extends: agent, channels: { web: () => github() } })
+  expectTypeOf(child.channels.github).toEqualTypeOf<typeof channel>()
+  expectTypeOf(child.channels.web).toEqualTypeOf<typeof channel>()
+  const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver(), channels: { github: github() } }) })
+  expectTypeOf(defineAgent({ extends: preset }).channels.github.kind).toEqualTypeOf<"github">()
+  // @ts-expect-error An Agent without Channels keeps the optional record.
+  void defineAgent({ driver: codexDriver() }).channels.github
+})

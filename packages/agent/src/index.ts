@@ -2707,6 +2707,8 @@ type LayerOutputFor<TDefinition, TIntercept, TDriver = never> = LayerOutput<TDef
 
 type LayerDefinition<TDefinition, TDataInput, TData, TIntercept, TReplace extends boolean, TDriver = never> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer _TOutput, infer _TDataInput, infer _TDriverOutput, unknown, unknown>
   ? Omit<TDefinition, keyof AgentDefinition> & AgentDefinition<TRuntimeConfig, TCallOptions, TInvoker, TContext, LayerOutput<TDefinition, TIntercept, TReplace, TDriver>, TDataInput, [TDriver] extends [never] ? _TDriverOutput : LayerDriverOutput<TDefinition, TDriver>, TData, LayerInterceptOutput<TDefinition, TIntercept, TReplace>>
+    // The layer replaces `channels` with the generic type, so keep the parent's declared Channels in the state.
+    & (TDefinition extends { [configuredAgentWorkspace]: unknown } ? {} : { [configuredAgentWorkspace]: ConfiguredWorkspaceState<TDefinition> })
   : never
 
 type ConfiguredLayerSettings<TDefinition, TSchema, TIntercept, TDriver> = ConfiguredAgentSettings<LayerDefinition<TDefinition, LayerDataInput<TDefinition, TSchema>, LayerData<TDefinition, TSchema>, TIntercept, [TIntercept] extends [never] ? false : true, TDriver>>
@@ -2734,7 +2736,21 @@ declare const configuredAgentWorkspace: unique symbol
 
 type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAgentWorkspace]: infer TState }
   ? TState
-  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: undefined, channels: {} }
+  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: undefined, channels: DeclaredChannelInputs<TDefinition extends { readonly channels: infer TChannels } ? TChannels : {}> }
+
+// Drop the index signature of AgentChannels, so only Channels with a declared name remain.
+type DeclaredChannelInputs<TChannels> = { [K in keyof TChannels as K extends string ? string extends K ? never : K : never]: TChannels[K] }
+
+// defineAgent() calls Channel factories and normalizes `defineChannel()` values to Agent Channel definitions.
+type DeclaredAgentChannel<TInput> = [TInput] extends [never]
+  ? AgentChannelDefinition
+  : TInput extends (...args: never[]) => infer TChannel
+    ? TChannel
+    : TInput extends { kind: string } ? TInput : AgentChannelDefinition
+
+type DeclaredAgentChannels<TChannels> = [keyof DeclaredChannelInputs<TChannels>] extends [never]
+  ? {}
+  : { readonly channels: { readonly [K in keyof DeclaredChannelInputs<TChannels>]: DeclaredAgentChannel<DeclaredChannelInputs<TChannels>[K]> } }
 
 type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
 
@@ -2779,7 +2795,7 @@ type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels,
         : true extends ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<TMergedChannels>
           ? ConfiguredWorkspaceDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
           : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
-      & { [configuredAgentWorkspace]: TState }
+      & { [configuredAgentWorkspace]: TState } & DeclaredAgentChannels<TMergedChannels>
     : never
 
 type ConfiguredContextDefinition<TDefinition, TCapabilities> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput, infer TDataInput, infer TDriverOutput, infer TData, unknown>
