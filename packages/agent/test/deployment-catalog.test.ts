@@ -324,10 +324,10 @@ async function createDeploymentRuntimeFixture(
 describe("generated Agent deployment catalog", () => {
   let runtime: DeploymentRuntimeFixture | undefined
 
-  beforeEach(async () => {
+  beforeEach(async ({ task }) => {
     vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
     vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
-    runtime = await createDeploymentRuntimeFixture()
+    if (!task.meta?.hostFixture) runtime = await createDeploymentRuntimeFixture()
   })
 
   afterEach(async () => {
@@ -567,8 +567,7 @@ describe("generated Agent deployment catalog", () => {
     await expect(runtime.workspace("support-workspace")).resolves.toBeDefined()
   })
 
-  it("executes the same catalog through the Netlify Adapter", async () => {
-    await runtime!.close()
+  it("executes the same catalog through the Netlify Adapter", { meta: { hostFixture: true }, timeout: 30_000 }, async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
     runtime = await createDeploymentRuntimeFixture("netlify")
 

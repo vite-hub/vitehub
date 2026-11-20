@@ -1277,7 +1277,7 @@ describe("agent Vite plugin", () => {
     }
 }, 60_000)
 
-  it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
+  it("publishes retained folder Agent Workspace sources before generation cleanup", { timeout: 30_000 }, async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))

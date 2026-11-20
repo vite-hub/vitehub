@@ -215,7 +215,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
         // Start every alias resolution at once. Awaiting them one by one costs one resolver round trip per alias.
         const candidates: Array<{ alias: typeof aliases[number], resolution: Promise<ResolvedBareAliasPaths | undefined> }> = []
         for (const alias of aliases) {
-          if (isAbsolute(alias.specifier)) continue
+          if (isAbsolute(alias.specifier) || (alias.prefix && alias.specifier.startsWith("#"))) continue
           const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier
           const aliasSegments = packageAlias.split("/")
           if (!alias.prefix && aliasSegments.length === 1 && packageAlias.startsWith("@")) continue

@@ -44,7 +44,7 @@ describe("bundleEsmEntry", () => {
     await expect(bundleEsmEntry(entry, outfile)).rejects.toThrow("missing-adapter")
   })
 
-  it("resolves a private import alias alongside unrelated absolute imports", async () => {
+  it("resolves a private import alias without probing a synthetic private subpath", async () => {
     const rootDir = await createTempDir()
     const entry = resolve(rootDir, "entry.mjs")
     const dependency = resolve(rootDir, "dependency.mjs")
@@ -63,6 +63,12 @@ describe("bundleEsmEntry", () => {
     await bundleEsmEntry(entry, outfile, {
       alias: encodeProviderOutputAliases([{ find: "#generated/registry", replacement }]),
       packages: "external",
+      plugins: [{
+        name: "strict-private-imports",
+        resolveId(source) {
+          if (source === "#generated/registry/") this.error(`Unexpected private import: ${source}`)
+        },
+      }],
       workingDir: rootDir,
     })
 
