@@ -4,7 +4,7 @@ import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.t
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
@@ -69,7 +69,7 @@ export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig):
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
 }
 
-export function getCloudflareDevFallback(options: ResolvedCloudflareR2BlobStoreConfig) {
+export function getCloudflareDevFallback(options: ResolvedCloudflareR2BlobStoreConfig): ResolvedFsBlobStoreConfig | undefined {
   if (!options.localFallback || getOptionalBucket(options)) return undefined
   if (globalThis.navigator?.userAgent === "Cloudflare-Workers") {
     throw blobErrorDiagnostics.BLOB_R0001({ message: `R2 binding "${options.binding}" not found in the dev runner. Add a local R2 binding or use the Node dev runner for the filesystem fallback.` })
