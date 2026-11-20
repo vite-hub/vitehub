@@ -6757,7 +6757,7 @@ async function handleChatSdkMessage(
       let workflowRunContext = runContext
       let workflowSettlementError: DurableSteerQueueMessage["settlementError"]
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
-      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
+      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput, run?.messageId)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
         capabilities: workflowCapabilities,
         input: workflowInput,
