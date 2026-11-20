@@ -9,6 +9,7 @@ import type { Rolldown } from "vite"
 
 import { createImportPath } from "./paths.ts"
 import { importRolldown } from "./rolldown.ts"
+import { isPublishedPackagePath, publishedPackagePaths } from "./runtime-package-files.ts"
 import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
@@ -325,9 +326,17 @@ async function linkDependencies(
     if (entry.name === ".bin" || entry.name === ".pnpm") continue
     const sourceEntry = resolve(source, entry.name)
     const targetEntry = resolve(target, entry.name)
-    if (!existsSync(sourceEntry)) continue
-    const resolvedSourceEntry = realpathSync(sourceEntry)
-    if (!statSync(resolvedSourceEntry).isDirectory()) continue
+    // An entry can disappear after `readdir()`, such as a package that another install removes. Skip it.
+    let resolvedSourceEntry: string
+    try {
+      resolvedSourceEntry = realpathSync(sourceEntry)
+      if (!statSync(resolvedSourceEntry).isDirectory()) continue
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+      throw error
+    }
     if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
       await linkDependencies(sourceEntry, targetEntry, resolveLinkTarget)
       continue
@@ -1064,10 +1073,14 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         if (directory === root) break
       }
     }
+    // A linked workspace package is a whole source folder with tests and fixtures. Copy only what it publishes.
+    const referencedSourceSet = new Set(referencedSources)
+    const publishedPaths = new Map([...referencedPackages].map(sourcePackage => [sourcePackage, publishedPackagePaths(sourcePackage)]))
     const isReferencedSource = (path: string): boolean => {
       if (referencedAncestors.has(path)) return true
       for (let directory = path; pathContains(root, directory); directory = dirname(directory)) {
-        if (referencedTrees.has(directory)) return true
+        if (referencedSourceSet.has(directory)) return true
+        if (publishedPaths.has(directory)) return isPublishedPackagePath(directory, publishedPaths.get(directory), path)
         if (directory === root) break
       }
       return false
@@ -1128,7 +1141,8 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       }
       await cp(root, stagedRoot, {
         recursive: true,
-        filter: source => shouldCopySource(resolve(source)),
+        // A folder can disappear while the tree is copied, such as a temporary test folder. Skip it.
+        filter: source => existsSync(source) && shouldCopySource(resolve(source)),
       })
       const escapedMaterializedSources = materializedSources
         .filter(source => !pathContains(root, source))

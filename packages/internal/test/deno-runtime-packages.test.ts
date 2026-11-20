@@ -1350,6 +1350,59 @@ load("@img/sharp-linux-x64/sharp.node")
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
   })
 
+  it("copies only the published files of a linked workspace package", async () => {
+    const workspace = await temporaryDirectory("vitehub-deno-linked-package-")
+    const root = join(workspace, "apps/api")
+    const linked = join(workspace, "packages/kit")
+    await writeJson(join(root, "package.json"), {})
+    await writeJson(join(linked, "package.json"), { bin: { kit: "./bin/kit.js" }, files: ["dist", "types/*.d.ts"], name: "kit", version: "1" })
+    await mkdir(join(linked, "dist/chunks"), { recursive: true })
+    await writeFile(join(linked, "dist/chunks/index.js"), "export {}\n")
+    await mkdir(join(linked, "types"), { recursive: true })
+    await writeFile(join(linked, "types/index.d.ts"), "export {}\n")
+    await writeFile(join(linked, "types/notes.md"), "draft\n")
+    await mkdir(join(linked, "bin"), { recursive: true })
+    await writeFile(join(linked, "bin/kit.js"), "#!/usr/bin/env node\n")
+    await writeFile(join(linked, "README.md"), "# kit\n")
+    await mkdir(join(linked, "src"), { recursive: true })
+    await writeFile(join(linked, "src/index.ts"), "export {}\n")
+    await writeJson(join(linked, "test/.fixture-app/package.json"), { name: "fixture-app" })
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(linked, join(root, "node_modules/kit"), "dir")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "kit"\n')
+
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { kit: true }) })
+
+    const staged = join(root, ".output/node_modules/kit")
+    for (const file of ["package.json", "README.md", "bin/kit.js", "dist/chunks/index.js", "types/index.d.ts"]) {
+      expect(existsSync(join(staged, file)), file).toBe(true)
+    }
+    for (const path of ["src", "test", "types/notes.md"]) expect(existsSync(join(staged, path)), path).toBe(false)
+  })
+
+  it("skips a folder of a linked package that disappears while the package is copied", async () => {
+    const workspace = await temporaryDirectory("vitehub-deno-linked-vanished-")
+    const root = join(workspace, "apps/api")
+    const linked = join(workspace, "packages/kit")
+    await writeJson(join(root, "package.json"), {})
+    // No `files` list: the whole folder is published, with the folders that tests create and remove.
+    await writeJson(join(linked, "package.json"), { main: "index.js", name: "kit", version: "1" })
+    await writeFile(join(linked, "index.js"), "export {}\n")
+    // The folder is listed, then removed before it is read: a link to a removed folder stands in for that moment.
+    await mkdir(join(linked, "test"), { recursive: true })
+    await symlink(join(workspace, "removed-fixture"), join(linked, "test/.content-cms-1"), "dir")
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(linked, join(root, "node_modules/kit"), "dir")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "kit"\n')
+
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { kit: true }) })
+
+    expect(existsSync(join(root, ".output/node_modules/kit/index.js"))).toBe(true)
+    expect(existsSync(join(root, ".output/node_modules/kit/test/.content-cms-1"))).toBe(false)
+  })
+
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
     const root = await temporaryDirectory("vitehub-deno-package-cycle-")
     const plainDir = join(root, "node_modules/plain")

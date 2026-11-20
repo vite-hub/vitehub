@@ -468,6 +468,45 @@ it("retains only the monorepo packages that an app references, without generated
   expect(existsSync(retainedPath(dirname(dirname(unrelated))))).toBe(false)
 })
 
+it("retains only the published files of a referenced monorepo package with a files list", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-published-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "apps", "web")
+  const handler = join(rootDir, "server", "workflow.mjs")
+  const kitDir = join(workspace, "packages", "kit")
+  const kitBuild = join(kitDir, "dist", "index.mjs")
+  const kitChunk = join(kitDir, "dist", "chunks", "greeting.mjs")
+  const kitSource = join(kitDir, "src", "index.ts")
+  const kitFixture = join(kitDir, "test", ".content-cms-1", "server", "content.ts")
+  await Promise.all([handler, kitChunk, kitSource, kitFixture].map(file => mkdir(dirname(file), { recursive: true })))
+  await Promise.all([
+    writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n  - packages/*\n"),
+    writeFile(join(rootDir, "package.json"), "{\"name\":\"web\",\"type\":\"module\"}\n"),
+    writeFile(join(kitDir, "package.json"), "{\"name\":\"kit\",\"type\":\"module\",\"files\":[\"dist\"]}\n"),
+    writeFile(join(kitDir, "README.md"), "# kit\n"),
+    writeFile(handler, 'export { greeting } from "../../../packages/kit/dist/index.mjs"\n'),
+    writeFile(kitBuild, 'export { greeting } from "./chunks/greeting.mjs"\n'),
+    writeFile(kitChunk, 'export const greeting = "hello"\n'),
+    writeFile(kitSource, "throw new Error('package source must not be retained')\n"),
+    writeFile(kitFixture, "throw new Error('package test fixture must not be retained')\n"),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [handler],
+    roots: [rootDir],
+  })
+  const retainedWorkspace = join(retained.resolve(rootDir), "..", "..")
+  const retainedPath = (file: string) => join(retainedWorkspace, relative(workspace, file))
+
+  await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ greeting: "hello" })
+  for (const file of [kitBuild, kitChunk, join(kitDir, "package.json"), join(kitDir, "README.md")]) {
+    expect(existsSync(retainedPath(file)), file).toBe(true)
+  }
+  expect(existsSync(retainedPath(join(kitDir, "src")))).toBe(false)
+  expect(existsSync(retainedPath(join(kitDir, "test")))).toBe(false)
+})
+
 it("retains configured roots beneath nested generated output directories", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-nested-root-"))
   tempDirs.push(workspace)
