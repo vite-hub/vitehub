@@ -1,6 +1,7 @@
 // The stores of the browser: one per Sync name and subset, shared by every caller of the page. `createSync()` and
 // `useSync()` check their options and call `openSync()`.
 import { syncLiveRoute, syncRoute } from "../protocol.ts"
+import { setKnownUser } from "./account.ts"
 import { createBrowserEnvironment, postClear } from "./environment.ts"
 import { createIndexedDBStorage } from "./indexeddb.ts"
 import { createSyncLive } from "./live.ts"
@@ -39,7 +40,7 @@ const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init
 // The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
 const page: SyncPage = { stores: new Set(), version: 0 }
 
-const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
+const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", complete: false, error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
@@ -217,19 +218,43 @@ function openSync<TName extends SyncName>(name: TName, options: SyncOptions<Sync
   } as SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>>
 }
 
+/** Options of `clearSync()`. */
+interface ClearSyncOptions {
+  /**
+   * Keeps the queued writes of each account, so writes that a person made offline go out when that person signs in
+   * again. They stay hidden from other accounts, as writes of another account always are. A write made before the first
+   * pull belongs to the user that `setSyncUser()` named, and goes when no user was named. Default `false`.
+   */
+  keepWrites?: boolean
+}
+
 /**
  * Forgets every Sync row and queued write in this browser, in every tab, also the writes that wait for another
  * account. Call it on sign-out, so the next person on the device does not see them. Writes that wait reject with
- * `SYNC_CLEARED`.
+ * `SYNC_CLEARED`. With `keepWrites: true`, the writes of each account stay queued, and their promises stay pending.
  * Active stores stay paused until an explicit `refresh()` after the identity transition.
  * @experimental
  */
-async function clearSync(): Promise<void> {
+async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
   if (!isBrowser()) return
-  for (const { store } of shared.values()) store.forget()
-  for (const store of draining.keys()) store.forget()
-  await Promise.all([memoryStorage?.clear(), indexedDBStorage?.clear()])
-  postClear()
+  const keepWrites = options.keepWrites === true
+  for (const { store } of shared.values()) store.forget(keepWrites)
+  for (const store of draining.keys()) store.forget(keepWrites)
+  await Promise.all([memoryStorage?.clear({ keepWrites }), indexedDBStorage?.clear({ keepWrites })])
+  postClear(keepWrites)
 }
 
-export { clearSync, openSync }
+/**
+ * Names the signed-in user (`user.id`), or `null` after a sign-out. A write queued before the first pull waits for
+ * a pull from that user to establish its Sync account. With ViteHub Auth, use the Auth user ID; Nuxt names it for you.
+ * @experimental
+ */
+function setSyncUser(userId: string | null): void {
+  if (!isBrowser()) return
+  if (setKnownUser(userId) && userId !== null) {
+    for (const storage of senders.keys()) void sendStored(storage)
+  }
+}
+
+export { clearSync, openSync, setSyncUser }
+export type { ClearSyncOptions }

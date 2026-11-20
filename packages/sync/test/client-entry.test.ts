@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { clearSync, createSync } from "../src/client.ts"
+import { clearSync, createSync, setSyncUser } from "../src/client.ts"
 import * as indexeddb from "../src/client/indexeddb.ts"
 import { createMemoryStorage, type SyncMeta } from "../src/client/storage.ts"
 import { syncRoute } from "../src/protocol.ts"
@@ -13,6 +13,7 @@ const stores: { destroy: () => void }[] = []
 afterEach(async () => {
   for (const store of stores.splice(0)) store.destroy()
   await clearSync()
+  await setSyncUser(null)
 })
 
 function open(fetch: typeof globalThis.fetch, baseURL?: string) {
@@ -32,7 +33,7 @@ describe("createSync in the browser", () => {
     }, "/docs/")
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", persisted: false, rows: [{ id: "a" }] })
-    expect(urls[0]).toBe("/docs/_vitehub/sync/todos")
+    expect(urls[0]).toBe("/docs/_vitehub/sync/todos?paged=1")
   })
 
   it("shares one store for one name, until the last user destroys it", async () => {
@@ -164,6 +165,135 @@ describe("createSync in the browser", () => {
     expect(server.applied).toEqual([])
   })
 
+  it("keeps the queued writes of each account on clearSync({ keepWrites: true }), and sends them when that account signs in again", async () => {
+    const server = createFakeSyncServer()
+    server.write({ id: "a", ownerId: "ada", title: "Milk" })
+    let gate = Promise.resolve()
+    const store = open(async (input, init) => {
+      await gate
+      return await server.fetch(input, init)
+    })
+    await store.refresh()
+    server.offline = true
+    const write = store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => store.getState().queued === 1)
+    await clearSync({ keepWrites: true })
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
+    expect(write.state).toBe("queued")
+    await new Promise(resolve => setTimeout(resolve, 20))
+    server.offline = false
+    server.user = "bob"
+    let release!: () => void
+    gate = new Promise(resolve => release = resolve)
+    const refreshing = store.refresh()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0, failures: [] })
+    release()
+    await refreshing
+    await until(() => store.getState().status === "ready")
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
+    expect(server.applied).toEqual([])
+    await clearSync({ keepWrites: true })
+    server.user = "ada"
+    await store.refresh()
+    await expect(write).resolves.toMatchObject({ id: write.key, title: "Eggs", ownerId: "ada" })
+    expect(server.applied).toHaveLength(1)
+    expect(store.getState().rows.map(row => row.title).sort()).toEqual(["Eggs", "Milk"])
+  })
+
+  it("keeps a write made before the first pull for the signed-in user, and never sends it as another account", async () => {
+    const server = createFakeSyncServer()
+    server.offline = true
+    const store = open(server.fetch)
+    setSyncUser("ada")
+    const write = store.insert({ title: "Eggs" })
+    const updated = store.update(write.key, { title: "Milk" })
+    const latest = store.update(write.key, { title: "Tea" })
+    expect(store.getState()).toMatchObject({ queued: 2, rows: [{ id: write.key, title: "Tea" }] })
+    expect(store.pending(write.key)).toBe(true)
+    await clearSync({ keepWrites: true })
+    expect(write.state).toBe("queued")
+    setSyncUser("bob")
+    server.offline = false
+    server.user = "bob"
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready", rows: [], queued: 0 })
+    expect(server.applied).toEqual([])
+    await clearSync({ keepWrites: true })
+    server.user = "ada"
+    setSyncUser("ada")
+    expect(store.getState()).toMatchObject({ queued: 0, rows: [] })
+    await store.refresh()
+    await Promise.all([write, updated, latest])
+    expect(server.applied).toHaveLength(2)
+    expect(server.rows.get(write.key)).toMatchObject({ id: write.key, title: "Tea", ownerId: "ada" })
+  })
+
+  it("sends the kept writes of a closed subset on sign-in without waiting for an online event", async () => {
+    const server = createFakeSyncServer()
+    setSyncUser("ada")
+    const list = createSync("todos", { fetch: server.fetch, interval: false, where: { listId: "kept" } })
+    await list.refresh()
+    server.offline = true
+    const write = list.insert({ title: "Milk" })
+    write.then(undefined, () => undefined)
+    await until(() => list.getState().status === "offline")
+    list.destroy()
+    await clearSync({ keepWrites: true })
+    setSyncUser(null)
+    server.offline = false
+    setSyncUser("ada")
+    await until(() => server.rows.has(write.key))
+    expect(server.rows.get(write.key)).toMatchObject({ title: "Milk", listId: "kept", ownerId: "ada" })
+    await until(() => write.state === "applied")
+    await expect(write).resolves.toMatchObject({ title: "Milk" })
+  })
+
+  it("confirms the Auth owner before binding an early write to a custom Sync account", async () => {
+    const server = createFakeSyncServer()
+    server.offline = true
+    server.user = "tenant-ada"
+    server.authUser = "bob"
+    setSyncUser("ada")
+    const store = open(server.fetch)
+    const write = store.insert({ title: "Milk" })
+    server.offline = false
+    await store.refresh()
+    expect(server.applied).toEqual([])
+    server.authUser = "ada"
+    await store.refresh()
+    await expect(write).resolves.toMatchObject({ ownerId: "tenant-ada", title: "Milk" })
+  })
+
+  it.each(["ada", "bob"])("checks Auth for a write queued during the first pull (session: %s)", async (authUser) => {
+    const server = createFakeSyncServer()
+    server.user = authUser === "ada" ? "tenant-ada" : "ada"
+    server.authUser = authUser
+    setSyncUser("ada")
+    let requested!: () => void
+    let release!: () => void
+    const started = new Promise<void>(resolve => { requested = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const store = open(async (input, init) => {
+      requested()
+      await gate
+      return server.fetch(input, init)
+    })
+    const refreshed = store.refresh()
+    await started
+    const write = store.insert({ title: "Milk" })
+    release()
+    await refreshed
+    if (authUser === "bob") {
+      expect(server.applied).toEqual([])
+      server.authUser = "ada"
+      server.user = "tenant-ada"
+      await store.refresh()
+    }
+    expect(server.rows.get(write.key)).toMatchObject({ ownerId: "tenant-ada", title: "Milk" })
+  })
+
   it("sends writes from pre-upgrade keys, including a subset the page never reopens", async () => {
     const server = createFakeSyncServer()
     server.live = false
@@ -182,6 +312,8 @@ describe("createSync in the browser", () => {
     }
     vi.stubGlobal("indexedDB", {})
     const indexedDBStorage = vi.spyOn(indexeddb, "createIndexedDBStorage").mockReturnValue(storage)
+    const jitter = vi.spyOn(Math, "random").mockReturnValue(1 - Number.EPSILON)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     try {
       server.offline = true
       const store = createSync("todos", { baseURL, fetch, interval: false, where: { listId: "open" } })
@@ -191,7 +323,8 @@ describe("createSync in the browser", () => {
       server.offline = false
       window.dispatchEvent(new Event("online"))
       await store.refresh()
-      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]))
+      await vi.runOnlyPendingTimersAsync()
+      expect(await storage.queuedIds()).toEqual([])
       window.dispatchEvent(new Event("online"))
       await store.refresh()
       expect(await storage.queuedIds()).toEqual([])
@@ -199,6 +332,8 @@ describe("createSync in the browser", () => {
       expect(server.requests.filter(request => request.method === "POST" && request.body).map(request => request.url.pathname)).toEqual([route, route])
     }
     finally {
+      vi.useRealTimers()
+      jitter.mockRestore()
       indexedDBStorage.mockRestore()
       vi.unstubAllGlobals()
     }

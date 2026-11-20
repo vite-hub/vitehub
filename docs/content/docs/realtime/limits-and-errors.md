@@ -14,8 +14,17 @@ icon: i-lucide-circle-alert
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 
+realtime.onReset(({ reason }) => {
+  if (reason === 'source-changed')
+    toast.add({ title: 'The editor reset because the stored page changed' })
+})
+
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error?.code === 'REALTIME_SOURCE_CHANGED') {
+    toast.add({ title: 'Not published', description: 'The stored page changed outside this room.' })
+    return
+  }
   if (error) {
     toast.add({ title: 'Not published', description: error.why })
     return
@@ -24,13 +33,13 @@ async function publish() {
 }
 ```
 
-`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. Check the code first to read the typed `error.data`. When the server names why it refused the request, such as a stored document that changed outside the room, a read-only room, or edits that still did not reach the room after 20 retries, `error.code` is that name. [Realtime diagnostics](/docs/realtime/diagnostics) explains each code. Other server and network errors are `REALTIME_REQUEST_FAILED`.
 
 Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
 | Code | Where |
 | --- | --- |
-| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED` | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
+| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED`, and the codes that the server names | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
 | `REALTIME_AWARENESS_OWNERSHIP_CONFLICT` | WebSocket close code `4500` |
 | `REALTIME_AWARENESS_TOO_LARGE`, `REALTIME_DOCUMENT_TOO_LARGE`, `REALTIME_INVALID_AWARENESS`, `REALTIME_TOO_MANY_AWARENESS_CLIENTS` | WebSocket close code `4400` |
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
@@ -65,7 +74,7 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error that names no Realtime code, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`.
 
 ## Room request errors
 

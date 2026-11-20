@@ -159,7 +159,14 @@ changed its files after its checks ran, gets a branch update instead of a merge
 or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
-after checking that the head did not move.
+after checking that the head did not move. GitHub refuses App pushes to a fork,
+so a fork PR whose base changed its files, or that needs a retest on the current
+base, is closed and reopened instead, at most hourly. Its `pull_request` workflows
+then run again on the merge with the current base. GitHub lists no pull request on
+a fork's Actions runs, so the host matches the workflow run to the fork branch and
+head, then uses base branch activity before the run was created. Push runs do not
+count. The host records the close first and recovers an interrupted reopen only
+when its own GitHub identity closed the PR.
 
 PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
 
@@ -177,6 +184,17 @@ sets GitHub's `bypass_rules`, so the GitHub App must be allowed to bypass the
 branch rules. A required check that never reported, 10 minutes after the head's
 checks finished, gets a branch update or an Actions rerun once per head every
 six hours.
+
+`forkHeadBranches` (off by default), such as
+`{ "acme/app": "preview/pr-{number}" }`, is for required checks that run only on
+pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
+PR's head. When it is missing, the host pushes the head to that branch, once per
+head. A push runs the workflow files of the pushed commit with the repository's
+permissions, so the host first rereads GitHub and pushes only when a reviewer with
+write access approved that exact head, no change request stands, and any local
+action, reusable workflow, or workflow triggered by pushing or creating that
+branch still matches the live base. It moves and deletes only a
+branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no

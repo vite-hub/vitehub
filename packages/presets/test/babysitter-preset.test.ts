@@ -260,7 +260,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     return head;
   });
   // Route the forges GitHub provider through the gh-shaped `command` fake: `["api", "-X", METHOD, path, ...fields]`.
-  const singleRecord = /^repos\/[^/]+\/[^/]+(?:\/pulls\/\d+(?:\/merge(?:-async(?:\/[^/]+)?)?)?|\/git\/ref\/.+|\/actions\/runs\/\d+|\/actions\/jobs\/\d+|\/issues\/comments\/\d+|\/branches\/.+|\/compare\/.+)?$/;
+  const singleRecord = /^repos\/[^/]+\/[^/]+(?:\/pulls\/\d+(?:\/merge(?:-async(?:\/[^/]+)?)?)?|\/git\/ref\/.+|\/git\/trees\/.+|\/git\/blobs\/.+|\/issues\/\d+|\/collaborators\/[^/]+\/permission|\/actions\/runs\/\d+|\/actions\/jobs\/\d+|\/issues\/comments\/\d+|\/branches\/.+|\/compare\/.+)?$/;
   const { provider } = await githubForge(async (request: GitHubTestRequest) => {
     const path = `${request.path.slice(1)}${request.url.search}`;
     const input = request.path === "/graphql" ? request.variables : request.body;
@@ -2449,6 +2449,56 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("reopens a fork PR instead of updating it when the base changed its files after its checks ran", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      const result = await command(args, request);
+      if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
+      return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {
+        const value = JSON.parse(line);
+        return JSON.stringify(value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value);
+      }).join("\n"), stderr: "" };
+    });
+    try {
+      await f.reconcile();
+      const writes = f.command.mock.calls.map(([args]) => args).filter(args => args.includes("PATCH") && args.includes("repos/acme/app/pulls/12"));
+      expect(writes).toEqual([["api", "-X", "PATCH", "repos/acme/app/pulls/12", "state=closed"], ["api", "-X", "PATCH", "repos/acme/app/pulls/12", "state=open"]]);
+      expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes("update-branch")))).toBe(false);
+      expect(f.events).toHaveBeenCalledWith("babysitter.fork_checks.reopened", expect.objectContaining({ head_sha: "a".repeat(40) }));
+      expect(f.passes).toHaveLength(0);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each([["repair-bot", true], ["other[bot]", false]] as const)("recovers an interrupted reopen only if the closer %s is the host", async (login, recovered) => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    let reopenFails = true;
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("state=open") && reopenFails) throw new Error("HTTP 502: Bad Gateway");
+      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date().toISOString(), closed_by: { login, type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
+      const result = await command(args, request);
+      if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
+      return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {
+        const value = JSON.parse(line);
+        return JSON.stringify(value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value);
+      }).join("\n"), stderr: "" };
+    });
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith("babysitter.fork_checks.reopen_failed", expect.objectContaining({ reason: expect.stringContaining("502") }));
+      reopenFails = false;
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60_000);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.events).toHaveBeenCalledWith(recovered ? "babysitter.fork_checks.reopen_recovered" : "babysitter.fork_checks.reopen_abandoned", expect.objectContaining({ pullRequest: 12 }));
+      expect(f.command.mock.calls.filter(([args]) => args.includes("PATCH") && args.includes("state=open"))).toHaveLength(recovered ? 2 : 1);
+    } finally { await f.runtime.inbox.close(); }
+  }, 30_000);
+
   it("merges the base into a stacked head through the merges API when GitHub refuses update-branch", async () => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
@@ -2482,6 +2532,142 @@ describe("Babysitter preset runtime", () => {
       expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/merges"))).toBe(false);
       expect(f.events).toHaveBeenCalledWith("babysitter.branch.update_failed", expect.objectContaining({ reason: "merges API fallback: head changed" }));
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  describe("merge.forkHeadBranches", () => {
+    /**
+     * Git trees by SHA. "changed": the PR edits a push workflow. "base-moved": the base edited a workflow
+     * that runs only on pull requests and pushes to main after the PR branched. "retired": the base deleted a push workflow that the PR still has.
+     */
+    const gitTrees = (github: string): Record<string, Record<string, ["tree" | "blob", string]>> => {
+      const headGithub = { same: "g-base", changed: "g-changed", "base-moved": "g-old", retired: "g-retired" }[github] ?? "g-base";
+      return {
+        ["a".repeat(40)]: { ".github": ["tree", headGithub], src: ["tree", "src"] },
+        main: { ".github": ["tree", github === "base-moved" ? "g-moved" : "g-base"], src: ["tree", "src"] },
+        "g-base": { workflows: ["tree", "w-base"] },
+        "g-changed": { workflows: ["tree", "w-changed"] },
+        "g-old": { workflows: ["tree", "w-old"] },
+        "g-moved": { workflows: ["tree", "w-moved"] },
+        "g-retired": { workflows: ["tree", "w-retired"] },
+        "w-base": { "preview.yml": ["blob", "preview"] },
+        "w-changed": { "preview.yml": ["blob", "preview-edited"] },
+        "w-old": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "main-only"] },
+        "w-moved": { "preview.yml": ["blob", "preview"], "ci.yml": ["blob", "ci-new"] },
+        "w-retired": { "preview.yml": ["blob", "preview"], "deploy.yml": ["blob", "deploy"] },
+      };
+    };
+    type ForkOptions = { review?: "approved" | "stale" | "changes" | "reader"; github?: "same" | "changed" | "base-moved" | "retired"; ref?: "missing" | "foreign" | "head" };
+    const forkFixture = async (options: ForkOptions = {}) => {
+      const f = await fixture(false, false, {
+        merge: { strategy: "direct", forkHeadBranches: { "acme/app": "preview/pr-{number}" } },
+        result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) },
+      });
+      const command = f.command.getMockImplementation()!;
+      const finished = new Date(Date.now() - 60 * 60_000).toISOString();
+      const review = options.review ?? "approved";
+      let ref: string | undefined = options.ref === "foreign" ? "e".repeat(40) : options.ref === "head" ? "a".repeat(40) : undefined;
+      const fork = (value: Record<string, unknown> & { number?: number; head?: Record<string, unknown> }) =>
+        value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value;
+      f.command.mockImplementation(async (args, request) => {
+        const text = args.join(" ");
+        const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+        // "preview" runs only on pushes to acme/app, so it never reports on the fork's head.
+        if (text.includes("/rules/branches/")) return { stdout: JSON.stringify({ type: "required_status_checks", parameters: { required_status_checks: [{ context: "test" }, { context: "preview" }] } }), stderr: "" };
+        if (text.includes("check-runs")) return { stdout: JSON.stringify({ id: 1, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", started_at: finished, completed_at: finished }), stderr: "" };
+        if (path.startsWith("repos/acme/app/pulls/12/reviews")) {
+          const reviews = [{ id: 7, user: { login: review === "reader" ? "reader" : "maintainer" }, author_association: "MEMBER", state: review === "changes" ? "CHANGES_REQUESTED" : "APPROVED", commit_id: review === "stale" ? "d".repeat(40) : f.pr().head.sha, submitted_at: "2026-11-19T00:00:00Z", body: "" }];
+          return { stdout: reviews.map(value => JSON.stringify(value)).join("\n"), stderr: "" };
+        }
+        if (path.startsWith("repos/acme/app/collaborators/")) return { stdout: JSON.stringify({ permission: path.includes("/maintainer/") ? "write" : "read" }), stderr: "" };
+        if (path.startsWith("repos/acme/app/git/trees/")) {
+          const tree = gitTrees(options.github ?? "same")[path.slice("repos/acme/app/git/trees/".length)] ?? {};
+          return { stdout: JSON.stringify({ tree: Object.entries(tree).map(([name, [type, sha]]) => ({ path: name, type, sha })) }), stderr: "" };
+        }
+        if (path.startsWith("repos/acme/app/git/blobs/")) {
+          const workflow = path.endsWith("/main-only") ? "on:\n  push:\n    branches: [main]\n  pull_request:\n" : path.endsWith("/deploy") ? "on: workflow_call\n" : "on:\n  push:\n    branches: ['**']\n";
+          return { stdout: JSON.stringify({ content: Buffer.from(workflow).toString("base64"), encoding: "base64" }), stderr: "" };
+        }
+        if (path === "repos/acme/app/git/ref/heads/preview/pr-12") {
+          if (ref) return { stdout: JSON.stringify({ ref: "refs/heads/preview/pr-12", object: { type: "commit", sha: ref } }), stderr: "" };
+          throw new Error("HTTP 404: Not Found");
+        }
+        if (path === "repos/acme/app/git/refs") {
+          ref = f.pr().head.sha;
+          return { stdout: JSON.stringify({ ref: "refs/heads/preview/pr-12", object: { sha: ref } }), stderr: "" };
+        }
+        if (path === "repos/acme/app/git/refs/heads/preview/pr-12") {
+          if (text.includes("DELETE")) ref = undefined;
+          return { stdout: "", stderr: "" };
+        }
+        const result = await command(args, request);
+        if (path === "repos/acme/app/pulls/12" || path.includes("pulls?state")) {
+          return { stdout: result.stdout.split("\n").filter(Boolean).map(line => JSON.stringify(fork(JSON.parse(line)))).join("\n"), stderr: "" };
+        }
+        return result;
+      });
+      return f;
+    };
+    // The first reconcile reviews the head. The retry after it finds the required check still missing.
+    const reviewAndRetry = async (f: Awaited<ReturnType<typeof fixture>>) => {
+      await f.reconcile();
+      const finished = new Date(Date.now() - 60 * 60_000).toISOString();
+      await f.runtime.inbox.ingest("test-finished", "check_run", { repository: { full_name: "acme/app" }, action: "completed",
+        check_run: { id: 1, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", started_at: finished, completed_at: finished, app: { id: 1 }, pull_requests: [{ number: 12 }] } });
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      const now = vi.spyOn(Date, "now").mockReturnValue(reviewed!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+    };
+    const refWrites = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.map(([args]) => args)
+      .filter(args => args.includes("-X") && args.some(arg => arg.startsWith("repos/acme/app/git/refs")));
+    const skipped = (f: Awaited<ReturnType<typeof fixture>>) => f.events.mock.calls.filter(([name]) => name === "babysitter.fork_head.skipped").map(([, properties]) => properties.reason);
+
+    it("pushes a fork head that a writer approved when a required check never reported", async () => {
+      const f = await forkFixture();
+      try {
+        await reviewAndRetry(f);
+        expect(refWrites(f)).toEqual([["api", "-X", "POST", "repos/acme/app/git/refs", "ref=refs/heads/preview/pr-12", `sha=${"a".repeat(40)}`]]);
+        expect(f.events).toHaveBeenCalledWith("babysitter.fork_head.pushed", expect.objectContaining({ branch: "preview/pr-12", missing: ["preview"] }));
+        expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes("update-branch")))).toBe(false);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("pushes a fork head whose push workflows match the base after the base changed another workflow", async () => {
+      const f = await forkFixture({ github: "base-moved" });
+      try {
+        await reviewAndRetry(f);
+        expect(refWrites(f)).toEqual([["api", "-X", "POST", "repos/acme/app/git/refs", "ref=refs/heads/preview/pr-12", `sha=${"a".repeat(40)}`]]);
+        expect(skipped(f)).toEqual([]);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it.each([
+      ["an approval of an older head", { review: "stale" }, "no approval of aaaaaaa by a reviewer with write access"],
+      ["an approval by a reader", { review: "reader" }, "no approval of aaaaaaa by a reviewer with write access"],
+      ["a change request", { review: "changes" }, "changes requested"],
+      ["an edited push workflow", { github: "changed" }, ".github/workflows/preview.yml can run on push and differs from main"],
+      ["a reusable workflow the base deleted", { github: "retired" }, ".github/workflows/deploy.yml can run on push and differs from main"],
+      ["a branch the host did not create", { ref: "foreign" }, "branch exists and the host did not create it"],
+    ] as const)("does not push a fork head with %s", async (_name, options, reason) => {
+      const f = await forkFixture(options);
+      try {
+        await reviewAndRetry(f);
+        expect(refWrites(f)).toEqual([]);
+        expect(skipped(f)).toEqual([reason]);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("deletes the pushed branch once the PR closes, and only while it holds the pushed head", async () => {
+      const f = await forkFixture();
+      try {
+        await reviewAndRetry(f);
+        await f.runtime.inbox.ingest("closed", "pull_request", { repository: { full_name: "acme/app" }, action: "closed", pull_request: { ...f.pr(), state: "closed", merged_at: "2026-11-19T12:00:00Z", head: { ...f.pr().head, repo: { full_name: "contributor/app" } } } });
+        const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+        expect(refWrites(f).at(-1)).toEqual(["api", "-X", "DELETE", "repos/acme/app/git/refs/heads/preview/pr-12"]);
+        expect(f.events).toHaveBeenCalledWith("babysitter.fork_head.deleted", expect.objectContaining({ branch: "preview/pr-12" }));
+      } finally { await f.runtime.inbox.close(); }
+    });
   });
 
   it("updates a green branch that is only behind a base requiring up-to-date branches", async () => {

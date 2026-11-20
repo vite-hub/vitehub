@@ -82,6 +82,7 @@ Use one capacity object for all Agent Definitions that share process resources. 
 - Running Invocations are never stopped to make room.
 - Queued Invocations stay in first-in, first-out (FIFO) order and start when the memory sample allows.
 - Linux hosts use cgroup v2 memory limits, memory events, and pressure information when available. Other hosts use Node's available-memory signal.
+- Admission pauses when CPU pressure is above `cpu.pausePressure` (default 0.25) or memory pressure is above `memory.pausePressure` (default 0.05). It resumes when pressure falls to `resumePressure` above the lowest pressure of the last 10 minutes, and never higher than `pausePressure`. On a shared host where other services keep pressure at 3%, admission resumes at 4% memory pressure, not at 1%. Until samples cover 10 minutes, including after a sampling gap of 10 minutes or more, admission uses `resumePressure` alone.
 - When a sample fails or is slow, the host uses `fallbackConcurrency`.
 
 ## Recover and drain

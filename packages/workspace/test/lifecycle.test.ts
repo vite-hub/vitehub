@@ -45,7 +45,7 @@ describe("workspace lifecycle", () => {
 
     const store = createWorkspaceStore({
       name: "docs",
-      store: { driver: "github", repository: "acme/app", branch: "main", token: "token" },
+      store: { driver: "github", repo: "acme/app", branch: "main", token: "token" },
     })
 
     expect(store?.readFile).toEqual(expect.any(Function))
@@ -74,7 +74,7 @@ describe("workspace lifecycle", () => {
       name: "docs",
       store: {
         driver: "github",
-        repository: "acme/app",
+        repo: "acme/app",
         root: ".vitehub/workspaces/<workspace>",
         token: "github-token",
       },

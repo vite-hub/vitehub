@@ -12,11 +12,15 @@ const cursorProblems = {
 
 export type KVCursorProblem = keyof typeof cursorProblems
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. The docs build generates a page for each code.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
+    KV_INVALID_CLEAR_OPTIONS: {
+      why: "`kv.clear()` needs an options object with an optional string `prefix`, or no argument. It rejects a legacy string argument before deleting any keys.",
+      fix: "Use `kv.clear({ prefix: 'drafts:' })` to clear the keys below `drafts`, or `kv.clear()` to clear the whole store.",
+    },
     KV_INVALID_CURSOR: {
       why: ({ problem }: { problem: KVCursorProblem }) => cursorProblems[problem],
       fix: "Pass the `cursor` of the previous page once, to the same store. If it fails, start again without `cursor`.",
@@ -173,6 +177,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_PROVISION_FAILED: {
       why: ({ problem }: { problem: string }) => `Cloudflare KV provisioning failed. ${problem}`,
       fix: "Run `vitehub provision run --host cloudflare --dry-run` and check the Cloudflare token permissions.",
+    },
+
+    // Build hints. A build prints them and writes them to `.vitehub/hints.json`.
+    KV_REDIS_URL_UNUSED: {
+      why: ({ name, store }: { name: string, store: string }) => store === "upstash"
+        ? `KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own.`
+        : `The build has \`${name}\`, but KV does not select Redis on its own. The KV store "default" uses ${store}.`,
+      fix: ({ name }: { name: string, store: string }) => `To keep KV in that Redis, set \`kv: { driver: "redis"${name === "REDIS_URL" ? "" : `, url: "env:${name}"`} }\`. To keep this store, set its \`driver\`.`,
     },
   },
 })

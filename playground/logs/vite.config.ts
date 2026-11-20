@@ -8,9 +8,9 @@ export default defineConfig(({ command }) => ({
     vitehub({
       host: "node",
       console: command === "serve" ? { auth: false, local: true } : false,
+      logs: command === "serve",
       observability: command === "serve"
         ? {
-            logs: true,
             evlog: {
               env: { service: "logs-playground" },
               redact: { paths: ["customer.email"] },

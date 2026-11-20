@@ -117,16 +117,21 @@ async function deliverVercelQueueMessage(consumerFile: string, topic: string, co
 import { createServer } from "node:http"
 import { pathToFileURL } from "node:url"
 const markers = []
+const delivery = Promise.withResolvers()
 const callback = createServer((req, res) => {
   let body = ""
   req.on("data", chunk => body += chunk)
-  req.on("end", () => { markers.push(JSON.parse(body).marker); res.setHeader("content-type", "application/json"); res.end("{}") })
+  req.on("end", () => {
+    markers.push(JSON.parse(body).marker)
+    res.setHeader("content-type", "application/json")
+    res.end("{}", delivery.resolve)
+  })
 })
 await new Promise(done => callback.listen(0, "127.0.0.1", done))
 const { default: handler } = await import(pathToFileURL(process.env.CONSUMER_FILE).href)
 const server = createServer(handler)
 await new Promise(done => server.listen(0, "127.0.0.1", done))
-await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
+const response = fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
   method: "POST",
   headers: {
     "content-type": "application/json",
@@ -140,13 +145,15 @@ await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
   },
   body: JSON.stringify({ callbackUrl: \`http://127.0.0.1:\${callback.address().port}/api/tests/queue\`, email: "ava@example.com", marker: process.env.QUEUE_MARKER }),
 })
+await Promise.race([response, delivery.promise])
 console.log(JSON.stringify(markers))
 process.exit(0)
 `
-  // Acknowledging the message needs a Vercel OIDC token, so the delivery ends with an error after the handler ran.
+  // Verify the handler's marker without waiting for the SDK to acknowledge the message with Vercel.
   const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
     env: { ...process.env, CONSUMER_FILE: consumerFile, QUEUE_CONSUMER: consumer, QUEUE_MARKER: marker, QUEUE_TOPIC: topic, VERCEL_REGION: "iad1" },
     maxBuffer: execMaxBuffer,
+    timeout: 15_000,
   })
   return JSON.parse(stdout.trim().split("\n").at(-1)!)
 }
@@ -183,8 +190,12 @@ describe("unified vite e2e hosted outputs", () => {
     })
   }, 45_000)
 
-  it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
+  it("keeps the Cloudflare artifact provider-pure and preserves hosted bindings from config and provision state", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: { d1: { analytics: "analytics-d1-id", primary: "primary-d1-id" } },
+    }))
 
     await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
@@ -195,8 +206,8 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
-        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "",
+        VITEHUB_D1_DATABASE_ID: "",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
         VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
@@ -251,50 +262,6 @@ describe("unified vite e2e hosted outputs", () => {
     expect(cloudflareConfig.durable_objects?.bindings).toBeTruthy()
     expect(cloudflareConfig.migrations).toBeTruthy()
     expect(cloudflareConfig.artifacts).toBeUndefined()
-  }, 90_000)
-
-  it("uses provision state for cloudflare D1 bindings", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-provision-")
-    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
-    await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
-      cloudflare: {
-        d1: {
-          analytics: "analytics-d1-id",
-          primary: "primary-d1-id",
-        },
-      },
-    }, null, 2)}\n`)
-
-    await execFileAsync(process.execPath, [vp, "build"], {
-      cwd: rootDir,
-      env: {
-        ...process.env,
-        BLOB_BUCKET_NAME: "assets",
-        KV_NAMESPACE_ID: "kv-namespace",
-        TURSO_AUTH_TOKEN: "token",
-        TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
-        VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOST: "cloudflare",
-        VITEHUB_VITE_MODE: "e2e",
-      },
-      maxBuffer: execMaxBuffer,
-    })
-
-    const cloudflareConfig = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
-
-    expect(cloudflareConfig.d1_databases).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        binding: "DB",
-        database_id: "primary-d1-id",
-        database_name: "vitehub-playground-db",
-      }),
-      expect.objectContaining({
-        binding: "DB_ANALYTICS",
-        database_id: "analytics-d1-id",
-        database_name: "vitehub-playground-analytics",
-      }),
-    ]))
   }, 90_000)
 
   it("names every Cloudflare resource after the live-smoke scratch prefix", async () => {
@@ -369,6 +336,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITE_SANDBOX_TOKEN: "sandbox-token",
       },
       maxBuffer: execMaxBuffer,
+      timeout: 150_000,
     })
 
     const vercelConfig = await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")
@@ -388,7 +356,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).toContain("/api/database/analytics")
     expect(vercelServerContents).toContain("/api/blob")
     expect(vercelServerContents).toContain("/api/workflows/welcome")
-    expect(vercelServerContents).toContain('"access": "private",\n    "driver": "vercel"')
+    expect(vercelServerContents).toMatch(/\baccess["']?\s*:\s*["']private["'],\s*["']?driver["']?\s*:\s*["']vercel["']/)
     expect(vercelServerContents).not.toContain('import("files-sdk")')
     expect(vercelServerContents).not.toContain('import("files-sdk/vercel-blob")')
     expect(vercelServerContents).not.toContain("requires files-sdk")

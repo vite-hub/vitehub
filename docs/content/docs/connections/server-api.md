@@ -84,7 +84,7 @@ Agent tools record every call, reads too. MCP messages record successful, denied
 
 ## CLI
 
-The CLI calls the management route of a running dev server. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
+The CLI calls the management route of a running dev server. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`. With none, the command fails with `INTERNAL_DEV_SERVER_NOT_FOUND`: it never guesses a port. The commands do not load the project, so the dev server does not rebuild.
 
 For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, pass a session cookie that your `actor` accepts with `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. The dev server that the CLI finds by itself gets no credentials.
 
@@ -99,4 +99,4 @@ For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, pass a sessi
 | `vitehub connections models <name>` | List the models of a ChatGPT plan Connection. |
 | `vitehub connections export <name> --file <path>` | Move a ChatGPT grant to a protected file for another host. |
 | `vitehub connections import <name> --file <path>` | Import a ChatGPT credential file. |
-| `vitehub connections revoke <name> --confirm <name>` | Revoke the provider grant and delete the stored token. |
+| `vitehub connections revoke <name>` | Revoke the provider grant and delete the stored token. It asks first, and needs `--yes` without a terminal. |

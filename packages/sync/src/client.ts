@@ -1,4 +1,4 @@
-import { clearSync, openSync } from "./client/open.ts"
+import { clearSync, openSync, setSyncUser } from "./client/open.ts"
 import { SyncError } from "./client/types.ts"
 
 import type { SyncOptions, SyncStore } from "./client/types.ts"
@@ -24,7 +24,8 @@ function createSync<TName extends SyncName, TWhere extends SyncSubsetOf<TName> =
   return openSync(name, options ?? {})
 }
 
-export { clearSync, createSync, SyncError }
+export { clearSync, createSync, setSyncUser, SyncError }
+export type { ClearSyncOptions } from "./client/open.ts"
 export { syncRoute } from "./protocol.ts"
 export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
 export type { SyncActionCalls, SyncClientErrorCode, SyncFailure, SyncLocal, SyncOptimisticActions, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"

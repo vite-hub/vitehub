@@ -80,7 +80,7 @@ describe("storage capabilities", () => {
     const store = {
       delete: vi.fn(async () => undefined),
       get: vi.fn(async () => "value"),
-      keys: vi.fn(async () => ["app:1"]),
+      list: vi.fn(async () => ({ keys: ["app:1"] })),
       set: vi.fn(async () => undefined),
     }
 
@@ -95,7 +95,7 @@ describe("storage capabilities", () => {
     await expect(Promise.resolve().then(() => tools.kv_read!.execute?.({ key: "app:1", prefix: "app:" }))).rejects.toThrow("exactly one")
     await expect(Promise.resolve().then(() => tools.kv_read!.execute?.({}))).rejects.toThrow("exactly one")
     await expect(Promise.resolve().then(() => tools.kv_read!.execute?.({ key: null } as never))).rejects.toThrow("exactly one")
-    expect(store.keys).toHaveBeenCalledTimes(1)
+    expect(store.list).toHaveBeenCalledWith({ prefix: "app:" })
 
     await tools.kv_edit!.execute?.({ key: "app:2", operation: "put", value: { ok: true } })
     await tools.kv_edit!.execute?.({ key: "app:2", operation: "delete" })
@@ -108,7 +108,7 @@ describe("storage capabilities", () => {
     const store = {
       delete: vi.fn(async () => undefined),
       get: vi.fn(async () => "value"),
-      keys: vi.fn(async () => ["support:1", "support-private:1", "secret"]),
+      list: vi.fn(async () => ({ keys: ["support:1", "support-private:1", "secret"] })),
       set: vi.fn(async () => undefined),
     }
     const tools = await resolveTools([kv({ mode: "write", prefix: "support:" })], { kv: store })
@@ -129,7 +129,7 @@ describe("storage capabilities", () => {
     expect(store.delete).not.toHaveBeenCalled()
 
     await expect(tools.kv_read!.execute?.({ prefix: "support" })).resolves.toEqual(["support:1"])
-    expect(store.keys).toHaveBeenLastCalledWith("support:")
+    expect(store.list).toHaveBeenLastCalledWith({ prefix: "support:" })
     await tools.kv_edit!.execute?.({ key: "support:2", operation: "put", value: 1 })
     expect(store.set).toHaveBeenCalledWith("support:2", 1)
     expect(tools.kv_read!.description).toContain("support:")
@@ -190,7 +190,7 @@ describe("storage capabilities", () => {
 
   it("selects configured KV and Blob stores from capability options", async () => {
     const { blob, kv } = await import("../src/capabilities.ts")
-    const kvStore = { get: vi.fn(async () => "selected"), keys: vi.fn() }
+    const kvStore = { get: vi.fn(async () => "selected"), list: vi.fn() }
     const blobStore = { get: vi.fn(), head: vi.fn(), list: vi.fn(async () => ({ blobs: [] })) }
     const kvRoot = { store: vi.fn(() => kvStore) }
     const blobRoot = { store: vi.fn(() => blobStore) }
@@ -211,7 +211,7 @@ describe("storage capabilities", () => {
     const kvStore = {
       delete: vi.fn(async () => [undefined, undefined] as const),
       get: vi.fn(async () => [undefined, ["tuple", "value"]] as const),
-      keys: vi.fn(async () => [failure, undefined] as const),
+      list: vi.fn(async () => [failure, undefined] as const),
       set: vi.fn(async () => [undefined, undefined] as const),
     }
     const blobStore = {

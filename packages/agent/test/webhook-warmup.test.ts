@@ -25,13 +25,13 @@ function deferred() {
   return { promise, resolve }
 }
 
-function hookAgent(secretToken: () => string) {
+function hookAgent(secret: () => string) {
   return defineAgent({
     channels: {
       hook: channelAdapter("hook", {
         messages: false,
         triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
-        webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secretToken, signature: "github-sha256" },
+        webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secret, signature: "github" },
       }),
     },
     driver: { run: () => "unused" },

@@ -368,6 +368,11 @@
       "import": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
     },
+    "./build/rolldown": {
+      "types": "./dist/build/rolldown.d.ts",
+      "import": "./dist/build/rolldown.js",
+      "default": "./dist/build/rolldown.js"
+    },
     "./build/scan-module": {
       "types": "./dist/build/scan-module.d.ts",
       "import": "./dist/build/scan-module.js",
@@ -462,11 +467,12 @@
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "birpc": "catalog:runtime",
-    "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",
+    "minimatch": "catalog:workspace",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
+    "resolve-pkg-maps": "^1.0.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {
@@ -474,6 +480,7 @@
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
+    "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",

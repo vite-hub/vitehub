@@ -1993,7 +1993,7 @@ describe("agent capability runtime", () => {
 
   it("allows request-only capability workspace sources in non-empty Workspaces", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { fetch } = await import("@vite-hub/workspace")
+    const { url: urlSource } = await import("@vite-hub/workspace")
     const workspace = emptyWorkspace()
     workspace.fs.list.mockResolvedValue([{ path: "README.md", type: "file" }] as never)
 
@@ -2003,7 +2003,7 @@ describe("agent capability runtime", () => {
           id: "review",
           workspace: {
             sources: {
-              inventory: fetch({ url: "https://portal.example.com/runtime/inventory-health" }),
+              inventory: urlSource({ url: "https://portal.example.com/runtime/inventory-health" }),
             },
           },
         }),
@@ -2030,7 +2030,7 @@ describe("agent capability runtime", () => {
 
   it("allows root-mounted finite capability sources beside unrelated root entries", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { fetch } = await import("@vite-hub/workspace")
+    const { url: urlSource } = await import("@vite-hub/workspace")
     const workspace = emptyWorkspace()
     workspace.fs.list.mockImplementation(async (path = "") => path
       ? []
@@ -2042,7 +2042,7 @@ describe("agent capability runtime", () => {
           id: "review",
           workspace: {
             sources: {
-              pullRequest: fetch({
+              pullRequest: urlSource({
                 url: "https://api.github.com/repos/vite-hub/vitehub/pulls/366",
                 workspacePath: "pull-request.json",
               }),
@@ -2063,7 +2063,7 @@ describe("agent capability runtime", () => {
   it("allows root-mounted finite capability sources selected by concrete path", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
-    const { fetch } = await import("@vite-hub/workspace")
+    const { url: urlSource } = await import("@vite-hub/workspace")
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -2079,7 +2079,7 @@ describe("agent capability runtime", () => {
           id: "review",
           workspace: {
             sources: {
-              pullRequest: fetch({
+              pullRequest: urlSource({
                 url: "https://api.github.com/repos/vite-hub/vitehub/pulls/366",
                 workspacePath: "pull-request.json",
               }),
@@ -2101,7 +2101,7 @@ describe("agent capability runtime", () => {
   it("allows request-only capability workspace sources selected by descriptor path", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
-    const { fetch } = await import("@vite-hub/workspace")
+    const { url: urlSource } = await import("@vite-hub/workspace")
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -2117,7 +2117,7 @@ describe("agent capability runtime", () => {
           id: "review",
           workspace: {
             sources: {
-              inventory: fetch({ url: "https://portal.example.com/runtime/inventory-health" }),
+              inventory: urlSource({ url: "https://portal.example.com/runtime/inventory-health" }),
             },
           },
         }),

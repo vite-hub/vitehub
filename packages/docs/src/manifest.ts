@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs"
 import { join, matchesGlob, resolve } from "node:path"
 
-import { defineContent } from "@vite-hub/content"
-import { createSource, glob } from "@vite-hub/source"
+import { contentSource, defineContent } from "@vite-hub/content"
+import { glob, useSource } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
@@ -11,7 +11,7 @@ import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } fro
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
-import type { ContentRuntime } from "@vite-hub/content"
+import type { ContentCheckOptions, ContentRuntime, ContentSourceInput } from "@vite-hub/content"
 import type { Source } from "@vite-hub/source"
 import type { DocsSectionFile } from "./schema.ts"
 import type { z } from "zod"
@@ -83,28 +83,41 @@ function docsContentError(file: string, issues: readonly { path: readonly Proper
 }
 
 /** The name of the Content Source of a docs source. Content names allow no `-`, so it is not the page's `docs-<index>`. */
-const contentName = (index: number) => `docs_${index}`
+export const contentName = (index: number): string => `docs_${index}`
 
 /**
  * One Content Source per docs source, with its Markdown pages and its `.navigation.yml` files as YAML documents. A
  * folder is a `glob()` Source of those files. A Content Source, such as `github()`, is read as it is, from `rootDir`.
  */
-export function createDocsContent(sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[], rootDir: string = process.cwd()): ContentRuntime {
+export function createDocsContent(
+  sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[],
+  rootDir: string = process.cwd(),
+  options: DocsContentOptions = {},
+): ContentRuntime {
   return defineContent({
     route: false,
     live: false,
     // A `.navigation.yml` that does not parse stops the build, like a page whose frontmatter does not parse.
     plugins: [yaml({ onError: "throw" })],
-    sources: Object.fromEntries(sources.map(({ dir, source }, index) => [
-      contentName(index),
-      source
-        ? () => createSource(source, { rootDir })
+    ...options.check ? { check: options.check } : {},
+    sources: Object.fromEntries(sources.map(({ dir, source }, index) => {
+      const input: ContentSourceInput = source
+        ? () => useSource(source, { rootDir })
         // A folder that does not exist yet has no pages.
         : dir && existsSync(dir)
-          ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
-          : { items: async () => [] },
-    ])),
+          ? () => useSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
+          : { items: async () => [] }
+      const url = options.url
+      return [contentName(index), url ? contentSource(input, { url: ({ id }) => url(index, id) }) : input]
+    })),
   })
+}
+
+/** What `createDocsContent()` adds for `content.check()`. */
+export interface DocsContentOptions {
+  /** The page URL of a document of the source at `index`, by its Content id, such as `guide/start`, or null for no page. */
+  url?: (index: number, id: string) => string | null
+  check?: ContentCheckOptions
 }
 
 interface DocsContentFile {

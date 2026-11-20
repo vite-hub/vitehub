@@ -9,13 +9,12 @@ import { describe, expect, it } from "vitest"
 import { mergeConfig, resolveConfig } from "vite"
 
 import {
+  createNativePackageLoading,
   createNoExternalMerger,
   createNoExternalAddition,
   createProviderOutputEnvironmentOwner,
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
-  loadNativePackageModule,
-  loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
   resolveNitroVercelFunctionName,
   resolveNuxtServerDirs,
@@ -68,12 +67,41 @@ describe("Vite provider builds", () => {
   })
 
   it("loads ViteHub packages natively only in the Nitro environment of vite dev", () => {
-    expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
-    expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)
-    expect(loadsViteHubPackagesNatively("ssr", { command: "serve" })).toBe(false)
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+    expect(loading.configureEnvironment("nitro", { command: "build" })).toBe(false)
+    expect(loading.configureEnvironment("ssr", { command: "serve" })).toBe(false)
+  })
+
+  // workerd cannot import a package file from the disk, so a `data:` module that re-exports it has no exports there.
+  it("inlines ViteHub packages when the Nitro dev runner is not Node", () => {
+    const loading = createNativePackageLoading()
+    const previous = process.env.NITRO_DEV_RUNNER
+    try {
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(false)
+      expect(loading.load("/app/node_modules/@vite-hub/agent/dist/server/registry.js", "nitro")).toBeUndefined()
+      process.env.NITRO_DEV_RUNNER = "node-process"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+
+      const instance = { options: { devServer: { runner: "miniflare" } } }
+      loading.nitro.setup(instance)
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(false)
+      process.env.NITRO_DEV_RUNNER = "miniflare"
+      instance.options.devServer.runner = "node-worker"
+      expect(loading.configureEnvironment("nitro", { command: "serve" })).toBe(true)
+    }
+    finally {
+      if (previous === undefined) delete process.env.NITRO_DEV_RUNNER
+      else process.env.NITRO_DEV_RUNNER = previous
+    }
   })
 
   it("lets Node load the installed files of native packages that generated code imports by path", async () => {
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    loading.configureEnvironment("nitro", { command: "serve" })
     const root = await mkdtemp(join(tmpdir(), "vitehub-native-module-"))
     try {
       const dist = join(root, "node_modules/@vite-hub/agent/dist")
@@ -86,7 +114,7 @@ describe("Vite provider builds", () => {
       await mkdir(join(root, "packages/agent/dist/server"), { recursive: true })
       await writeFile(linked, "export const registry = {}\n")
 
-      const native = loadNativePackageModule(registry, "nitro", "serve")
+      const native = loading.load(registry, "nitro")
       const url = pathToFileURL(registry).href
       expect(native).toBe(`export * from ${JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(url)}`)}`)}\n`)
       // Node evaluates the `data:` module, so its import of the file is the instance that the app's bare import loads.
@@ -96,14 +124,15 @@ describe("Vite provider builds", () => {
         process.stdout.write(String(viaDataUrl.registry === direct.registry))
       `])
       expect(stdout).toBe("true")
-      expect(loadNativePackageModule(withDefault, "nitro", "serve")).toContain("export { default } from")
+      expect(loading.load(withDefault, "nitro")).toContain("export { default } from")
 
-      expect(loadNativePackageModule(registry, "nitro", "build")).toBeUndefined()
-      expect(loadNativePackageModule(registry, "ssr", "serve")).toBeUndefined()
-      expect(loadNativePackageModule(registry, undefined, "serve")).toBeUndefined()
+      expect(loading.load(registry, "ssr")).toBeUndefined()
+      expect(loading.load(registry, undefined)).toBeUndefined()
       // A linked workspace package is outside `node_modules`, where Vite inlines the app's imports too.
-      expect(loadNativePackageModule(linked, "nitro", "serve")).toBeUndefined()
-      expect(loadNativePackageModule(join(root, "node_modules/@vite-hub/blob/dist/index.js"), "nitro", "serve")).toBeUndefined()
+      expect(loading.load(linked, "nitro")).toBeUndefined()
+      expect(loading.load(join(root, "node_modules/@vite-hub/blob/dist/index.js"), "nitro")).toBeUndefined()
+      loading.configureEnvironment("nitro", { command: "build" })
+      expect(loading.load(registry, "nitro")).toBeUndefined()
     }
     finally {
       await rm(root, { force: true, recursive: true })

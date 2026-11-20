@@ -33,7 +33,7 @@ async function setup(online: boolean) {
         // SAFETY: This fixture supplies the Fetch-compatible mock used for GitHub requests.
         app: { apiBaseUrl: "https://api.github.test", fetch: fetcher as typeof fetch, token: "app-token" },
         pullRequest: { reconcile: true, reply: false },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

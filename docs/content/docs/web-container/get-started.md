@@ -6,7 +6,7 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-In this tutorial, you add a playground page to a Vite app. The page boots a WebContainer, starts a small Node server in it, and shows the server's answer in an `<iframe>`.
+In this tutorial, you add a playground page to a Vite app. The page boots a WebContainer, starts a small Node server in it, and shows the response in an `<iframe>`.
 
 > [!NOTE] Before you start
 > You need a Vite app and a browser that supports cross-origin isolation and `SharedArrayBuffer`. You need no StackBlitz account.
@@ -19,7 +19,7 @@ pnpm add vite-hub @vite-hub/web-container
 
 ## Make the page cross-origin isolated
 
-A WebContainer needs `SharedArrayBuffer`. The browser gives it only to a page that sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. Send these headers only on the pages that boot a container, so that cross-origin embeds on other pages, such as videos, keep working.
+A WebContainer needs `SharedArrayBuffer`. The browser gives it only to a page that sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. Send these headers only on the routes that boot a container, so cross-origin embeds like videos keep working on other pages.
 
 Add `hubWebContainer()` to `vite.config.ts`:
 
@@ -39,7 +39,7 @@ Production needs the same headers. [Configure](/docs/web-container/configure#set
 
 ## Boot the app
 
-Create the script of the playground page. It mounts two files, installs, and starts the `dev` script:
+Create the playground page script to mount two files, install dependencies, and start the `dev` script:
 
 ```ts [src/playground.ts]
 import { bootWebContainer } from "vite-hub/web-container"
@@ -60,16 +60,16 @@ const { url } = await container.preview.ready
 document.querySelector("iframe")!.src = url
 ```
 
-- `run("install")` runs `npm install`. `run("dev")` runs the `dev` script of the app.
+- `run("install")` runs `npm install`, and `run("dev")` runs the app's `dev` script.
 - `run()` passes `PORT=3000` to every process. The server on that port becomes the preview.
-- `container.preview.ready` resolves with the `url` of the preview. Read the URL from it, because the preview origin is not `localhost`.
-- Show the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
+- `container.preview.ready` resolves with the preview `url`. Read the URL from it because the preview origin is not `localhost`.
+- Render the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
 
-Open the page. The iframe shows `Hello from` and the Node version of the WebContainer.
+Open the page. The iframe shows `Hello from` and the WebContainer's Node version.
 
 ## Show a boot checklist
 
-A boot takes some seconds, and an install can take minutes. Pass `onStatus` to show each stage:
+Booting takes a few seconds, and `npm install` can take minutes. Pass `onStatus` to show progress across each stage:
 
 ```ts [src/playground.ts] fragment
 const container = await bootWebContainer({
@@ -80,18 +80,18 @@ const container = await bootWebContainer({
 
 The stages are `checking`, `unsupported`, `booting`, `mounting`, `installing`, `starting`, `ready`, and `error`. Each step has its duration in milliseconds.
 
-To show a notice before the reader starts the app, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer`, not the browser name. `bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` with the same reason.
+To show a notice before the reader starts the app, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer` rather than the browser name. `bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` with the same reason.
 
 ## In production
 
-The container runs in each reader's tab, so your host serves only the page and its assets. Send the isolation headers on the playground routes, and give each reader a [snapshot](/docs/web-container/snapshots) of `node_modules`, so the container does not install.
+The container runs in each reader's tab, so your host only serves the page and static assets. Send the isolation headers on playground routes, and provide a prebuilt [snapshot](/docs/web-container/snapshots) of `node_modules` so containers skip `npm install`.
 
 ::card-group
   :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/web-container/configure"}
-  Set the headers in production, pass secrets to one process, and describe accounts.
+  Set production headers, pass secrets to a process, and describe accounts.
   :::
 
   :::card{title="Skip the install" icon="i-lucide-package" to="/docs/web-container/snapshots"}
-  Build `node_modules` on your machine or in CI, and mount it.
+  Prebuild `node_modules` locally or in CI and mount it.
   :::
 ::
