@@ -1741,4 +1741,40 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })
+  it("drops the dynamic imports of code that tree-shaking removes", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "agent-kit")
+    const entry = join(rootDir, "entry.mjs")
+    const registry = join(rootDir, "registry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(packageDir, "package.json"), JSON.stringify({ exports: "./index.mjs", name: "agent-kit", sideEffects: false, type: "module" })),
+      writeFile(join(packageDir, "index.mjs"), 'export { named } from "./named.mjs"\nexport { runAgent } from "./run.mjs"\n'),
+      writeFile(join(packageDir, "named.mjs"), "export const named = value => `named ${value}`\n"),
+      // Only unused code imports the registry, like the Agent runtime that a Schedule bundle does not call.
+      writeFile(join(packageDir, "run.mjs"), 'import registry from "#agent-registry"\nexport const runAgent = name => registry[name]()\n'),
+      writeFile(registry, 'export default {\n  agent: () => import("./agent.mjs"),\n  host: () => import("./host.mjs"),\n}\n'),
+      writeFile(join(rootDir, "agent.mjs"), 'import { named } from "agent-kit"\nexport default named("UNUSED_AGENT")\n'),
+      writeFile(join(rootDir, "host.mjs"), 'import { named } from "agent-kit"\nexport default named("UNUSED_HOST")\n'),
+      writeFile(join(rootDir, "job.mjs"), 'import { named } from "agent-kit"\nexport default named("job")\n'),
+      writeFile(entry, 'export const load = async () => (await import("./job.mjs")).default\n'),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, {
+      alias: { "#agent-registry": registry },
+      format: "esm",
+      platform: "node",
+      workingDir: rootDir,
+    })
+
+    const code = await readFile(outfile, "utf8")
+    expect(code).not.toContain("UNUSED_AGENT")
+    expect(code).not.toContain("UNUSED_HOST")
+    expect(code).not.toMatch(/^export \{[^}]*\binit_/m)
+    // SAFETY: This bundle exports the loader of the job module.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { load: () => Promise<string> }
+    await expect(loaded.load()).resolves.toBe("named job")
+  })
 })

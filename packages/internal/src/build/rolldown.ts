@@ -153,7 +153,9 @@ function resolveFrom(context: PluginContext, specifier: string, request: Resolve
     custom: { ...request.custom, [flag]: true },
     isEntry: request.isEntry,
     kind: request.kind,
-    skipSelf: false,
+    // Rolldown 1.2 can give a nested resolution the custom options of another resolution in flight
+    // (rolldown/rolldown#11180). Then the flag is lost, and each alias lookup starts new lookups until memory runs out.
+    skipSelf: true,
   })
 }
 
@@ -563,6 +565,27 @@ function createExternalMatcher(patterns: string[] | undefined): ((id: string) =>
   return id => matchers.some(matches => matches(id))
 }
 
+/** Returns the modules of the chunks that no chunk loaded from the entry chunk imports. */
+function findUnusedChunkModules(chunks: Rolldown.OutputChunk[]): Set<string> {
+  // Chunk metadata can list imports that the code no longer has (rolldown/rolldown#11213), so read the code.
+  const used = new Set(chunks.filter(chunk => chunk.isEntry))
+  for (const chunk of used) {
+    for (const other of chunks) {
+      if (!used.has(other) && chunk.code.includes(other.fileName)) used.add(other)
+    }
+  }
+  return new Set(chunks.filter(chunk => !used.has(chunk)).flatMap(chunk => chunk.moduleIds))
+}
+
+function createEmptyModulesPlugin(ids: Set<string>): Plugin {
+  return {
+    name: "vitehub-empty-unused-chunks",
+    load(id) {
+      if (ids.has(id)) return { code: "", moduleSideEffects: false }
+    },
+  }
+}
+
 export async function bundleEsmEntry(
   entryFile: string,
   outfile: string,
@@ -612,7 +635,7 @@ export async function bundleEsmEntry(
     ] : []),
   ].filter(Boolean).join("\n")
 
-  const bundle = await rolldown({
+  const build = (extraPlugins: Plugin[] = [], shimMissingExports = false) => rolldown({
     cwd: workingDir,
     external: isExternal ? id => isExternal(id) : undefined,
     input: entryFile,
@@ -624,35 +647,54 @@ export async function bundleEsmEntry(
     // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
     moduleTypes: platform === "node" ? { ".wasm": "binary" } : undefined,
     platform,
-    plugins,
+    plugins: [...extraPlugins, ...plugins],
     resolve: {
       conditionNames: options.conditions ?? (platform === "node" ? ["node"] : undefined),
       extensions: options.extensions,
       mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
       symlinks: !options.preserveSymlinks,
     },
+    shimMissingExports,
     transform: { define: options.define, target: "es2022" },
   })
+  const generate = async (bundle: Rolldown.RolldownBuild, codeSplitting: boolean) => (await bundle.generate({
+    banner: banner || undefined,
+    codeSplitting,
+    format,
+    // Syntax and identifier minification can change function and class names.
+    keepNames: options.keepNames ?? Boolean(options.minifySyntax || options.minifyIdentifiers),
+    minify,
+    // The banner defines `require` for Node.js, as esbuild did, so the bundle needs no `createRequire` import.
+    polyfillRequire: !(format === "esm" && platform === "node"),
+    sourcemap: false,
+  })).output
+
+  let bundle = await build()
   let output: Rolldown.RolldownOutput["output"]
   try {
-    output = (await bundle.generate({
-      banner: banner || undefined,
-      codeSplitting: false,
-      format,
-      // Syntax and identifier minification can change function and class names.
-      keepNames: options.keepNames ?? Boolean(options.minifySyntax || options.minifyIdentifiers),
-      minify,
-      // The banner defines `require` for Node.js, as esbuild did, so the bundle needs no `createRequire` import.
-      polyfillRequire: !(format === "esm" && platform === "node"),
-      sourcemap: false,
-    })).output
+    // Rolldown keeps the targets of dynamic imports in code that tree-shaking removed (rolldown/rolldown#11213,
+    // rolldown/rolldown#11692). With code splitting off, it inlines them, so a Schedule that never runs an Agent still
+    // gets the whole Agent registry. Generate with code splitting first: no used chunk loads the chunks of those targets.
+    // A bundle without dynamic imports is one chunk, and is the result.
+    output = await generate(bundle, true)
+    const chunks = output.filter(file => file.type === "chunk")
+    if (chunks.length > 1) {
+      options.signal?.throwIfAborted()
+      const unusedModules = findUnusedChunkModules(chunks)
+      if (unusedModules.size) {
+        await bundle.close()
+        // The first build already checked the imports, so this build may shim the exports of the emptied modules.
+        bundle = await build([createEmptyModulesPlugin(unusedModules)], true)
+      }
+      output = await generate(bundle, false)
+    }
   }
   finally {
     await bundle.close()
   }
   options.signal?.throwIfAborted()
-  // Code splitting is off, so the entry is the only chunk.
-  const chunk = output.find(file => file.type === "chunk")!
+  // Code splitting is off, so the entry is the only chunk that the bundle uses.
+  const chunk = output.find((file): file is Rolldown.OutputChunk => file.type === "chunk" && file.isEntry)!
   await mkdir(dirname(outfile), { recursive: true })
   await writeFile(outfile, chunk.code, { signal: options.signal })
   options.signal?.throwIfAborted()
