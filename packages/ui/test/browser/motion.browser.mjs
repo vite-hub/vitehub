@@ -140,27 +140,31 @@ async function press(page, testId) {
 const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"]
 
 describe("press by role", async () => {
-  test("a switch keeps native activation at its original edge, but a drag outside does not activate", async () => {
+  test("a squashing button keeps native activation at its original edge, but a drag outside does not activate", async () => {
     const { context, page } = await open()
     try {
-      const control = page.getByRole("switch")
-      await control.evaluate(node => { node.style.width = "120px" })
+      const control = page.getByRole("button", { name: "Publish", exact: true })
+      await control.evaluate((node) => {
+        node.style.width = "120px"
+        node.dataset.clicks = "0"
+        node.addEventListener("click", () => { node.dataset.clicks = String(Number(node.dataset.clicks) + 1) })
+      })
       const { x, y, width, height } = await control.boundingBox()
       const center = y + height / 2
-      for (const [start, end, checked] of [
-        [x + width - 1, x + width - 1, "true"],
-        [x + width / 2, x + width - 1, "false"],
-        [x + width / 2, x + width + 1, "false"],
+      for (const [start, end, clicks] of [
+        [x + width - 1, x + width - 1, "1"],
+        [x + width / 2, x + width - 1, "2"],
+        [x + width / 2, x + width + 1, "2"],
       ]) {
         await page.mouse.move(start, center)
         await page.mouse.down()
         if (start === end) await frames(page)
         else {
-          await page.waitForFunction(() => Number(document.querySelector("button[role=switch]").style.scale || 1) < 0.99, undefined, { timeout: 15_000 })
+          await waitForScale(page, "button", scale => scale < 0.99)
           await page.mouse.move(end, center)
         }
         await page.mouse.up()
-        assert.equal(await control.getAttribute("aria-checked"), checked)
+        assert.equal(await control.getAttribute("data-clicks"), clicks)
       }
     }
     finally {

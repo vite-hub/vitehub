@@ -290,7 +290,7 @@ Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI c
 
 ## Motion
 
-Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. A pressed `button`, link, tab, radio, option, menu item, switch, or checkbox squashes and springs back past rest. Non-transformable inline controls, such as links in running text, keep their layout and do not squash. A pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
+Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. A pressed `button`, link, tab, radio, option, menu item, or checkbox squashes and springs back past rest. A pressed switch grows its knob instead of squashing the whole control. Non-transformable inline controls, such as links in running text, keep their layout and do not squash. A pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
 
 - Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
 - Turn it off for the app with `createViteHubUI({ motion: false })`.
