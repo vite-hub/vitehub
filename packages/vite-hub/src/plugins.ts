@@ -1643,7 +1643,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       order: "post",
       handler: "handler" in configHook ? configHook.handler : configHook,
     }
-    plugins.push(agentChannelEnvPlugin())
+    plugins.push(agentChannelEnvPlugin({ simulate: typeof options.agent === "object" && options.agent.channels?.simulate === true }))
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
