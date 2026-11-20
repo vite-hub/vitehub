@@ -26,6 +26,7 @@ import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
   createViteWorkspaceAgentLoader,
+  importViteDevModule,
   loadViteAgent,
   writeViteResponse as writeResponse,
 } from "./runtime-adapter.ts"
@@ -257,7 +258,7 @@ function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeCon
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
   if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
-  const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
+  const mod = await importViteDevModule(server, workspaceRegistryId) as { default?: unknown }
   return isWorkspaceRegistry(mod.default) ? mod.default : {}
 }
 
@@ -597,7 +598,7 @@ export async function resolveDevRuntimeCapabilities(
     name: definition.name,
     value: definition.packageName === false
       ? false
-      : (await server.ssrLoadModule(definition.packageName))[definition.importName],
+      : (await importViteDevModule(server, definition.packageName))[definition.importName],
   })))
   for (const { name, value } of resolved) capabilities[name] = value
   return capabilities
