@@ -18,6 +18,7 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 | `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
 | `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
 | `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `emulate()` | `<url>/v1` | `<url>` | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
 | `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
@@ -27,7 +28,7 @@ Preset types list what they serve, so TypeScript catches a wrong gateway:
 
 - `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` and `languageModel(typesafe(), ...)` are type errors.
 - Only `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`; `ask()` on others is a type error.
-- CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
+- CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
 - `chatgpt()` has no key and no `ask()`. It uses the plan of a ChatGPT [Connection](/docs/connections/chatgpt). Only the Agent runtime reads it.
 
 Behind Cloudflare Access, pass `cloudflareAccess()` as `headers`, such as `cliproxy({ headers: cloudflareAccess() })`. It returns `CF-Access-Client-Id` and `CF-Access-Client-Secret` from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
@@ -60,6 +61,36 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 - `undefined` fails the request instead of falling back to the variable.
 - `cloudflare()` reads `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models ([Cloudflare AI Gateway](#cloudflare-ai-gateway)).
 - `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
+
+## AI emulator
+
+`emulate()` sends model requests to the [AI emulator](https://emulate.dev/docs/ai) (`@emulators/ai`). The emulator answers from rules that you write, not from a model, so the same request gets the same answer each time. Use it in dev and tests. It needs no AI key.
+
+Start the emulator:
+
+```sh
+npx emulate@0.14.0 start --service ai --port 4014
+```
+
+Then use it like any other gateway:
+
+```ts [server/api/answer.ts]
+import { generateText } from 'ai'
+import { emulate } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+// Reads VITEHUB_EMULATE_URL, else uses http://localhost:4014.
+const model = languageModel(emulate(), 'gpt-5.1', { api: 'responses' })
+
+const { text } = await generateText({ model, prompt: 'Hello' })
+```
+
+- `emulate()` serves `api: 'chat'`, `'responses'`, and `'messages'`. The emulator accepts any model ID.
+- It reads no credentials. It sends the key `emulate`, because the CLIs and the AI SDK providers need a key.
+- `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
+- In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
+- `GET <url>/_ai/calls` lists each request and the rule that answered it.
+- The emulator rejects hosted tools, such as web search. Claude Code cannot use it yet, because the emulator rejects the `system` turns that Claude Code sends.
 
 ## Cloudflare AI Gateway
 

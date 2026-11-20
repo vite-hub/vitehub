@@ -23,6 +23,12 @@ export interface AiHostedGatewayOptions extends AiGatewayPresetOptions {
   url?: string
 }
 
+/** Options for `emulate()`. */
+export interface EmulateGatewayOptions {
+  /** Origin of the AI emulator, such as `http://localhost:4014`. A trailing `/v1` is removed. When it is not set, the preset reads `VITEHUB_EMULATE_URL`, then uses `http://localhost:4014`. */
+  url?: string
+}
+
 /** Options for a gateway that answers TypeSafe Jev questions. */
 export interface AiAskGatewayOptions {
   /** Custom fetch implementation for Jev requests. Default: `globalThis.fetch`. */
@@ -101,7 +107,7 @@ function apiKeyFromEnv(gateway: "anthropic" | "cliproxy" | "litellm" | "openai" 
 type HostedRoutes = "claude-code" | "codex" | "openai-compatible"
 
 /** Base URLs for a hosted gateway. Without `url`, each invocation reads it from Server Env. */
-function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string | undefined, fallback?: string): Record<HostedRoutes, AiGatewayValue<string>> {
+function hostedBaseURL(gateway: "cliproxy" | "emulate" | "litellm" | "ollama", url: string | undefined, fallback?: string): Record<HostedRoutes, AiGatewayValue<string>> {
   if (url !== undefined || fallback !== undefined) {
     const root = origin(url ?? fallback, gateway)
     return { "codex": `${root}/v1`, "claude-code": root, "openai-compatible": `${root}/v1` }
@@ -301,6 +307,30 @@ export function ollama(options: AiHostedGatewayOptions = {}): AiModelGateway<Hos
     // SAFETY: The environment holds a string or a sealed secret for this field, which resolveAiGatewaySecret accepts.
     apiKey: (async (context: AiGatewayContext) => await read("apiKey")(context) ?? "ollama") as AiGatewaySecret,
   }, options))
+}
+
+/**
+ * The [AI emulator](https://emulate.dev/docs/ai) (`@emulators/ai`) for dev and tests. Serves Codex, Claude Code, and AI SDK
+ * models with OpenAI Responses, Chat Completions, and Anthropic Messages, and answers from scripted rules with no AI key.
+ * Reads `VITEHUB_EMULATE_URL`; defaults to `http://localhost:4014`. It reads no credentials.
+ */
+export function emulate(options: EmulateGatewayOptions = {}): AiModelGateway<HostedRoutes> {
+  const root = async (context: AiGatewayContext) => {
+    const value = await readAiGatewayEnv(context, "emulate", "url")
+    return origin(present(value) ? value : "http://localhost:4014", "emulate")
+  }
+  return modelGateway<HostedRoutes>({
+    name: "emulate",
+    baseURL: options.url !== undefined
+      ? hostedBaseURL("emulate", options.url)
+      : {
+          "codex": async context => `${await root(context)}/v1`,
+          "claude-code": root,
+          "openai-compatible": async context => `${await root(context)}/v1`,
+        },
+    // The emulator never checks the key, but both CLIs and the AI SDK providers need one.
+    apiKey: "emulate",
+  })
 }
 
 /** [OpenRouter](https://openrouter.ai/docs). Serves Codex and Claude Code. Reads `OPENROUTER_API_KEY`. */
