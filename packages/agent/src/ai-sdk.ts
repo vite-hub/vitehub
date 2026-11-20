@@ -1369,7 +1369,6 @@ function isHostedTool(tool: unknown): boolean {
 function createEmulatorToolFilter(context: AgentAdapterRunContext, source: EmulationSource) {
   const traced = new Set<string>()
   const dropped = new Set<string>()
-  let remaining: string[] | undefined
   const warn = async (key: string, diagnostic: { code: string, fix?: unknown, message: string }, attributes: Record<string, string> = {}) => {
     if (traced.has(key)) return
     traced.add(key)
@@ -1405,37 +1404,33 @@ function createEmulatorToolFilter(context: AgentAdapterRunContext, source: Emula
     }
     return kept
   }
-  const toolChoice = async (choice: unknown, available: readonly string[] | undefined): Promise<unknown> => {
-    const named = typeof choice === "object" && choice !== null ? Reflect.get(choice, "toolName") : undefined
-    const unsatisfiable = typeof named === "string"
-      ? dropped.has(named)
-      : choice === "required" && dropped.size > 0 && available !== undefined && available.length === 0
-    if (!unsatisfiable) return choice
-    const label = typeof named === "string" ? `the tool "${named}"` : "\"required\""
-    await warn(`choice:${label}`, agentDiagnostics.AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED({ choice: label, source }))
-    return "auto"
-  }
-  const active = (names: string[], activeTools: unknown) => Array.isArray(activeTools) ? names.filter(name => activeTools.includes(name)) : names
   return {
     tools,
-    /** Wraps `prepareCall`, so the tools and tool choice that reach the model have no hosted tool. */
     prepareCall: (prepare: unknown) => async (input: Record<string, unknown>) => {
       // SAFETY: AI SDK passes prepareCall the call arguments and accepts the returned arguments.
-      const call = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> : input
+      const prepared = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> | undefined : undefined
+      const call = prepared ?? input
       const callTools = call.tools && typeof call.tools === "object" ? await tools(call.tools as Record<string, unknown>) : undefined
-      remaining = Object.keys(callTools ?? {})
+      const remaining = Object.keys(callTools ?? {})
+      const prepareStep = call.prepareStep
       return {
         ...call,
-        ...(callTools ? { tools: Object.keys(callTools).length ? callTools : undefined } : {}),
-        toolChoice: await toolChoice(call.toolChoice, active(remaining, call.activeTools)),
+        ...(callTools ? { tools: remaining.length ? callTools : undefined } : {}),
+        prepareStep: async (stepInput: unknown) => {
+          // SAFETY: AI SDK passes prepareStep the step state and accepts the returned step settings.
+          const step = typeof prepareStep === "function" ? await prepareStep(stepInput) as Record<string, unknown> | undefined : undefined
+          const choice = step?.toolChoice ?? call.toolChoice
+          const activeTools = step?.activeTools ?? call.activeTools
+          const named = typeof choice === "object" && choice !== null ? Reflect.get(choice, "toolName") : undefined
+          const unsatisfiable = typeof named === "string"
+            ? dropped.has(named) && !remaining.includes(named)
+            : choice === "required" && dropped.size > 0 && !remaining.some(name => !Array.isArray(activeTools) || activeTools.includes(name))
+          if (!unsatisfiable) return step
+          const label = typeof named === "string" ? `the tool "${named}"` : "\"required\""
+          await warn(`choice:${label}`, agentDiagnostics.AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED({ choice: label, source }))
+          return { ...step, toolChoice: "auto" }
+        },
       }
-    },
-    /** Wraps `prepareStep`, so a step tool choice cannot name a dropped tool. */
-    prepareStep: (prepare: unknown) => async (input: unknown) => {
-      // SAFETY: AI SDK passes prepareStep the step state and accepts the returned step settings.
-      const step = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> | undefined : undefined
-      if (!step || step.toolChoice === undefined) return step
-      return { ...step, toolChoice: await toolChoice(step.toolChoice, remaining && active(remaining, step.activeTools)) }
     },
   }
 }
@@ -1557,7 +1552,7 @@ async function createAgent(
   const runtimeSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
   const modelSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext, [model, observedModel, instrumentedModel]) : runtimeSettings
   const commonSettings = emulatorTools
-    ? { ...modelSettings, prepareCall: emulatorTools.prepareCall(modelSettings.prepareCall), prepareStep: emulatorTools.prepareStep(modelSettings.prepareStep) }
+    ? { ...modelSettings, prepareCall: emulatorTools.prepareCall(modelSettings.prepareCall) }
     : modelSettings
   // Repair calls send no tools, so they keep the settings without the emulator filter.
   const repairSettings = withoutToolCallSettings(modelSettings)

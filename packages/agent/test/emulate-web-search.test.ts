@@ -124,6 +124,21 @@ describe("webSearch() under VITEHUB_MODELS=emulate", () => {
     expect(warnings.map(warning => warning["diagnostic.code"])).toEqual(["AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED"])
   })
 
+  it("relaxes a required tool choice when prepareStep activates only a dropped tool", async () => {
+    const { result, warnings } = await runWithWarnings({
+      capabilities: [webSearch({ mode: "model" }), defineCapability({ id: "lookup", tools: { lookup: { name: "lookup", description: "Look up a fact.", execute: async () => "found" } } })],
+      driver: {
+        instructions: "Answer briefly.",
+        model: "openai/gpt-5.1",
+        execution: { callSettings: { toolChoice: "required", prepareStep: () => ({ activeTools: ["web_search"] }) } },
+      },
+    })
+
+    expect(result).toMatchObject({ text: "No news today." })
+    expect((await calls()).map(call => [call.tools, call.toolChoice])).toEqual([[[], "auto"]])
+    expect(warnings.map(warning => warning["diagnostic.code"]).sort()).toEqual(["AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED", "AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED"])
+  })
+
   it("drops a hosted tool passed to runAgent()", async () => {
     const { result, warnings } = await runWithWarnings({
       driver: { instructions: "Answer briefly.", model: "openai/gpt-5.1" },
