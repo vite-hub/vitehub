@@ -380,6 +380,8 @@ export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   ifHead: string | null
   /** Expected heads of other refs that must remain unchanged for the commit. */
   ifHeads?: Record<string, string | null>
+  /** Observe a rejection of this commit's own `ifHead` condition. The commit still throws the error. */
+  onHeadConflict?: (error: unknown) => void
   /**
    * With `ifHead: null`, start the new ref from this revision instead of from the ref that `history.forksFrom(ref)`
    * names. Only Stores with `forksFrom` accept it. The caller has read the files of that revision.
@@ -942,8 +944,8 @@ export interface GitHubWorkspaceStoreOptions {
    */
   database?: unknown
   refs?: GitHubWorkspaceRefs
+  /** The repository, as `owner/name`. Defaults to `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`. */
   repo?: GitHubWorkspaceOption
-  repository?: GitHubWorkspaceOption
   /** The folder of the Workspace in the repository. An empty string is the repository root. Defaults to `.vitehub/workspaces/<workspace>`. */
   root?: GitHubWorkspaceOption
   token?: GitHubWorkspaceOption

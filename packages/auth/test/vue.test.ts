@@ -46,7 +46,7 @@ vi.mock("better-auth/vue", () => ({
 const appClient = vi.hoisted(() => ({ options: { plugins: [{ id: "admin-client" }] } }))
 vi.mock("#vitehub/auth/client", () => ({ default: appClient.options }))
 
-const { authClient, createAuthClient, loadAuthClient, onSignOut, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, onSignOut, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
 
@@ -89,7 +89,7 @@ afterEach(() => {
 describe("Vue Auth composables", () => {
   it("projects the shared client", () => {
     expect(useAuthClient() === authClient).toBe(true)
-    expect(useSession()).toBeDefined()
+    expect(useAuthClient().useSession()).toBeDefined()
   })
 
   it("creates the default client with the options of the app's auth.client.ts, on the first call", async () => {
@@ -114,7 +114,7 @@ describe("Vue Auth composables", () => {
     setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: client }))
     const real = ref({ data: null, error: null, isPending: true, isRefetching: false, refetch: async () => {} })
     betterAuth.session = real
-    const state = useSession()
+    const state = useAuthClient().useSession()
     const session = useUserSession()
 
     expect(useAuthClient()).toBe(client)
@@ -200,8 +200,7 @@ describe("Vue Auth composables", () => {
     await nextTick()
     expect(betterAuth.subscriptions).toBe(1)
     expect(new Set(sessions).size).toBe(1)
-    expect(useSession(client)).toBe(useSession(client))
-    expect(client.useSession()).toBe(useSession(client))
+    expect(client.useSession()).toBe(client.useSession())
   })
 
   it("reads once for callers at the same time and returns the session from refresh()", async () => {
@@ -308,7 +307,7 @@ describe("Vue Auth composables", () => {
     setSessionSeedResolver(() => signedIn)
     const scope = effectScope()
     const client = createAuthClient()
-    const [session, can] = scope.run(() => [useUserSession(client), useSession(client)])!
+    const [session, can] = scope.run(() => [useUserSession(client), client.useSession()] as const)!
     await settle()
     expect(session.loggedIn.value).toBe(true)
     expect(can!.value.data).toEqual(signedIn)

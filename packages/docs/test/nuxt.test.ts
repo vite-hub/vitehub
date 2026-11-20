@@ -1111,13 +1111,19 @@ describe("docs Nuxt setup", () => {
 })
 
 describe("docs search checks", () => {
+  let appRoot = ""
   /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
-  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
+  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/", root?: string) {
     hooks.clear()
-    await setupDocs(docs, appBase)
+    const options = await setupDocs(docs, appBase)
+    // Hints go to `.vitehub/hints.json` of the app.
+    options.rootDir = root ?? mkdtempSync(join(tmpdir(), "docs-seo-hints-"))
+    if (!root) roots.push(options.rootDir)
+    appRoot = options.rootDir
     const nitroHooks = new Map<string, Hook[]>()
     const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    await callHook("nitro:build:before", nitro)
     for (const { route, contents } of routes) {
       const html = route.endsWith(".xml") ? {} : { fileName: `${route}.html`, contentType: "text/html;charset=utf-8" }
       for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route, contents, ...html } as never)
@@ -1130,6 +1136,16 @@ describe("docs search checks", () => {
     { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
   ]
 
+  it("clears the standalone report when auditing is disabled and warns again in the next build", async () => {
+    logger.warn.mockClear()
+    await prerender({ seoAudit: "warn" }, routes)
+    const root = appRoot
+    await prerender({ seoAudit: false }, routes, "/", root)
+    expect(JSON.parse(readFileSync(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
+    await prerender({ seoAudit: "warn" }, routes, "/", root)
+    expect(logger.warn.mock.calls.filter(([message]) => String(message).includes("/guides is in the sitemap, but it redirects."))).toHaveLength(2)
+  })
+
   it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
     await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({
       code: "DOCS_SEO_FAILED",
@@ -1137,10 +1153,16 @@ describe("docs search checks", () => {
     })
   })
 
-  it.each([undefined, "warn"] as const)("logs the problems and keeps building when seoAudit is %s", async (seoAudit) => {
+  it.each([undefined, "warn"] as const)("reports the problems as hints and keeps building when seoAudit is %s", async (seoAudit) => {
     logger.warn.mockClear()
     await prerender({ seoAudit }, routes)
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("/guides is in the sitemap, but it redirects."))
+    const report = JSON.parse(readFileSync(join(appRoot, ".vitehub/hints.json"), "utf8"))
+    expect(report).toMatchObject({ command: "build", hints: [{
+      code: "DOCS_SEO_SITEMAP_NOT_PAGE",
+      why: expect.stringContaining("- /guides is in the sitemap, but it redirects."),
+      docs: "https://vitehub.dev/docs/docs-site/diagnostics/docs_seo_sitemap_not_page",
+    }] })
   })
 
   it("adds no prerender hooks when seoAudit is false", async () => {
@@ -1167,6 +1189,13 @@ describe("docs search checks", () => {
     expect(problems.filter(problem => problem.startsWith("/docs/guide has a title") || problem.startsWith("/docs/guide has a description"))).toEqual([])
     // A shared title of a Markdown page and an app page stays an HTML problem.
     expect(problems).toContain("/docs/guide, /learn share the title \"Hi · Docs\". Give each page its own.")
+
+    await prerender({ dir: app.dir, seoAudit: "warn" }, [{ route: "/docs/guide", contents: html }])
+    const report = JSON.parse(readFileSync(join(appRoot, ".vitehub/hints.json"), "utf8"))
+    expect(report).toMatchObject({ hints: expect.arrayContaining([
+      expect.objectContaining({ code: "DOCS_SEO_TITLE_INVALID", why: expect.stringContaining("docs/guide/index.md:2: /docs/guide has a title") }),
+      expect.objectContaining({ code: "DOCS_SEO_DESCRIPTION_INVALID", why: expect.stringContaining("docs/guide/index.md:3: /docs/guide has a description") }),
+    ]) })
   })
 
   it.each(["/docs/guide", "/docs/:slug(.*)*"])("keeps the HTML title check of a Markdown page replaced by %s", async (path) => {
@@ -1217,6 +1246,17 @@ describe("docs search checks", () => {
       ...pages,
       { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
     ], appBase)).resolves.toBeInstanceOf(Map)
+  })
+})
+
+it("uses the module-owned Takumi renderer in dev and prerender without shipping a runtime renderer", async () => {
+  const dependencies = await moduleDependencies({ options: { modules: [], alias: {}, docs: { comments: false } } })
+  const renderer = Object.entries(dependencies).find(([name]) => name.includes("nuxt-og-image"))?.[1]
+  expect(renderer).toMatchObject({
+    defaults: {
+      zeroRuntime: true,
+      compatibility: { dev: { takumi: "node" }, prerender: { takumi: "node" } },
+    },
   })
 })
 
