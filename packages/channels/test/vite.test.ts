@@ -40,7 +40,7 @@ describe("hubChannels", () => {
     const plugin = hubChannels({ projectRoot: "custom" })
     const config = { root, configFile: false as const, plugins: [plugin], [VITEHUB_SERVER_DIRS]: [join(root, "server")] }
     await resolveConfig(config, "serve")
-    expect(plugin.api.getDefinitions().map(definition => definition.handler)).toEqual([expected])
+    expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ handler: expected })])
   })
 
   it("aliases the discovered Channel registry into Nitro builds", async () => {

@@ -120,12 +120,12 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     return { scope: body.scope.id, cursor: body.cursor, version: body.version, account: body.account }
   }
 
-  async function push(caller: Caller | string | null, body: Held & { where?: SyncValues, mutations: unknown[] }, headers: Record<string, string> = {}) {
+  async function push(caller: Caller | string | null, body: Held & { where?: SyncValues, mutations: unknown[] }, headers: Record<string, string> = {}, extra: Pick<SyncServices, "push"> = {}) {
     const response = await call(new Request(new URL(route, origin), {
       method: "POST",
       headers: { "content-type": "application/json", origin, ...callerHeaders(caller), ...headers },
       body: JSON.stringify(body),
-    }))
+    }), extra.push ? { ...services, ...extra } : services)
     // SAFETY: the tests read the documented answer of a push.
     return { status: response.status, body: await response.json() as SyncPushResponse & { code?: string, message?: string } }
   }
