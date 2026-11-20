@@ -435,8 +435,8 @@ describe("the comments outbox", () => {
   it.each([["create", 409], ["reply", 404]] as const)("keeps a saved %s locked after a lost answer and a retry that returns %i", async (kind, status) => {
     let canRead = true
     let loseAnswer = false
-    const comments = await createComments({ identify: () => ana, authorize: ({ action }) => action !== "read" || canRead })
-    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments }))
+    const comments = await createComments({ identify: () => ({ ...ana }), authorize: ({ action }) => action !== "read" || canRead })
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
     const transport = createRestTransport({
       base: "http://site.test",
       async fetch(url, init) {

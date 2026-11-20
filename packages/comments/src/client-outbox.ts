@@ -2,7 +2,7 @@
 // shows, and goes to the server one at a time, in order, with its `requestId` as the retry key. One tab sends at a time.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
-import { CommentPreparationError } from "./client-files.ts"
+import { failedCommentPreparation } from "./client-files.ts"
 import { replyMessageId } from "./reply-id.ts"
 
 import type { BrowserEnvironment } from "@vite-hub/internal/browser-environment"
@@ -432,16 +432,17 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     })
     let thread: CommentThread
     let writing = false
+    const outbox: NonNullable<CommentFiles["outbox"]> = {
+      account,
+      async uploaded(key) {
+        const saved = await withClaim((current, drafts) => drafts.set(entry.id, { ...current, uploaded: [...(current.uploaded ?? []), key] }))
+        if (!saved) throw new DOMException("This draft is no longer in the outbox.", "AbortError")
+      },
+    }
     try {
       const files: CommentFiles = {
         files: entry.files.slice(entry.uploaded?.length ?? 0),
-        outbox: {
-          account,
-          async uploaded(key) {
-            const saved = await withClaim((current, drafts) => drafts.set(entry.id, { ...current, uploaded: [...(current.uploaded ?? []), key] }))
-            if (!saved) throw new DOMException("This draft is no longer in the outbox.", "AbortError")
-          },
-        },
+        outbox,
       }
       const attachments = [...(entry.input.attachments ?? []), ...(entry.uploaded ?? [])]
       const extra = { ...files, requestId: entry.requestId, ...(attachments.length ? { attachments } : {}) }
@@ -460,8 +461,9 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       }
     }
     catch (cause) {
-      const beforeWrite = cause instanceof CommentPreparationError
-      const { retryAfter, ...error } = deliveryError(beforeWrite ? cause.cause : cause)
+      const preparation = failedCommentPreparation.get(outbox)
+      const beforeWrite = preparation !== undefined && Object.is(preparation.cause, cause)
+      const { retryAfter, ...error } = deliveryError(cause)
       const outcome = outcomeOf(error.status)
       const attempts = entry.attempts ?? 0
       const saved = await withClaim((current, drafts) => drafts.set(entry.id, {
