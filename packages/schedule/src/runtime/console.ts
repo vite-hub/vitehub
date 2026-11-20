@@ -20,7 +20,7 @@ function startedScheduleRecord(schedule: StartedSchedule): ViteHubConsoleRecord 
       ...(schedule.at ? [{ label: "Runs at", value: schedule.at.toISOString() }] : [{ label: "Cron", value: schedule.cron ?? "" }, { label: "Time zone", value: timeZone }]),
       { label: "Started at", value: schedule.createdAt.toISOString() },
       { label: "Payload", value: schedule.payload === undefined ? "-" : JSON.stringify(schedule.payload) },
-      { label: "Runs", value: `Use \`vitehub schedule runs ${schedule.id}\` to list its runs, and \`vitehub schedule cancel ${schedule.id}\` to stop it.` },
+      { label: "Runs", value: `Use \`vitehub schedule runs list ${schedule.id}\` to list its runs, and \`vitehub schedule cancel ${schedule.id}\` to stop it.` },
     ],
     id: `started:${schedule.id}`,
   }

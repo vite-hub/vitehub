@@ -469,6 +469,7 @@
     "birpc": "catalog:runtime",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",
+    "minimatch": "catalog:workspace",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "resolve-pkg-maps": "^1.0.0",

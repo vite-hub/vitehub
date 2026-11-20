@@ -11,6 +11,9 @@ import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./in
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
+import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionCursorRecordKey } from "./internal/provider-session-cursor.ts"
@@ -1352,6 +1355,9 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   context: AgentProviderCredentialContext<TRuntimeConfig>,
   inspectionOptions: { checkRequirements?: boolean } = {},
 ): Promise<AgentProviderStatus> {
+  // With VITEHUB_MODELS=emulate, a run calls only the AI emulator, so inspection probes no provider and reads no credential.
+  const emulatedStatus = emulatedProviderStatus(configuredOptions.provider, context)
+  if (emulatedStatus) return emulatedStatus
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
   if (isChatGPTGateway(options.gateway)) {
@@ -2224,7 +2230,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
  * The report names every attachment that the model receives or that was left out, with the reason.
  */
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean, provider: ProviderAgentAdapterOptions["provider"]) {
   const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
   const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
@@ -2236,7 +2242,9 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (currentParts.has(part)) continue
     const reason = !includeHistory
       ? "sandbox"
-      : part.type !== "image" ? "not-image" : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+      : part.type !== "image" ? "not-image"
+      : provider === "claude-code" && !providerInlineImageMediaTypes.has(part.mediaType.toLowerCase()) ? "not-inline"
+      : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
     if (reason) report.skipped.push({ ...entry(part, "history"), reason })
     else history.push(part)
   }
@@ -2840,7 +2848,12 @@ async function* runProvider<
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
-  const chatgptExpiry = isChatGPTGateway(options.gateway) ? new AbortController() : undefined
+  // With VITEHUB_MODELS=emulate, the run reads no credential and no gateway, and Codex calls only the AI emulator.
+  const emulated = resolveModelEmulation(providerMetadataContext(context))
+  if (emulated) {
+    assertProviderEmulationSupported({ provider: options.provider, sandbox: Boolean(options.sandbox), tools: Object.keys(context.tools || {}).length })
+  }
+  const chatgptExpiry = !emulated && isChatGPTGateway(options.gateway) ? new AbortController() : undefined
   let chatgptExpiryTimer: ReturnType<typeof setTimeout> | undefined
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const invocationSignal = context.input.abortSignal && timeoutSignal
@@ -2867,8 +2880,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox and ChatGPT homes last one invocation; conversation history is replayed on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && (options.provider !== "codex"
+  // Sandbox, ChatGPT, and emulator homes last one invocation; conversation history is replayed on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -3147,7 +3160,7 @@ async function* runProvider<
       })
     }
     effectiveSignal?.throwIfAborted()
-    codexCredentialHome = await waitForProviderOperation(
+    codexCredentialHome = emulated ? undefined : await waitForProviderOperation(
       prepareCodexCredentialHome(options, context),
       effectiveSignal,
       async (home) => {
@@ -3182,9 +3195,18 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    let gateway = options.gateway === undefined
-      ? undefined
-      : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    // The emulator owns the run. Only a Sandbox run has no temporary root, and the emulator cannot reach a Sandbox.
+    let emulatedCodexHome: string | undefined
+    let gateway: ResolvedAgentDriverGateway | undefined
+    if (emulated) {
+      if (!temporaryRoot) throw agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED()
+      emulatedCodexHome = join(temporaryRoot.root, "codex-home")
+      await mkdir(emulatedCodexHome, { mode: 0o700 })
+      gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
+    }
+    else if (options.gateway !== undefined) {
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    }
     if (gateway?.chatgpt && chatgptExpiry) {
       const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
       const remaining = gateway.chatgpt.expiresAt - Date.now()
@@ -3205,10 +3227,11 @@ async function* runProvider<
         launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
       }
     }
-    // driver.env can override the forge access environment. The gateway owns its own variables.
+    // driver.env can override the forge access environment. The gateway owns its own variables. Auxiliary and emulated
+    // runs compose driver.env.T3CODE_CODEX_LAUNCH_ARGS into their launch arguments below, before the gateway arguments.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
-      : configuredEnvironmentOverrides, { auxiliary })
+      : configuredEnvironmentOverrides, { auxiliary: auxiliary || emulated })
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
       throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
@@ -3275,6 +3298,8 @@ async function* runProvider<
         ? { PATH: `${[capabilityEnvironment?.PATH, ...toolchainPath].filter(Boolean).join(delimiter)}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),
     })
+    // A fresh Codex Home has no sign-in, config, or MCP server that could reach a real provider.
+    if (emulatedCodexHome) providerRuntimeEnvironment.CODEX_HOME = emulatedCodexHome
     const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
     const providerAgentTools = context.tools ? withAgentToolExecutionBudget(context.tools, context.executionBudget) : context.tools
     if (nativeUnattendedTools) {
@@ -3312,7 +3337,8 @@ async function* runProvider<
       }
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
-        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
+        // A launcher that forwards only required names must keep the credential or emulator Codex Home.
+        ...(codexCredentialHome || emulatedCodexHome ? ["CODEX_HOME"] : []),
         ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
@@ -3442,7 +3468,9 @@ async function* runProvider<
       await updateAgentTelemetryConfiguration(context.context, {
         ...(workspace && revision ? { workspace: { ...workspace, revision, ...(head?.id === revision ? { ref: head.ref } : {}) } } : {}),
         driver: {
-          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          ...(options.model || emulated
+            ? { model: { ...(emulated ? { gateway: emulatedGateway } : {}), ...(options.model ? { id: options.model } : {}), provider: options.provider } }
+            : {}),
           provider: options.provider,
         },
         ...(instructions ? { instructions: [instructions] } : {}),
@@ -3536,7 +3564,9 @@ async function* runProvider<
       })
       providerLauncher = providerSandboxRelay.launcher
     }
-    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
+    // The runtime chooses T3CODE_CODEX_LAUNCH_ARGS over settings. On the emulator, the emulator arguments must come last
+    // so that they win, so the environment arguments join the list like on an auxiliary run.
+    const composedEnvironmentLaunchArgs = options.provider === "codex" && (auxiliary || emulated)
       ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
       : undefined
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
@@ -3545,7 +3575,7 @@ async function* runProvider<
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       // Claude Code reads `.claude/skills` in every `--add-dir` directory.
       ...(providerSkillDirectory && options.provider === "claude-code" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
-      auxiliaryEnvironmentLaunchArgs,
+      composedEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
@@ -3590,7 +3620,7 @@ async function* runProvider<
     }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
-    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
+    if (composedEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
       providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
     }
     const settings = Object.fromEntries(Object.entries({
@@ -3598,6 +3628,7 @@ async function* runProvider<
       binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
       ...(chatgptHome ? { homePath: chatgptHome } : {}),
+      ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
@@ -3691,7 +3722,7 @@ async function* runProvider<
     }
     const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox, options.provider),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,
