@@ -40,8 +40,8 @@ the same behavior.
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
-| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
-| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
+| `vite-hub/choices` | [`defineChoices()`](/docs/choices/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/choices`. |
+| `vite-hub/choices/vue` | [`useChoices()`](/docs/choices/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/choices/vue`; auto-imported in Nuxt. |
 | `vite-hub/device` | [`openDevice()`, `setDeviceAccount()`, `clearDevice()`, and `inspectDevice()`](/docs/device/browser-api): the stored copies of server answers in the browser, for one account. Re-exports `@vite-hub/device`. |
 | `vite-hub/device/vue` | [`useStoredData()`](/docs/device/browser-api#usestoreddata) and [`useStoredFetch()`](/docs/device/browser-api#usestoredfetch): the last answer at once from the device, then a fresh one. Re-exports `@vite-hub/device/vue`. |
 | `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. `formFields()`, `toElicitation()`, and `toChatModal()` draw the same schema as an MCP elicitation or a Slack or Teams modal, and `checkForm()` checks the answers. Re-exports `@vite-hub/forms`. |
