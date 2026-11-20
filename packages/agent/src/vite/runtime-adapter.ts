@@ -12,13 +12,14 @@ import {
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { devModuleRunners } from "./dev-module-runners.ts"
 import { setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { isRecord } from "@vite-hub/internal/object"
 import { normalizePath } from "vite"
 import { ESModulesEvaluator, ModuleRunner } from "vite/module-runner"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
-import type { DevEnvironment, ViteDevServer } from "vite"
+import type { ViteDevServer } from "vite"
 import type {
   AgentHostIdentity,
   AgentInput,
@@ -62,8 +63,6 @@ function colocatedSkills(file: string) {
 /** The part of a Vite dev server that loads an Agent module. */
 export type ViteAgentModuleServer = Pick<ViteDevServer, "config" | "ssrLoadModule"> & Partial<Pick<ViteDevServer, "environments" | "watcher">>
 
-const devModuleRunners = new WeakMap<DevEnvironment, ModuleRunner>()
-
 /**
  * Imports a module in this process. Vite runs it in the `ssr` environment. Nuxt 5 gives that environment to the Vue
  * renderer in Nitro's worker, so `ssrLoadModule()` throws there. ViteHub then runs the module with its own module runner,
@@ -74,7 +73,7 @@ export async function importViteDevModule(server: ViteAgentModuleServer, url: st
   // Vite's `isRunnableDevEnvironment()` is an `instanceof` check. It fails when the app and ViteHub load different Vite copies.
   if (!ssr || "runner" in ssr) return await server.ssrLoadModule(url)
   const environment = server.environments?.nitro ?? ssr
-  let runner = devModuleRunners.get(environment)
+  let runner = devModuleRunners.get(environment)?.runner
   if (!runner) {
     const created = new ModuleRunner({
       hmr: false,
@@ -88,7 +87,14 @@ export async function importViteDevModule(server: ViteAgentModuleServer, url: st
     }
     server.watcher?.on("change", drop)
     server.watcher?.on("unlink", drop)
-    devModuleRunners.set(environment, created)
+    devModuleRunners.set(environment, {
+      close: async () => {
+        server.watcher?.off("change", drop)
+        server.watcher?.off("unlink", drop)
+        await created.close()
+      },
+      runner: created,
+    })
     runner = created
   }
   return await runner.import(url)

@@ -5,10 +5,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace/runtime"
+import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { createServer, DevEnvironment } from "vite"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../src/invocation-stream.ts"
+import { devModuleRunners } from "../src/vite/dev-module-runners.ts"
 import { hubAgent } from "../src/vite.ts"
 
 const cleanups: Array<() => Promise<void>> = []
@@ -74,4 +77,63 @@ it("discovers Agents when the ssr environment cannot run modules, and reloads an
 
   const edited = await discover()
   expect(JSON.parse(edited.body).agents).toEqual([expect.objectContaining({ aliases: ["hi"], name: "greeter" })])
+}, 30_000)
+
+// Nuxt 5 loads the Workspace registry through the `nitro` environment. A Workspace added after the first load must reach
+// the Dev Loop without a restart, and the Dev Loop must release its module runner when the server closes.
+it("refreshes the Workspace registry in the nitro environment, and releases the module runner on close", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-nuxt-workspace-"))
+  cleanups.push(() => rm(root, { force: true, recursive: true }))
+  await mkdir(join(root, "server/agents"), { recursive: true })
+  await mkdir(join(root, "server/workspaces"), { recursive: true })
+  await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+  await symlink(fileURLToPath(new URL("..", import.meta.url)), join(root, "node_modules/@vite-hub/agent"), "dir")
+  await writeFile(join(root, "package.json"), JSON.stringify({ name: "agent-dev-nuxt-workspace", type: "module" }))
+  await writeFile(join(root, "server/agents/greeter.ts"), `import { defineAgent } from "@vite-hub/agent"\nexport default defineAgent({ driver: { model: "openai/gpt-5.1" } })\n`)
+  await writeFile(join(root, "server/workspaces/first.ts"), `export default { sourceRootDir: "first" }\n`)
+
+  const runnerEnvironment = (name: string, config: ConstructorParameters<typeof DevEnvironment>[1]) => new DevEnvironment(name, config, { hot: false })
+  const server = await createServer({
+    appType: "custom",
+    configFile: false,
+    environments: {
+      nitro: { consumer: "server", dev: { createEnvironment: runnerEnvironment } },
+      ssr: { dev: { createEnvironment: runnerEnvironment } },
+    },
+    logLevel: "silent",
+    plugins: [hubWorkspace(), hubAgent()],
+    root,
+    server: { middlewareMode: true },
+  })
+  let closed = false
+  cleanups.push(async () => { if (!closed) await server.close() })
+  const http = createHttpServer(server.middlewares).listen(0, "127.0.0.1")
+  cleanups.push(async () => { http.close() })
+  await once(http, "listening")
+  const address = http.address()
+  if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
+  const url = `http://127.0.0.1:${address.port}${agentInvocationStreamRoute}`
+  const discover = async () => {
+    const response = await fetch(url, { headers: { accept: "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue } })
+    const body = await response.text()
+    expect(response.status, body).toBe(200)
+  }
+
+  await discover()
+  await expect(resolveRegisteredWorkspaceDefinition("first")).resolves.toMatchObject({ name: "first" })
+  const registryId = "\0#vitehub-workspace-registry"
+  expect(server.environments.nitro!.moduleGraph.getModuleById(registryId)?.transformResult).toBeTruthy()
+
+  await writeFile(join(root, "server/workspaces/later.ts"), `export default { sourceRootDir: "later" }\n`)
+  await vi.waitFor(() => expect(server.environments.nitro!.moduleGraph.getModuleById(registryId)?.transformResult).toBeNull(), { interval: 50, timeout: 10_000 })
+  await discover()
+  await expect(resolveRegisteredWorkspaceDefinition("later")).resolves.toMatchObject({ name: "later" })
+
+  // The runner keeps its modules in Vite's process-wide source map set and patches `Error.prepareStackTrace` until it closes.
+  const runner = devModuleRunners.get(server.environments.nitro!)?.runner
+  expect(runner?.isClosed()).toBe(false)
+  await server.close()
+  closed = true
+  expect(runner?.isClosed()).toBe(true)
+  expect(devModuleRunners.has(server.environments.nitro!)).toBe(false)
 }, 30_000)

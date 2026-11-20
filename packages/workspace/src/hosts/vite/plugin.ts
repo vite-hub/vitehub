@@ -924,11 +924,13 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
 
   function invalidateVirtualWorkspaceModules() {
     if (!server) return
-    const moduleGraph = server.moduleGraph
     const ids = [RESOLVED_WORKSPACE_REGISTRY_ID, RESOLVED_WORKSPACES_ID, ...manifest.workspaces.map(w => `${RESOLVED_WORKSPACE_PREFIX}${w.name}`)]
-    for (const id of ids) {
-      const mod = moduleGraph.getModuleById(id)
-      if (mod) moduleGraph.invalidateModule(mod)
+    // `server.moduleGraph` covers only `client` and `ssr`. Nuxt 5 loads these modules in the `nitro` environment.
+    for (const { moduleGraph } of Object.values(server.environments)) {
+      for (const id of ids) {
+        const mod = moduleGraph.getModuleById(id)
+        if (mod) moduleGraph.invalidateModule(mod)
+      }
     }
   }
 
