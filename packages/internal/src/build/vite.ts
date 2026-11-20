@@ -97,7 +97,7 @@ export interface ProviderOutputEnvironmentOwner {
   /** Install as the plugin's `buildApp` hook. */
   buildApp: (builder: { environments: Record<string, { isBuilt: boolean }> }) => Promise<void>
   /** Install as the plugin's `nitro` module. */
-  nitro: { name: string, setup: (nitro: { options: { static?: boolean } }) => void }
+  nitro: { name: string, setup: (nitro: { options: NitroPackageLoadingOptions & { static?: boolean } }) => void }
   /** Whether a later environment of the same Vite build writes Provider Output. */
   defers: (context: { environment?: object } | undefined) => boolean
 }
@@ -127,30 +127,31 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
   }
 }
 
-const nitroDevRunnerKey = Symbol.for("vitehub.nitro.devRunner")
+type NitroPackageLoadingOptions = { devServer?: { runner?: string } }
 
 /**
- * Records the dev runner that the app sets in its Nitro options, such as `nitro({ devServer: { runner: "miniflare" } })`.
- * Every ViteHub package bundles this module, so the value is kept on `globalThis`.
+ * Use one app's effective Nitro runner for both environment configuration and generated imports.
+ * `configureEnvironment` reads the runner after Nitro's `build:before` hooks and saves the decision for `load`.
  */
-export function recordNitroDevRunner(runner: string | undefined): void {
-  Reflect.set(globalThis, nitroDevRunnerKey, runner)
-}
-
-/** The Nitro dev runner, chosen as Nitro chooses it: the Nitro option, then `NITRO_DEV_RUNNER`, then `node-worker`. */
-function nitroDevRunner(): string {
-  const recorded: unknown = Reflect.get(globalThis, nitroDevRunnerKey)
-  return (typeof recorded === "string" && recorded) || process.env.NITRO_DEV_RUNNER || "node-worker"
-}
-
-/**
- * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
- * This is the Nitro environment of `vite dev` on a Node dev runner. Generated Nitro plugins give these packages the
- * registries and the `define` values that Vite gives to the code it transforms. Builds, other environments, and other
- * runners, such as `miniflare`, still inline the packages: workerd cannot load a package file from the disk.
- */
-export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
-  return env.command === "serve" && name === "nitro" && nitroDevRunner().startsWith("node")
+export function createNativePackageLoading() {
+  let nitro: { options: NitroPackageLoadingOptions } | undefined
+  let native = false
+  return {
+    nitro: {
+      setup(instance: { options: NitroPackageLoadingOptions }) {
+        nitro = instance
+      },
+    },
+    configureEnvironment(name: string, env: { command: string }): boolean {
+      if (name !== "nitro") return false
+      const runner = nitro?.options.devServer?.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
+      native = env.command === "serve" && (runner === "node-worker" || runner === "node-process")
+      return native
+    },
+    load(id: string, environmentName: string | undefined): string | undefined {
+      if (environmentName === "nitro" && native) return loadNativePackageModule(id)
+    },
+  }
 }
 
 // The installed dist files of the packages that Node loads in `vite dev`. A linked workspace package is outside
@@ -163,8 +164,7 @@ const nativePackageDistFile = /\/node_modules\/@vite-hub\/(?:agent|connections|r
  * registries. This returns a module that lets Node load the file instead, so the app and the generated code share one
  * instance. Use it as the `load` hook result for the file. It returns nothing for other files and environments.
  */
-export function loadNativePackageModule(id: string, environmentName: string | undefined, command: string): string | undefined {
-  if (!environmentName || !loadsViteHubPackagesNatively(environmentName, { command })) return
+function loadNativePackageModule(id: string): string | undefined {
   // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
   const file = id.startsWith("file:") ? fileURLToPath(id) : id
   if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return

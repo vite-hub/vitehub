@@ -5,7 +5,7 @@ import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenera
 import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
-import { createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNativePackageLoading, createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -887,6 +887,7 @@ function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undef
 }
 
 export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
+  const packageLoading = createNativePackageLoading()
   const internalOptions = options as InternalWorkspaceModuleOptions | false | undefined
   let hosting = internalOptions ? internalOptions.hosting : undefined
   const publicOptions = stripWorkspaceInternalOptions(options)
@@ -928,6 +929,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
 
   return {
     name: "@vite-hub/workspace/vite",
+    nitro: packageLoading.nitro,
     enforce: "pre",
     [setWorkspacePluginHosting](value) {
       hosting = value
@@ -1020,7 +1022,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          ...(loadsViteHubPackagesNatively(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
+          ...(packageLoading.configureEnvironment(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
         },
       }
     },
@@ -1198,7 +1200,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
           return `const manifest = ${JSON.stringify(workspace ? { ...workspace, entries: [] } : { name, entries: [] })};\nexport default manifest;\n`
         }
         // The generated Nitro plugin imports Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
-        return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
+        return packageLoading.load(id, this.environment?.name)
       },
     },
   }
