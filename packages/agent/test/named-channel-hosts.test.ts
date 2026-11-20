@@ -1,13 +1,43 @@
-import { execFile } from "node:child_process"
+import { once } from "node:events"
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { promisify } from "node:util"
+import { Worker } from "node:worker_threads"
 import { build } from "esbuild"
 import { resolveConfig } from "vite"
 import { expect, it, vi } from "vitest"
-import { hubAgent } from "../src/vite.ts"
+import { agentRuntimeModule, hubAgent } from "../src/vite.ts"
+
+vi.mock(import("@vite-hub/internal/build/deployment-output"), async (importOriginal) => {
+  const original = await importOriginal()
+  const { contributeProviderDeploymentOutput } = original
+  return {
+    ...original,
+    contributeProviderDeploymentOutput: (...[catalog, contribution, generation]: Parameters<typeof contributeProviderDeploymentOutput>) => {
+      contributeProviderDeploymentOutput(catalog, {
+        ...contribution,
+        write: context => contribution.write({
+          ...context,
+          write: options => context.write({
+            ...options,
+            netlify: options.netlify && {
+              ...options.netlify,
+              functions: options.netlify.functions?.map(func => ({
+                ...func,
+                bundleOptions: {
+                  ...func.bundleOptions,
+                  packages: "external",
+                  external: [...func.bundleOptions.external ?? [], agentRuntimeModule("server/internal")],
+                },
+              })),
+            },
+          }),
+        }),
+      }, generation)
+    },
+  }
+})
 
 it.each(["deno", "netlify"] as const)("serves listed Channel registration paths in %s output", async (hosting) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-named-channel-host-"))
@@ -86,24 +116,32 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
         } }],
       })
     }
-    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", [
+    const runner = join(root, "check-routes.mjs")
+    await writeFile(runner, [
+      "import { parentPort, workerData } from 'node:worker_threads'",
       "let handler",
       "globalThis.Deno = { args: [], serve: callback => { handler = callback; return { finished: Promise.resolve() } } }",
-      "const module = await import(process.argv[1])",
+      "const module = await import(workerData)",
       "handler ||= module.default",
+      "const deliveries = []",
       "for (const path of ['/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
       "  const context = { params: path.startsWith('/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
       "  const denied = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}' }), context)",
       "  if (denied.status !== 401) throw new Error('Expected signature verification for ' + path + ', received ' + denied.status)",
       "  const response = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } }), context)",
-      "  console.log('delivery:' + JSON.stringify({ path, status: response.status, body: await response.json() }))",
+      "  deliveries.push({ path, status: response.status, body: await response.json() })",
       "}",
       "for (const path of ['/chat', '/old-chat']) {",
       "  const response = await handler(new Request('https://example.com' + path, { method: 'HEAD' }), { params: {} })",
       "  if (response.status !== 204) throw new Error('Missing chat adapter route: ' + path + ', received ' + response.status)",
       "}",
-    ].join("\n"), pathToFileURL(output).href])
-    const deliveries = stdout.trim().split("\n").filter(line => line.startsWith("delivery:")).map(line => JSON.parse(line.slice("delivery:".length)))
+      "parentPort.postMessage(deliveries)",
+    ].join("\n"))
+    const worker = new Worker(runner, { workerData: pathToFileURL(output).href })
+    const [deliveries] = await Promise.race([
+      once(worker, "message"),
+      once(worker, "exit").then(([code]) => { throw new Error(`Channel host Worker exited before reporting deliveries (${code}).`) }),
+    ]).finally(() => worker.terminate())
     expect(deliveries).toHaveLength(8)
     for (const delivered of deliveries) {
       expect(delivered).toMatchObject({ status: 200, body: { agent: "support", channel: delivered.path.includes("custom") ? "custom" : delivered.path === "/task-hooks" ? "tasks" : "hooks" } })
