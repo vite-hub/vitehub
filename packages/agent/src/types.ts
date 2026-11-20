@@ -2542,7 +2542,7 @@ export interface AgentChatAgentBindingOptions {
 
 export type AgentChatTriggerHistory = "none" | {
   maxAgeMs?: number
-  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 4 for Codex and Claude Code Drivers, and to 0 for other Drivers. */
   maxImages?: number
   maxMessages: number
   source: "thread"
