@@ -1,5 +1,4 @@
 import type { MotionEffect } from "../registry.ts";
-import { writeMotionStyle } from "../registry.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
@@ -36,6 +35,7 @@ interface Bend {
   at: number;
   spring: Spring;
   lane?: { svg: SVGSVGElement; path: SVGPathElement };
+  opacity?: { value: string; priority: string };
 }
 
 const bends = new WeakMap<HTMLElement, Bend>();
@@ -78,7 +78,7 @@ function draw(bend: Bend, amount: number): void {
   const { handle, axis, line } = bend;
   if (Math.abs(amount) < 0.5 && !bend.spring.active) {
     bend.lane?.svg.remove();
-    if (line.element) writeMotionStyle(line.element, { opacity: null });
+    if (line.element && bend.opacity) line.element.style.setProperty("opacity", bend.opacity.value, bend.opacity.priority);
     if (bends.get(handle) === bend) bends.delete(handle);
     return;
   }
@@ -93,10 +93,14 @@ function draw(bend: Bend, amount: number): void {
     path.style.strokeWidth = `${line.width}px`;
     svg.append(path);
     bend.lane = { svg, path };
+    if (line.element) {
+      const { style } = line.element;
+      bend.opacity = { value: style.opacity, priority: style.getPropertyPriority("opacity") };
+      style.setProperty("opacity", "0");
+    }
   }
   const { svg, path } = bend.lane;
   if (!svg.isConnected) handle.after(svg);
-  if (line.element) writeMotionStyle(line.element, { opacity: "0" });
   // In CSS pixels of the handle's parent, where the line is drawn, also on a page with CSS `zoom`.
   const zoom = handle.offsetHeight ? handle.getBoundingClientRect().height / handle.offsetHeight || 1 : 1;
   const scaled = (box: DOMRect) => ({ left: box.left / zoom, top: box.top / zoom, width: box.width / zoom, height: box.height / zoom });
