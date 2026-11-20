@@ -13,7 +13,15 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
+export interface SandboxTaskDevOptions {
+  /**
+   * `vite dev` runs Sandbox Tasks as processes on this machine, with no isolation and no provider account.
+   * Set `true` to use the host's Sandbox in `vite dev` too.
+   */
+  remote?: boolean
+}
+
+export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
   driver: 'vercel'
   runtime?: string
   ports?: number[]
@@ -25,7 +33,7 @@ export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions {
+export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
   driver: 'cloudflare'
   /** Maximum number of Containers that run at once. Defaults to 12. */
   maxInstances?: number
@@ -47,7 +55,7 @@ export type SandboxTaskDefinitionDriverOptions
 
 export type AgentSandboxTaskConfig =
   | SandboxTaskDefinitionDriverOptions
-  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions)
+  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions & SandboxTaskDevOptions)
 
 export interface SandboxTaskDefinitionBundle {
   entry: string

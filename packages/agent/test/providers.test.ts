@@ -132,6 +132,7 @@ const rolldownExternalCases = [
 ]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
+const netlifyBuildTestTimeout = 30_000
 
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
@@ -146,6 +147,30 @@ function agentProviderOutputAliases(extra: Array<{ find: string; replacement: st
     ...(["server/registry", "server/internal", "server/workspace", "state"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: resolve(import.meta.dirname, `../src/${entry}.ts`) })),
     { find: agentRuntimeModule("index"), replacement: resolve(import.meta.dirname, "../src/index.ts") },
   ]
+}
+
+async function stubNetlifyAgentRuntime(root: string) {
+  const runtime = join(root, "agent-runtime.mjs")
+  await writeFile(runtime, [
+    `export { isViteHubBearerSecretEqual } from ${JSON.stringify(resolve(import.meta.dirname, "../../internal/src/secret.ts"))}`,
+    "export const agentWithColocatedInstructions = agent => agent",
+    "export const inheritAgentLayerOptions = agent => agent",
+    "export const markDiscoveredAgentName = () => {}",
+    "export const withDiscoveredAgentName = agent => agent",
+    "export const resetPublicUrlAgentNames = () => {}",
+    "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
+    "export const workspaceDefinitionFromOptions = () => undefined",
+    "export const setAgentWorkspaceDefinitions = () => {}",
+    "export const agentGeneratedRuntimeError = (_code, message) => new Error(message)",
+    "export const createAgentWebhookRequest = () => { throw new Error('Unexpected webhook request') }",
+    "export const createChannelChatRouteHandler = () => { throw new Error('Unexpected chat handler') }",
+    "export const createChannelWebhookRouteHandler = () => undefined",
+    "export const hasChannelChatRoute = () => false",
+    "export const namedChannelHosts = () => ({})",
+    "export const resolvePublicUrl = () => undefined",
+    "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
+  ].join("\n"), "utf8")
+  return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
 
 function createTestChatAdapter(
@@ -1238,7 +1263,7 @@ describe("agent Vite plugin", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
@@ -1256,7 +1281,12 @@ describe("agent Vite plugin", () => {
         resolve: { alias: Array<{ find: string; replacement: string }> }
         root: string
       }) => Promise<void>
-      await configResolved({ build: { outDir: "dist/client" }, command: "build", resolve: { alias: agentProviderOutputAliases() }, root })
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
+        root,
+      })
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
@@ -1271,11 +1301,11 @@ describe("agent Vite plugin", () => {
       for (const authorization of [undefined, "Bearer gateway", "Bearer gateway-secret-", "Bearer gateway-secreT", "Basic gateway-secret"]) {
         expect((await gateway(authorization)).status).toBe(401)
       }
-      expect((await gateway("Bearer gateway-secret")).status).not.toBe(401)
+      expect((await gateway("Bearer gateway-secret")).status).toBe(204)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-}, 60_000)
+  }, netlifyBuildTestTimeout)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
@@ -1351,7 +1381,7 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
@@ -1400,7 +1430,7 @@ describe("agent Vite plugin", () => {
     } finally {
       await rm(container, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
     vi.stubEnv("VITEHUB_HOST", undefined)
@@ -2167,7 +2197,7 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
-      const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
+      const netlifyPlugin = hubAgent({ providers: { state: { driver: "memory" } }, routes: { discordGateway: true } })
       if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -2179,27 +2209,27 @@ describe("agent Vite plugin", () => {
             command: "build",
             plugins: [schedulePlugin],
             vitehub: { host: "netlify" },
-            resolve: { alias: agentProviderOutputAliases() },
+            resolve: { alias: await stubNetlifyAgentRuntime(root) },
             root,
           } as never,
         )
       }
-      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
-        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await netlifyPlugin.closeBundle.handler.call({} as never)
+      await runProviderOutputHooks(netlifyPlugin)
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const bundle = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
+      for (const route of [wrapper, bundle]) {
+        expect(route).not.toContain("#vitehub/schedule/registry")
+        expect(route).not.toContain("schedule-registry.js")
+        expect(route).not.toContain("@vite-hub/schedule/runtime")
       }
-      const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(netlifyFunction).not.toContain("schedule-registry.js")
-      expect(netlifyFunction).not.toContain("@vite-hub/schedule/runtime")
-      expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
+      expect(wrapper).toContain("Object.hasOwn(values, key)")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("bundles the configured Email definition in standalone Agent provider outputs", async () => {
-    const { bundleEsmEntry } = await import("@vite-hub/internal/build/esbuild")
+    const { bundleEsmEntry } = await import("@vite-hub/internal/build/rolldown")
     const { hubEmail } = await import("../../email/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-email-provider-routes-"))
@@ -3353,13 +3383,12 @@ export default defineAgent({
     expect(declaration).not.toMatch(/\bfrom ["']@vite-hub\/schedule(?:["'/])/)
   })
 
-  it("keeps esbuild external in the Agent Vite plugin package build", async () => {
-    const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
+  it("installs no esbuild with the Agent Vite plugin", async () => {
     const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     if (!isTestRecord(pkg) || !isTestRecord(pkg.dependencies)) throw new Error("Expected package dependencies metadata.")
 
-    expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
+    // Provider outputs bundle with the Rolldown of the app's Vite.
+    expect(pkg.dependencies.esbuild).toBeUndefined()
   })
 })
 

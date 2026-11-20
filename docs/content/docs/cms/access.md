@@ -24,7 +24,7 @@ The role policy also decides `read`, the [`/api/content/**` route](/docs/content
 
 ```ts [server/content.ts] fragment
 export default defineContent({
-  extends: [cms, { access: 'roles' }],
+  extends: [cms, { roles: true }],
   collections: { posts },
   access: 'public',
 })
@@ -87,10 +87,10 @@ export default defineAuth({
 
 ## Opt into the role policy
 
-Set `extends: [cms, { access: 'roles' }]` so the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that it acts for.
+Set `extends: [cms, { roles: true }]` so the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that it acts for.
 
 > [!NOTE]
-> With `extends: cms` alone, every action is denied, even if your app has an unrelated `user.role` field. Turn on the role policy with `access: 'roles'` or `authorize: cmsContentAuthorize`. It then loads Better Auth only for a user with a string role. A missing or unknown role is denied.
+> With `extends: cms` alone, every action is denied, even if your app has an unrelated `user.role` field. Turn on the role policy with `roles: true` or `authorize: cmsContentAuthorize`. It then loads Better Auth only for a user with a string role. A missing or unknown role is denied.
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 

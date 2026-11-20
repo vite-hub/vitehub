@@ -2,7 +2,7 @@ import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError, isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
@@ -65,8 +65,8 @@ function writeInfoUsage(context: AgentInfoCliContext): void {
     "",
     "Options:",
     "  --agent <name>  Agent to inspect. Required when multiple Agents are available.",
-    "  --url <url>     Compatible Vite Development Server URL. Defaults to the dev server running in this project,",
-    "                  then VITEHUB_DEV_SERVER_URL, then http://localhost:5173.",
+    "  --url <url>     App URL, such as http://localhost:3000. Defaults to the dev server running in this project,",
+    "                  then VITEHUB_DEV_SERVER_URL.",
     "  --json          Print structured Agent metadata.",
     "  -h, --help      Show this help.",
     "",
@@ -80,13 +80,7 @@ function readOptionValue(args: string[], index: number, flag: string): string {
 }
 
 function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" | "rootDir">): ParsedInfoArgs {
-  const parsed: ParsedInfoArgs = {
-    help: false,
-    json: false,
-    // A Nuxt or Vite dev server records its URL in the project root, so a port other than 5173 needs no --url.
-    // Nuxt's Vite root is the `app/` folder below it.
-    url: findViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env) ?? defaultViteHubDevServerUrl,
-  }
+  const parsed: Omit<ParsedInfoArgs, "url"> & { url?: string } = { help: false, json: false }
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -107,7 +101,8 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
       parsed.agent = arg.slice("--agent=".length)
       continue
     }
-    if (arg === "--url" || arg === "--server") {
+    if (arg === "--server" || arg.startsWith("--server=")) throw agentDiagnostics.AGENT_R0499({ message: "--server is now --url. Pass --url with the app URL, such as --url http://localhost:3000." })
+    if (arg === "--url") {
       parsed.url = readOptionValue(args, index, arg)
       index++
       continue
@@ -122,7 +117,9 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
     throw agentDiagnostics.AGENT_R0500({ message: `Unexpected argument: ${arg}.` })
   }
 
-  return parsed
+  // A Nuxt or Vite dev server records its URL in the project root, and Nuxt's Vite root is the `app/` folder below it.
+  // Help needs no server, and the command never guesses a port.
+  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env, "agent info")) }
 }
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {

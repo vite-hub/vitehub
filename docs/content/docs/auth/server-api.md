@@ -407,7 +407,7 @@ export default defineAuth({
 
 ## Typed user fields
 
-The default client gets its types from the Auth Definition. When the Definition adds user or session fields, with `additionalFields`, with a plugin such as `admin()`, or with the session that `customSession()` returns, `useUserSession()` has these fields too.
+The default client and server guards get their types from the discovered Auth Definition. When the Definition adds user or session fields with `additionalFields` or a plugin such as `admin()`, `useUserSession()`, `requireAuth()`, and `withAuth()` have these fields too.
 
 ```ts [server/auth.ts]
 import { admin } from 'better-auth/plugins'
@@ -432,6 +432,19 @@ export const isPro = () => user.value?.plan === 'pro'
 export const isAdmin = () => user.value?.role === 'admin'
 ```
 
-- ViteHub writes the type of the Definition to `.vitehub/types/auth.d.ts`. The client imports only this type, so no server code goes to the browser.
+```ts [server/api/reports.get.ts]
+import { defineHandler } from 'h3'
+import { requireAuth } from 'vite-hub/auth/server'
+
+export default defineHandler(async (event) => {
+  const { user } = await requireAuth(event)
+  return { plan: user.plan, admin: user.role === 'admin' }
+})
+```
+
+- ViteHub writes the types of the Definition and its session result to `.vitehub/types/auth.d.ts`. The client imports only types, so no server code goes to the browser.
+- The Blob and Source `authorize` callbacks get the same `user` and `session` types.
+- A guard with an explicit Definition does not use the app's generated types. The `access.routes` and `events` callbacks in the Definition use broad records, so the Definition does not depend on its own generated types. Check a field's type before using it there.
+- With `customSession()`, the server guards and default client see the fields the callback returns. For a callback that passes `user` and `session` through, give `customSession()` the schema and plugin options as its second argument. Without those options, Better Auth types the callback inputs with only the base fields.
 - In Nuxt, the auto-imported `useUserSession()` has the same types.
 - A client from `createAuthClient()` does not get these fields. Add the Better Auth client plugins, such as `adminClient()` and `customSessionClient<RegisteredAuth>()`, and `inferAdditionalFields<RegisteredAuth>()` from `better-auth/client/plugins`. `RegisteredAuth` is a type from `vite-hub/auth`.

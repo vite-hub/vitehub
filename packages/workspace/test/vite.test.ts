@@ -1153,6 +1153,35 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
   })
 
+  it.each([
+    ["dev on Node", { preset: "node-server" }, "serve", false],
+    ["dev without a host", undefined, "serve", false],
+    ["dev on Cloudflare", { preset: "cloudflare-module" }, "serve", true],
+    ["a Node build", { preset: "node-server" }, "build", true],
+  ] as const)("loads the Definitions in config only when it needs their stores: %s", async (_case, nitro, command, loads) => {
+    const root = await createViteRoot()
+    // Loading a Definition runs app code, and its Nitro runtime imports print Nitro's stub warning outside Nitro.
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `globalThis.__vitehubWorkspaceDefinitionLoads = (globalThis.__vitehubWorkspaceDefinitionLoads ?? 0) + 1`,
+      `export default { store: { binding: "DOCS_FILES", driver: "cloudflare" } }`,
+      ``,
+    ].join("\n"))
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = mergedConfigHook(plugin.config) as (config: {
+      nitro?: { preset?: string }
+      plugins?: unknown[]
+      root: string
+    }, env: { command: "build" | "serve", mode: string }) => Promise<{ nitro?: { cloudflare?: { wrangler?: { artifacts?: unknown } } } }>
+
+    const result = await config({ ...(nitro ? { nitro } : {}), plugins: [{ name: "nitro:main" }], root }, { command, mode: command === "build" ? "production" : "development" })
+
+    expect(Reflect.get(globalThis, "__vitehubWorkspaceDefinitionLoads")).toBe(loads ? 1 : undefined)
+    expect(result.nitro?.cloudflare?.wrangler?.artifacts).toEqual(loads ? [{ binding: "DOCS_FILES", namespace: "vitehub" }] : undefined)
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
+  })
+
   it("falls through blank Cloudflare hosting signals", async () => {
     const root = await createViteRoot()
     vi.stubEnv("NITRO_PRESET", " ")
@@ -2163,6 +2192,31 @@ describe("hubWorkspace", () => {
     expect(wrangler.artifacts).toEqual([
       { binding: "DEFINITION_FILES", namespace: "definition-workspaces" },
     ])
+  })
+
+  it("uses the aliased Definition entry to discover Cloudflare Artifacts bindings", async () => {
+    const root = await createViteRoot()
+    const source = join(root, "src")
+    const mapped = join(root, "mapped")
+    await mkdir(mapped, { recursive: true })
+    await writeFile(join(source, "docs.workspace.ts"), 'export default { rootDir: "." }\n')
+    await writeFile(join(mapped, "docs.workspace.ts"), 'export default { store: { binding: "MAPPED_FILES", namespace: "mapped", driver: "cloudflare" } }\n')
+
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: {
+      command: "build"
+      resolve: { alias: Array<{ find: string, replacement: string }> }
+      root: string
+    }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    await configResolved({ command: "build", resolve: { alias: [{ find: source, replacement: mapped }] }, root })
+    await prepareWorkspaceProviderOutput(plugin)
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "MAPPED_FILES", namespace: "mapped" }])
   })
 
   it.each([false, ["notes"]] as Array<false | string[]>)("emits definition-level Cloudflare Artifacts bindings independently of asset selection", async (assets) => {

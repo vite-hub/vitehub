@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url'
 
 import type { AgentSandboxTaskConfig } from '../module-types'
+import type { ResolvedTaskSandbox } from './provider-loader'
 import type { SandboxTaskDefinitionBundle, SandboxTaskDefinitionOptions } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -17,6 +18,7 @@ type GeneratedSandboxTaskRuntimeRegistryEntry = {
 type GeneratedSandboxTaskRuntimeRegistry = Record<string, GeneratedSandboxTaskRuntimeRegistryEntry>
 
 let sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined
+let sandboxTaskLocalProvider: (() => Promise<ResolvedTaskSandbox>) | undefined
 let sandboxTaskRegistry: SandboxTaskRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxTaskRuntimeRegistry>()
 const generatedRegistryOwnership = new WeakMap<SandboxTaskRuntimeRegistry, { registry: GeneratedSandboxTaskRuntimeRegistry, scope: string }>()
@@ -84,6 +86,15 @@ export function setSandboxTaskRuntimeConfig(config: false | AgentSandboxTaskConf
   sandboxTaskConfig = config
 }
 
+/** The provider that runs Sandbox Tasks on this machine. Only the `vite dev` facade sets it. */
+export function getSandboxTaskRuntimeLocalProvider() {
+  return sandboxTaskLocalProvider
+}
+
+export function setSandboxTaskRuntimeLocalProvider(provider: (() => Promise<ResolvedTaskSandbox>) | undefined) {
+  sandboxTaskLocalProvider = provider
+}
+
 export function setSandboxTaskRuntimeRegistry(registry: SandboxTaskRuntimeRegistry | undefined) {
   sandboxTaskRegistry = registry
   const generated = registry && generatedRegistryOwnership.get(registry)
@@ -93,6 +104,7 @@ export function setSandboxTaskRuntimeRegistry(registry: SandboxTaskRuntimeRegist
 
 export function resetSandboxTaskRuntimeState() {
   sandboxTaskConfig = undefined
+  sandboxTaskLocalProvider = undefined
   sandboxTaskRegistry = undefined
   generatedRegistries.clear()
 }

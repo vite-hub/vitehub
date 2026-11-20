@@ -1679,11 +1679,9 @@ describe("Vite workflow provider outputs", () => {
   }, buildOutputTestTimeout * 2)
 
   it("rejects native Vercel entries outside discovered definition directories", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-external-native-")
-    await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
-    const viteConfig = join(rootDir, "vite.config.ts")
-    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ driver: "vercel" }')))
+    const rootDir = await createWorkspaceTempDir("vitehub-workflow-vercel-external-native-")
     await mkdir(join(rootDir, "server", "durable"), { recursive: true })
+    await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
     await writeFile(join(rootDir, "server", "durable", "welcome.ts"), [
       `export async function durable() {`,
       `  "use workflow"`,
@@ -1696,9 +1694,10 @@ describe("Vite workflow provider outputs", () => {
       `export default defineWorkflow({ handler: async () => "inline", native: durable })`,
     ].join("\n"))
 
-    await expect(execFileAsync(vp, ["build"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
+    await expect(generateWorkflowProviderOutputs({
+      clientOutDir: join(rootDir, "dist"),
+      rootDir,
+      workflow: { driver: "vercel" },
     })).rejects.toThrow(/must be colocated with its discovered workflow definition/)
   }, buildOutputTestTimeout)
 

@@ -50,7 +50,7 @@ Use [`vitehub agent dev`](/docs/cli/agents#talk-to-an-agent-during-development) 
 Run the narrowest check that covers the behavior you changed:
 
 - `vitehub agent eval` for Agent behavior.
-- `vitehub provision run --host <name> --dry-run` for provider resources.
+- `vitehub provision run --dry-run` for provider resources.
 - `pnpm build` when generated host output changed.
 
 [Verification](/docs/development/verification) explains each check and what it does not cover.
