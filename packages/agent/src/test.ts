@@ -33,8 +33,6 @@ import type { TraceEventLog, TraceRunView } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export { createAgentRuntimeContext }
-export { emulateModels } from "./emulate-models.ts"
-export type { EmulatedModelCall, EmulatedModelRule, EmulatedModelRules, EmulatedModels, EmulatedModelSeed } from "./emulate-models.ts"
 
 export interface AgentTestRunnerOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>

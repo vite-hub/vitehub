@@ -1133,6 +1133,9 @@ importers:
       '@emulators/ai':
         specifier: 0.14.0
         version: 0.14.0
+      '@emulators/core':
+        specifier: 0.14.0
+        version: 0.14.0
       '@json-render/core':
         specifier: 0.22.0
         version: 0.22.0(zod@4.6.7)

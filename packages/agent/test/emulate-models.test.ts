@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from "vitest"
 import { emulate } from "@vite-hub/gateways"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
-import { emulateModels } from "../src/test.ts"
+import { emulateModels } from "../src/emulate-models.ts"
 
-import type { EmulatedModelRule } from "../src/test.ts"
+import type { EmulatedModelRule } from "../src/emulate-models.ts"
 
 const weatherRules: EmulatedModelRule[] = [
   { id: "weather-call", match: { textContains: "weather", tool: "getWeather", hasToolResult: false }, times: 1, reply: [{ type: "tool_call", name: "getWeather", arguments: { city: "Paris" } }] },
@@ -49,11 +49,15 @@ describe("emulateModels()", () => {
     expect((await ai.rules()).rules.map(rule => [rule.id, rule.remaining])).toEqual([["weather-call", 0], ["weather-answer", null]])
   })
 
-  it("answers a plain model ID Agent from a rule, with no languageModel() and no AI key", async () => {
+  it.each(["EMULATE_BASE_URL", "PORTLESS_URL"])("routes a plain model ID and controls to the listener despite %s", async (override) => {
+    vi.stubEnv("EMULATE_BASE_URL", undefined)
+    vi.stubEnv("PORTLESS_URL", undefined)
+    vi.stubEnv(override, "http://localhost:9")
     vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
     await using ai = await emulateModels({ rules: [{ id: "hello", match: { model: "openai/gpt-5.1", textContains: "Hello" }, reply: [{ type: "text", text: "Hi from a rule." }] }] })
     const agent = defineAgent({ runtime: false, driver: { model: "openai/gpt-5.1" } })
 
+    expect(ai.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
     const [error, result] = await runAgent(agent, { prompt: "Hello" })
 
     expect(error).toBeUndefined()
@@ -62,7 +66,7 @@ describe("emulateModels()", () => {
   })
 
   it("returns the missing rule as YAML when strict mode rejects a request", async () => {
-    await using ai = await emulateModels({ rules: weatherRules })
+    await using ai = await emulateModels({ strict: undefined, rules: weatherRules })
     const { agent } = weatherAgent("responses")
 
     const [error] = await runAgent(agent, { prompt: "Hello" })
@@ -71,6 +75,11 @@ describe("emulateModels()", () => {
     expect(errorText(error)).toContain('No AI rule matched model "gpt-5.1" with tools ["getWeather"].')
     expect(errorText(error)).toContain("Add a matching rule to your seed configuration:\nai:\n  rules:\n    - id: matching-reply\n      match:\n        model: \"gpt-5.1\"\n        format: openai-responses")
     expect((await ai.calls()).map(call => call.matched)).toEqual([null])
+  })
+
+  it("keeps strict mode off when explicitly requested", async () => {
+    await using ai = await emulateModels({ strict: false })
+    expect(await ai.rules()).toMatchObject({ strict: false })
   })
 
   it("replaces the rules, keeps strict mode, and resets to the seed", async () => {
@@ -122,17 +131,37 @@ describe("emulateModels()", () => {
     await expect(ai.calls()).rejects.toMatchObject({ code: "AGENT_EMULATOR_CLOSED" })
   })
 
+  it("rejects overlapping startup without changing routing and restores both variables", async () => {
+    vi.stubEnv("VITEHUB_EMULATE_URL", "http://127.0.0.1:9")
+    vi.stubEnv("VITEHUB_MODELS", "off")
+    const [first, second] = await Promise.allSettled([emulateModels(), emulateModels()])
+    try {
+      expect(first.status).toBe("fulfilled")
+      expect(second).toMatchObject({ status: "rejected", reason: { code: "AGENT_EMULATOR_SCOPE_ACTIVE" } })
+      if (first.status === "fulfilled") expect(process.env.VITEHUB_EMULATE_URL).toBe(first.value.url)
+      expect(process.env.VITEHUB_MODELS).toBe("emulate")
+    }
+    finally {
+      if (second.status === "fulfilled") await second.value.close()
+      if (first.status === "fulfilled") await first.value.close()
+    }
+    expect(process.env.VITEHUB_EMULATE_URL).toBe("http://127.0.0.1:9")
+    expect(process.env.VITEHUB_MODELS).toBe("off")
+    await using next = await emulateModels()
+    expect(process.env.VITEHUB_EMULATE_URL).toBe(next.url)
+  })
+
   it("names the packages to install when they are missing", async () => {
     vi.resetModules()
     vi.doMock("@emulators/ai", () => {
       throw new Error("Cannot find package '@emulators/ai'")
     })
     try {
-      const { emulateModels } = await import("../src/test.ts")
+      const { emulateModels } = await import("../src/emulate-models.ts")
       await expect(emulateModels()).rejects.toMatchObject({
         code: "AGENT_EMULATOR_PACKAGES_MISSING",
-        message: "[vitehub] emulateModels() needs the optional packages emulate and @emulators/ai.",
-        fix: expect.stringContaining("pnpm add -D emulate@0.14.0 @emulators/ai@0.14.0"),
+        message: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",
+        fix: expect.stringContaining("pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0"),
       })
       expect(process.env.VITEHUB_MODELS).toBeUndefined()
     }

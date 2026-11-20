@@ -84,10 +84,10 @@ test process. The emulator answers model requests from rules that you write,
 not from a model. Your Agent sends real OpenAI or Anthropic HTTP requests, so
 the test covers the Driver, the gateway, and the tool loop.
 
-Install the emulator packages as dev dependencies:
+Install the emulator packages and the OpenAI provider used by this example:
 
 ```bash pm
-pnpm add -D emulate@0.14.0 @emulators/ai@0.14.0
+pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0 @ai-sdk/openai@^4
 ```
 
 The Agent keeps its model. `emulateModels()` sets `VITEHUB_MODELS=emulate`, so
@@ -121,7 +121,7 @@ result:
 ```ts [server/agents/weather.test.ts]
 import { expect, it } from 'vitest'
 import { runAgent } from 'vite-hub/agent'
-import { emulateModels } from '@vite-hub/agent/test'
+import { emulateModels } from '@vite-hub/agent/emulate-models'
 import weather from './weather'
 
 it('calls the weather tool and answers from its result', async () => {
@@ -157,8 +157,8 @@ it('calls the weather tool and answers from its result', async () => {
   `ai.rules()` shows the rules and the `times` budget that each rule has left.
 - `ai.setRules(rules)` replaces the rules. `ai.reset()` restores the first
   rules and clears the calls.
-- Each call starts a new emulator on a free port, so two test files do not
-  share rules.
+- Each scope gets a free loopback port. Routing uses the test worker's
+  environment, so `emulateModels()` rejects overlapping scopes in one worker.
 
 Pick the right tool for the question:
 

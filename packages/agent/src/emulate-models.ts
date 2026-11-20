@@ -1,8 +1,9 @@
+import { once } from "node:events"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
+import type { AddressInfo } from "node:net"
 import type { AiConfig, AiSeedConfig, CallRecord, DefaultKind, RuleSnapshot } from "@emulators/ai"
-import type { Emulator } from "emulate"
 
 /** One scripted rule of the AI emulator, typed by upstream `@emulators/ai`. */
 export type EmulatedModelRule = NonNullable<AiSeedConfig["rules"]>[number]
@@ -37,15 +38,41 @@ export interface EmulatedModels extends AsyncDisposable {
   close: () => Promise<void>
 }
 
-type EmulateModule = typeof import("emulate")
-
-async function loadEmulate(): Promise<EmulateModule> {
+async function loadEmulate() {
   try {
-    const [emulate] = await Promise.all([import("emulate"), import("@emulators/ai")])
-    return emulate
+    return await Promise.all([import("@emulators/core"), import("@emulators/ai")])
   }
   catch (error) {
     throw agentDiagnostics.AGENT_EMULATOR_PACKAGES_MISSING({ cause: error })
+  }
+}
+
+async function startEmulator(config: EmulatedModelSeed) {
+  const [{ createServer, serve }, { aiPlugin, seedFromConfig, AiConfigError }] = await loadEmulate()
+  let app: ReturnType<typeof createServer>["app"] | undefined
+  const server = serve({
+    fetch: request => app?.fetch(request) ?? new Response("Starting", { status: 503 }),
+    hostname: "127.0.0.1",
+    port: 0,
+    abortOnClose: true,
+  })
+  const close = () => new Promise<void>((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve())
+    server.closeAllConnections()
+  })
+  await once(server, "listening")
+  try {
+    const address = server.address() as AddressInfo
+    const url = `http://${address.address}:${address.port}`
+    const runtime = createServer(aiPlugin, { baseUrl: url, port: address.port })
+    seedFromConfig(runtime.store, url, config)
+    app = runtime.app
+    return { url, close }
+  }
+  catch (error) {
+    await close()
+    if (error instanceof AiConfigError) throw agentDiagnostics.AGENT_EMULATOR_RULES_INVALID({ detail: error.message, cause: error })
+    throw error
   }
 }
 
@@ -61,21 +88,26 @@ function upstreamMessage(body: string): string {
 }
 
 const envNames = ["VITEHUB_EMULATE_URL", "VITEHUB_MODELS"] as const
+const activeScope = Symbol.for("vitehub.agent.emulateModels.active")
+const worker = process as typeof process & { [activeScope]?: true }
 
 /**
  * Starts the upstream AI emulator (`@emulators/ai`) on a free loopback port for a test. Model requests get answers from
  * scripted rules, with no AI key. It sets `VITEHUB_EMULATE_URL` and `VITEHUB_MODELS=emulate` until it closes.
  * Strict mode is on by default, so a request that no rule matches fails with the missing rule as YAML.
+ * Only one scope per test worker can be active at a time.
  */
 export async function emulateModels(seed: EmulatedModelSeed = {}): Promise<EmulatedModels> {
-  const { createEmulator } = await loadEmulate()
-  const config = { strict: true, ...seed }
-  let emulator: Emulator
+  if (worker[activeScope]) throw agentDiagnostics.AGENT_EMULATOR_SCOPE_ACTIVE()
+  worker[activeScope] = true
+  let config: EmulatedModelSeed
+  let emulator: Awaited<ReturnType<typeof startEmulator>>
   try {
-    emulator = await createEmulator({ service: "ai", port: 0, seed: { ai: config } })
+    config = { ...seed, strict: seed.strict ?? true }
+    emulator = await startEmulator(config)
   }
   catch (error) {
-    if (error instanceof Error && error.name === "AiConfigError") throw agentDiagnostics.AGENT_EMULATOR_RULES_INVALID({ detail: error.message, cause: error })
+    delete worker[activeScope]
     throw error
   }
   const url = emulator.url
@@ -98,7 +130,12 @@ export async function emulateModels(seed: EmulatedModelSeed = {}): Promise<Emula
       if (value === undefined) delete process.env[name]
       else process.env[name] = value
     }
-    await emulator.close()
+    try {
+      await emulator.close()
+    }
+    finally {
+      delete worker[activeScope]
+    }
   })()
 
   return {

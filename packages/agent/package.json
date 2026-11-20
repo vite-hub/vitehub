@@ -80,6 +80,11 @@
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
     },
+    "./emulate-models": {
+      "types": "./dist/emulate-models.d.ts",
+      "import": "./dist/emulate-models.js",
+      "default": "./dist/emulate-models.js"
+    },
     "./env-identity": {
       "types": "./dist/env-identity.d.ts",
       "import": "./dist/env-identity.js",
@@ -256,6 +261,7 @@
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
     "@emulators/ai": "0.14.0",
+    "@emulators/core": "0.14.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -302,12 +308,12 @@
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
     "@emulators/ai": "0.14.0",
+    "@emulators/core": "0.14.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
-    "emulate": "0.14.0",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -344,6 +350,9 @@
     "@emulators/ai": {
       "optional": true
     },
+    "@emulators/core": {
+      "optional": true
+    },
     "@vercel/functions": {
       "optional": true
     },
@@ -354,9 +363,6 @@
       "optional": true
     },
     "drizzle-orm": {
-      "optional": true
-    },
-    "emulate": {
       "optional": true
     },
     "@vite-hub/email": {
