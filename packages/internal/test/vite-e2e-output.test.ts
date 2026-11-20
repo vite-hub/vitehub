@@ -117,16 +117,21 @@ async function deliverVercelQueueMessage(consumerFile: string, topic: string, co
 import { createServer } from "node:http"
 import { pathToFileURL } from "node:url"
 const markers = []
+const delivery = Promise.withResolvers()
 const callback = createServer((req, res) => {
   let body = ""
   req.on("data", chunk => body += chunk)
-  req.on("end", () => { markers.push(JSON.parse(body).marker); res.setHeader("content-type", "application/json"); res.end("{}") })
+  req.on("end", () => {
+    markers.push(JSON.parse(body).marker)
+    res.setHeader("content-type", "application/json")
+    res.end("{}", delivery.resolve)
+  })
 })
 await new Promise(done => callback.listen(0, "127.0.0.1", done))
 const { default: handler } = await import(pathToFileURL(process.env.CONSUMER_FILE).href)
 const server = createServer(handler)
 await new Promise(done => server.listen(0, "127.0.0.1", done))
-await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
+const response = fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
   method: "POST",
   headers: {
     "content-type": "application/json",
@@ -140,13 +145,15 @@ await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
   },
   body: JSON.stringify({ callbackUrl: \`http://127.0.0.1:\${callback.address().port}/api/tests/queue\`, email: "ava@example.com", marker: process.env.QUEUE_MARKER }),
 })
+await Promise.race([response, delivery.promise])
 console.log(JSON.stringify(markers))
 process.exit(0)
 `
-  // Acknowledging the message needs a Vercel OIDC token, so the delivery ends with an error after the handler ran.
+  // Verify the handler's marker without waiting for the SDK to acknowledge the message with Vercel.
   const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
     env: { ...process.env, CONSUMER_FILE: consumerFile, QUEUE_CONSUMER: consumer, QUEUE_MARKER: marker, QUEUE_TOPIC: topic, VERCEL_REGION: "iad1" },
     maxBuffer: execMaxBuffer,
+    timeout: 15_000,
   })
   return JSON.parse(stdout.trim().split("\n").at(-1)!)
 }
@@ -329,6 +336,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITE_SANDBOX_TOKEN: "sandbox-token",
       },
       maxBuffer: execMaxBuffer,
+      timeout: 150_000,
     })
 
     const vercelConfig = await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")

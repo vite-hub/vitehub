@@ -369,13 +369,14 @@ describe("hubWorkspace", () => {
     await writeFile(file, "export const registry = {}\n")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const configResolved = plugin.configResolved as (config: { command: "serve" | "build", root: string }) => Promise<void>
+    const configEnvironment = testFunction(plugin.configEnvironment, (_name: string, _config: { consumer: "server" }, _env: ConfigEnv) => undefined)
     const load = idHook(plugin.load)
     const filter = Reflect.get(Object(Reflect.get(Object(plugin.load), "filter")), "id") as RegExp
     const url = pathToFileURL(file).href
     const expected = `export * from ${JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(url)}`)}`)}\n`
 
-    await configResolved({ command: "serve", root })
+    vi.stubEnv("NITRO_DEV_RUNNER", "node-worker")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     for (const id of [file, url]) {
       expect(filter.test(id)).toBe(true)
       expect(load.call({ environment: { name: "nitro" } }, id)).toBe(expected)
@@ -388,7 +389,11 @@ describe("hubWorkspace", () => {
     const unrelatedUrl = pathToFileURL(join(root, "server", "api", "files.js")).href
     expect(load.call({ environment: { name: "nitro" } }, unrelatedUrl)).toBeUndefined()
 
-    await configResolved({ command: "build", root })
+    await configEnvironment("nitro", { consumer: "server" }, { command: "build", mode: "production" })
+    expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
+
+    vi.stubEnv("NITRO_DEV_RUNNER", "miniflare")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
   })
 

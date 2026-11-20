@@ -1,3 +1,4 @@
+import { parse } from "yaml";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import type { GitHubPullRequestRecord } from "./inbox/types.ts";
 import type { BabysitterMergeMethod } from "./merge.ts";
@@ -103,4 +104,48 @@ export function sameRepositoryBranches(pr: unknown, repository: string): { head:
  */
 export function foldMethod(method: BabysitterMergeMethod, repository: unknown): BabysitterMergeMethod {
   return isRuntimeRecord(repository) && repository.allow_merge_commit === false ? method : "merge";
+}
+
+/**
+ * Whether a workflow can run on a push or creation of `branch`, including as a local reusable
+ * workflow called by another workflow. Anything we cannot read counts as yes.
+ */
+export function runsOnPush(workflow: string, branch: string): boolean {
+  let document: unknown;
+  try { document = parse(workflow); } catch { return true; }
+  if (!isRuntimeRecord(document)) return true;
+  const on = document.on ?? document.true;
+  if (typeof on === "string" || Array.isArray(on)) return [on].flat().some(event => event === "push" || event === "create" || event === "workflow_call");
+  if (!isRuntimeRecord(on)) return true;
+  if ("create" in on || "workflow_call" in on) return true;
+  if (!("push" in on)) return false;
+  const push = on.push;
+  if (push == null) return true;
+  if (!isRuntimeRecord(push)) return true;
+  const list = (value: unknown) => value === undefined ? undefined : [value].flat().map(String);
+  const branches = list(push.branches);
+  const ignored = list(push["branches-ignore"]);
+  // Complex branch filters count as matching.
+  if ([...branches ?? [], ...ignored ?? []].some(pattern => /[[\\?+]/.test(pattern))) return true;
+  // A push trigger with only tag filters never starts on a branch push.
+  if (!branches && !ignored) return push.tags === undefined && push["tags-ignore"] === undefined;
+  if (ignored) return !ignored.some(pattern => branchFilter(pattern).test(branch));
+  let match = false;
+  for (const pattern of branches!) {
+    if (pattern.startsWith("!")) { if (branchFilter(pattern.slice(1)).test(branch)) match = false; }
+    else if (branchFilter(pattern).test(branch)) match = true;
+  }
+  return match;
+}
+
+/** GitHub's branch filter pattern as a regular expression: `**` crosses `/`, `*` does not. */
+function branchFilter(pattern: string): RegExp {
+  let source = "";
+  for (let index = 0; index < pattern.length; index++) {
+    const char = pattern[index]!;
+    if (char === "*" && pattern[index + 1] === "*") { source += ".*"; index++; }
+    else if (char === "*") source += "[^/]*";
+    else source += char.replace(/[.^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
 }
