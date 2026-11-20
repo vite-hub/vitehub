@@ -47,7 +47,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `queue-durations` | Queue `delaySeconds` to `delay` with a duration such as `"60s"`, and `retentionSeconds` to `retention`. `vitehub migrate` runs it. |
-| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
+| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, `runSchedule()`, `listAuthEvents()`, `aggregateAuthEvents()`, `runBrowser()`, `runBrowserContent()`, `runSandboxTask()`, and gateway `ask()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `nuxt-better-auth` | A Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth through `vite-hub/nuxt`: `server/auth.ts`, `app/auth.client.ts`, and `definePageMeta({ auth })` |
 | `docus` | A Docus site to `@vite-hub/docs`: the module, the site options, and the page frontmatter |
