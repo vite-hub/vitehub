@@ -217,7 +217,7 @@ Live editing and `vite-hub/content/editor` use Tiptap. The Tiptap packages are o
 pnpm add @tiptap/core @tiptap/pm @tiptap/starter-kit @tiptap/extension-image @tiptap/extension-list @tiptap/extension-table
 ```
 
-Without them, the editor does not load and gives `CONTENT_EDITOR_PACKAGES_MISSING` with the name of the missing package.
+In Node, importing the editor without a required editor package gives `CONTENT_EDITOR_PACKAGES_MISSING` and names the missing package. A bundler can report the missing package at build time instead.
 
 `vite dev` uses the memory driver by default. A Node build shares rooms across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database, and keeps them in one process without either. Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room driver: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
