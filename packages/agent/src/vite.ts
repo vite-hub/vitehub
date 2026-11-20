@@ -2807,7 +2807,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       return url
     }
-    for (const environment of Object.values(config.environments)) {
+    // A config without environments, such as a hand-built one that runs the hooks, can create no dev server, so it has
+    // nothing to own. It must not fail the rest of configResolved, which every Agent dev feature depends on.
+    for (const environment of Object.values(config.environments ?? {})) {
       const create = environment.dev.createEnvironment
       environment.dev.createEnvironment = async (...args) => {
         try {
