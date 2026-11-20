@@ -102,6 +102,8 @@ type SandboxTaskDefinitionMetadata = {
 
 type SandboxTaskDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
   bundleAlias?: Record<string, string>
+  /** `false` bundles Definitions without the app's tsconfig files. See `bundleDiscoveredDefinitionModuleGraph()`. */
+  bundleTsconfig?: false
 }
 
 function normalizeSandboxTaskDefinitionOptions(name: string, options: SandboxTaskDefinitionOptions | undefined) {
@@ -249,6 +251,7 @@ export async function createSandboxTaskFeaturePlan(
   })))
   const {
     bundleAlias,
+    bundleTsconfig,
     featureImports = manifest.imports,
     ...definitionCompilerOptions
   } = discoveredDefinitionOptions
@@ -269,6 +272,7 @@ export async function createSandboxTaskFeaturePlan(
         execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
         includeProject: metadata?.projectMode,
         project: metadata?.project,
+        ...(bundleTsconfig === false ? { tsconfig: false as const } : {}),
       })
       return `export default ${JSON.stringify({
         bundle,

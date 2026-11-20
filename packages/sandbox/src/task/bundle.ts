@@ -81,6 +81,7 @@ export async function bundleSandboxTaskDefinition(
     execution?: SandboxTaskDefinitionBundle['execution']
     includeProject?: boolean
     project?: SandboxTaskProject
+    tsconfig?: false
   } = {},
 ): Promise<SandboxTaskDefinitionBundle> {
   if (options.includeProject === true && !options.project)
@@ -107,6 +108,7 @@ export async function bundleSandboxTaskDefinition(
     filename: file,
     packages: project ? 'external' : 'bundle',
     source,
+    ...(options.tsconfig === false ? { tsconfig: false as const } : {}),
     plugins: [
       {
         name: SHIM_NAMESPACE,

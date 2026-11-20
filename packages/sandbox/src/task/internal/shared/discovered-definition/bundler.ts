@@ -10,6 +10,12 @@ export interface DiscoveredDefinitionBundleOptions {
   source: string
   packages?: 'bundle' | 'external'
   plugins?: Rolldown.Plugin[]
+  /**
+   * By default, each module uses the `paths` and compiler options of its nearest tsconfig.json. `false` reads no
+   * tsconfig, for `nuxt prepare`: a Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which Nuxt writes
+   * after the Vite hooks run.
+   */
+  tsconfig?: false
 }
 
 export interface DiscoveredDefinitionModuleGraph {
@@ -59,6 +65,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
     platform: 'node',
     logLevel: 'silent',
     resolve: { alias: options.alias },
+    tsconfig: options.tsconfig ?? true,
     transform: {
       target: 'es2022',
       jsx: isJsxDefinition(options.filename) ? { runtime: 'automatic', importSource: 'react' } : undefined,

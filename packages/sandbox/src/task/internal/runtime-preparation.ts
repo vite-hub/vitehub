@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, write
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { getResolvedFeatureOptions, VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
+import { getResolvedFeatureOptions, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { normalizeHosting, resolveHostPreset } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
@@ -494,6 +494,9 @@ export async function prepareSandboxTaskRuntime(options: {
     context.hosting,
     {
       bundleAlias: resolveStringAliases(options.resolvedConfig?.resolve.alias ?? readResolveOptions(options.userConfig).alias),
+      // `nuxt prepare` replays the hooks before Nuxt writes the `.nuxt/tsconfig.*.json` files that the app's
+      // tsconfig.json references. Prepare builds nothing, and `nuxt dev` or `nuxt build` bundles again with them.
+      ...(options.userConfig[VITEHUB_PREPARE] === true ? { bundleTsconfig: false as const } : {}),
       rootDir,
       scanRoots: [rootDir],
       serverImports: { presets: [] },
