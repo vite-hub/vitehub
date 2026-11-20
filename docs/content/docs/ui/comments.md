@@ -487,7 +487,8 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | | The page URL of a subject, for links of non-page threads. |
 | `can` | `(action, { thread, message }) => boolean` | | What the user may do in a thread. Defaults to the state's `can`. See [Permissions](#permissions). |
 | `navigate` | `(href: string) => void` | | Opens the page of a listed thread. Defaults to `location.assign`. |
-| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
+| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Takes precedence over `queueFiles`. |
+| `queueFiles` | `boolean` | `false` | With an outbox, saves raw files with the comment for later upload. Set only if the server accepts file uploads. |
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
@@ -686,7 +687,8 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 | `title` | `string` | `"Comments"` | The heading of the list. |
 | `readOnly` | `boolean` | `false` | Hide the page box and all reply, edit, delete, and status controls. |
 | `can` | `(action, { thread, message }) => boolean` | | What the user may do in a thread. Defaults to the state's `can`. |
-| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
+| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Takes precedence over `queueFiles`. |
+| `queueFiles` | `boolean` | `false` | With an outbox, saves raw files with the comment for later upload. Set only if the server accepts file uploads. |
 | `accept` | `string` | | File types the boxes take. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `allowEmpty` | `boolean` | `false` | Allow a new page comment with files and no text. |
