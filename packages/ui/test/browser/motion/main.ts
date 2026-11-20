@@ -13,7 +13,7 @@ import { createApp, h, ref } from "vue";
 import type { VNode } from "vue";
 
 import { createViteHubUI } from "../../../src/config.ts";
-import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
+import { defineMotionEffect, forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
@@ -22,6 +22,18 @@ const todayPress = "transition-[color,background-color,box-shadow,transform] dur
 const buttonClass = today ? todayPress : undefined;
 // The UTabs indicator transition of Nuxt UI's theme before the motion layer.
 const todayIndicator = "transition-[translate,width] duration-200 ease-out";
+
+if (new URLSearchParams(location.search).has("override")) {
+  const remove = defineMotionEffect({
+    name: "press",
+    selector: "[data-test=button]",
+    press(element) {
+      element.dataset.customPress = "true";
+    },
+  });
+  Object.assign(window, { removePressOverride: remove });
+}
+Object.assign(window, { forceReducedMotion });
 
 addCollection(lucide);
 
@@ -110,6 +122,7 @@ const app = createApp({
     row("Plain elements by role", [
       h("button", { "class": "plain", "data-test": "plain-button" }, "button"),
       h("a", { "class": "plain", "href": "#a", "data-test": "plain-a" }, "a[href]"),
+      h("p", ["Read the ", h("a", { "href": "#inline", "data-test": "inline-a" }, "inline link"), "."]),
       h("details", [h("summary", { "class": "plain", "data-test": "plain-summary" }, "summary")]),
       ...plainRoles.map(role => h("div", { "class": "plain", role, "tabindex": 0, "data-test": `role-${role}` }, `role=${role}`)),
     ]),
