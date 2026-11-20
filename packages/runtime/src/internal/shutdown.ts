@@ -150,7 +150,6 @@ export function runShutdownDrains(app?: ShutdownApp, runtime: ShutdownRuntime | 
 
 function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: ShutdownState): void {
   state.trap = "pending"
-  const existing = new Map(signals.map(signal => [signal, new Set(runtime.listeners(signal))]))
   const serverListeners: [ShutdownSignal, (signal: ShutdownSignal) => unknown][] = []
   let resolveSetup!: () => void
   const setup = new Promise<void>(resolve => { resolveSetup = resolve })
@@ -219,16 +218,12 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     })
   }
   for (const signal of signals) runtime.on(signal, stop)
-  // The Nitro server adds its own stop listeners after the plugins run. A server that owns
-  // stop signals, such as the srvx server of the Node, Bun, and Deno presets, adds them now.
-  // ViteHub holds them until the drains settle, so HTTP stays up for the drain.
+  // The server's stop listener (srvx in the Node, Bun, and Deno presets) comes after sync plugins and before plugins
+  // that follow an async one. Hold it until the drains settle so HTTP stays up, then exit: srvx only closes HTTP.
   setTimeout(() => {
     for (const signal of signals) {
-      // The host installs one stop listener after the ViteHub plugins. Keep that
-      // first handoff listener for the delayed close; later listeners belong to
-      // applications or integrations and must retain their normal ordering.
       const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
-        typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
+        typeof listener === "function" && listener !== stop)
       // srvx exposes its graceful stop callback as `shutdown` (older presets use `stop`).
       // Match only these exact host contracts; application callbacks are never classified
       // by broad names or source text, and unmatched listeners retain normal ordering.

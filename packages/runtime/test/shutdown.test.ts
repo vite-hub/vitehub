@@ -137,6 +137,25 @@ describe("onShutdown", () => {
     expect(httpServer.close).toHaveBeenCalled()
   })
 
+  it("drains and exits when the first drain registers after the server added its stop listener", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { emitter, exit, runtime } = fakeRuntime()
+    const { app, close } = fakeApp()
+    const closeServer = vi.fn(async (_signal: ShutdownSignal) => { await close() })
+    Object.defineProperty(closeServer, "name", { value: "shutdown" })
+    emitter.on("SIGTERM", closeServer)
+    const drain = vi.fn()
+    onShutdown(app, "agent.process-hosts", drain, runtime)
+    await nextTimer()
+
+    expect(shutdownState(runtime)).toMatchObject({ signals: true, trap: "installed" })
+    expect(emitter.listeners("SIGTERM")).not.toContain(closeServer)
+    emitter.emit("SIGTERM", "SIGTERM")
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(drain).toHaveBeenCalledOnce()
+    expect(closeServer).toHaveBeenCalledOnce()
+  })
+
   it("does not handle signals outside a Node-compatible process", async () => {
     const { emitter, runtime } = fakeRuntime()
     const { app } = fakeApp()
