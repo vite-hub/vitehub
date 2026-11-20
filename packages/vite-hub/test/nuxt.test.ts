@@ -539,6 +539,20 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("checks for a missing Forge in Nuxt builds, before the optional peers become external", async () => {
+    const pluginNames = async (dev: boolean) => {
+      const { nuxt, runNitroConfigHook } = createNuxt(dev)
+      await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+      const config: Record<string, unknown> = {}
+      await runNitroConfigHook(config)
+      return (config.rollupConfig as { plugins: Plugin[] }).plugins.map(plugin => plugin.name)
+    }
+    const names = await pluginNames(false)
+    expect(names.indexOf("vite-hub/forge-build-check")).toBeGreaterThanOrEqual(0)
+    expect(names.indexOf("vite-hub/forge-build-check")).toBeLessThan(names.indexOf("vite-hub/nitro-optional-peers"))
+    expect(await pluginNames(true)).not.toContain("vite-hub/forge-build-check")
+  })
+
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
     mocks.vitehub.mockReturnValue([hubKV({ driver: "cloudflare", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
@@ -585,7 +599,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.vitehub.mockReturnValue([logsVitePlugin({})])
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { _prepare: prepare })
-    await viteHubNuxtModule({ console: false, env: false, observability: { logs: true }, host: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ console: false, env: false, logs: true, host: "cloudflare" }, nuxt)
 
     const result = runNitroConfigHook({})
     if (prepare) await expect(result).resolves.toBeUndefined()
@@ -1087,6 +1101,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/forge-build-check",
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
@@ -4451,15 +4466,19 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"),
       ...names("vite-hub/schedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
+      ...names("vite-hub/source", "useSource"),
     ])
   })
 
-  it("auto-imports only the server helpers of enabled features", async () => {
+  it("auto-imports Source and the server helpers of enabled features", async () => {
     const kvOnly = createNuxt()
     await viteHubNuxtModule({ env: false, kv: true, host: "node" }, kvOnly.nuxt)
     const kvConfig: Record<string, unknown> = { imports: { imports: [] } }
     await kvOnly.runNitroConfigHook(kvConfig)
-    expect(kvConfig).toHaveProperty("imports.imports", [{ from: "vite-hub/kv", name: "kv", priority: -1 }])
+    expect(kvConfig).toHaveProperty("imports.imports", [
+      { from: "vite-hub/kv", name: "kv", priority: -1 },
+      { from: "vite-hub/source", name: "useSource", priority: -1 },
+    ])
 
     // Env is on unless the app sets `env: false`.
     const defaults = createNuxt()
@@ -4471,6 +4490,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/env", name: "requireServiceToken", priority: -1 },
       { from: "vite-hub/env", name: "useServerEnv", priority: -1 },
       { from: "vite-hub/env", name: "verifyWebhook", priority: -1 },
+      { from: "vite-hub/source", name: "useSource", priority: -1 },
     ])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.
@@ -4478,7 +4498,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ env: false, host: "netlify", queue: true }, netlify.nuxt)
     const netlifyConfig: Record<string, unknown> = { imports: { imports: [] } }
     await netlify.runNitroConfigHook(netlifyConfig)
-    expect(netlifyConfig).toHaveProperty("imports.imports", [])
+    expect(netlifyConfig).toHaveProperty("imports.imports", [{ from: "vite-hub/source", name: "useSource", priority: -1 }])
   })
 
   it.each([
@@ -4528,6 +4548,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       expect(config).toHaveProperty("imports.imports", [
         { from: "vite-hub/i18n/server", name: "getRequestI18n", priority: -1 },
         { from: "vite-hub/i18n/server", name: "useTranslations", priority: -1 },
+        { from: "vite-hub/source", name: "useSource", priority: -1 },
       ])
     }
     finally {
@@ -4625,6 +4646,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "~/server/utils/kv", name: "kv" },
       { from: "vite-hub/queue", name: "deferQueue", priority: -1 },
       { from: "vite-hub/queue", name: "useQueue", priority: -1 },
+      { from: "vite-hub/source", name: "useSource", priority: -1 },
     ])
   })
 
@@ -4635,7 +4657,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const config: Record<string, unknown> = { imports: { imports: [] } }
     await runNitroConfigHook(config)
     await runNitroConfigHook(config)
-    expect(config).toHaveProperty("imports.imports", [{ from: "vite-hub/kv", name: "kv", priority: -1 }])
+    expect(config).toHaveProperty("imports.imports", [
+      { from: "vite-hub/kv", name: "kv", priority: -1 },
+      { from: "vite-hub/source", name: "useSource", priority: -1 },
+    ])
   })
 
   it("auto-imports Agent Vue clients only when Agent Definitions are enabled", async () => {

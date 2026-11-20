@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join, matchesGlob, resolve } from "node:path"
 
 import { contentSource, defineContent } from "@vite-hub/content"
-import { createSource, glob } from "@vite-hub/source"
+import { glob, useSource } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
@@ -102,10 +102,10 @@ export function createDocsContent(
     ...options.check ? { check: options.check } : {},
     sources: Object.fromEntries(sources.map(({ dir, source }, index) => {
       const input: ContentSourceInput = source
-        ? () => createSource(source, { rootDir })
+        ? () => useSource(source, { rootDir })
         // A folder that does not exist yet has no pages.
         : dir && existsSync(dir)
-          ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
+          ? () => useSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
           : { items: async () => [] }
       const url = options.url
       return [contentName(index), url ? contentSource(input, { url: ({ id }) => url(index, id) }) : input]

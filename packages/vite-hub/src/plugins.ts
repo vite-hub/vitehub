@@ -16,7 +16,7 @@ import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { viteHubHintsPlugin } from "@vite-hub/internal/hints"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
+import { collapseWranglerConfigFile, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
@@ -41,6 +41,8 @@ import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
+import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
+import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
@@ -70,7 +72,7 @@ import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
-import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
+import { observabilityVitePlugin, type LogsOptions, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
@@ -106,7 +108,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { RedirectsOptions } from "./redirects-vite.ts"
-export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { LogsOptions, ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
 export type { DeployOptions } from "./deploy-options.ts"
 export type { SeoOptions } from "./seo/vite.ts"
@@ -594,14 +596,18 @@ export interface ViteHubOptions {
   deploy?: DeployOptions
   kv?: boolean | KVOptions
   /**
+   * Read logs in the Console and with `vitehub logs`. `true` keeps a bounded Evlog buffer in `vite dev`. A production
+   * build needs `{ source }`, a server module that reads an existing backend. `{ source }` starts no logger.
+   */
+  logs?: boolean | LogsOptions
+  /**
    * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
    * from `vite-hub/auth/mcp`, so it needs `auth`, unless `mcp: { auth: false }` lets anyone call every tool. Needs
    * `@vite-hub/mcp`.
    */
   mcp?: boolean | McpOptions
   /**
-   * Request logs through Evlog, the logs that the Console and `vitehub logs` read with `logs`, and, with `service`, Agent
-   * telemetry and papercut reports through `useObservability()`.
+   * Request logs through Evlog, and, with `service`, Agent telemetry and papercut reports through `useObservability()`.
    */
   observability?: boolean | ObservabilityOptions
   /**
@@ -646,7 +652,8 @@ export interface ViteHubOptions {
    * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
    * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
    * `{ driver: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ driver: "vercel", networkPolicy: "deny-all" }`.
-   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials.
+   * `driver: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials. `vite dev` runs
+   * each task as a local process with no isolation; `remote: true` uses the provider's Sandbox in dev too.
    */
   sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
@@ -847,6 +854,31 @@ type ResolvedBuildConfig = {
 
 interface BundlerConfig { plugins?: unknown }
 
+interface NitroCompatibilityDateOptions {
+  _c12?: { layers?: ReadonlyArray<{ config?: { compatibilityDate?: unknown } | null }> }
+  _config?: { compatibilityDate?: unknown }
+  compatibilityDate: Record<string, string>
+}
+
+function applyCloudflareCompatibilityDate(options: NitroCompatibilityDateOptions): void {
+  if (options._config?.compatibilityDate !== undefined
+    || options._c12?.layers?.some(layer => layer.config?.compatibilityDate !== undefined)) return
+  const value = process.env.NITRO_COMPATIBILITY_DATE || process.env.SERVER_COMPATIBILITY_DATE || process.env.COMPATIBILITY_DATE
+  const date = value === "latest" ? new Date() : new Date(value ?? "")
+  const cloudflare = process.env.COMPATIBILITY_DATE_CLOUDFLARE && options.compatibilityDate.cloudflare
+  options.compatibilityDate = {
+    default: Number.isNaN(date.getTime()) ? defaultCloudflareCompatibilityDate : date.toISOString().slice(0, 10),
+    ...(cloudflare ? { cloudflare } : {}),
+  }
+}
+
+export function applyCloudflareNodeCompatOptOut(cloudflare: Record<string, unknown>, rootDir: string): void {
+  if (cloudflare.nodeCompat === false) return
+  const inline = isRecord(cloudflare.wrangler) ? cloudflare.wrangler.compatibility_flags : undefined
+  const project = readProjectWranglerConfig(rootDir)?.compatibility_flags
+  if ([inline, project].some(flags => Array.isArray(flags) && flags.includes("no_nodejs_compat"))) cloudflare.nodeCompat = false
+}
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
@@ -868,9 +900,13 @@ function deploymentNitroModule(
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
     logger: { warn(message: string): void }
-    options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean, nodeCompat?: boolean, wrangler?: unknown }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
+    if (plan.host === "cloudflare") {
+      applyCloudflareCompatibilityDate(nitro.options)
+      applyCloudflareNodeCompatOptOut(nitro.options.cloudflare ??= {}, nitro.options.rootDir)
+    }
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
@@ -1507,8 +1543,8 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueDriver(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
-  const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
-  const observabilityLogs = logsOption === true ? {} : logsOption || undefined
+  const { browserErrors, ...observabilityOptions } = observability ?? {}
+  const logs = options.logs === true ? {} : options.logs || undefined
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = Boolean(options.workflow)
   // The packages of these features are optional peers. One error lists every package that the app must add, also the
@@ -1594,6 +1630,8 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareNodeDevPlugin())
+  plugins.push(forgeBuildCheckPlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
@@ -1620,15 +1658,13 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
-  // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
-  const evlogRegistered = Boolean(observability) && (telemetry || !(observabilityLogs && "source" in observabilityLogs))
-  if (observability) {
-    if (observabilityOptions.papercuts && !(configuredConsole && options.agent)) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
-    }
-    if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
+  // `logs: true` fills its buffer from Evlog. `logs: { source }` reads an existing pipeline, so it starts no logger.
+  const evlogRegistered = Boolean(observability) || Boolean(logs && !("source" in logs))
+  if (observabilityOptions.papercuts && !(configuredConsole && options.agent)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
   }
-  if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
+  if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
+  if (logs) plugins.push(logsVitePlugin(logs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   const security = resolveSecurityPolicy(options.security)
@@ -1904,10 +1940,11 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ))
   }
   if (options.workspace) {
-    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
+    // SAFETY: ViteHub supplies its internal hosting and dependency checks in addition to the public Workspace options.
     plugins.push(requireOptionalOwner(ownerModules.workspaceVite, "workspace").hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
+      assertGitHubStoreAvailable: () => assertFeaturePackages(["forge"]),
     } as WorkspaceOptions))
   }
   if (options.seo?.sitemap || options.seo?.robots) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))

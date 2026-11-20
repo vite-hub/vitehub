@@ -68,7 +68,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
   registerWorkspace(workspace, {
     store: {
       driver: "github",
-      repository: "onmax/repo",
+      repo: "onmax/repo",
       ...("token" in options ? (options.token === undefined ? {} : { token: options.token }) : { token: "token" }),
       branch: "main",
       root: options.root ?? "",
@@ -1010,7 +1010,7 @@ describe("Content reads on the GitHub store", () => {
     // A new runtime holds nothing in memory, like a server instance that just started.
     const workspace = `github-${process.pid}-${++workspaces}`
     registerWorkspace(workspace, {
-      store: { driver: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
       rules: { "**": { write: false } },
     })
     const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })
@@ -1047,7 +1047,7 @@ describe("Content reads on the GitHub store", () => {
     // A new runtime holds nothing in memory, like a server instance that just started.
     const workspace = `github-${process.pid}-${++workspaces}`
     registerWorkspace(workspace, {
-      store: { driver: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
       rules: { "**": { write: false } },
     })
     const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })

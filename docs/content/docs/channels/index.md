@@ -109,11 +109,11 @@ export default defineConfig({
 
 ::product-features
   :::product-feature-item{title="One file for each connection" icon="i-lucide-file-code-2" to="/docs/channels/get-started"}
-  Add a file to `server/channels`. Its name is the Channel name, for both directions.
+  Add a file to `server/channels`. Its name is the Channel name for both directions.
   :::
 
   :::product-feature-item{title="Webhooks that run once" icon="i-lucide-shield-check" to="/docs/channels/server-api#receive-webhooks"}
-  ViteHub checks the signature, stores the delivery, drops repeats by delivery ID, and retries the target.
+  ViteHub checks the signature, stores the delivery, drops duplicates by delivery ID, and retries the target.
   :::
 
   :::product-feature-item{title="A target for each event" icon="i-lucide-route" to="/docs/channels/server-api#receive-webhooks"}
@@ -129,7 +129,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-a-message"}
-  Each send logs when it starts and ends. The logs leave out the text and options.
+  Each send logs when it starts and ends. The logs leave out the message text and options.
   :::
 ::
 

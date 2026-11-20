@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   custom,
-  fetch,
+  url as urlSource,
   file,
   github,
   mcpResources,
@@ -467,7 +467,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -498,7 +498,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -554,12 +554,12 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        hiddenInventory: fetch({
+        hiddenInventory: urlSource({
           url: "https://portal.example.com/runtime/hidden-inventory",
         }),
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               query: { region: "eu" },
               url: "https://portal.example.com/runtime/inventory-health",
             })
@@ -610,7 +610,7 @@ describe("Workspace Source Resolution", () => {
       sources: {
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               cookies: { auth_token: "secret" },
               querySchema,
               request: requestFactory,
@@ -672,7 +672,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
         portal: custom({
@@ -758,7 +758,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
@@ -779,7 +779,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
           workspacePath: "status/summary.json",
         }),

@@ -49,11 +49,11 @@ describe("Browser optional peer bundle", () => {
     if (packedRoot) await rm(packedRoot, { force: true, recursive: true })
   })
 
-  it("keeps esbuild external in the Vite entry", async () => {
+  it("loads no esbuild in the Vite entry", async () => {
     const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
 
-    // The build helpers load esbuild when they bundle an entry, so the entry keeps it as a dynamic import.
-    expect(output).toContain(`import("esbuild")`)
+    // The build helpers bundle with the Rolldown of the app's Vite, and load it only when they bundle an entry.
+    expect(output).not.toMatch(/["']esbuild["']/)
   })
 
   it("keeps page-session peers out of root entry points", async () => {

@@ -120,6 +120,10 @@ for (const project of projects.filter(entry => !only.length || only.includes(ent
       for (const section of ["dependencies", "devDependencies"]) {
         if (manifest[section]?.nuxt) manifest[section].nuxt = nightly
         if (manifest[section]?.["vite-hub"]) manifest[section]["vite-hub"] = `link:${viteHub}`
+        // Owner packages that a codemod added, such as @vite-hub/docs, come from this checkout too.
+        for (const name of Object.keys(manifest[section] ?? {})) {
+          if (name.startsWith("@vite-hub/")) manifest[section][name] = `link:${join(repositoryRoot, "packages", name.slice("@vite-hub/".length))}`
+        }
       }
       manifest.pnpm = { ...manifest.pnpm, overrides: { ...manifest.pnpm?.overrides, nuxt: nightly } }
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)

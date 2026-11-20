@@ -3,12 +3,12 @@ export { createWorkspace } from "./core/workspace.ts"
 export { sourceIgnores } from "@vite-hub/source"
 export {
   custom,
-  fetch,
   file,
   github,
   glob,
   markdown,
   mcpResources,
+  url,
 } from "./sources/index.ts"
 export * as source from "./sources/index.ts"
 export type {

@@ -36,7 +36,7 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 ### Return an error from a route
 
-`toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none.
+`toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none. The body never has the `stack`, `cause`, or `data` of the error. Any other Nostics diagnostic gets the same body. A `ViteHubError` answers 500 with its `code` and its message as `why`. Any other `Error` answers 500 with [`RUNTIME_HIDDEN_ERROR`](/docs/runtime/diagnostics/runtime_hidden_error), because its message can name server details.
 
 In the body of a handler that has already authorized the caller to edit translations:
 
@@ -254,10 +254,11 @@ Start with the error's `code`.
 - Authenticated Agent bridges tell `AUTHENTICATION_REQUIRED` apart from `AUTH_PROVIDER_OPERATION_FAILED`. Use `details.operation` for safe diagnostics, and `cause` only in protected server diagnostics.
 - Email has no Provider Output. Read the `EMAIL_*` code. Its `why` names the driver.
 
-For Env, read the `ENV_*` code first. Its codes and public messages are fixed:
+For Env, read the `ENV_*` code first. Its codes are fixed:
 
 - `ENV_DECLARATION_INVALID` can include `details.path`.
 - `ENV_REQUIRED_MISSING` and `ENV_RUNTIME_VALUE_INVALID` can include a bounded source id and declaration path.
+- `ENV_REQUIRED_MISSING` names the declaration path and the variables that can supply it, in the message and in `details.names`, for example `Required Env value env.server.stripeKey is missing. Set VITEHUB_STRIPE_KEY or STRIPE_KEY.` It never includes a value.
 - `ENV_SOURCE_FAILED` can include a bounded source id such as `env`, `git:branch`, `package.json`, or `custom`.
 - `ENV_RUNTIME_VALUE_INVALID` never includes the rejected value.
 

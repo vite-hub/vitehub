@@ -7,14 +7,13 @@ navigation.group: Start
 icon: i-lucide-terminal-square
 ---
 
-The `vitehub` CLI is one entry point for developers and agents. It loads your Vite config and collects the commands each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads each active plugin's commands and Provision Steps once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
+The `vitehub` CLI is one entry point for developers and coding agents. It loads your Vite config and collects the commands that each ViteHub package adds, so each command stays with the package that knows the workflow. Each run reads the commands and Provision Steps of each active plugin once. The [`vite-hub` npm package](https://www.npmjs.com/package/vite-hub) ships one binary, `vitehub`.
 
-The CLI loads your Vite config without the development invocation route, but with Console routes. `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. An app fallback may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
+The CLI loads your Vite config with Console routes, but without the development invocation route. During `vite dev`, the development invocation endpoint stays inside the reserved `/_vitehub/agent` namespace. An app fallback route may contain it, but exact, parameterized, and wildcard routes still conflict. Your own routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish starting. Registry refreshes still reset found public URL names.
 
 ## Install and open help
 
-The `vite-hub` package includes the CLI. Commands come from active Vite
-plugins, so a package that is not set up has no commands.
+The `vite-hub` package includes the CLI. Commands come from active Vite plugins, so a package that is not set up has no commands.
 
 ```bash [Terminal]
 pnpm add vite-hub
@@ -23,16 +22,16 @@ pnpm vitehub --help
 
 `@vite-hub/cli` is the command runner that the `vitehub` binary uses. It has no binary of its own.
 
-Help lists the namespaces (command groups) you have:
+`--help` lists the namespaces (command groups) that you have:
 
 - `agent`, `channels`, and `conversations` when `hubAgent()` is active.
 - `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDb()`, `hubEnv()`, `hubKv()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
 - `content` when the app defines `server/content.ts`.
-- `console` when `console` is on.
-- `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
-- `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
+- `console` when `console` is enabled.
+- `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` skip loading the project config, and `sandbox` also runs in a deployed container without Vite.
+- `inspect` and `provision`, which are built into the CLI. Any plugin command named `inspect` is ignored.
 
-`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+`vitehub database --help` and `vitehub database <feature> --help` print help text without loading the project config, so they answer at once, even in a Nuxt app.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -111,7 +110,7 @@ Available namespaces:
 | `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
-| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent on the dev server of this project, or on the app of `--url`. |
 | `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
 | `vitehub content list` | Available | Content Package | List the documents of one collection with their state, title, and field issues. |
 | `vitehub content show` | Available | Content Package | Print the stored file of one document and its field issues. |
@@ -150,8 +149,8 @@ Available namespaces:
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
-| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
-| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
+| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--yes`. |
+| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--yes`. |
 | `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
@@ -218,12 +217,12 @@ Available namespaces:
 
 ## Next steps
 
-- Use [Project commands](/docs/cli/project) to create, link, and deploy an app, or [update ViteHub packages](/docs/cli/project#update-vitehub-packages).
-- Use [Server Primitive commands](/docs/cli/primitives) to read and write the data of a running app.
-- Use [Agent commands](/docs/cli/agents) to talk to an Agent and run Agent Evals.
-- Use [Inspect, operate, and provision](/docs/cli/inspect) to see what ViteHub discovered and to call any operation.
-- Use [CLI troubleshooting](/docs/cli/troubleshooting) when a command fails.
-- Use [Agent Evals](/docs/agents/evals) for behaviour checks.
-- Use [Workspace](/docs/workspace) for Workspace Sessions and write access.
-- Use [Provisioning](/docs/development/provisioning) for provider resource ids.
-- Use [Config options](/docs/reference/config-options) for package integration switches.
+- [Project commands](/docs/cli/project): create, link, and deploy an app, or [update ViteHub packages](/docs/cli/project#update-vitehub-packages).
+- [Server Primitive commands](/docs/cli/primitives): read and write data in a running app.
+- [Agent commands](/docs/cli/agents): talk to an Agent and run Agent Evals.
+- [Inspect, operate, and provision](/docs/cli/inspect): see what ViteHub discovered and call any operation.
+- [CLI troubleshooting](/docs/cli/troubleshooting): what to do when a command fails.
+- [Agent Evals](/docs/agents/evals): check Agent behavior.
+- [Workspace](/docs/workspace): Workspace Sessions and write access.
+- [Provisioning](/docs/development/provisioning): provider resource ids.
+- [Config options](/docs/reference/config-options): package integration switches.

@@ -11,10 +11,10 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 ## Prerequisites
 
-- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer.
-- pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias; older versions can hang when they resolve it.
-- For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
-- For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
+- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
+- pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias. Older versions can hang when they resolve it.
+- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
+- For Nitro: a Nitro 3 app with `nitro()` in `vite.config.ts`.
 
 ## Set up the app
 
@@ -28,14 +28,7 @@ In your Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The
 pnpm add vite-hub h3@^2.0.8 valibot
 ```
 
-> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
-> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
->
-> ```bash [commands/approve-esbuild-nuxt]
-> pnpm approve-builds esbuild
-> ```
-
-Add the module to `nuxt.config.ts` and put its options under `vitehub`. Keep your other options.
+Add `vite-hub/nuxt` to `nuxt.config.ts` and put its options under `vitehub`. Keep your other options.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -46,7 +39,7 @@ export default defineNuxtConfig({
 
 ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
-Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more options.
+Keep Nuxt's `tsconfig.json` so the module can add ViteHub's types. See the [Nuxt guide](/docs/frameworks-hosts/nuxt) for more options.
 :::
 
 :::tabs-item{label="Nitro"}
@@ -70,7 +63,7 @@ export default defineConfig({
 
 ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
-The tutorials use port 3000, so set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to `extends` in your `tsconfig.json`, then write the types once:
+The tutorials use port 3000, so set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to `extends` in `tsconfig.json`, then generate the types once:
 
 ```bash [commands/prepare-types]
 pnpm vitehub types prepare
@@ -85,7 +78,7 @@ mkdir vitehub-app
 cd vitehub-app
 ```
 
-Create `package.json`. In an existing app, set `"type": "module"` and add the scripts.
+Create `package.json`. In an existing app, set `"type": "module"` and add the scripts:
 
 ```json [package.json]
 {
@@ -100,25 +93,14 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 }
 ```
 
-Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript.
-`nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports
-`3.0.261102-rc` and `^3.0.261103-rc`.
+Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript. `nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
 pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
-> [!NOTE] If pnpm stops with ERR_PNPM_IGNORED_BUILDS
-> The packages from that command are installed, but pnpm did not run the install script of `esbuild`. pnpm runs the install script of a package only after you allow it. ViteHub uses esbuild to bundle server code. Allow it one time:
->
-> ```bash [commands/approve-esbuild]
-> pnpm approve-builds esbuild
-> ```
->
-> Then run `pnpm add -D vite@^8 typescript@^6 @types/node@^24` before you continue.
-
-Add `vitehub()` to `vite.config.ts`. It includes the Nitro plugin, so do not add Nitro yourself. Keep your other plugins.
+Add `vitehub()` to `vite.config.ts`. It includes the Nitro plugin, so do not add `nitro()` yourself. Keep your other plugins.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
@@ -131,7 +113,7 @@ export default defineConfig({
 
 ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
-Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours. This gives your editor the types of the features you turn on.
+Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours so your editor gets the types for enabled features:
 
 ```json [tsconfig.json]
 {
@@ -149,15 +131,15 @@ Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours. This g
 }
 ```
 
-Write the types once:
+Generate the initial types:
 
 ```bash [commands/prepare-types]
 pnpm vitehub types prepare
 ```
 
-If your `tsconfig.json` sets `files`, add `.vitehub/types.d.ts` to that list. Your `files` list replaces the one from `vite-hub/tsconfig`, so without it the editor does not see the ViteHub types.
+If your `tsconfig.json` sets `files`, add `.vitehub/types.d.ts` to that list. Your `files` list replaces the one inherited from `vite-hub/tsconfig`, so without it the editor does not see the ViteHub types.
 
-To repeat this after each install, add `"postinstall": "vitehub types prepare"` to the scripts. `vite dev` and `vite build` also update the types.
+Add `"postinstall": "vitehub types prepare"` to `scripts` to run this after each install. `vite dev` and `vite build` also refresh the types.
 :::
 ::
 
@@ -189,26 +171,26 @@ You get:
 {"ok":true}
 ```
 
-The app works. On Vite, `/` returns `404` until you add a page. That is expected.
+Your server works. On Vite, `/` returns `404` until you add a page, which is expected.
 
 ## Add your first feature
 
-Each feature is off until you turn it on in the ViteHub options, for example `kv: true`. Continue with:
+Every feature stays off until you enable it in your ViteHub config, such as `kv: true`. Next, try:
 
 - [First Server Primitive](/docs/getting-started/first-server-primitive): save a setting and read it back.
 - [First Agent](/docs/getting-started/first-agent): run an Agent that answers without a model account.
 
 ## Add feature packages
 
-Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints one install command for every package that the feature needs, also one that another dependency already brings:
+Every feature except Env, Source, and Logs lives in its own package. If you enable a feature and its package is missing, the build stops and prints one install command for every package the feature needs, including packages already brought in by another dependency:
 
 ```text [output/missing-package.txt]
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install them in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
-When an installed `@vite-hub/*` package comes from another release than `vite-hub`, the build stops with [`VITE_HUB_PACKAGE_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_package_version_unsupported). Install the packages of the same release, and change pnpm `overrides` that pin them too.
+If an installed `@vite-hub/*` package version does not match `vite-hub`, the build stops with [`VITE_HUB_PACKAGE_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_package_version_unsupported). Keep all ViteHub packages on the same release, and change pnpm `overrides` that pin them too.
 
-When another installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
+If a third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:
 
 ```text [output/unsupported-package.txt]
 [vitehub] drizzle-orm 0.45.4 is installed, but vite-hub 0.2.0 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'
@@ -256,13 +238,13 @@ Some hosts and providers add an SDK, and the build names it in the same error. O
 
 ## Update ViteHub
 
-Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
+Upgrade `vite-hub` and every `@vite-hub/*` package to the latest release together:
 
 ```bash [commands/update]
 pnpm vitehub update
 ```
 
-The command sets the new version in every `package.json` of the workspace, in the `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published, and removes the old ViteHub versions from that list.
+This updates the version in every `package.json` of the workspace, in `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published. It also removes old ViteHub versions from that list.
 
 To try a [pkg.pr.new](https://pkg.pr.new) preview, pass its commit:
 
@@ -272,7 +254,7 @@ pnpm vitehub update --preview 01898b8
 
 Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release.
 
-`--dry-run` prints the changes and writes nothing. `--no-install` writes the files and prints the install command.
+`--dry-run` previews changes without writing files. `--no-install` updates the files and prints the install command.
 
 ::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
 A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update vite-hub "@vite-hub/*"` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
@@ -318,7 +300,7 @@ Do not commit `.vitehub`, `.output`, `.nuxt`, `node_modules`, or `.env`. Local d
 
 ## Install one package without `vite-hub`
 
-To build a library or wire the server yourself, install one `@vite-hub/*` package. For example, `@vite-hub/kv` gives `hubKV()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path; read the package README.
+To build a library or wire the server yourself, install individual `@vite-hub/*` packages. For example, `@vite-hub/kv` exports `hubKV()` from `@vite-hub/kv/vite`. You then own the server entry and host setup. The tutorials do not use this path. Read the package README for it.
 
 This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, using pnpm 12 on Linux:
 
@@ -327,10 +309,10 @@ This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, usin
 | `vite-hub` | 186 | 171 MB |
 | `@vite-hub/blob @vite-hub/queue @vite-hub/env` | 87 | 80 MB |
 
-`vite-hub` adds the CLI, the Console, `vitehub()` with its hosts, and its included features.
+`vite-hub` adds the CLI, the Console, `vitehub()` with its hosts, and its built-in features.
 
 ## Model and coding providers
 
 Install a provider package only when you use it. Model Drivers need `ai` and the credentials in [Agent Drivers](/docs/agents/agent-drivers). The built-in coding Drivers use `@openai/codex@0.169.0` or `@anthropic-ai/claude-agent-sdk@0.3.321`. ViteHub bundles their runtime, so pnpm settings do not change.
 
-A Node.js build copies the native coding-provider packages for the build computer's OS, CPU, and Linux libc. Build on the same type of computer you deploy to.
+A Node.js build copies native coding-provider packages for the OS, CPU, and Linux libc of the build machine. Build on the same type of machine that you deploy to.

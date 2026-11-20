@@ -6,7 +6,7 @@ export const cmsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     CONTENT_B0001: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
-      fix: "In the file that the message names, pass `extends: cms` or `extends: [cms, { ... }]` with string literal options that the message accepts.",
+      fix: "In the file that the message names, pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. Use the boolean literal `true` for `roles`.",
     },
     CONTENT_B0002: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),

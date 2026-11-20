@@ -39,7 +39,7 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
 import { docsSeoError, docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
@@ -85,8 +85,8 @@ export interface DocsModuleOptions {
   dir?: string
   /**
    * Pages from folders and Content Sources, replacing `dir`: a folder relative to the app root, a Source such as
-   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The app-owned
-   * docsAssistant Workspace is configured separately.
+   * `github({ repo, root })` from `vite-hub/source`, or `{ source, mount?, exclude?, frontmatter? }`. The docs assistant
+   * reads the same pages.
    */
   sources?: DocsSourceInput[]
   /** Section metadata overrides, keyed by section id. */
@@ -259,6 +259,7 @@ interface PrerenderResult {
 
 interface NitroInstance {
   options: NitroOptions & { output?: { publicDir: string } }
+  routing?: { routes: { routes: DocsServerRoute[] } }
   hooks?: {
     hook(name: "compiled" | "prerender:done", handler: () => void | Promise<void>): void
     hook(name: "prerender:generate", handler: (route: PrerenderRoute) => void): void
@@ -344,7 +345,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Images render while the build prerenders, so the server bundle carries no renderer and a Worker stays small.
       // Disabled setup still registers the no-op composable imported by useDocsSeo.
       // No runtime cache: its default `lru-cache` storage makes Nitro install `lru-cache` into the app on the first `nuxt dev`.
-      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, runtimeCacheStorage: false, defaults: { width: 1200, height: 630 } } },
+      // The default Takumi worker in dev and prerender loads `@takumi-rs/core` from the app, which may not have it.
+      // The in-process renderer imports it from nuxt-og-image, which gets this package's copy.
+      [dependency("nuxt-og-image")]: {
+        defaults: {
+          enabled: docs.ogImage !== false,
+          zeroRuntime: true,
+          runtimeCacheStorage: false,
+          compatibility: { dev: { takumi: "node" }, prerender: { takumi: "node" } },
+          defaults: { width: 1200, height: 630 },
+        },
+      },
       [dependency("nuxt-schema-org")]: {},
       // Installed after the app's modules and just before the link checker, so links to their redirect rules pass.
       ...docs.linkChecker === false ? {} : {
@@ -1004,7 +1015,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })()
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
-        const problems = docsRedirectProblems(manifest, redirects)
+        // A target that a server route of the app answers, such as Auth's `/api/auth/**`, is no missing page.
+        const serverRoutes = docsServerRoutes(nitro.routing?.routes.routes ?? [], resolver.resolve("./runtime"))
+        const problems = docsRedirectProblems(manifest, redirects, serverRoutes)
         if (problems.length) throw docsRedirectError(problems)
         let sourceLinks: Promise<void> | undefined
         const checkLinks = () => sourceLinks ??= (async () => {
