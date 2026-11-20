@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createSource, files } from "../../src/index.ts"
+import { useSource, files } from "../../src/index.ts"
 
 describe("@vite-hub/source files()", () => {
   it("serves held files by path below base, without a file system", async () => {
@@ -10,7 +10,7 @@ describe("@vite-hub/source files()", () => {
       "../content/docs/logo.png": new Uint8Array([1, 2]),
     }, { base: "../content/docs" })
 
-    const reader = createSource(docs, { rootDir: "/does-not-exist" })
+    const reader = useSource(docs, { rootDir: "/does-not-exist" })
     await expect(reader.keys()).resolves.toEqual(["guide/setup.md", "index.md", "logo.png"])
     await expect(reader.read("guide/setup.md")).resolves.toBe("# Setup\n")
     await expect(docs.getItem("index.md", { rootDir: "/" })).resolves.toMatchObject({ path: "index.md", mediaType: "text/markdown" })
@@ -24,7 +24,7 @@ describe("@vite-hub/source files()", () => {
       "./content/logo.png": () => (loaded.push("logo.png"), new Uint8Array([1, 2])),
     })
 
-    const reader = createSource(docs)
+    const reader = useSource(docs)
     await expect(reader.keys()).resolves.toEqual(["content/index.md", "content/logo.png"])
     expect(loaded).toEqual([])
     await expect(reader.read("content/index.md")).resolves.toBe("# Home\n")
@@ -34,8 +34,8 @@ describe("@vite-hub/source files()", () => {
 
   it("keeps held files intact when a caller edits its key list", async () => {
     const docs = files({ "b.md": "B", "a.md": "A" })
-    const first = createSource(docs)
-    const second = createSource(docs)
+    const first = useSource(docs)
+    const second = useSource(docs)
     const keys = await first.keys()
     keys.splice(0, keys.length, "missing.md")
 

@@ -33,7 +33,7 @@ const kvValues = vi.hoisted(() => new Map<string, unknown>())
 const kv = vi.hoisted(() => ({
   delete: async (key: string) => [undefined, kvValues.delete(key)] as const,
   get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
-  keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
+  list: async ({ prefix }: { prefix: string }) => [undefined, { keys: [...kvValues.keys()].filter(key => key.startsWith(prefix)) }] as const,
   set: async (key: string, value: unknown) => {
     kvValues.set(key, structuredClone(value))
     return [undefined, undefined] as const
@@ -627,7 +627,7 @@ describe("MCP client section", () => {
     install()
     const key = Buffer.alloc(32, 7).toString("base64")
     if (preset === "node") process.env.VITEHUB_CONSOLE_MCP_KEY = key
-    const reads = vi.spyOn(kv, "keys")
+    const reads = vi.spyOn(kv, "list")
     const writes = vi.spyOn(kv, "set")
     try {
       await runWithActiveCloudflareEnv(preset === "cloudflare" ? { VITEHUB_CONSOLE_MCP_KEY: key } : undefined, async () => {

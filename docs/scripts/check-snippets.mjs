@@ -289,6 +289,12 @@ const registries = [
     type: "auth",
   },
   {
+    // @vite-hub/source: `writeSourceArtifacts()` names each file under server/sources by its relative path.
+    definitions: label => [/^server\/sources\/(.+)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => ["declare global {", "  interface ViteHubSourceMap {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}", "export {}"],
+    type: "source",
+  },
+  {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
     definitions: collectionNames,
     render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
