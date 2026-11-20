@@ -47,7 +47,7 @@ const rows = computed(() => apps.value.map((app) => {
     deploy,
     site,
     // The site opens with the Comments pill on, as Comment on site does in the app's Console.
-    comments: check?.comments && { open: check.comments.open, url: consoleCommentsSiteUrl(site) },
+    comments: check?.comments && { ...check.comments, url: consoleCommentsSiteUrl(site) },
   };
 }));
 const shownRows = computed(() => {
@@ -257,7 +257,7 @@ async function link(): Promise<void> {
                     :to="row.comments.url"
                     target="_blank"
                     rel="noreferrer"
-                    :aria-label="`Comment on ${row.identity.name}, ${row.comments.open} open`"
+                    :aria-label="row.comments.open === undefined ? `Comment on ${row.identity.name}` : `Comment on ${row.identity.name}, ${row.comments.open} open`"
                   >
                     <span class="max-sm:sr-only">Comment</span>
                     <span v-if="row.comments.open" class="vitehub-apps__count">{{ row.comments.open }}</span>

@@ -10,7 +10,7 @@ import { organizationClient } from "better-auth/client/plugins"
 import { consoleDiagnostic, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleProjectBuildOf, consoleProjectCommentsOf } from "./project-link.ts"
 
-import type { ConsoleProjectBuild, ConsoleProjectComments } from "./project-link.ts"
+import type { ConsoleProjectBuild } from "./project-link.ts"
 
 /** A project of the active team, as `GET /api/projects` returns it. The page never sees the private key. */
 export interface ConsoleAccountProject {
@@ -308,8 +308,8 @@ export interface ConsoleAccountCheck {
   name?: string
   /** The build that the connected app runs, from its `project.get` answer. */
   build?: ConsoleProjectBuild
-  /** The open Comments threads of the connected app, when the app has Comments. */
-  comments?: ConsoleProjectComments
+  /** Whether the connected app allows Comments, with its open thread count when available. */
+  comments?: { open?: number }
 }
 
 // The codes of an app that has no public key for the link, or another one.
@@ -322,7 +322,8 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
     const answer = result.answer instanceof Object ? result.answer : {}
     const name: unknown = Reflect.get(answer, "name")
     const build = consoleProjectBuildOf(Reflect.get(answer, "build"))
-    const comments = consoleProjectCommentsOf(Reflect.get(answer, "comments"))
+    const sections: unknown = Reflect.get(answer, "sections")
+    const comments = consoleProjectCommentsOf(Reflect.get(answer, "comments")) ?? (Array.isArray(sections) && sections.includes("comments") ? {} : undefined)
     return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}), ...(build ? { build } : {}), ...(comments ? { comments } : {}) }
   }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
