@@ -214,7 +214,8 @@ await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head
 ```
 
 `history.diff({ from, to })` lists the files that were added, modified, or removed
-between two revisions, also on different refs:
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
 
 ```ts fragment
 const [published, saved] = await Promise.all([

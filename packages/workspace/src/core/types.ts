@@ -275,9 +275,13 @@ export interface WorkspaceNameMap extends ViteHubWorkspaceNameMap {}
 export interface WorkspaceSourceResolutionContextMap extends ViteHubWorkspaceSourceResolutionContextMap {}
 
 export type WorkspaceName = [keyof ViteHubWorkspaceNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceNameMap, string>
+declare const validatedWorkspaceName: unique symbol
+/** A name checked against the runtime Workspace registry by `isWorkspaceName()`. */
+export type ValidatedWorkspaceName = string & { readonly [validatedWorkspaceName]: true }
+export type WorkspaceLookupName = WorkspaceName | ValidatedWorkspaceName
 export type WorkspaceScopeName = [keyof ViteHubWorkspaceScopeNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceScopeNameMap, string>
 
-export type WorkspaceAssetPath<Name extends WorkspaceName = WorkspaceName> =
+export type WorkspaceAssetPath<Name extends WorkspaceLookupName = WorkspaceName> =
   Name extends keyof ViteHubWorkspaceAssetMap
     ? Extract<ViteHubWorkspaceAssetMap[Name], string>
     : string
@@ -570,7 +574,7 @@ export interface WorkspaceHistoryDiffOptions {
 
 export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
-  /** The files that were added, modified, or removed from `from` to `to`, sorted by path. */
+  /** The files that were added, modified, or removed from `from` to `to`, sorted by path. Changes to bytes or retained attributes count as modifications. */
   diff(options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff>
 }
 
@@ -588,8 +592,8 @@ export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<Work
 export interface WorkspaceDiffEntry {
   path: string
   type: "added" | "modified" | "removed"
-  before?: WorkspaceSnapshot["entries"][string]
-  after?: WorkspaceSnapshot["entries"][string]
+  before?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
+  after?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
 }
 
 export interface WorkspaceDiff {

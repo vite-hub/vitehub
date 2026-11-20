@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceDiff, WorkspaceDiffEntry, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryDiffOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceDiff, WorkspaceDiffEntry, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryDiffOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -72,7 +72,7 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
   }
 }
 
-/** The files that changed from one revision to another. A file is modified when its bytes differ. */
+/** The files whose bytes or retained attributes changed from one revision to another. */
 async function diffWorkspaceRevisions(history: Pick<WorkspaceHistoryReader, "open">, options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff> {
   const open = async (id: string) => {
     const view = await history.open(id)
@@ -94,15 +94,18 @@ async function diffWorkspaceRevisions(history: Pick<WorkspaceHistoryReader, "ope
     const after = to.files.get(path)
     if (!before) entries.push({ path, type: "added", after: snapshotEntry(after!) })
     else if (!after) entries.push({ path, type: "removed", before: snapshotEntry(before) })
-    else if (!await sameBytes(path, before, after)) entries.push({ path, type: "modified", before: snapshotEntry(before), after: snapshotEntry(after) })
+    else if (before.mediaType !== after.mediaType || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata) || !await sameBytes(path, before, after)) {
+      entries.push({ path, type: "modified", before: snapshotEntry(before), after: snapshotEntry(after) })
+    }
   }
   return { ...(options.from === undefined ? {} : { from: options.from }), to: options.to, entries }
 }
 
-function snapshotEntry({ digest, metadata, size }: WorkspaceEntry): WorkspaceSnapshot["entries"][string] {
+function snapshotEntry({ digest, mediaType, metadata, size }: WorkspaceEntry): NonNullable<WorkspaceDiffEntry["before"]> {
   return {
     type: "file",
     ...(digest === undefined ? {} : { digest }),
+    ...(mediaType === undefined ? {} : { mediaType }),
     ...(metadata === undefined ? {} : { metadata }),
     ...(size === undefined ? {} : { size }),
   }

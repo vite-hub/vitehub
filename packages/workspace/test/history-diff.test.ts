@@ -62,6 +62,24 @@ it("lists the files that changed between two revisions on any ref", async () => 
   expect(await readonly.history.diff({ from: run.id, to: run.id })).toEqual({ from: run.id, to: run.id, entries: [] })
 })
 
+it("reports retained attribute changes without a change to the bytes", async () => {
+  const store = await historyStore()
+  const workspace = useWorkspaceFiles("meetups", { mode: "write", definition: { name: "meetups", store: store() } })
+  const base = await workspace.history.commit({ ifHead: null, files: {
+    "note.md": { content: "Hello", metadata: { stage: "draft" } },
+    "note.txt": { content: "Hello", mediaType: "text/plain" },
+  } })
+  const next = await workspace.history.commit({ ifHead: base.id, files: {
+    "note.md": { content: "Hello", metadata: { stage: "approved" } },
+    "note.txt": { content: "Hello", mediaType: "application/octet-stream" },
+  } })
+
+  expect((await workspace.history.diff({ from: base.id, to: next.id })).entries).toMatchObject([
+    { path: "note.md", type: "modified", before: { metadata: { stage: "draft" } }, after: { metadata: { stage: "approved" } } },
+    { path: "note.txt", type: "modified", before: { mediaType: "text/plain" }, after: { mediaType: "application/octet-stream" } },
+  ])
+})
+
 it("tells whether a name from outside the code is a Workspace", () => {
   setWorkspaceRegistry({ "meal-planner": async () => ({ default: {} }) })
   registerWorkspace("meetups", {})

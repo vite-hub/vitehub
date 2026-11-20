@@ -39,7 +39,7 @@ This reuses the saved snapshots of Sources with `materialize: 'startup'` when th
 
 ### Check a Workspace name
 
-`useWorkspace()` accepts only the names of your Workspace Definitions. When the name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to a Workspace name:
+When a name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to `ValidatedWorkspaceName`, which `useWorkspace()` and `useWorkspaceFiles()` accept alongside generated names. The check confirms runtime registration, not membership in the generated `WorkspaceName` union:
 
 ```ts [server/api/projects/[project]/files.get.ts]
 import { defineHandler, getRouterParam, HTTPError } from 'h3'
@@ -185,7 +185,7 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
 | `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
-| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. Each entry has the `before` and `after` file with `size`, `digest`, and `metadata`. Without `from`, every file of `to` is `added`. |
+| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
