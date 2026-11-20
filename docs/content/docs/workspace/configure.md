@@ -147,6 +147,8 @@ The Store keeps every committed revision on every ref and has no pruning API. Fa
 
 The GitHub Store keeps the Workspace in a repository. It reads and writes through the GitHub API, so it needs a token and a network. It supports [retained history](/docs/workspace/server-api): each branch is a ref, and each commit is a revision.
 
+Install the GitHub Store's peer with `pnpm add @vite-hub/forge`. Builds fail with `VITE_HUB_R0136` if the Workspace config or a discovered Workspace Definition selects the GitHub Store without it. Stores chosen only at runtime check for the peer when they first use Forge.
+
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
 
@@ -280,12 +282,12 @@ the same definition for direct reads or Content:
 ```ts [server/sources/docs.ts]
 import { glob } from 'vite-hub/source'
 
-export const docs = glob({ cwd: 'docs', include: '**/*.md' })
+export default glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
 ```ts [server/workspaces/docs.ts] fragment
 import { defineWorkspace } from 'vite-hub/workspace'
-import { docs } from '../sources/docs'
+import docs from '../sources/docs'
 
 export default defineWorkspace({
   sources: {
@@ -296,8 +298,8 @@ export default defineWorkspace({
 
 The Source key `intro.md` appears at `docs/intro.md`. The Source fetches the
 items. The binding decides where they appear, when they are copied in
-(materialization), sync, and access rules. Pass the same `docs` definition to
-`createSource(docs)` for direct reads or `defineContent({ source: docs })` for
+(materialization), sync, and access rules. Open the same Source with
+`useSource('docs')` for direct reads, or pass it to `defineContent({ source: docs })` for
 parsed Content. Each consumer owns its reader lifecycle and revision.
 
 For a definition used only in Workspace, the Workspace `file()`, `glob()`, and

@@ -2,7 +2,7 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 
 /** The signed-in user that the Console gives `console.authorize`. */
-export type ConsoleUser = AccessAuthorizationContext["user"]
+export type ConsoleUser = AccessAuthorizationContext<unknown, false>["user"]
 
 /** The request that `console.authorize` checks with `console: { auth: false }` in development. It has no signature and no user. */
 export interface ConsoleOpenAuthorizeContext {

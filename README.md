@@ -55,7 +55,7 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
-    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/decisions"><img src=".github/assets/primitives/decisions.svg" alt="" height="24"><br><b>Decisions</b></a><br>Text to choices</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/choices"><img src=".github/assets/primitives/choices.svg" alt="" height="24"><br><b>Choices</b></a><br>Text to choices</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="24"><br><b>Realtime</b></a><br>Live collaboration</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="24"><br><b>Browser</b></a><br>Browser operations</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="24"><br><b>Shell</b></a><br>Command execution</td>
@@ -107,8 +107,6 @@ Support is different for each primitive. Read the [support matrix](https://viteh
 pnpm add vite-hub @vite-hub/kv nitro h3
 pnpm add -D vite
 ```
-
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script. Then run `pnpm add -D vite` before you continue.
 
 ```ts
 // vite.config.ts

@@ -93,9 +93,9 @@ export const agentStory = {
       'import { kv } from "vite-hub/kv"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const [error, keys] = await kv.keys()',
+      '  const [error, page] = await kv.list()',
       "  if (error) throw error",
-      "  return keys",
+      "  return page.keys",
       "})",
     ],
     notes: [
@@ -242,11 +242,11 @@ export const landingPrimitives = [
     icon: "i-vitehub-gateways",
   },
   {
-    id: "decisions",
-    name: "Decisions",
+    id: "choices",
+    name: "Choices",
     description: "Text to choices",
-    to: "/docs/decisions",
-    icon: "i-vitehub-decisions",
+    to: "/docs/choices",
+    icon: "i-vitehub-choices",
   },
   {
     id: "realtime",

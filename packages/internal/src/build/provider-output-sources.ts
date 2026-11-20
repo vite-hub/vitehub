@@ -5,7 +5,10 @@ import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import type { Rolldown } from "vite"
+
 import { createImportPath } from "./paths.ts"
+import { importRolldown } from "./rolldown.ts"
 import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
@@ -621,8 +624,9 @@ function traceComputedModuleSources(
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
-  // Load esbuild when a trace runs, so code that only imports these helpers does not load it.
-  const { build } = await import("esbuild")
+  // Load Rolldown when a trace runs, so code that only imports these helpers does not load it.
+  const { rolldown } = await importRolldown()
+  const resolvingTraceHint = "vitehubResolvingTraceHint"
   const physicalRoot = realpathSync(root)
   const traceBuildVariants = [
     { platform: "node" as const },
@@ -653,137 +657,108 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
       const importedSourceHints = new Set<string>()
-      const results = []
+      const results: Array<Set<string>> = []
+      const toRootSource = (path: string) => pathContains(root, path)
+        ? path
+        : pathContains(physicalRoot, path)
+          ? resolve(root, relative(physicalRoot, path))
+          : undefined
+      const isProjectSource = (path: string | undefined): path is string => Boolean(path && existsSync(path)
+        && !relative(root, path).split(sep).includes("node_modules"))
       // A retained root can pull in the full application graph. Run its host-condition variants
-      // sequentially so the two-root worker limit also bounds concurrent esbuild graphs.
+      // sequentially so the two-root worker limit also bounds concurrent Rolldown graphs.
       for (const variant of traceBuildVariants) {
-        const [result] = await Promise.allSettled([build({
-        absWorkingDir: root,
-        bundle: true,
-        entryPoints: tracedBatch,
-        format: "esm",
-        logLevel: "silent",
-        metafile: true,
-        outdir: resolve(root, ".vitehub-provider-trace"),
-        packages: "bundle",
-        ...variant,
-        plugins: [{
+        const inputs = new Set<string>()
+        const tracePlugin: Rolldown.Plugin = {
           name: "vitehub-provider-vite-resource-query",
-          setup(traceBuild) {
-            const resolvingPackageImportHint = "vitehubResolvingPackageImportHint"
-            traceBuild.onResolve({ filter: /^\.\.?\// }, (request) => {
-              const source = request.resolveDir && resolve(request.resolveDir, request.path.split(/[?#]/, 1)[0]!)
-              if (source && existsSync(source)) importedSourceHints.add(source)
-              return undefined
-            })
-            traceBuild.onResolve({ filter: /^#/ }, async (request) => {
-              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
-              if (!request.importer) return undefined
-              const suffixOffset = request.path.slice(1).search(/[?#]/)
-              const packageImport = suffixOffset === -1 ? request.path : request.path.slice(0, suffixOffset + 1)
-              const resolution = await traceBuild.resolve(packageImport, {
-                importer: request.importer,
-                kind: request.kind,
-                namespace: request.namespace,
-                pluginData: { ...request.pluginData, [resolvingPackageImportHint]: true },
-                resolveDir: request.resolveDir,
-                with: request.with,
-              })
-              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file" && existsSync(resolution.path)) {
-                importedSourceHints.add(resolution.path)
-              }
-              return undefined
-            })
-            const resolvingBarePackageHint = "vitehubResolvingBarePackageHint"
-            traceBuild.onResolve({ filter: /^[^./#]/ }, async (request) => {
-              if (request.pluginData?.[resolvingBarePackageHint]) return undefined
-              if (!request.importer) return undefined
-              const suffixOffset = request.path.search(/[?#]/)
-              const packageImport = suffixOffset === -1 ? request.path : request.path.slice(0, suffixOffset)
-              const resolution = await traceBuild.resolve(packageImport, {
-                importer: request.importer,
-                kind: request.kind,
-                namespace: request.namespace,
-                pluginData: { ...request.pluginData, [resolvingBarePackageHint]: true },
-                resolveDir: request.resolveDir,
-                with: request.with,
-              })
-              const source = pathContains(root, resolution.path)
-                ? resolution.path
-                : pathContains(physicalRoot, resolution.path)
-                  ? resolve(root, relative(physicalRoot, resolution.path))
-                  : undefined
-              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file"
-                && source && existsSync(source)
-                && !relative(root, source).split(sep).includes("node_modules")) {
-                importedSourceHints.add(source)
-              }
-              return { external: true, path: request.path }
-            })
-            traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
-              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
-              const resourcePath = request.path.split(/[?#]/, 1)[0]!
-              let resourceSource: string | undefined
-              if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
-                resourceSource = resolve(request.resolveDir, resourcePath)
-              }
-              else if (request.resolveDir && resourcePath.startsWith("/")) {
-                const projectRoot = configuredRoots
-                  .filter(configuredRoot => pathContains(configuredRoot, request.resolveDir))
-                  .sort((left, right) => right.length - left.length)[0] ?? root
-                const rootRelativePath = resourcePath.slice(1)
-                const publicSource = resolve(projectRoot, "public", rootRelativePath)
-                resourceSource = existsSync(publicSource) ? publicSource : resolve(projectRoot, rootRelativePath)
-              }
-              if (resourceSource && existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
-              return { external: true, path: request.path }
-            })
-            traceBuild.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (request) => {
-              const sourcePath = pathContains(root, request.path)
-                ? request.path
-                : pathContains(physicalRoot, request.path)
-                  ? resolve(root, relative(physicalRoot, request.path))
-                  : undefined
-              if (!sourcePath || relative(root, sourcePath).split(sep).includes("node_modules")) return undefined
-              const source = await readFile(request.path, "utf8").catch(() => undefined)
-              if (!source) return undefined
-              const runtimeRequests = new Map<string, RuntimeModuleRequest>()
-              for (const runtimeRequest of traceComputedModuleSourcesOnce(request.path, source).requests) {
-                runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
-              }
-              await Promise.all([...runtimeRequests.values()].map(async runtimeRequest => {
-                const resolveFrom = runtimeRequest.resolveFrom ?? request.path
-                const resolution = await traceBuild.resolve(runtimeRequest.specifier, {
-                  importer: resolveFrom,
-                  kind: runtimeRequest.kind,
-                  namespace: request.namespace,
-                  resolveDir: dirname(resolveFrom),
-                })
-                const resolvedSource = pathContains(root, resolution.path)
-                  ? resolution.path
-                  : pathContains(physicalRoot, resolution.path)
-                    ? resolve(root, relative(physicalRoot, resolution.path))
-                    : undefined
-                if (!resolution.errors.length && !resolution.external && resolution.namespace === "file"
-                  && resolvedSource && existsSync(resolvedSource)
-                  && !relative(root, resolvedSource).split(sep).includes("node_modules")) {
-                  importedSourceHints.add(resolvedSource)
-                }
-              }))
-              return undefined
-            })
+          async resolveId(source, importer, extra) {
+            if (!importer || extra.custom?.[resolvingTraceHint]) return
+            const resolveDir = isAbsolute(importer) ? dirname(importer) : root
+            const hintOptions = { custom: { ...extra.custom, [resolvingTraceHint]: true }, kind: extra.kind }
+            if (/^\.\.?\//.test(source)) {
+              const relativeSource = resolve(resolveDir, source.split(/[?#]/, 1)[0]!)
+              if (existsSync(relativeSource)) importedSourceHints.add(relativeSource)
+            }
+            else if (source.startsWith("#")) {
+              const suffixOffset = source.slice(1).search(/[?#]/)
+              const packageImport = suffixOffset === -1 ? source : source.slice(0, suffixOffset + 1)
+              const resolution = await this.resolve(packageImport, importer, hintOptions)
+              if (resolution && !resolution.external && isAbsolute(resolution.id) && existsSync(resolution.id)) importedSourceHints.add(resolution.id)
+            }
+            else if (/^[^./#]/.test(source)) {
+              const suffixOffset = source.search(/[?#]/)
+              const packageImport = suffixOffset === -1 ? source : source.slice(0, suffixOffset)
+              const resolution = await this.resolve(packageImport, importer, hintOptions)
+              const resolvedSource = resolution && !resolution.external && isAbsolute(resolution.id) ? toRootSource(resolution.id) : undefined
+              if (isProjectSource(resolvedSource)) importedSourceHints.add(resolvedSource)
+              return { id: source, external: true }
+            }
+            if (!/[?#]/.test(source)) return
+            const resourcePath = source.split(/[?#]/, 1)[0]!
+            let resourceSource: string | undefined
+            if (resourcePath.startsWith("./") || resourcePath.startsWith("../")) {
+              resourceSource = resolve(resolveDir, resourcePath)
+            }
+            else if (resourcePath.startsWith("/")) {
+              const projectRoot = configuredRoots
+                .filter(configuredRoot => pathContains(configuredRoot, resolveDir))
+                .sort((left, right) => right.length - left.length)[0] ?? root
+              const rootRelativePath = resourcePath.slice(1)
+              const publicSource = resolve(projectRoot, "public", rootRelativePath)
+              resourceSource = existsSync(publicSource) ? publicSource : resolve(projectRoot, rootRelativePath)
+            }
+            if (resourceSource && existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
+            return { id: source, external: true }
           },
-        }],
-        write: false,
-        })])
-        if (result?.status === "fulfilled") results.push(result.value)
+          async load(id) {
+            if (!isAbsolute(id)) return
+            inputs.add(id)
+            if (!/\.[cm]?[jt]sx?$/.test(id)) return
+            const sourcePath = toRootSource(id)
+            if (!sourcePath || relative(root, sourcePath).split(sep).includes("node_modules")) return
+            const source = await readFile(id, "utf8").catch(() => undefined)
+            if (!source) return
+            const runtimeRequests = new Map<string, RuntimeModuleRequest>()
+            for (const runtimeRequest of traceComputedModuleSourcesOnce(id, source).requests) {
+              runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
+            }
+            await Promise.all([...runtimeRequests.values()].map(async (runtimeRequest) => {
+              const resolution = await this.resolve(runtimeRequest.specifier, runtimeRequest.resolveFrom ?? id, {
+                kind: runtimeRequest.kind === "dynamic-import" ? "dynamic-import" : "require-call",
+                skipSelf: false,
+              })
+              const resolvedSource = resolution && !resolution.external && isAbsolute(resolution.id) ? toRootSource(resolution.id) : undefined
+              if (isProjectSource(resolvedSource)) importedSourceHints.add(resolvedSource)
+            }))
+          },
+        }
+        try {
+          const bundle = await rolldown({
+            cwd: root,
+            input: tracedBatch,
+            onLog(_level, log) {
+              if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
+            },
+            platform: variant.platform,
+            plugins: [tracePlugin],
+            resolve: { conditionNames: variant.conditions },
+          })
+          try {
+            await bundle.generate({ format: "esm" })
+          }
+          finally {
+            await bundle.close()
+          }
+          results.push(inputs)
+        }
+        catch {
+          // A host variant that cannot bundle these entries adds nothing. The other variants still trace them.
+        }
       }
-      for (const result of results) {
-        for (const path of Object.keys(result.metafile.inputs)) {
-          const source = resolve(root, path)
+      for (const inputs of results) {
+        for (const source of inputs) {
           importedSources.add(source)
-          if (results.length === traceBuildVariants.length
-            && results.every(variant => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source)
+          if (results.length === traceBuildVariants.length && results.every(variant => variant.has(source))) tracedEntries.add(source)
         }
       }
       for (const path of importedSourceHints) {
