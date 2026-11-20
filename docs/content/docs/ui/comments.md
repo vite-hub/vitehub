@@ -427,15 +427,22 @@ Give it a client from `createCommentSend()`. The client is the state, and the tr
 ```ts
 import { createCommentSend, type CommentSendTransport } from "vite-hub/comments/client";
 
-// Your server's Send routes. Each answer is JSON in the shape that the transport method returns.
-const api = async <T>(path: string, method = "GET"): Promise<T> => (await fetch(`/api/send${path}`, { method })).json();
+// Successful Send routes return JSON in the shape that the transport method returns.
+const api = async <T>(path: string, method = "GET"): Promise<T> => {
+  const response = await fetch(`/api/send${path}`, { method });
+  if (!response.ok) throw new Error(`Send request failed (${response.status})`);
+  return response.json();
+};
 
 const transport: CommentSendTransport = {
   status: () => api("/status"),
   startPairing: () => api("/pair", "POST"),
   pollPairing: code => api(`/pair/${code}`),
   allow: code => api(`/pair/${code}/allow`, "POST"),
-  cancel: code => api(`/pair/${code}`, "DELETE"),
+  cancel: async (code) => {
+    const response = await fetch(`/api/send/pair/${code}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Cancel request failed (${response.status})`);
+  },
   send: () => api("", "POST"),
 };
 
@@ -449,6 +456,8 @@ export const send = createCommentSend(transport);
 ```
 
 A member without an agent pairs one in place. **Send 2** copies a setup prompt and says where to paste it. The agent uses the one-time code in the prompt, and the pill asks once: **Allow and send 2**. `×` or `Esc` stops it, and nothing is saved.
+
+Give your pill a viewport-safe maximum width and let it scroll horizontally if its controls do not fit. `CommentSend` keeps its actions on one row and shortens the setup and confirmation messages on narrow screens.
 
 | State | The pill shows |
 | --- | --- |

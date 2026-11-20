@@ -146,13 +146,13 @@ export const CommentSend = defineComponent({
           if (current.reason === "expired") return [status("warning", [icon("i-lucide-circle-alert"), "Setup code expired"]), copyAgain(), close("Cancel connect")];
           if (current.reason === "refused") return [status("error", [icon("i-lucide-circle-alert"), `That URL isn't ${current.agent.host}`]), copyAgain(), close("Cancel connect")];
           return [
-            status(undefined, [logo(current.agent), h("span", { "data-slot": "comment-send-message" }, ["Setup prompt copied. ", h("b", `Paste it in the ${agentLogos[current.agent.logo].thread}`), " that should get your comments"])]),
+            status(undefined, [logo(current.agent), h("span", { "data-slot": "comment-send-message" }, [h("span", { "data-wide": "" }, "Setup prompt copied. "), h("b", `Paste it in the ${agentLogos[current.agent.logo].thread}`), h("span", { "data-wide": "" }, " that should get your comments")])]),
             status(undefined, [icon("i-lucide-loader-circle", true)], { "aria-label": "Waiting for the agent", "data-icon": "", role: "img" }),
             close("Cancel connect"),
           ];
         case "confirm":
           return [
-            status(undefined, [logo(current.agent), h("span", { "data-slot": "comment-send-message" }, [h("b", current.agent.name), ` · ${current.agent.host} wants your comments from this site`])]),
+            status(undefined, [logo(current.agent), h("span", { "data-slot": "comment-send-message", title: current.agent.host }, [h("b", current.agent.name), current.agent.host ? ` · ${current.agent.host}` : null, h("span", { "data-wide": "" }, " wants your comments from this site")])]),
             action("allow", [icon("i-lucide-check"), `Allow and send ${current.count}`], { "data-variant": "on", onClick: () => void props.client.allow() }),
             close("Don't allow"),
           ];

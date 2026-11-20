@@ -126,3 +126,26 @@ test("Escape cancels pairing and drops the setup code", async () => {
   assert.deepEqual(await page.evaluate(() => window.flow.calls), ["startPairing", "cancel K7Q-4MX"])
   await close()
 })
+
+for (const surface of ["vitehub", "app"]) {
+  test(`${surface}: setup and confirmation controls are reachable at 375px`, async () => {
+    const { page, errors, close } = await open(`surface=${surface}&live`, { viewport: { width: 375, height: 420 }, reducedMotion: "reduce" })
+    try {
+      const segment = page.locator("[data-slot=comment-send]")
+      const message = segment.locator("[data-slot=comment-send-message] b")
+      await segment.locator("[data-action=send]").click()
+      await message.filter({ hasText: "Paste it in the T3 thread" }).scrollIntoViewIfNeeded()
+      await segment.getByRole("button", { name: "Cancel connect" }).click({ trial: true })
+
+      await page.evaluate(() => window.flow.paste())
+      await message.filter({ hasText: "T3 Code" }).scrollIntoViewIfNeeded()
+      await segment.locator("[data-action=allow]").click({ trial: true })
+      await segment.getByRole("button", { name: "Don't allow" }).click()
+      assert.deepEqual(await page.evaluate(() => window.flow.calls), ["startPairing", "cancel K7Q-4MX"])
+      assert.deepEqual(errors, [])
+    }
+    finally {
+      await close()
+    }
+  })
+}

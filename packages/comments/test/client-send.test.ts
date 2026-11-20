@@ -256,6 +256,119 @@ describe("createCommentSend", () => {
     expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true })
   })
 
+  it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {
+    const server = fakeTransport({ count: 2 })
+    const delivery = Promise.withResolvers<CommentSendResult>()
+    server.transport.allow = () => delivery.promise
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    await send.send(copy)
+    if (interrupted !== "pairing") {
+      server.checks.push({ status: "paired", agent: t3 })
+      await vi.advanceTimersByTimeAsync(1500)
+    }
+    const allowing = interrupted === "sending" ? send.allow() : undefined
+    expect(send.state.status).toBe(interrupted)
+    stop()
+
+    server.setStatus({ count: 3, agent: t3 })
+    send.start()
+    await flush()
+    delivery.resolve({ status: "sent", id: "old-send" })
+    await allowing
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+    expect(server.cancelled).toEqual(interrupted === "sending" ? [] : ["code-1"])
+  })
+
+  it("keeps a pairing press when a stale status succeeds", async () => {
+    const server = fakeTransport({ count: 2 })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    const load = Promise.withResolvers<CommentSendStatus>()
+    server.transport.status = () => load.promise
+    const refreshing = send.refresh()
+    const setup = Promise.withResolvers<void>()
+    const startPairing = server.transport.startPairing
+    server.transport.startPairing = async () => {
+      await setup.promise
+      return startPairing()
+    }
+    const pairing = send.send(copy)
+    load.resolve({ count: 0 })
+    await refreshing
+    setup.resolve()
+    await pairing
+    expect(send.state).toMatchObject({ status: "pairing", count: 2 })
+    expect(copied).toEqual([prompt])
+    expect(server.cancelled).toEqual([])
+  })
+
+  it("keeps a second send when a stale Working poll rejects", async () => {
+    const server = fakeTransport({ count: 1, agent: t3, working: { id: "old" } })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    const load = Promise.withResolvers<CommentSendStatus>()
+    server.transport.status = () => load.promise
+    await vi.advanceTimersByTimeAsync(5000)
+    const delivery = Promise.withResolvers<CommentSendResult>()
+    server.transport.send = () => delivery.promise
+    const sending = send.send()
+    load.reject(new Error("Offline"))
+    await flush()
+    expect(send.state.status).toBe("sending")
+    delivery.resolve({ status: "sent", id: "new" })
+    await sending
+    expect(send.state.status).toBe("sent")
+  })
+
+  it.each([false, true])("reconciles pushes before delivery responds (done: %s)", async (done) => {
+    const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
+    const delivery = Promise.withResolvers<CommentSendResult>()
+    server.transport.send = () => delivery.promise
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    const sending = send.send()
+    const thread = "https://app.t3.codes/threads/42"
+    server.push({ type: "working", id: "new", thread })
+    server.push({ type: "working", id: "old", thread: "https://app.t3.codes/threads/41" })
+    server.push({ type: "done", id: "old" })
+    if (done) server.push({ type: "done", id: "new" })
+    server.push({ type: "count", count: 1 })
+    delivery.resolve({ status: "sent", id: "new" })
+    await sending
+    expect(send.state).toMatchObject({ status: "sent", count: 1 })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(send.state).toEqual(done ? { status: "idle", count: 1, inbox: false } : { status: "working", count: 1, agent: t3, thread })
+  })
+
+  it("keeps a pushed count when an earlier status response arrives", async () => {
+    const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
+    const load = Promise.withResolvers<CommentSendStatus>()
+    server.transport.status = () => load.promise
+    const send = createCommentSend(server.transport)
+    send.start()
+    server.push({ type: "count", count: 3 })
+    load.resolve({ count: 2, agent: t3 })
+    await flush()
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+  })
+
+  it("handles setup failure even when the clipboard awaits the prompt", async () => {
+    const server = fakeTransport({ count: 2 })
+    server.transport.startPairing = async () => {
+      throw new Error("Setup unavailable")
+    }
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    await send.send(copy)
+    expect(send.state).toEqual({ status: "failed", count: 2, reason: "Setup unavailable" })
+  })
+
   it("keeps Send hidden with nothing to send, and turns a thrown send into Not delivered", async () => {
     const server = fakeTransport({ count: 0, agent: t3 })
     server.transport.send = async () => {
