@@ -121,7 +121,7 @@ describe("browser error ingest", () => {
 describe("browser error reporter", () => {
   it("is off unless observability.browserErrors is set", () => {
     const names = (options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).flat(3).filter((plugin): plugin is Plugin => Boolean(plugin && typeof plugin === "object" && "name" in plugin)).map(plugin => plugin.name)
-    expect(names({ host: "node", observability: { logs: true } })).not.toContain("vite-hub/browser-errors")
+    expect(names({ host: "node", logs: true })).not.toContain("vite-hub/browser-errors")
     expect(names({ host: "node", observability: { browserErrors: true } })).toContain("vite-hub/browser-errors")
   })
 

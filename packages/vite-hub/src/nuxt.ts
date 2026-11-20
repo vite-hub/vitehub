@@ -1036,7 +1036,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
+  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options), viteRoot }
   // Definition files, such as `server/auth.ts`, turn their features on, and the `cms` preset turns on Workspace,
   // Database, and Blob. Nuxt knows the root here, so resolve them once.
   const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments(resolveDefinitionFeatures({
@@ -1124,7 +1125,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
-  const viteRoot = resolve(rootDir, typeof nuxt.options.vite?.root === "string" ? nuxt.options.vite.root : rootDir)
   const configuredDatabaseDiscoveryRoot = configuredProjectRoot(rootDir, options.database)
   const effectiveBlob = consoleOptions ? options.blob : false
   const explicitBlob = explicitBlobOption(effectiveBlob)
@@ -1173,6 +1173,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
+    source: true,
     workflow: Boolean(options.workflow),
   })
   let consoleHasPrimaryAuth = false;
@@ -1182,7 +1183,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     invariant(configuredConsole, "resolveConsoleOptions() returns options for a console option that is set")
     if (!nuxt.options.vitehubCliDiscovery) {
       const appAuth = effectiveAuth
-        ? requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(effectiveAuth === true ? undefined : effectiveAuth, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
+        ? requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(undefined, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
         : undefined;
       consoleHasPrimaryAuth = Boolean(appAuth);
       const authIndex = consoleSections.indexOf("auth");

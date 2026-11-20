@@ -21,7 +21,7 @@ const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: 
 function agentWith(
   durableState: boolean,
   invoke: (channelState: AgentChannelStateBinding | undefined) => AgentTriggerInvokeResult,
-  webhooks: { secretToken: false, stateScope?: string } = { secretToken: false },
+  webhooks: { secret: false, stateScope?: string } = { secret: false },
 ) {
   const seen = vi.fn(invoke)
   const run = vi.fn(() => "ok")
@@ -105,7 +105,7 @@ describe("defineChannelTrigger({ durableState: true })", () => {
 describe("webhooks.stateScope", () => {
   const queued = () => ({ input: { prompt: "triage" }, webhook: { concurrencyLimit: 1, deliveryId: "ticket-1" } })
 
-  async function queuedRoute(webhooks?: { secretToken: false, stateScope?: string }) {
+  async function queuedRoute(webhooks?: { secret: false, stateScope?: string }) {
     const { agent, run, seen } = agentWith(true, () => ({ ...queued(), webhook: { ...queued().webhook, rehydrate: queued } }), webhooks)
     const { send, state } = await routeFor(agent)
     const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
@@ -113,7 +113,7 @@ describe("webhooks.stateScope", () => {
   }
 
   it("keeps queued deliveries and Channel State under the declared scope", async () => {
-    const { enqueue, run, seen, send } = await queuedRoute({ secretToken: false, stateScope: "webhook:bot-dev:tickets:tickets" })
+    const { enqueue, run, seen, send } = await queuedRoute({ secret: false, stateScope: "webhook:bot-dev:tickets:tickets" })
 
     expect((await send()).status).toBe(200)
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
@@ -136,7 +136,7 @@ describe("webhooks.stateScope", () => {
 
   it.each(["", " ", "::", 1])("rejects stateScope %j", async (stateScope) => {
     // SAFETY: The test passes a value that the type rejects, as JavaScript configuration can.
-    const { seen, send } = await queuedRoute({ secretToken: false, stateScope: stateScope as string })
+    const { seen, send } = await queuedRoute({ secret: false, stateScope: stateScope as string })
 
     await expect(send()).rejects.toMatchObject({ code: "AGENT_WEBHOOK_STATE_SCOPE_INVALID", message: '[vitehub] Webhook registration "tickets" stateScope must be a non-empty string.' })
     expect(seen).not.toHaveBeenCalled()
