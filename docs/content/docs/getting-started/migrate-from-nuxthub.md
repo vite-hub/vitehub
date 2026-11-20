@@ -6,13 +6,9 @@ navigation.group: Develop and deploy
 icon: i-lucide-arrow-right-left
 ---
 
-This page moves a Nuxt app from NuxtHub (`@nuxthub/core` v0.10) to ViteHub.
-For KV and Blob, you mostly change imports and error handling. Database needs
-more care, because ViteHub uses Drizzle 1.0 and tracks migrations in a
-different table. The baseline steps cover SQLite and Cloudflare D1.
+This guide moves a Nuxt app from NuxtHub `@nuxthub/core` v0.10 to ViteHub. For KV and Blob, you mostly change imports and error handling. Database needs more care, because ViteHub uses Drizzle 1.0 and tracks migrations in a different table. The baseline steps cover SQLite and Cloudflare D1.
 
-After the move, [Agents](/docs/agents) can also use KV, Blob, and Database
-through [Capabilities](/docs/agents/capabilities).
+After the move, [Agents](/docs/agents) can also use KV, Blob, and Database through [Capabilities](/docs/agents/capabilities).
 
 ## Compare the features
 
@@ -40,20 +36,14 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub.
+Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-Add the package of each feature that you use. For Database, also keep or add
-`drizzle-orm` as a direct dependency because your schema imports it.
-`@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, and `drizzle-kit`
-1.0.0-rc.5 or 1.x for the migration commands. With an older version, the
-package manager installs a second copy, and the query types stop matching. Do
-not use `^1.0.0-rc.5`: it also allows Drizzle snapshot builds such as
-`1.0.0-rc.5-ab785fc`, which sort above the release.
+Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, plus `drizzle-kit` 1.0.0-rc.5 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 
 ```bash [Terminal]
 pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
@@ -65,9 +55,7 @@ Replace those imports in the same way as the newer `@nuxthub/*` imports below.
 `hub:db:schema` has no ViteHub alias: import the tables from your schema file,
 as [Move the database](#move-the-database) shows.
 
-Replace the NuxtHub module with `vite-hub/nuxt` and rename the `hub` key to
-`vitehub`. Add a [deployment host](/docs/frameworks-hosts#choose-a-host).
-Each feature is off until you turn it on.
+Replace the NuxtHub module with `vite-hub/nuxt`, and rename the `hub` key to `vitehub`. Add a [deployment host](/docs/frameworks-hosts#choose-a-host). Each feature is off until you turn it on:
 
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({

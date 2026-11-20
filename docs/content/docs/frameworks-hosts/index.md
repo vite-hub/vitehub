@@ -7,10 +7,7 @@ navigation.group: Choose a target
 icon: i-lucide-network
 ---
 
-Pick one framework integration and one deployment host (a named host
-target). At build time, ViteHub finds your Definitions and writes the files and
-bindings the host needs. Your code keeps ViteHub imports, not generated paths
-or provider SDKs.
+Pick one framework integration and one deployment host. A host is a named target, such as `node` or `cloudflare`. At build time, ViteHub finds your Definitions and writes the files and bindings that the host needs. Your code keeps ViteHub imports, not generated paths or provider SDKs.
 
 ## Choose a framework
 
@@ -26,25 +23,16 @@ packages register Nitro handlers. To move a Nuxt app off NuxtHub, read
 
 ## Choose a host
 
-`host` selects the host, the Nitro preset, and each feature's default
-provider. Without it, ViteHub detects the host in this order:
+`host` sets the target host, the Nitro preset, and each feature's default provider. Without it, ViteHub detects the host in this order:
 
 1. `VITEHUB_HOST`
 2. `NITRO_PRESET`, then `SERVER_PRESET`
-3. The build variables the host sets, the same ones Nitro reads:
-   `WORKERS_CI` (Cloudflare Workers Builds), `NETLIFY`, `NOW_BUILDER`,
-   `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
-4. `node` when none of them is set
+3. Build variables that the host sets and Nitro reads: `WORKERS_CI` on Cloudflare Workers Builds, `NETLIFY`, `NOW_BUILDER`, `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
+4. `node` when none is set
 
-When you set `host` and a build variable of step 3 names another host, the
-production build fails with
-[`VITE_HUB_HOST_PROVIDER_CONFLICT`](/docs/development/diagnostics/vite_hub_host_provider_conflict),
-and dev prints a warning once. Remove `host`, or set `VITEHUB_HOST` to build
-for another host on purpose.
+If you set `host` and a variable from step 3 names a different host, the production build fails with [`VITE_HUB_HOST_PROVIDER_CONFLICT`](/docs/development/diagnostics/vite_hub_host_provider_conflict), and dev prints a warning once. Remove `host`, or set `VITEHUB_HOST` to build for another host on purpose.
 
-Cloudflare Pages is not detected, because the `cloudflare` host builds a
-Worker. To set host-specific options, use `detectHost()` from
-`vite-hub`:
+ViteHub does not detect Cloudflare Pages because the `cloudflare` host builds a Worker. To set host-specific options, call `detectHost()` from `vite-hub`:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -88,8 +76,7 @@ export default defineConfig({
 :::
 ::
 
-`detectHost()` returns `undefined` when no variable names a host, so your
-app picks the default.
+`detectHost()` returns `undefined` when no variable names a host, so your config can fall back to `"node"`.
 
 | Host | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |
@@ -99,25 +86,18 @@ app picks the default.
 | `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Queue, Rate Limit, Sandbox |
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/server/index.mjs` | KV Deno KV | Blob, Queue, Rate Limit, Sandbox, Schedule |
 
-- A rejected feature fails the build. It does not fall back to another provider.
+- A rejected feature fails the build instead of falling back to another provider.
 - Browser requires the `cloudflare` host.
-- `email: true` uses Cloudflare Email on `cloudflare`. On other hosts, it logs
-  each message in `vite dev`, and a production build fails until you set
-  `email.driver`.
+- `email: true` uses Cloudflare Email on `cloudflare`. On other hosts, `vite dev` logs each message and production builds fail until you set `email.driver`.
 - Blob without an explicit store requires a host with a Blob provider.
-- KV without an explicit driver uses Upstash Redis on every host except
-  `deno` when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time.
-- ViteHub sets the Nitro preset. The build fails when `nitro.preset`,
-  `NITRO_PRESET`, or `SERVER_PRESET` names a different one.
+- KV without an explicit driver uses Upstash Redis on every host except `deno` when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time.
+- ViteHub sets the Nitro preset. The build fails if `nitro.preset`, `NITRO_PRESET`, or `SERVER_PRESET` names a different one.
 
-The [support matrix](/docs/frameworks-hosts/support-matrix) lists every
-primitive on every host, with explicit provider choices.
+The [support matrix](/docs/frameworks-hosts/support-matrix) lists every primitive on every host, with explicit provider choices.
 
 ## Keep runtime imports stable
 
-Import server APIs from documented ViteHub paths so the same code runs on
-every host. Do not import framework virtual modules or generated files
-unless a reference page marks the path public.
+Import server APIs from documented ViteHub paths so the same code runs on every host. Do not import framework virtual modules or generated files unless a reference page marks the path public.
 
 ```ts [server/settings.ts]
 import { kv } from 'vite-hub/kv'
@@ -128,13 +108,11 @@ export async function saveSettings(settings: Record<string, unknown>) {
 }
 ```
 
-Libraries can register one `hubX()` integration from its `@vite-hub/*/vite`
-package instead of `vitehub()`.
+Libraries can register one `hubX()` integration from its `@vite-hub/*/vite` package instead of `vitehub()`.
 
 ## Inspect the output
 
-Development proves discovery and local generation. A production build writes
-the output for the host. List the generated host files with the CLI:
+Development checks discovery and local generation. A production build writes the output for the host. List the generated host files with the CLI:
 
 ```bash [Terminal]
 pnpm build

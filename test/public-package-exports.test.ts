@@ -48,10 +48,11 @@ describe("public package export contracts", () => {
       // A wildcard would publish the private modules that generated code imports by file path (`ownModule()` in
       // `@vite-hub/internal/build/paths`).
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
+      // Package implementation subpaths have one spelling: `internal/*`.
+      expect(subpaths.filter(subpath => /(?:^|\/)_internal(?:\/|$)/.test(subpath)), `${path} exports an _internal subpath`).toEqual([])
     }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
-    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {

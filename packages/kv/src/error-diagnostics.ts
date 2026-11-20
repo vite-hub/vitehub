@@ -12,13 +12,13 @@ const cursorProblems = {
 
 export type KVCursorProblem = keyof typeof cursorProblems
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. The docs build generates a page for each code.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
     KV_INVALID_CLEAR_OPTIONS: {
-      why: "`kv.clear()` needs an options object with a string `prefix`, or no argument.",
+      why: "`kv.clear()` needs an options object with an optional string `prefix`, or no argument. It rejects a legacy string argument before deleting any keys.",
       fix: "Use `kv.clear({ prefix: 'drafts:' })` to clear the keys below `drafts`, or `kv.clear()` to clear the whole store.",
     },
     KV_INVALID_CURSOR: {
