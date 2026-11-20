@@ -2618,8 +2618,9 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+/** A resolver that returns undefined gives the conversation an in-memory State. */
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentChatStateContext<TRuntimeConfig>>
 
 export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
@@ -2631,8 +2632,9 @@ export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeCon
   }
 }
 
+/** A resolver that returns undefined gives the webhook no queue, and its conversation uses the chat State. */
 export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentWebhookStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentWebhookStateContext<TRuntimeConfig>>
 
 export type AgentChatMessage =
   | AdapterPostableMessage

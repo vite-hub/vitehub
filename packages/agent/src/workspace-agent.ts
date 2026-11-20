@@ -335,7 +335,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
-  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter]) {
+  // The spread drops non-enumerable keys. Inspection, health, and Invocation telemetry read the Driver from the settings,
+  // and the generated server runtime keeps them too.
+  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter, "__vitehubAgentSettings"]) {
     const descriptor = Object.getOwnPropertyDescriptor(workspaceAgent, key)
     if (descriptor) Object.defineProperty(decoratedAgent, key, descriptor)
   }
