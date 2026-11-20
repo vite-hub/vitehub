@@ -71,7 +71,7 @@ const packageOnly = "Only ViteHub packages use it. Remove the import."
 const consoleLink = "Build a Console link with `hostedConsoleUrl(projectUrl, path)` from `vite-hub/runtime`."
 const runtimeRemoved = internalNames([
   [["hostedConsoleOrigin", "normalizeConsolePath", "normalizeConsoleProjectUrl", "consoleInvocationUrl"], consoleLink],
-  [["deserializeResponse", "isResponse", "isSerializedResponse", "serializeResponse", "toResponse"], "Return a `Response` from the step, run, or Task. ViteHub stores it and gives it back."],
+  [["deserializeResponse", "isResponse", "isSerializedResponse", "serializeResponse"], "Return a `Response` from the step, run, or Task. ViteHub stores it and gives it back."],
   [["emitTraceEvent"], "Append to the log of the context with `context.traceLog?.append(event)`."],
   [["createExecutionBudget", "createRuntimeWaitUntilController", "decodeRouteSegment", "encodeRouteSegment", "isExecutionBudgetExceededError", "isResolvable", "isTraceContentAttributeKey", "leaseTable", "resolveRuntimeValue", "runtimeErrorDiagnostics", "traceEventsToOpenTelemetryLogRecords", "traceEventsToOpenTelemetrySpans"], packageOnly],
 ])
@@ -82,7 +82,8 @@ const realtimeRemoved = internalNames([[[
   "realtimePersistenceDefaults", "realtimeRoomKey", "resolveRealtimeDefinition", "restoreRealtimeDocument", "RealtimeSyncOptions",
 ], "The generated Realtime route uses it. Remove the import."]])
 const realtimeRootNames = new Set(["RealtimeDocumentConflict", "isRealtimeDocumentConflict", "readRealtimeStatus", "realtimeDocumentLayout"])
-const commentsRemoved = internalNames([[["builtinCommentSubjects", "commentsErrorDiagnostics", "commentsPageScope", "commentsRealtimeDefinition", "commentsRoute", "commentsRuntimeOf", "resolveCommentsRuntime"], "The generated Comments route uses it. Remove the import."]])
+const commentsClientNames = new Set(["commentsErrorDiagnostics"])
+const commentsRemoved = internalNames([[["builtinCommentSubjects", "commentsPageScope", "commentsRealtimeDefinition", "commentsRoute", "commentsRuntimeOf", "resolveCommentsRuntime"], "The generated Comments route uses it. Remove the import."]])
 const formsGuardNames = new Set(["guardRequest", "GuardedRequest", "GuardRequestOptions", "GuardRequestServices"])
 const formsRemoved = internalNames([[["isFormDefinition"], "A file in `server/forms/` default-exports `defineForm()`. ViteHub checks it."]])
 const workspaceFilesNames = new Set(["normalizeSafeWorkspacePath", "resolveWorkspaceStoreTarget", "WorkspaceStoreTarget"])
@@ -108,8 +109,8 @@ function moves(): Move[] {
     { from: "@vite-hub/runtime", removed: runtimeRemoved },
     { from: "vite-hub/realtime/server", to: "vite-hub/realtime", names: realtimeRootNames, removed: realtimeRemoved },
     { from: "@vite-hub/realtime/server", to: "@vite-hub/realtime", names: realtimeRootNames, removed: realtimeRemoved },
-    { from: "vite-hub/comments", removed: commentsRemoved },
-    { from: "@vite-hub/comments", removed: commentsRemoved },
+    { from: "vite-hub/comments", to: "vite-hub/comments/client", names: commentsClientNames, removed: commentsRemoved },
+    { from: "@vite-hub/comments", to: "@vite-hub/comments/client", names: commentsClientNames, removed: commentsRemoved },
     { from: "vite-hub/forms", removed: new Map([...formsRemoved, ...[...formsGuardNames].map(name => [name, `\`${name}\` moved to \`@vite-hub/forms/guard\`. Install \`@vite-hub/forms\` and import it from there.`] as const)]) },
     { from: "@vite-hub/forms", to: "@vite-hub/forms/guard", names: formsGuardNames, removed: formsRemoved },
     { from: "vite-hub/workspace", to: "vite-hub/workspace/files", names: workspaceFilesNames, removed: workspaceRemoved },
@@ -158,8 +159,10 @@ function specifierText(context: FileContext, specifier: Specifier, move: Move): 
   const imported = importedName(specifier)
   const renamed = imported ? move.renames?.get(imported) : undefined
   if (!renamed || specifier.type !== "ImportSpecifier") return original
-  const typeOnly = specifier.importKind === "type" ? "type " : ""
-  return `${typeOnly}${renamed} as ${specifier.local.name}`
+  const from = start(specifier.imported) - start(specifier)
+  const to = end(specifier.imported) - start(specifier)
+  const alias = start(specifier.local) === start(specifier.imported) ? ` as ${specifier.local.name}` : ""
+  return `${original.slice(0, from)}${renamed}${alias}${original.slice(to)}`
 }
 
 function replaceSource(context: FileContext, source: StringLiteral, to: string) {
@@ -169,12 +172,53 @@ function replaceSource(context: FileContext, source: StringLiteral, to: string) 
 
 /** An import of `to` with named imports in the same file. The moved names join it. */
 function joinedImport(context: FileContext, statement: ImportDeclaration, to: string): ImportDeclaration | undefined {
+  if (hasImportComments(context, statement)) return undefined
   return context.program.program.body.find((other): other is ImportDeclaration => other.type === "ImportDeclaration"
     && other !== statement
     && other.source.value === to
     && (other.importKind ?? "value") === (statement.importKind ?? "value")
     && other.specifiers.length > 0
+    && !hasImportComments(context, other)
     && other.specifiers.every(specifier => specifier.type === "ImportSpecifier"))
+}
+
+function hasImportComments(context: FileContext, statement: ImportDeclaration): boolean {
+  return context.program.comments?.some(comment => comment.start! >= start(statement) && comment.end! <= end(statement)) ?? false
+}
+
+function skipImportTrivia(code: string, offset: number): number {
+  return offset + /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*/.exec(code.slice(offset))![0].length
+}
+
+function splitNamedImports(context: FileContext, statement: ImportDeclaration, move: Move) {
+  const { code } = context.block
+  const defaultImport = statement.specifiers.find(specifier => specifier.type === "ImportDefaultSpecifier")
+  const prefixEnd = skipImportTrivia(code, defaultImport ? end(defaultImport) : start(statement) + "import".length)
+  const open = defaultImport ? skipImportTrivia(code, prefixEnd + 1)
+    : statement.importKind === "type" ? skipImportTrivia(code, prefixEnd + "type".length) : prefixEnd
+  let cursor = open + 1
+  const kept: string[] = []
+  const moved: string[] = []
+  for (const specifier of statement.specifiers) {
+    if (specifier.type !== "ImportSpecifier") continue
+    const separator = skipImportTrivia(code, end(specifier))
+    const left = code.slice(cursor, start(specifier)).trimStart()
+    const right = code.slice(end(specifier), separator).trimEnd()
+    const lastComment = right.match(/\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*/g)?.at(-1)
+    const trailingLineComment = lastComment?.startsWith("//")
+    const moving = isMoving(move, importedName(specifier))
+    const text = moving ? specifierText(context, specifier, move) : code.slice(start(specifier), end(specifier))
+    const items = moving ? moved : kept
+    items.push(left + text + right + (trailingLineComment ? "\n" : ""))
+    cursor = code[separator] === "," ? separator + 1 : separator
+  }
+  const close = skipImportTrivia(code, cursor)
+  const afterTrailingComma = code.slice(cursor, close).trimStart()
+  if (afterTrailingComma.trim()) {
+    const items = kept.length ? kept : moved
+    items[items.length - 1] += `, ${afterTrailingComma}`
+  }
+  return { prefixEnd, open, close, kept, moved }
 }
 
 /** Rewrites one import of a moved path. */
@@ -197,28 +241,31 @@ function rewriteImport(context: FileContext, statement: ImportDeclaration, move:
   const moving = named.filter(specifier => isMoving(move, importedName(specifier)))
   if (!moving.length) return
   context.moved.add(move.to)
-  const texts = moving.map(specifier => specifierText(context, specifier, move))
-  if (moving.length === statement.specifiers.length && !joinedImport(context, statement, move.to)) {
+  const target = joinedImport(context, statement, move.to)
+  const wholeImport = moving.length === statement.specifiers.length
+  if (wholeImport && !target) {
     replaceSource(context, statement.source, move.to)
-    moving.forEach((specifier, index) => {
-      const text = texts[index]!
+    for (const specifier of moving) {
+      const text = specifierText(context, specifier, move)
       if (text !== block.code.slice(start(specifier), end(specifier))) output.overwrite(block.offset + start(specifier), block.offset + end(specifier), text)
-    })
+    }
     return
   }
-  for (const node of moving.length === statement.specifiers.length ? [statement] : moving) {
-    const [from, to] = listItemRemoval(block.code, node)
+  const { prefixEnd, open, close, kept, moved } = splitNamedImports(context, statement, move)
+  if (wholeImport) {
+    const [from, to] = listItemRemoval(block.code, statement)
     output.remove(block.offset + from, block.offset + to)
   }
+  else if (kept.length) output.overwrite(block.offset + open + 1, block.offset + close, ` ${kept.join(", ")} `)
+  else output.remove(block.offset + prefixEnd, block.offset + close + 1)
   // Join an import of the same path, such as `diagnostics` from `vite-hub/agent/capabilities`.
-  const target = joinedImport(context, statement, move.to)
   if (target) {
-    output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${texts.join(", ")}`)
+    output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${moved.join(", ")}`)
     return
   }
   const typeOnly = statement.importKind === "type" ? "type " : ""
   const semicolon = style.semicolons ? ";" : ""
-  output.appendLeft(block.offset + end(statement), `\nimport ${typeOnly}{ ${texts.join(", ")} } from ${quoteString(move.to, style)}${semicolon}`)
+  output.appendLeft(block.offset + end(statement), `\nimport ${typeOnly}{ ${moved.join(", ")} } from ${quoteString(move.to, style)}${semicolon}`)
 }
 
 function describeMove(move: Move): string {

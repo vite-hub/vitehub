@@ -134,6 +134,7 @@ const pinnedOwnerEntries: Record<string, readonly string[]> = {
     "parseDuration",
     "resolveCapabilityPolicy",
     "resolvePublicUrl",
+    "toResponse",
     "toResultError",
     "unknownExecutionAuthority",
   ],

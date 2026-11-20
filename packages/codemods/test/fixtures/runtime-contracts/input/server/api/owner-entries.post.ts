@@ -1,8 +1,10 @@
-import { guardRequest, type GuardRequestOptions } from "@vite-hub/forms"
-import { defineForm } from "@vite-hub/forms"
-import { encodeRouteSegment, getRuntimeContext } from "vite-hub/runtime"
-import { RealtimeDocumentConflict, refreshRealtimeDocument } from "vite-hub/realtime/server"
+import { guardRequest /* request checks */, defineForm, type GuardRequestOptions } from "@vite-hub/forms"
+import { encodeRouteSegment, getRuntimeContext, toResponse } from "vite-hub/runtime"
+import { RealtimeDocumentConflict // conflict handling
+  , refreshRealtimeDocument } from "vite-hub/realtime/server"
 import { normalizeSafeWorkspacePath, resolveRegisteredWorkspaceDefinition, useWorkspace } from "vite-hub/workspace"
+import { commentsErrorDiagnostics } from "vite-hub/comments"
+import { commentsErrorDiagnostics as ownerDiagnostics, defineComments } from "@vite-hub/comments"
 
 const options: GuardRequestOptions = { key: "votes" }
 
@@ -14,7 +16,8 @@ export default {
     await resolveRegisteredWorkspaceDefinition("docs")
     await useWorkspace("docs").readFile(path)
     await refreshRealtimeDocument("docs", encodeRouteSegment(path))
-    void defineForm, getRuntimeContext, RealtimeDocumentConflict
+    void defineForm, getRuntimeContext, RealtimeDocumentConflict, toResponse
+    void commentsErrorDiagnostics, ownerDiagnostics, defineComments
     return new Response("ok")
   },
 }

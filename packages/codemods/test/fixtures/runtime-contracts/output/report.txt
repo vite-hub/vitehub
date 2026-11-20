@@ -11,7 +11,7 @@ Files to change (7):
   server/utils/logger.ts
 
 Manual follow-ups (9):
-  1. server/api/owner-entries.post.ts:3 `encodeRouteSegment` is no longer public. Only ViteHub packages use it. Remove the import.
+  1. server/api/owner-entries.post.ts:2 `encodeRouteSegment` is no longer public. Only ViteHub packages use it. Remove the import.
   2. server/api/owner-entries.post.ts:5 `resolveRegisteredWorkspaceDefinition` moved to `vite-hub/workspace/runtime`. Import it from there.
   3. server/api/search.get.ts:3 `installStandardContext` is no longer public. ViteHub sets `event["~standard"]` on each request, and the primitives set it for an event that Nitro did not create. Remove the import and its calls.
   4. server/api/sync.post.ts:6 `checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.
