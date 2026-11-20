@@ -40,7 +40,9 @@ Change the preset to change the provider. The model ID is the ID that the gatewa
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
-The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation. `providerOptions` for `'chat'` go under the gateway name, such as `{ openrouter: { ... } }`; `'responses'` reads `openai` and `'messages'` reads `anthropic`.
+The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation.
+
+Put `providerOptions` under the gateway name for compatible Chat (such as `{ openrouter: { ... } }`), `openai` for `openai()` Chat and Responses, and `anthropic` for Messages. Compatible Chat passes request fields to the gateway. `openai()` Chat reads native SDK options and still sends raw Chat Completions fields such as `parallel_tool_calls`. A raw field takes precedence over its SDK option. `openai()` Chat keeps JSON mode for schema output, so `ask()` validates the result locally and accepts schemas with optional fields.
 
 ## Get typed data from one call
 
@@ -123,12 +125,13 @@ A chat model gives one answer and how sure it is. `probabilities` put that numbe
 | `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
 | `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
 | `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `emulate()` | | `<url>` (AI SDK `messages` only) | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
 | `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
 | `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
-The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
@@ -153,6 +156,38 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 ```
 
 An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `cloudflare()` reads two keys, `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models. `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
+
+## AI emulator
+
+`emulate()` sends model requests to the [AI emulator](https://emulate.dev/docs/ai) (`@emulators/ai`). The emulator answers from rules that you write, not from a model, so the same request gets the same answer each time. Use it in dev and tests. It needs no AI key.
+
+Start the emulator:
+
+```sh
+npx emulate@0.14.0 start --service ai --port 4014
+```
+
+Then use it like any other gateway:
+
+```ts [answer.ts]
+import { generateText } from 'ai'
+import { emulate } from '@vite-hub/gateways'
+import { languageModel } from '@vite-hub/gateways/ai-sdk'
+
+// Reads VITEHUB_EMULATE_URL, else uses http://localhost:4014.
+const model = languageModel(emulate(), 'gpt-5.1', { api: 'responses' })
+
+const { text } = await generateText({ model, prompt: 'Hello' })
+```
+
+- `emulate()` serves AI SDK models with `api: 'chat'`, `'responses'`, and `'messages'`. The emulator accepts any model ID.
+- Without a matching rule, the emulator returns a default reply. For `Output.object()` and `generateObject()`, that reply follows your schema on all three APIs.
+- It reads no credentials. It sends the key `emulate`, because the AI SDK providers need a key.
+- `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
+- In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
+- `GET <url>/_ai/calls` lists each request and the rule that answered it.
+- The emulator rejects hosted tools, such as web search.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. A later ViteHub release runs Codex Agents on the emulator through the Codex Driver. Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 

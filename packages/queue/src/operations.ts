@@ -86,7 +86,7 @@ const jobsList = defineQueueOperation<QueueJobsListInput, QueueJobsListResult>({
 })
 
 const jobsShow = defineQueueOperation<{ id: string }, { job: LocalQueueJobDetail }>({
-  cli: { command: "jobs show", format: formatJob, namespace: "queue", positional: ["id"] },
+  cli: { command: "jobs get", format: formatJob, namespace: "queue", positional: ["id"] },
   description: "Show one stored Queue job by message ID, with its payload, attempts, and last error.",
   input: v.strictObject({ id: jobId }),
   kind: "read",

@@ -18,4 +18,8 @@ describe("defineQueue", () => {
     // @ts-expect-error The test passes the removed and invalid forms.
     expect(() => defineQueue(...args)).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_DEFINITION", message: expect.stringContaining(message) }))
   })
+
+  it.each([0, 101, 2.5, Number.NaN])("rejects maxBatchSize %s with QUEUE_MAX_BATCH_SIZE_INVALID", (maxBatchSize) => {
+    expect(() => defineQueue({ handler: async () => {}, maxBatchSize })).toThrow(expect.objectContaining({ code: "QUEUE_MAX_BATCH_SIZE_INVALID" }))
+  })
 })

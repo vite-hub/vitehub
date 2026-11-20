@@ -35,7 +35,8 @@ The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'`
 
 - The gateway rereads its URL, key, and headers per request, so a rotated key applies at once.
 - `languageModel()` reads `process.env`, like a direct `ask()` call. Pass `fetch` for a custom implementation.
-- Put `providerOptions` under the name the API reads: the gateway name for `'chat'` (such as `{ openrouter: { ... } }`), `openai` for `'responses'`, and `anthropic` for `'messages'`.
+- Put `providerOptions` under the gateway name for compatible Chat (such as `{ openrouter: { ... } }`), `openai` for `openai()` Chat and Responses, and `anthropic` for Messages. Compatible Chat passes request fields to the gateway. `openai()` Chat reads native SDK options and still sends raw Chat Completions fields such as `parallel_tool_calls`. A raw field takes precedence over its SDK option.
+- `openai()` Chat keeps JSON mode for schema output, so `ask()` validates the result locally and accepts schemas with optional fields.
 
 ## Get typed data from a model
 

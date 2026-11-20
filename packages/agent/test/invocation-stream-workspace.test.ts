@@ -482,6 +482,33 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(workspaceSessionClose).toHaveBeenCalled()
   })
 
+  it("runs Agent Workspace commands for an Agent with the external Driver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-external-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "coding-agent.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({ driver: "external", workspace: { mode: "write", name: "meetups" } })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers, {
+      agent: "coding-agent",
+      workspaceCommand: { args: ["--version"], command: "node" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      ...await devLoopTokenHeaders(root),
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({ args: ["--version"], command: "node", exitCode: 0 })
+    expect(workspaceSessionExec).toHaveBeenCalledWith("node", ["--version"], expect.any(Object))
+  })
+
   it("installs hosted workspace runtime before hosted Agent Workspace commands", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-hosted-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })
