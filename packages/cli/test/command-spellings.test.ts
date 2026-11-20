@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const mainEmulatorExample = '- `vite build`, `vite preview`, and commands that only load the config, such as `vitehub env inspect`, do not start the emulator, and a build has no `@emulators/*` import.';
 
 it("uses canonical CLI paths in repository source, documentation, and scripts", () => {
   const files = new Set(execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" }).split("\0").filter(Boolean));
@@ -21,6 +22,7 @@ it("uses canonical CLI paths in repository source, documentation, and scripts", 
     if (file === "packages/cli/src/renamed-commands.ts") continue;
     if (!/\.(?:md|[cm]?[jt]sx?|vue|svelte|json|ya?ml|sh)$/.test(file)) continue;
     for (const [index, line] of readFileSync(join(repoRoot, file), "utf8").split("\n").entries()) {
+      if (file === "docs/content/docs/agents/agent-drivers.md" && line === mainEmulatorExample) continue;
       if (removedCommand.test(line)) violations.push(`${file}:${index + 1}: ${line.trim()}`);
     }
   }
