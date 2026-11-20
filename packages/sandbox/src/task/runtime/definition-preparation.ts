@@ -17,10 +17,10 @@ export async function prepareSandboxTaskDefinition(
     return { directory: baseDir, cwd: baseDir }
   }
 
-  const projectDir = `/tmp/vitehub-sandbox-task/projects/${project.digest}`
+  const projectDir = `${sandbox.tempDir}/vitehub-sandbox-task/projects/${project.digest}`
   const marker = `${projectDir}/.vitehub/prepared`
   const prepared = { directory: projectDir, cwd: resolveSandboxTaskModulePath(projectDir, project.packagePath) }
-  await sandbox.mkdir('/tmp/vitehub-sandbox-task/projects', { recursive: true, signal: options.signal })
+  await sandbox.mkdir(`${sandbox.tempDir}/vitehub-sandbox-task/projects`, { recursive: true, signal: options.signal })
   if (await sandbox.exists(marker, { signal: options.signal }))
     return prepared
 

@@ -1,5 +1,7 @@
 import files from "#docs/files"
 
+import type { DocsPackedFiles } from "../files.ts"
+
 const decoder = new TextDecoder()
 let unpacked: Promise<Uint8Array> | undefined
 
@@ -18,6 +20,15 @@ async function unpack(base64: string): Promise<Uint8Array> {
   return new Uint8Array(await new Response(new Response(gzip).body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
 }
 
+function packedFileRange(index: DocsPackedFiles["index"], store: string, file: string) {
+  const ranges = Object.hasOwn(index, store) ? index[store]! : undefined
+  return ranges && Object.hasOwn(ranges, file) ? ranges[file] : undefined
+}
+
+export function hasDocsFile(store: string, file: string): boolean {
+  return "read" in files ? files.has(store, file) : packedFileRange(files.index, store, file) !== undefined
+}
+
 /**
  * A Markdown file of a docs store: a content folder (`docs`, `docs-1`, ...) or the raw copies (`docs-raw`), or null.
  * A production build packs every file into one module. Nitro server assets would add one module per file, and
@@ -26,8 +37,7 @@ async function unpack(base64: string): Promise<Uint8Array> {
  */
 export async function readDocsFile(store: string, file: string): Promise<string | null> {
   if ("read" in files) return await files.read(store, file)
-  const ranges = Object.hasOwn(files.index, store) ? files.index[store]! : undefined
-  const range = ranges && Object.hasOwn(ranges, file) ? ranges[file] : undefined
+  const range = packedFileRange(files.index, store, file)
   if (!range) return null
   const bytes = await (unpacked ??= unpack(files.packed))
   return decoder.decode(bytes.subarray(range[0], range[1]))

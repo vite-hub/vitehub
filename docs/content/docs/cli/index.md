@@ -110,7 +110,7 @@ Available namespaces:
 | `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
-| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent on the dev server of this project, or on the app of `--url`. |
 | `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
 | `vitehub content list` | Available | Content Package | List the documents of one collection with their state, title, and field issues. |
 | `vitehub content show` | Available | Content Package | Print the stored file of one document and its field issues. |
@@ -149,8 +149,8 @@ Available namespaces:
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
-| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
-| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
+| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--yes`. |
+| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--yes`. |
 | `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |

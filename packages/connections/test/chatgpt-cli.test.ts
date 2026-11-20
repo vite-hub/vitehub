@@ -38,7 +38,7 @@ it("signs in through the browser callback and transfers a protected file without
       expect((await fetch(callbackUrl)).status).toBe(200)
     },
   }
-  const run = (command: string, args: string[] = []) => runConnectionsCli(command, ["chatgpt", ...args], context, options)
+  const run = (command: string, args: string[] = []) => runConnectionsCli(command, ["chatgpt", "--url", "http://localhost:3000", ...args], context, options)
   expect(await run("connect")).toBe(0)
   expect(output.stdout).toContain("test@example.com")
   expect(callbackUrl).toBeDefined()
@@ -63,7 +63,7 @@ it("signs in through the browser callback and transfers a protected file without
   expect(await run("import", ["--file", path])).toBe(0)
   expect((await runtime.inspect("chatgpt")).chatgpt?.hostId).not.toBe(sourceHost)
   expect(fake.state.refreshes).toBe(1)
-  expect(await run("revoke", ["--confirm", "chatgpt"])).toBe(0)
+  expect(await run("revoke", ["--yes"])).toBe(0)
   expect(fake.state.revoked).toBe(1)
   const credential: Record<string, string> = JSON.parse(await readFile(path, "utf8"))
   for (const key of ["access_token", "refresh_token", "id_token"]) expect(output.stdout + output.stderr).not.toContain(credential[key])

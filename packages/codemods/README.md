@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, and `kv-list-prefix`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, and `cms-roles`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -47,8 +47,9 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `queue-durations` | Queue `delaySeconds` to `delay` with a duration such as `"60s"`, and `retentionSeconds` to `retention`. `vitehub migrate` runs it. |
-| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
+| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, `runSchedule()`, `listAuthEvents()`, `aggregateAuthEvents()`, `runBrowser()`, `runBrowserContent()`, `runSandboxTask()`, and gateway `ask()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `nuxt-better-auth` | A Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth through `vite-hub/nuxt`: `server/auth.ts`, `app/auth.client.ts`, and `definePageMeta({ auth })` |
 | `docus` | A Docus site to `@vite-hub/docs`: the module, the site options, and the page frontmatter |
 | `nuxt-content` | Nuxt Content collections in `content.config.ts` to ViteHub Content Sources through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
@@ -66,6 +67,9 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `auth-accessors` | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()`. `vitehub migrate` runs it. |
 | `workspace-repo` | The GitHub Workspace Store option `repository` to `repo`. `vitehub migrate` runs it. |
 | `kv-list-prefix` | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })`. `vitehub migrate` runs it. |
+| `cli-yes-flag` | Replace old CLI prompt flags in scripts and CI, or report a manual migration. `vitehub migrate` runs it. |
+| `cli-url-flag` | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL. `vitehub migrate` runs it. |
+| `cms-roles` | The `cms` preset option `access: "roles"` to `roles: true`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -299,6 +303,25 @@ Jobs with six-field crons, computed times or time zones, or a shape the codemod 
 
 Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective host or jobs directory is computed, or the host is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
 
+## `nuxt-better-auth`
+
+The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth. It reads the app and its local layers (`layers/*` and relative `extends` paths):
+
+- `server/auth.config.ts` becomes `server/auth.ts`, and `defineServerAuth()` becomes `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. In a callback, `requestOrigin` stays and `runtimeConfig` becomes `useRuntimeConfig()` from `nitro/runtime-config`. When the app has a Database, or a NuxtHub one, the codemod adds `database: authDatabase()`.
+- `app/auth.config.ts` becomes `app/auth.client.ts`, and `defineClientAuth()` becomes `defineAuthClient()` from `vite-hub/auth/vue`. A config without options goes away.
+- A supported route rule with `auth` becomes `definePageMeta({ auth })` on each page it matches. A page that sets supported `auth` meta keeps it. Signed-in API rules become `access.routes` entries. Exact public exceptions and the Auth endpoints stay outside the generated API guard.
+- `auth.redirects.login` and `auth.redirects.guest` become `access.signIn` and `access.afterSignIn` in `server/auth.ts`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)` and `requireUserSession(event)` becomes `requireAuth(event)`. Optional session reads use Better Auth's `getSession()` and forward its session cookies.
+- `package.json` loses `@nuxtjs/better-auth` and gets `vite-hub`, `@vite-hub/auth`, and `better-auth` `^1.7.15`.
+
+The codemod stops without editing Auth when it cannot preserve the source policy. For example, it stops on user-field checks, overlapping page rules, path-dependent page rules, guest-only API rules, and computed route redirects. It checks nested local layers. It stops for Nuxt environment overrides such as `$production` or `$env`, `extends` overrides, and `extends` entries it cannot inspect. It also stops when ViteHub Auth is disabled or the source configs cannot move to Definitions that ViteHub can load.
+
+The report lists manual changes for `requireUserSession()` with options, client composables such as `useSignIn()` and `fetchSession()`, unsupported module options and helpers, `#nuxt-better-auth` types, and `NUXT_BETTER_AUTH_SECRET` in env files.
+
+```sh
+npx @vite-hub/codemods nuxt-better-auth [dir] [--dry-run]
+```
+
 ## `docus`
 
 The codemod moves a site that extends the `docus` layer to `@vite-hub/docs`:
@@ -460,6 +483,14 @@ The codemod also changes named imports from `#vitehub/auth/server`. It reports p
 npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
 ```
 
+## `cli-url-flag`
+
+`--url` is the app URL in every `vitehub` command. The codemod changes `--server <url>` to `--url <url>` in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. A `--url` that names the Console, such as `http://localhost:3000/_vitehub`, now fails: pass the app URL without `/_vitehub`.
+
+```sh
+npx @vite-hub/codemods cli-url-flag [dir] [--dry-run]
+```
+
 ## Check real apps
 
 `test/real-world/projects.json` pins open source Nuxt apps that use the supported modules. The runner clones each app outside the repository, installs it when its codemod loads app code, runs the migration, and checks which codemods ran and what the report says:
@@ -498,6 +529,24 @@ npx @vite-hub/codemods workspace-repo [dir] [--dry-run]
 ```
 
 The codemod changes inline GitHub Stores in `defineWorkspace()` and `vitehub()` calls. If a Store sets both keys or uses spreads or computed keys, the report asks you to move the previously effective repository to `repo` by hand. Migrate separately declared Store options by hand as well. The Workspace `fetch()` Source is now `url()`; `renamed-apis` updates imports while keeping their local names.
+
+## `cms-roles`
+
+`cms-roles` renames the option of the `cms` Content preset that turns on the CMS role policy:
+
+```sh
+npx @vite-hub/codemods cms-roles [dir] [--dry-run]
+```
+
+```diff [server/content.ts]
+ export default defineContent({
+-  extends: [cms, { access: 'roles' }],
++  extends: [cms, { roles: true }],
+   collections,
+ })
+```
+
+The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
 
 ## Add a codemod
 

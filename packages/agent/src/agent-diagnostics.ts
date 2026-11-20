@@ -510,6 +510,7 @@ const agentDiagnosticHandles = defineDiagnostics({
   codes: {
     // AGENT_R0081, AGENT_R0085, AGENT_R0086, AGENT_R0088, AGENT_R0094, AGENT_R0109, and AGENT_R0153 through AGENT_R0155 are retired. Nothing raised them. AGENT_R0105, AGENT_R0106, and AGENT_R0151 are retired: only a ViteHub bug reached them. Do not reuse them.
     // AGENT_R0038 through AGENT_R0048, AGENT_R0889, and AGENT_R0922 are retired. Nothing raised them. Do not reuse them.
+    // AGENT_R1053 is retired with the old `--url` forms of `vitehub agent invocations`. Do not reuse it.
     AGENT_R0907: {
       ...dynamicError,
       fix: "Set the observations option of the Agent Invocation journal to whole numbers inside the range that the message names, or remove the option to use its default.",
@@ -3773,7 +3774,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
     AGENT_INVOCATIONS_NO_DEV_SERVER: {
-      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to call.`,
       fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
     },
     AGENT_R0939: {
@@ -4059,10 +4060,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1052: {
       why: ({ problem }: { problem: string }) => `[vitehub] page() has an invalid rule: ${problem}`,
       fix: "Give each rule in `deny` and `requireApproval` a non-empty `label`, a `component`, or `confirm: true`, such as `{ label: \"Project name\" }`.",
-    },
-    AGENT_R1053: {
-      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
-      fix: ({ use }: { use: string }) => `Pass ${use}.`,
     },
     AGENT_R1054: {
       why: "[vitehub] This page is closed. Its queued calls cannot run.",

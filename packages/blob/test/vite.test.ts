@@ -1797,6 +1797,13 @@ describe("hubBlob in vite dev", () => {
     expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
   })
 
+  it("gives an explicit cloudflare store the local fs fallback in the dev plugin", async () => {
+    const root = await resolveConfig(hubBlob({ binding: "TASK_ASSETS", driver: "cloudflare" }), "serve", { preset: "cloudflare_module" })
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
   it("keeps the Nitro files that the dev server loads when nuxt prepare replays the build", async () => {
     const plugin = hubBlob({ bucketName: "app-blob", driver: "cloudflare" }, { presetDriver: true })
     const nitro = { preset: "cloudflare_module" }

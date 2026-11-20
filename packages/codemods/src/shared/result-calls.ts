@@ -49,6 +49,8 @@ export interface ResultCall {
   value: string
   /** Names the error after the variable of `const run = await call(...)`, such as `runError`, in place of `error`. */
   errorAfterValue?: boolean
+  /** For a direct route return, normalize the error or success value instead of throwing. */
+  responseHelper?: (freeName: (base: string) => string) => string
 }
 
 /** Names that a declaration, parameter, or import in `program` binds. */
@@ -131,6 +133,10 @@ function tupleBindings(program: File): Set<Identifier> {
 
 const functionTypes = new Set(["ArrowFunctionExpression", "ClassMethod", "ClassPrivateMethod", "FunctionDeclaration", "FunctionExpression", "ObjectMethod"])
 
+export function enclosingFunction(ancestors: readonly Node[]): Node | undefined {
+  return ancestors.findLast(node => functionTypes.has(node.type))
+}
+
 /** Adding an await must not make a catch see the rejection or delay a finally. */
 function canAwaitBareReturn(ancestors: readonly Node[]): boolean {
   for (const node of [...ancestors].reverse()) {
@@ -158,12 +164,13 @@ function rangeWithParentheses(code: string, node: Node): [number, number] {
  * - `await call(...)` as a statement becomes `const [error] = await call(...)`.
  * - A call that its statement runs first, such as `return await call(...)` or `if (!(await call(...)).ok)`, moves to a
  *   `const` before the statement, and the statement reads the value. An unprotected `return call(...)` in an async function does too.
- * Each line is followed by `if (error) throw error`. `unsupported` gets the other calls, such as a call without
+ * Each read is followed by `if (error) throw error`, unless a direct return uses `responseHelper` for both values.
+ * `unsupported` gets the other calls, such as a call without
  * `await` or one inside a larger expression. Returns the number of rewritten calls.
  */
 export function rewriteResultCalls(
   context: ResultCallContext,
-  match: (call: CallExpression) => ResultCall | undefined,
+  match: (call: CallExpression, ancestors: readonly Node[]) => ResultCall | undefined,
   unsupported: (call: CallExpression) => void,
 ): number {
   const { block, output, program, style } = context
@@ -180,7 +187,7 @@ export function rewriteResultCalls(
   let rewritten = 0
   walk(program, (node, ancestors) => {
     if (node.type !== "CallExpression") return
-    const call = match(node)
+    const call = match(node, ancestors)
     if (!call) return
     const parent = ancestors.at(-1)
     const owner = ancestors.at(-2)
@@ -212,8 +219,10 @@ export function rewriteResultCalls(
     else {
       const value = freeName(call.value)
       const [from, to] = rangeWithParentheses(block.code, awaited)
-      output.appendLeft(block.offset + start(statement), `const [${error}, ${value}] = ${awaitedCode}${semicolon}\n${indent}${check}\n${indent}`)
-      output.overwrite(block.offset + from, block.offset + to, value)
+      const helper = call.responseHelper?.(freeName)
+      const read = `const [${error}, ${value}] = ${awaitedCode}${semicolon}\n${indent}`
+      output.appendLeft(block.offset + start(statement), helper ? read : `${read}${check}\n${indent}`)
+      output.overwrite(block.offset + from, block.offset + to, helper ? `${helper}(${error} ?? ${value})` : value)
     }
     rewritten++
   })

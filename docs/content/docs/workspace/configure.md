@@ -147,6 +147,8 @@ The Store keeps every committed revision on every ref and has no pruning API. Fa
 
 The GitHub Store keeps the Workspace in a repository. It reads and writes through the GitHub API, so it needs a token and a network. It supports [retained history](/docs/workspace/server-api): each branch is a ref, and each commit is a revision.
 
+Install the GitHub Store's peer with `pnpm add @vite-hub/forge`. Builds fail with `VITE_HUB_R0136` if the Workspace config or a discovered Workspace Definition selects the GitHub Store without it. Stores chosen only at runtime check for the peer when they first use Forge.
+
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
 

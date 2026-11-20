@@ -11,17 +11,22 @@ import { defineConnection } from "../src/definition.ts"
 import { createConnectionsHandler } from "../src/http.ts"
 import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN, testProvider } from "./helpers.ts"
 
+/** The dev server of the project. The CLI never guesses a port, so each test names it. */
+const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
+
 function cli(test = createTestRuntime()) {
   const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
   const output = { stderr: "", stdout: "" }
   const context = {
-    env: {},
+    env: { ...devServerEnv },
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler.fetch(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const request = vi.fn<typeof fetch>(async (input, init) => handler.fetch(new Request(input, init)))
+  const options = { openBrowser: false as const, fetch: request, timeout: 5 }
   return {
     output,
+    request,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
     test,
   }
@@ -62,7 +67,7 @@ describe("vitehub connections", () => {
   it("waits for the sign-in as long as the authorization link works", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -82,7 +87,7 @@ describe("vitehub connections", () => {
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -168,7 +173,7 @@ describe("vitehub connections", () => {
     const requests: string[] = []
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -191,7 +196,7 @@ describe("vitehub connections", () => {
       // A Nuxt dev server on a port other than 5173 records its URL with the app base.
       await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/docs/" }))
       const requests: string[] = []
-      const context = { env: {}, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
+      const context = { env: { ...devServerEnv }, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
       const fetch = (async (input: Parameters<typeof globalThis.fetch>[0]) => {
         requests.push(String(input))
         return Response.json({ connections: [] })
@@ -274,7 +279,7 @@ describe("vitehub connections", () => {
 
   it("names the session cookie when the app refuses the request", async () => {
     const output = { stderr: "", stdout: "" }
-    const context = { env: {}, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
+    const context = { env: { ...devServerEnv }, stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) }, stdout: { write: () => true } }
     const fetch = (async () => Response.json({ code: "CONSOLE_UNAUTHORIZED", message: "Sign in to the Console.", ok: false, status: 401 }, { status: 401 })) as typeof globalThis.fetch
     expect(await runConnectionsCli("list", ["--url", "https://app.example.com"], context, { fetch })).toBe(1)
     expect(output.stderr).toContain("Sign in to the Console. (CONSOLE_UNAUTHORIZED)")
@@ -294,9 +299,18 @@ describe("vitehub connections", () => {
     expect(await harness.run("approvals", ["approve", approval!.id])).toBe(0)
     expect(harness.output.stdout).toContain("executed")
 
+    // Vitest has no terminal, so nothing can confirm.
     expect(await harness.run("revoke", ["mail"])).toBe(1)
-    expect(harness.output.stderr).toContain("--confirm mail")
-    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(0)
+    expect(harness.output.stderr).toContain("run it again with --yes")
+    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
+    expect(harness.output.stderr).toContain("--confirm <name> is now --yes")
+    harness.request.mockClear()
+    for (const flag of ["--yes=false", "--yes=", "-y=false"]) {
+      expect(await harness.run("revoke", ["mail", flag])).toBe(1)
+      expect(harness.output.stderr).toContain("does not take a value")
+    }
+    expect(harness.request).not.toHaveBeenCalled()
+    expect(await harness.run("revoke", ["mail", "-y"])).toBe(0)
     expect(harness.output.stdout).toContain("revoked")
   })
 
@@ -339,7 +353,7 @@ describe("vitehub connections", () => {
   it("rejects malformed successful management responses", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
@@ -352,7 +366,7 @@ describe("vitehub connections", () => {
   it("stops waiting for an app that never answers", async () => {
     const output = { stderr: "", stdout: "" }
     const context = {
-      env: {},
+      env: { ...devServerEnv },
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }

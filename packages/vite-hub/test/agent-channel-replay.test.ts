@@ -45,10 +45,9 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   }) },
 })
 `)
-    await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
       plugins: [vitehub({ host: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
-        console: { auth: false, authorize: "./authorize.ts" },
+        console: false,
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.
       resolve: { alias: {
@@ -65,7 +64,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
     expect(discovery.status, await discovery.text()).toBe(200)
     const stdout = { write: () => {} }
     const errors: string[] = []
-    const code = await runAgentChannelReplayCli(["--server", origin, "--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "native-round", "--query", "turns=last", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
+    const code = await runAgentChannelReplayCli(["--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "native-round", "--query", "turns=last", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
     expect(errors).toEqual([])
     expect(code).toBe(0)
     const rows = await client.execute("SELECT status, record FROM vitehub_agent_invocations")
@@ -77,7 +76,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
     const effects = record.observations.filter((observation: { name: string }) => observation.name === "agent.channel.delivery.effect")
     expect(effects).toHaveLength(1)
     expect(effects[0].attributes).toMatchObject({ "channel.effect.channel": "teams", "channel.effect.skipped": "dry-run", "channel.effect.content": "Synthetic raw draft" })
-    const missingDelivery = await runAgentChannelReplayCli(["--server", origin, "--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "missing-delivery", "--query", "turns=last", "--query", "delivery=skip", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
+    const missingDelivery = await runAgentChannelReplayCli(["--agent", "support", "--channel", "mailbox", "--dry-run", "--label", "missing-delivery", "--query", "turns=last", "--query", "delivery=skip", "--limit", "1"], { env: {}, rootDir: root, stdout, stderr: { write: chunk => errors.push(String(chunk)) } })
     expect(missingDelivery).toBe(1)
     const failed = await client.execute("SELECT status, record FROM vitehub_agent_invocations WHERE status = 'failed'")
     expect(failed.rows).toHaveLength(1)
