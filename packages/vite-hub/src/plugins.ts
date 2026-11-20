@@ -918,8 +918,9 @@ function deploymentNitroModule(
   return (nitro: {
     hooks: {
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
-        & ((name: "build:before", callback: () => void) => void)
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
+      beforeEach: (callback: (event: { name: string }) => void) => void
+      hookOnce: (name: "compiled", callback: () => Promise<void>) => () => void
     }
     logger: { warn(message: string): void }
     options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean, nodeCompat?: boolean, wrangler?: unknown }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
@@ -946,14 +947,15 @@ function deploymentNitroModule(
       // Nitro passes the configuration for its resolved builder.
       nitro.hooks.hook("build:config", (_nitro, config) => addPackagesPlugin(config.rolldown ?? config.rollup))
     }
-    if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false) {
-      // Every module has added its `compiled` hooks by `build:before`, and Nitro runs them in order. Adding the check then
-      // runs it on the final `wrangler.json`, after the hooks of modules that the project installs after ViteHub.
-      let checked = false
-      nitro.hooks.hook("build:before", () => {
-        if (checked) return
-        checked = true
-        nitro.hooks.hook("compiled", async () => await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [], { realtime }))
+    if (plan.host === "cloudflare") {
+      let removeCheck: (() => void) | undefined
+      nitro.hooks.beforeEach(function appendResourceCheckBeforeDispatch({ name }) {
+        if (name !== "compiled") return
+        removeCheck?.()
+        removeCheck = nitro.hooks.hookOnce("compiled", async () => {
+          if (nitro.options.cloudflare?.deployConfig === false) return
+          await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [], { realtime })
+        })
       })
     }
     nitro.hooks.hook("compiled", async () => {

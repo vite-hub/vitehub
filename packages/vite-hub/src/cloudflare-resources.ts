@@ -58,12 +58,21 @@ const realtimeDurableObject: ViteHubResourceSummary = { binding: "$DurableObject
 
 /**
  * Checks the final `wrangler.json` against the resources that the ViteHub plugins list for this build, and throws when one
- * is missing. A Worker deployed without a binding fails only when code first reads it. A missing or unreadable file lacks
+ * is missing. A Worker deployed without a binding fails only when code first reads it. A missing or invalid file lacks
  * every resource.
  */
 export async function assertCloudflareResources(serverDir: string, plugins: readonly unknown[], options: { realtime?: boolean } = {}): Promise<void> {
   const file = join(serverDir, "wrangler.json")
-  const config: unknown = existsSync(file) ? JSON.parse(await readFile(file, "utf8")) : undefined
+  let config: unknown
+  if (existsSync(file)) {
+    const contents = await readFile(file, "utf8")
+    try {
+      config = JSON.parse(contents)
+    }
+    catch (error) {
+      if (!(error instanceof SyntaxError)) throw error
+    }
+  }
   const resources = [...await collectViteHubResourceSummaries(plugins), ...options.realtime ? [realtimeDurableObject] : []]
   const missing = findMissingCloudflareResources(typeof config === "object" && config !== null && !Array.isArray(config) ? config as Record<string, unknown> : {}, resources)
   if (missing.length) throw viteHubErrorDiagnostics.VITE_HUB_CLOUDFLARE_RESOURCE_MISSING({ file, resources: missing.map(describe).join("; ") })

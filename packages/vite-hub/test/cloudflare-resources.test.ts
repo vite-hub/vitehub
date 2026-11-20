@@ -76,11 +76,17 @@ const dropTriggersFromFile = (nitro: TestNitro) => {
     await writeFile(file, JSON.stringify(config))
   })
 }
+const registerLateOutputEdit = (nitro: TestNitro) => {
+  nitro.hooks.hook("build:before", () => dropTriggersFromFile(nitro))
+}
 const deleteFile = (nitro: TestNitro) => {
   nitro.hooks.hook("compiled", async () => await unlink(join(nitro.options.output.serverDir, "wrangler.json")))
 }
 const writeNull = (nitro: TestNitro) => {
   nitro.hooks.hook("compiled", async () => await writeFile(join(nitro.options.output.serverDir, "wrangler.json"), "null"))
+}
+const writeInvalidJson = (nitro: TestNitro) => {
+  nitro.hooks.hook("compiled", async () => await writeFile(join(nitro.options.output.serverDir, "wrangler.json"), "{"))
 }
 
 async function build(modules: unknown[]): Promise<string> {
@@ -112,8 +118,10 @@ describe("Cloudflare build", () => {
   it.each([
     ["drops the cron from the Nitro config", dropTriggers],
     ["drops the cron from the generated file", dropTriggersFromFile],
+    ["registers a compiled hook in build:before that drops the cron", registerLateOutputEdit],
     ["deletes the generated file", deleteFile],
     ["writes null to the generated file", writeNull],
+    ["writes invalid JSON to the generated file", writeInvalidJson],
   ])("fails with a coded error when a project module %s", async (_name, module) => {
     await expect(build([module])).rejects.toMatchObject({
       code: "VITE_HUB_CLOUDFLARE_RESOURCE_MISSING",
@@ -121,3 +129,37 @@ describe("Cloudflare build", () => {
     })
   }, 120_000)
 })
+
+it("checks the final Wrangler config in a Nuxt Cloudflare build", async () => {
+  const cache = resolve(import.meta.dirname, "../.cache")
+  await mkdir(cache, { recursive: true })
+  const root = await mkdtemp(join(cache, "nuxt-cloudflare-resources-"))
+  roots.push(root)
+  await mkdir(join(root, "server/schedules"), { recursive: true })
+  await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
+  await writeFile(join(root, "app.vue"), "<template><div /></template>\n")
+  await writeFile(join(root, "server/schedules/daily.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
+  await writeFile(join(root, "nuxt.config.ts"), `
+    import { unlink } from "node:fs/promises"
+    import { join } from "node:path"
+
+    export default defineNuxtConfig({
+      modules: ["vite-hub/nuxt"],
+      vitehub: { host: "cloudflare", console: false, schedule: true },
+      nitro: { hooks: { "build:before"(nitro) {
+        nitro.hooks.hook("compiled", () => unlink(join(nitro.options.output.serverDir, "wrangler.json")))
+      } } },
+    })
+  `)
+  const { build: buildNuxt, loadNuxt } = await import("nuxt")
+  const nuxt = await loadNuxt({ cwd: root, overrides: { dev: false, logLevel: "silent" } })
+  try {
+    await expect(buildNuxt(nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_CLOUDFLARE_RESOURCE_MISSING",
+      message: expect.stringContaining('for schedule "daily"'),
+    })
+  }
+  finally {
+    await nuxt.close()
+  }
+}, 120_000)
