@@ -9,8 +9,9 @@ import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 import * as v from "valibot"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { askOnTerminal, defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { askOnTerminal, requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { isLoopbackHost } from "./api-key.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -83,14 +84,17 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     flags,
     json: flags.has("--json"),
     positionals,
-    url: url ?? devServerUrl(context),
+    // Read when a command calls the app, so help and local commands need no dev server.
+    get url() {
+      return url ?? devServerUrl(context)
+    },
   }
 }
 
-/** The dev server that runs in this project writes its URL, with the app base, to the project root. */
+/** The dev server that runs in this project writes its URL, with the app base, to the project root. It never guesses a port. */
 function devServerUrl(context: CliContext): string {
   const roots = context.rootDir ? [...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])] : []
-  return findViteHubDevServerUrl(roots, context.env) ?? defaultViteHubDevServerUrl
+  return requireViteHubDevServerUrl(roots, context.env, "connections")
 }
 
 function stringFlag(value: string | true | undefined): string | undefined {
@@ -527,7 +531,7 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
+    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project.",
     "  --cookie <value>  App session cookie (or VITEHUB_CONNECTIONS_COOKIE) that the app's Connections actor accepts.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
@@ -547,8 +551,13 @@ export async function runConnectionsCli(command: string, args: string[], context
     return (await entry.run(parsed, context, options)) ?? 0
   }
   catch (error) {
-    const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    if (error instanceof Error && "code" in error && error.code === "INTERNAL_DEV_SERVER_NOT_FOUND") {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    }
+    else {
+      const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    }
     return 1
   }
 }

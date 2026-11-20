@@ -431,7 +431,7 @@ import cms from "vite-hub/cms"
 import { docsCollection } from "@vite-hub/docs"
 
 export default defineContent({
-  extends: [cms, { repo: "owner/name", publish: "pr", access: "roles" }],
+  extends: [cms, { repo: "owner/name", publish: "pr", roles: true }],
   collections: { docs: docsCollection() },
 })
 ```

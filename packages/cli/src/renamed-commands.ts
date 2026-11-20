@@ -24,7 +24,7 @@ const renamedCommands: readonly RenamedCommand[] = [
   { from: ["invocations", "delete"], now: "vitehub agent invocations delete", migration: "Pass the Invocation ID and --url <app> to delete from the same Console. Without --url this deletes from the journal file." },
   { from: ["invocations", "capabilities"], now: "vitehub agent invocations capabilities" },
   { from: ["invocations", "workspace"], now: "vitehub agent invocations workspace" },
-  { from: ["agent", "info"], now: "vitehub agent get", migration: "Pass the name instead of --agent and use --server for an explicit Dev Loop URL." },
+  { from: ["agent", "info"], now: "vitehub agent get", migration: "Pass the name instead of --agent and use --dev --url for an explicit Dev Loop URL." },
   { from: ["agent", "invocations", "show"], now: "vitehub agent invocations get" },
   { from: ["content", "show"], now: "vitehub content get" },
   { from: ["definitions", "list"], now: "vitehub inspect definitions", migration: "Use --kind <kind> for local definitions, or the Console for runtime records. The old section and URL arguments do not carry over." },

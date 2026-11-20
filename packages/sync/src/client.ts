@@ -25,6 +25,7 @@ function createSync<TName extends SyncName, TWhere extends SyncSubsetOf<TName> =
 }
 
 export { clearSync, createSync, SyncError }
+export type { ClearSyncOptions } from "./client/open.ts"
 export { syncRoute } from "./protocol.ts"
 export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
 export type { SyncActionCalls, SyncClientErrorCode, SyncFailure, SyncLocal, SyncOptimisticActions, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"

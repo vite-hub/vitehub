@@ -83,7 +83,6 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "cron-schedule": "catalog:workflow",
-    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -91,6 +90,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
+    "esbuild": "catalog:tooling",
     "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

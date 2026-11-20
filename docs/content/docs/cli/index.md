@@ -109,7 +109,7 @@ Available namespaces:
 | `vitehub agent conversations` | Available | Agent Package | `export` one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `agent conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
-| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent on the dev server of this project, or on the app of `--url`. |
 | `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
 | `vitehub content list` | Available | Content Package | List the documents of one collection with their state, title, and field issues. |
 | `vitehub content get` | Available | Content Package | Print the stored file of one document and its field issues. |

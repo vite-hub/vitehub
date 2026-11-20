@@ -38,7 +38,7 @@ it("signs in through the browser callback and transfers a protected file without
       expect((await fetch(callbackUrl)).status).toBe(200)
     },
   }
-  const run = (command: string, args: string[] = []) => runConnectionsCli(command, ["chatgpt", ...args], context, options)
+  const run = (command: string, args: string[] = []) => runConnectionsCli(command, ["chatgpt", "--url", "http://localhost:3000", ...args], context, options)
   expect(await run("connect")).toBe(0)
   expect(output.stdout).toContain("test@example.com")
   expect(callbackUrl).toBeDefined()

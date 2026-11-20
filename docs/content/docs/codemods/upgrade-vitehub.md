@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-yes-flag`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -148,6 +148,19 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
 ```
 
 `return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+
+These calls changed in the same way, and `result-tuples` reads them too:
+
+| Call | Before | Import |
+| --- | --- | --- |
+| `listAuthEvents()`, `aggregateAuthEvents()` | threw | `vite-hub/auth/server`, `vite-hub/auth/runtime/console` |
+| `runBrowserContent()` | threw | `vite-hub/browser` |
+| `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` | threw | `vite-hub/gateways` |
+| `runBrowser()`, `runSandboxTask()` | returned a `Response` | `vite-hub/browser`, `vite-hub/sandbox/task`, and their Nuxt auto-imports |
+
+`runBrowser()` and `runSandboxTask()` returned a `Response`, and now return the value of the handler as `data`. The codemod rewrites an explicitly imported call that a known route handler returns. It uses `return toResponse(error ?? data)` from `vite-hub/runtime` to keep the HTTP response. It reports other calls, including Nuxt auto-imports whose source it cannot confirm and calls whose result the code reads with `response.json()`.
+
+The codemod also lists a gateway that a file exports. i18n `save()` already returned `[error, data]`, so it needs no change. A custom gateway `ask()` that `defineChoices({ gateway })` gets must return `[undefined, answers]` now. Change it by hand.
 
 ## one-entry-imports
 
@@ -491,6 +504,38 @@ For simple commands, it changes `database drop` and `database reset` from `--for
 
 The report lists commands it cannot safely change. If it lists a `database generate` command, set `CI=1` in the command's environment before you remove `--non-interactive` so it still cannot prompt.
 
+## cli-url-flag
+
+`cli-url-flag` changes `--server <url>` to `--url <url>` in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `--url` is the app URL in every command:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-url-flag [dir] [--dry-run]
+```
+
+```diff [package.json]
+-    "cancel": "vitehub agent invocations cancel --server http://localhost:3000"
++    "cancel": "vitehub agent invocations cancel --url http://localhost:3000"
+```
+
+A `--url` that names the Console, such as `http://localhost:3000/_vitehub`, now fails with the app URL to pass. A command without `--url` uses the dev server of the project instead of guessing `localhost:5173`.
+
+## cms-roles
+
+`cms-roles` renames the option of the `cms` Content preset that turns on the CMS role policy:
+
+```bash [Terminal]
+npx @vite-hub/codemods cms-roles [dir] [--dry-run]
+```
+
+```diff [server/content.ts]
+ export default defineContent({
+-  extends: [cms, { access: 'roles' }],
++  extends: [cms, { roles: true }],
+   collections,
+ })
+```
+
+The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
 ## cli-get-list
 
 `cli-get-list` renames the read commands in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `get` reads one record and `list` reads many:
@@ -545,4 +590,4 @@ The codemod leaves old Console deletes untouched. Migrate them by hand to `viteh
 
 Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
 
-Use `agent get <name> --server <dev-url>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.
+Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` alone for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.

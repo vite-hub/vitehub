@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 
 let tempDir: string | undefined
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 it("bundles modules imported through file URLs", async () => {
-  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-esbuild-file-url-"))
+  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-rolldown-file-url-"))
   const dependency = join(tempDir, "dependency.mjs")
   const entry = join(tempDir, "entry.mjs")
   const outfile = join(tempDir, "bundle.mjs")

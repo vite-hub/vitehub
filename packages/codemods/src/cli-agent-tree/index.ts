@@ -10,7 +10,7 @@ const renames: ReadonlyArray<[RegExp, string]> = [
   [/^conversations\s+export(?=\s|$)/, "agent conversations export"],
 ]
 
-const inspectionFollowUp = { message: "Move --agent to the name in `vitehub agent get <name>`. For old `agents status` calls, pass the Console app's --url; for Dev Loop calls with a URL, use --server." }
+const inspectionFollowUp = { message: "Move --agent to the name in `vitehub agent get <name>`. For old `agents status` calls, pass the Console app's --url; for Dev Loop calls with a URL, use --dev --url." }
 
 function unquote(word: string) {
   return word.replace(/^(['"])(.*)\1$/, "$2")
@@ -23,9 +23,14 @@ function hasOption(words: readonly string[], flag: string) {
 function rewriteInspection(options: readonly string[], status: boolean) {
   let name: string | undefined
   let url = false
+  let dev = false
   const tail: string[] = []
   for (let index = 0; index < options.length; index++) {
     const option = options[index]!
+    if (!status && option === "--dev") {
+      dev = true
+      continue
+    }
     if (["--json", "--help", "-h"].includes(option)) {
       tail.push(option)
       continue
@@ -42,13 +47,12 @@ function rewriteInspection(options: readonly string[], status: boolean) {
     else {
       if (url) return inspectionFollowUp
       url = true
-      const target = status ? "--url" : "--server"
-      if (separate) tail.push(target, value)
-      else tail.push(`${target}=${value}`)
+      if (separate) tail.push("--url", value)
+      else tail.push(`--url=${value}`)
     }
   }
   if (!name || (status && !url)) return inspectionFollowUp
-  return ["agent get", name, ...tail].join(" ")
+  return ["agent get", name, ...(dev || (!status && url) ? ["--dev"] : []), ...tail].join(" ")
 }
 
 function rewrite(args: string, words: readonly ShellWord[]): string | { message: string } {

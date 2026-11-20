@@ -2,7 +2,7 @@ import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { formatRuntimeDiagnosticError, isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
@@ -27,7 +27,7 @@ interface AgentInfoCliOptions {
 
 interface ParsedInfoArgs {
   agent?: string
-  target?: "console" | "dev"
+  console: boolean
   help: boolean
   json: boolean
   url: string
@@ -61,15 +61,15 @@ export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: st
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent get [name] [--url <app> | --server <dev-url>] [--json]",
+    "Usage: vitehub agent get [name] [--url <app>] [--dev] [--json]",
     "",
     "Inspect one Agent through the running dev server, or through an app's Console.",
     "The name is required when the app has several Agents.",
     "",
     "Options:",
-    "  --url <app>     App URL for Console inspection, including locally served production builds.",
-    "  --server <url>  Agent Dev Loop URL. Defaults to the dev server running in this project,",
-    "                  then VITEHUB_DEV_SERVER_URL, then http://localhost:5173.",
+    "  --url <url>     App URL, such as http://localhost:3000. Defaults to the dev server running in this project,",
+    "                  then VITEHUB_DEV_SERVER_URL.",
+    "  --dev           Inspect the guarded Dev Loop instead of the Console at the explicit URL.",
     "  --json          Print structured Agent metadata.",
     "  -h, --help      Show this help.",
     "",
@@ -83,13 +83,8 @@ function readOptionValue(args: string[], index: number, flag: string): string {
 }
 
 function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" | "rootDir">): ParsedInfoArgs {
-  const parsed: ParsedInfoArgs = {
-    help: false,
-    json: false,
-    // A Nuxt or Vite dev server records its URL in the project root, so a port other than 5173 needs no --url.
-    // Nuxt's Vite root is the `app/` folder below it.
-    url: findViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env) ?? defaultViteHubDevServerUrl,
-  }
+  const parsed: Omit<ParsedInfoArgs, "url" | "console"> & { url?: string } = { help: false, json: false }
+  let dev = false
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -105,15 +100,20 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
       const name = arg === "--agent" ? args[index + 1] : arg.slice("--agent=".length)
       throw agentDiagnostics.AGENT_R0499({ message: `--agent is now the name argument. Run vitehub agent get ${name && !name.startsWith("-") ? name : "<name>"}.` })
     }
-    const targetFlag = /^--(url|server)(?:=|$)/.exec(arg)
-    if (targetFlag) {
-      const flag = `--${targetFlag[1]}`
-      const target = flag === "--url" ? "console" : "dev"
-      if (parsed.target && parsed.target !== target) throw agentDiagnostics.AGENT_R0499({ message: "Pass --url or --server, not both." })
-      const value = arg === flag ? readOptionValue(args, index++, flag) : arg.slice(flag.length + 1)
+    if (arg === "--dev") {
+      dev = true
+      continue
+    }
+    if (arg === "--server" || arg.startsWith("--server=")) throw agentDiagnostics.AGENT_R0499({ message: "--server is now --dev --url. Pass --dev --url with the Dev Loop URL, such as --dev --url http://localhost:3000." })
+    if (arg === "--url") {
+      parsed.url = readOptionValue(args, index, arg)
+      index++
+      continue
+    }
+    if (arg.startsWith("--url=")) {
+      const value = arg.slice("--url=".length)
       if (!value) throw agentDiagnostics.AGENT_R0498({ message: `Missing value for ${arg}.` })
       parsed.url = value
-      parsed.target = target
       continue
     }
     if (arg.startsWith("-")) throw agentDiagnostics.AGENT_R0499({ message: `Unknown option: ${arg}.` })
@@ -124,7 +124,9 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
     throw agentDiagnostics.AGENT_R0500({ message: `Unexpected argument: ${arg}.` })
   }
 
-  return parsed
+  // A Nuxt or Vite dev server records its URL in the project root, and Nuxt's Vite root is the `app/` folder below it.
+  // Help needs no server, and the command never guesses a port.
+  return { ...parsed, console: parsed.url !== undefined && !dev, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env, "agent get")) }
 }
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
@@ -274,7 +276,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     writeInfoUsage(context)
     return 0
   }
-  if (parsed.target === "console") return await readDeployedAgent(parsed, context, options)
+  if (parsed.console) return await readDeployedAgent(parsed, context, options)
 
   let url: string
   try {

@@ -58,6 +58,14 @@ describe("agent get CLI", () => {
     expect(stderr.output).toContain("--agent is now the name argument. Run vitehub agent get docs.")
   })
 
+  it("does not fetch a guessed URL when the project has no dev server", async () => {
+    const stderr = stream()
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    expect(await runAgentInfoCli(["docs"], { env: {}, rootDir: "/app", stderr, stdout: stream() }, { fetch })).toBe(1)
+    expect(stderr.output).toContain("INTERNAL_DEV_SERVER_NOT_FOUND")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each(["https://app.example.com", "http://localhost:3000"])("reads the Console at %s through status.get", async (app) => {
     const stdout = stream()
     const calls: string[] = []
@@ -73,7 +81,7 @@ describe("agent get CLI", () => {
 
   it("selects the Dev Loop explicitly on a custom hostname", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ inspection: { name: "docs" }, root: "/app" }))
-    expect(await runAgentInfoCli(["docs", "--server=https://dev.example.com"], { env: {}, rootDir: "/app", stderr: stream(), stdout: stream() }, { fetch })).toBe(0)
+    expect(await runAgentInfoCli(["docs", "--dev", "--url=https://dev.example.com"], { env: {}, rootDir: "/app", stderr: stream(), stdout: stream() }, { fetch })).toBe(0)
     expect(fetch).toHaveBeenCalledWith("https://dev.example.com/__vitehub/agent/invocation-stream?inspect=1&agent=docs", expect.anything())
   })
 })

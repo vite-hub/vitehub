@@ -158,7 +158,7 @@ describe("vitehub agent invocations compact", () => {
   it("rejects --url and an invocation id", async () => {
     const url = output()
     await expect(runAgentInvocationsCli(["compact", "--url", "https://app.example.com"], { env: {}, ...url })).resolves.toBe(1)
-    expect(url.chunks.stderr).toContain("compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server.")
+    expect(url.chunks.stderr).toContain("compact rebuilds a local SQLite file. Pass --database with the file path instead of --url.")
 
     const id = output()
     await expect(runAgentInvocationsCli(["compact", "first"], { env: {}, ...id })).resolves.toBe(1)

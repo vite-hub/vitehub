@@ -69,22 +69,15 @@ describe("vitehub agent invocations with a deployed Console", () => {
   })
 
   it.each([
-    ["https://agent.example.com/_vitehub", "https://agent.example.com/_vitehub/rpc"],
-    ["https://agent.example.com/_vitehub/agents/support", "https://agent.example.com/_vitehub/rpc"],
+    ["https://agent.example.com", "https://agent.example.com/_vitehub/rpc"],
     ["https://example.com/app/", "https://example.com/app/_vitehub/rpc"],
-    ["http://localhost:3000/_vitehub", "http://localhost:3000/_vitehub/rpc"],
-  ])("resolves the Console RPC endpoint from %s", async (url, endpoint) => {
+    ["http://localhost:3000", "http://localhost:3000/_vitehub/rpc"],
+  ])("resolves the Console RPC endpoint from the app URL %s", async (url, endpoint) => {
     const host = deployedConsole(() => ({ invocations: [] }))
     expect((await run(["list", "--url", url], host.fetch)).exitCode).toBe(0)
     expect(host.calls[0]!.url).toBe(endpoint)
   })
 
-  it("keeps a localhost URL without a Console path on the local invocation endpoint", async () => {
-    const fetch = vi.fn(async () => Response.json({ invocations: [] }))
-    // SAFETY: The mock implements the fetch call shape that the CLI uses.
-    expect((await run(["list", "--url", "http://localhost:5173/api/invocations"], fetch as unknown as typeof globalThis.fetch)).exitCode).toBe(0)
-    expect(fetch).toHaveBeenCalledWith("http://localhost:5173/api/invocations", expect.anything())
-  })
 
   it.each([
     ["http://agent.example.com", "must use HTTPS"],

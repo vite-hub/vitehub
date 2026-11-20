@@ -349,7 +349,7 @@ Created key session:42 in store default (string, TTL 3600 s).
 Deleted key settings from store default.
 ```
 
-Every command takes `--store <name>`, `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173`, and `--timeout <ms>`. Commands use the default KV store. `--store` picks a named store from `kv.stores`. An unknown store fails and lists the stores, `default` first.
+Every command takes `--store <name>`, `--json`, `--url <url>` for an app other than the dev server of this project, and `--timeout <ms>`. Commands use the default KV store. `--store` picks a named store from `kv.stores`. An unknown store fails and lists the stores, `default` first.
 
 - `list` prints one key per line. Use `--json` when keys contain line breaks. `--limit` defaults to 100, at most 1000. When more keys exist, stderr shows the `--cursor` for the next page. Some drivers count scanned entries toward the limit, so a page can hold fewer keys, or none, and still have a next cursor.
 - `get` writes a string value unchanged, with no added newline, and other JSON values as formatted JSON. Binary values go to stdout as bytes, or as base64 with `"encoding": "base64"` in `--json` output. A missing key exits with status 1.

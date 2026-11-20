@@ -78,38 +78,50 @@ describe("vitehub agent invocations --url is the app URL", () => {
     expect(app.calls).toEqual([{ method: "POST", operation: "invocations.cancel", url: "http://localhost:3000/_vitehub/rpc" }])
   })
 
-  it.each(["http://localhost:3000/_vitehub", "https://agent.example.com/_vitehub/agents/support"])("still takes the Console URL %s for one minor version, with a deprecation diagnostic", async (url) => {
-    const app = localApp({ console: () => ({ invocations: [] }) })
-    const result = await run(["list", "--url", url], app.fetch)
+  it.each([
+    ["http://localhost:3000/_vitehub", "http://localhost:3000"],
+    ["https://agent.example.com/portal/_vitehub/agents/support", "https://agent.example.com/portal/"],
+  ])("refuses the Console URL %s and names the app URL", async (url, app) => {
+    const fetch = localApp({ console: () => ({ invocations: [] }) })
+    const result = await run(["list", "--url", url], fetch.fetch)
 
-    expect(result.exitCode).toBe(0)
-    expect(app.calls.map(call => call.url)).toEqual([`${new URL(url).origin}/_vitehub/rpc`])
-    expect(result.stderr).toContain("AGENT_R1053")
-    expect(result.stderr).toContain(`--url ${new URL(url).origin}`)
+    expect(result.exitCode).toBe(1)
+    expect(fetch.calls).toEqual([])
+    expect(result.stderr).toContain(`--url is the app URL, not the Console URL. Pass --url ${app}.`)
   })
 
-  it("still reads a local invocation endpoint for one minor version, with a deprecation diagnostic", async () => {
+  it("refuses a local app without a Console for reads", async () => {
     const app = localApp()
     const result = await run(["list", "--url", "http://localhost:5173/api/invocations"], app.fetch)
 
-    expect(result.exitCode, result.stderr).toBe(0)
-    expect(app.calls.at(-1)).toEqual({ method: "GET", url: "http://localhost:5173/api/invocations" })
-    expect(result.stderr).toContain("AGENT_R1053")
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("did not answer as a ViteHub Console")
   })
 
-  it("still cancels on a dev server without a Console for one minor version, with a deprecation diagnostic", async () => {
+  it("fails for the removed --server and names --url", async () => {
+    const app = localApp()
+    const result = await run(["cancel", "ainv_1", "--server", "http://localhost:5173"], app.fetch)
+
+    expect(result.exitCode).toBe(1)
+    expect(app.calls).toEqual([])
+    expect(result.stderr).toContain("--server is now --url")
+  })
+
+  it.each([false, true])("cancels through the dev endpoint (discovered: %s)", async discovered => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-url-"))
     const serverId = `${process.pid + 1}:5173`
     await refreshWorkspaceDevToken(rootDir, { serverId })
     try {
-      const app = localApp({ root: rootDir, serverId })
+      if (discovered) {
+        await mkdir(join(rootDir, ".vitehub"))
+        await writeFile(join(rootDir, ".vitehub/dev-server.json"), JSON.stringify({ root: rootDir, url: "http://localhost:5173/" }))
+      }
+      const app = localApp({ root: rootDir, serverId, ...(discovered ? { console: () => { throw new Error("The Console must not be called") } } : {}) })
       const result = await run(["cancel", "ainv_1", "--url", "http://localhost:5173"], app.fetch, rootDir)
 
-      expect(result.exitCode, result.stderr).toBe(0)
-      expect(result.stdout).toBe("ainv_1 cancel requested\n")
+      expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ainv_1 cancel requested\n" })
       expect(app.calls.at(-1)).toEqual({ method: "POST", url: "http://localhost:5173/__vitehub/agent/invocations/dev" })
-      expect(result.stderr).toContain("AGENT_R1053")
-      expect(result.stderr).toContain("--server http://localhost:5173")
+      expect(app.calls.some(call => call.url.endsWith("/_vitehub/rpc"))).toBe(!discovered)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

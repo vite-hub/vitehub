@@ -42,7 +42,7 @@ describe("cli-agent-tree", () => {
     expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).scripts).toEqual({
       export: "vitehub agent conversations export support web t1 --format json --output out",
       get: "vitehub agent get support --json",
-      getFromDev: "vitehub agent get support --server https://dev.example.com",
+      getFromDev: "vitehub agent get support --dev --url https://dev.example.com",
       invoke: "vitehub agent invoke support --prompt hi",
       list: "vitehub agent list --url https://app.example.com",
       read: "vitehub agent invocations workspace inv_1 --path README.md",
@@ -66,5 +66,21 @@ describe("cli-agent-tree", () => {
       { file: "scripts/inspect.sh", line: 5, message: expect.stringContaining("Move --agent to the name") },
     ])
     expect(await readFile(join(cwd, "scripts/inspect.sh"), "utf8")).toBe(script)
+  })
+
+  it("keeps explicit Dev Loop targets through the upgrade chain", async () => {
+    const cwd = await project({ "scripts/inspect.sh": [
+      "vitehub agent info --server https://dev.example.com --agent support",
+      "vitehub agent info --url https://dev.example.com --json",
+      "",
+    ].join("\n") })
+    for (const codemod of upgradeCodemods.filter(({ name }) => ["cli-url-flag", "cli-get-list", "cli-agent-tree"].includes(name))) {
+      await runCodemod(codemod.name, { cwd, dryRun: false })
+    }
+    expect(await readFile(join(cwd, "scripts/inspect.sh"), "utf8")).toBe([
+      "vitehub agent get support --dev --url https://dev.example.com",
+      "vitehub agent get --dev --url https://dev.example.com --json",
+      "",
+    ].join("\n"))
   })
 })
