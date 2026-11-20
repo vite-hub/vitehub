@@ -424,6 +424,7 @@ describe("sends", () => {
         vi.setSystemTime(Date.now() + 1)
         const [error] = await createMemberEndpoint({ owner: "ana", name: "Another inbox", address: threadLink, kind: "inbox" })
         if (error) throw error
+        return null
       },
     })
     vi.useFakeTimers({ toFake: ["Date"] })
