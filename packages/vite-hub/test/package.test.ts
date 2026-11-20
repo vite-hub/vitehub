@@ -192,7 +192,7 @@ const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operation
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
   const renamed = renamedForwarders.get(subpath);
   if (renamed) return renamed;
-  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
+  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 

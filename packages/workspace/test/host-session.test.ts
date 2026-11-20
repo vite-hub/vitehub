@@ -15,7 +15,7 @@ import { createBlobDatabaseWorkspaceStore } from "../src/blob-database.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { custom } from "../src/sources/custom.ts"
-import { fetch as fetchSource } from "../src/sources/fetch.ts"
+import { url as fetchSource } from "../src/sources/fetch.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
 

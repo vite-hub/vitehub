@@ -17,9 +17,13 @@ export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: 
     why: "The `devtools` option was removed with the browser DevTools.",
     fix: "Remove `devtools`. Use the ViteHub Console with `console: true`. `vitehub migrate` removes it.",
   },
-  logs: {
-    why: "`logs` moved into `observability`.",
-    fix: "Move it to `observability: { logs: ... }`. Its `evlog` options go to `observability.evlog`. `npx @vite-hub/codemods vitehub-options` moves it.",
+  "observability.logs": {
+    why: "`observability.logs` moved to the top-level `logs` key.",
+    fix: "Move it to `vitehub({ logs: ... })`. `vitehub migrate` moves it.",
+  },
+  "logs.evlog": {
+    why: "`logs.evlog` moved to `observability.evlog`.",
+    fix: "Move Evlog settings to `vitehub({ observability: { evlog: ... } })`. `vitehub migrate` moves them.",
   },
   "cloudflare.secretsFile": {
     why: "`cloudflare.secretsFile` was removed. `vitehub deploy` uploads the Worker secrets that the app reads with each new version.",

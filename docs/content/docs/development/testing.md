@@ -111,7 +111,7 @@ Auth creates the user when no user has this email. Other fields, such as the `ro
 
 | Primitive | Backend in a test | Inspect it with |
 | --- | --- | --- |
-| KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.keys()` |
+| KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.list()` |
 | Blob | An `fs` store in a folder under `.vitehub/test` | `blob.get()`, `blob.list()` |
 | Database | In-memory SQLite with the migrations of each Definition | `useDatabase(name).db` |
 | Queue | A list of the jobs that `sendQueue()`, `deferQueue()`, and `useQueue()` sent. No handler runs. | `hub.jobs` |

@@ -2,7 +2,7 @@
 title: Realtime collaboration
 layout: landing
 navigation.title: Overview
-description: Let several people edit one TipTap document at the same time, and save their changes to a file.
+description: Let several people edit a TipTap document together in real time and save changes to a file.
 navigation.order: 1
 icon: i-lucide-radio
 ---
@@ -152,11 +152,11 @@ checkpoint.snapshot
 
 ::product-features
   :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#define-realtime"}
-  Add a file to `server/realtime`. Your editor connects to its name.
+  Create a file in `server/realtime`. Your editor connects by file name.
   :::
 
   :::product-feature-item{title="Works with your TipTap editor" icon="i-lucide-code-2" to="/docs/realtime/get-started#connect-a-tiptap-editor"}
-  `useRealtimeTiptap()` gives your editor live sync and its connection state.
+  `useRealtimeTiptap()` gives your TipTap editor live sync and its connection state.
   :::
 
   :::product-feature-item{title="See who is editing" icon="i-lucide-users" to="/docs/realtime/server-api#carets"}
@@ -164,11 +164,11 @@ checkpoint.snapshot
   :::
 
   :::product-feature-item{title="Presence parts in @vite-hub/ui" icon="i-lucide-users" to="/docs/ui/blocks/collaborative-editor"}
-  `people`, `status`, and the save state plug into the avatar stack and status parts.
+  Pass `people`, `status`, and save state straight into the avatar stack and status UI parts.
   :::
 
   :::product-feature-item{title="Saves on its own" icon="i-lucide-save" to="/docs/realtime/configure#control-saves"}
-  Changes save 2 seconds after the last edit, and when the last person leaves.
+  Edits save 2 seconds after typing stops and when the last person leaves.
   :::
 
   :::product-feature-item{title="Decide who can join" icon="i-lucide-lock" to="/docs/realtime/server-api#identity-and-authorization"}
@@ -176,7 +176,7 @@ checkpoint.snapshot
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
-  On Node, instances share rooms through Postgres or Redis. On Cloudflare, each document gets its own Durable Object.
+  Node instances share rooms over Postgres or Redis. Cloudflare gives each document its own Durable Object.
   :::
 
   :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
