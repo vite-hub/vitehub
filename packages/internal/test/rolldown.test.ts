@@ -1350,6 +1350,39 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  @./missing.md\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n\\> Waiting")
   })
 
+  it("bundles an app whose tsconfig.json references files that a fresh install has not generated yet", async () => {
+    // A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`. `nuxt prepare` in postinstall bundles Email
+    // templates before those files exist.
+    const rootDir = await createTempDir()
+    const serverDir = join(rootDir, "server")
+    const entry = join(serverDir, "entry.ts")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(serverDir, { recursive: true })
+    await Promise.all([
+      writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(serverDir, "welcome.md"), "Hello {{ data.name }}", "utf8"),
+      writeFile(join(serverDir, "greeting.ts"), 'export const greeting: string = "from a relative import"\n'),
+      writeFile(entry, 'import render from "./welcome.md?markdown-template"\nexport { greeting } from "./greeting"\nexport default render\n'),
+    ])
+
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    // SAFETY: The fixture exports the renderer and the greeting built above.
+    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: { name: string }) => Promise<string>, greeting: string }
+    await expect(bundled.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+    expect(bundled.greeting).toBe("from a relative import")
+
+    // Once `nuxt prepare` writes the referenced files, their paths apply again.
+    await mkdir(join(rootDir, ".nuxt"))
+    await Promise.all([
+      writeFile(join(rootDir, ".nuxt", "tsconfig.app.json"), JSON.stringify({ files: [] })),
+      writeFile(join(rootDir, ".nuxt", "tsconfig.server.json"), JSON.stringify({ compilerOptions: { paths: { "~~/*": ["../*"] } }, include: ["../server/**/*"] })),
+      writeFile(entry, 'export { greeting } from "~~/server/greeting"\n'),
+    ])
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    await expect(readFile(outfile, "utf8")).resolves.toContain("from a relative import")
+  })
+
   it("bundles the exact Markdown template query", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
