@@ -25,7 +25,11 @@ vi.mock("../src/internal/optional-owners.ts", async (importOriginal) => {
 
 const packages = resolve(import.meta.dirname, "../..")
 
-async function build(route: string, options?: ViteHubOptions, definition?: string): Promise<void> {
+async function build(route: string, { options, definition, generatedRoute }: {
+  options?: ViteHubOptions
+  definition?: string
+  generatedRoute?: boolean
+} = {}): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-forge-build-check-"))
   try {
     await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
@@ -37,7 +41,8 @@ async function build(route: string, options?: ViteHubOptions, definition?: strin
     await mkdir(join(root, "server/routes"), { recursive: true })
     await mkdir(join(root, "docs"), { recursive: true })
     await writeFile(join(root, "docs/intro.md"), "# Intro\n")
-    await writeFile(join(root, "server/routes/docs.ts"), route)
+    const generatedRouteId = join(root, "generated/docs.ts")
+    await writeFile(join(root, "server/routes/docs.ts"), generatedRoute ? "export { default } from 'virtual:forge-docs'" : route)
     if (definition) {
       await mkdir(join(root, "server/workspaces"), { recursive: true })
       await writeFile(join(root, "server/workspaces/docs.ts"), definition)
@@ -49,6 +54,10 @@ async function build(route: string, options?: ViteHubOptions, definition?: strin
       plugins: [vitehub({ host: "cloudflare", env: false, ...options }), nitro() as never, {
         name: "test:optional-discord-compression",
         resolveId: (id: string) => id === "zlib-sync" ? { id, external: true } : undefined,
+      }, {
+        name: "test:generated-forge-route",
+        resolveId: (id: string) => generatedRoute && id === "virtual:forge-docs" ? generatedRouteId : undefined,
+        load: (id: string) => id === generatedRouteId ? route : undefined,
       }],
     } as Parameters<typeof createBuilder>[0])
     await builder.buildApp()
@@ -70,13 +79,13 @@ it("stops the build when a github() Source needs the Forge package that the app 
   })
 }, 120_000)
 
-it("builds an app that imports vite-hub/source without github()", async () => {
+it("builds a generated module that imports vite-hub/source without github()", async () => {
   await expect(build([
     "import { github, glob } from 'vite-hub/source'",
     "const docs = glob({ cwd: 'docs', include: '**/*.md' })",
     "export default async () => await docs.getKeys({})",
     "",
-  ].join("\n"))).resolves.toBeUndefined()
+  ].join("\n"), { generatedRoute: true })).resolves.toBeUndefined()
 }, 120_000)
 
 it("stops the build when server code selects the Workspace GitHub Source", async () => {
@@ -107,10 +116,13 @@ it("builds a route that uses a Web Chat Agent without Forge", async () => {
 }, 120_000)
 
 it("requires Forge when a discovered Workspace selects the GitHub store", async () => {
-  await expect(build("export default () => 'ok'", { workspace: true }, `
-    import { defineWorkspace } from 'vite-hub/workspace'
-    export default defineWorkspace({ store: { driver: 'github', repo: 'vite-hub/vitehub' } })
-  `)).rejects.toMatchObject({
+  await expect(build("export default () => 'ok'", {
+    options: { workspace: true },
+    definition: `
+      import { defineWorkspace } from 'vite-hub/workspace'
+      export default defineWorkspace({ store: { driver: 'github', repo: 'vite-hub/vitehub' } })
+    `,
+  })).rejects.toMatchObject({
     code: "VITE_HUB_R0136",
     message: expect.stringContaining("pnpm add @vite-hub/forge"),
   })

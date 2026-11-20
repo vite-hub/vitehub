@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { findPackageJSON } from "node:module"
-import { basename, dirname, isAbsolute } from "node:path"
+import { basename, dirname, isAbsolute, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { Plugin } from "vite"
@@ -23,7 +23,7 @@ export function forgeBuildCheckPlugin(): Plugin {
   function ownerOf(path: string): string | undefined {
     const directory = dirname(path)
     if (!owners.has(directory)) {
-      const manifest = findPackageJSON(pathToFileURL(path))
+      const manifest = findPackageJSON(pathToFileURL(directory + sep))
       owners.set(directory, manifest && basename(manifest) === "package.json" ? JSON.parse(readFileSync(manifest, "utf8")).name : undefined)
     }
     return owners.get(directory)
