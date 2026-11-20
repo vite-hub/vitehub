@@ -8,7 +8,7 @@ import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { logScheduleRun } from "./log.ts"
-import { markLoggedScheduleError } from "./static.ts"
+import { markLoggedScheduleError, normalizeScheduleRuntimeError } from "./static.ts"
 import { getScheduleRunStore } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -242,6 +242,15 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     attempt: run.attemptCount + 1,
   }
   const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
+  const recordRun = async (write: () => Promise<ScheduleRunRecord>) => {
+    try {
+      return await write()
+    }
+    catch (error) {
+      const recorded = emitLogEvent({ field: "schedule", fields: { op: "record-run", name: run.target, runId: run.id, ...errorCodeField(error) }, level: "error", message: "Schedule could not record a finished run", ...waitUntil })
+      throw recorded ? markLoggedScheduleError(error) : error
+    }
+  }
   const startedAt = performance.now()
   let response: ScheduleRunRecord["response"]
   try {
@@ -252,21 +261,15 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     response = await serializeResponse(toResponse(value))
   }
   catch (error) {
-    if (logScheduleRun(runLog, startedAt, "failure", { error, ...waitUntil })) options.onRunLogged?.()
-    const failed = await failRun(run, attempt, error, runStore)
+    const logged = logScheduleRun(runLog, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), ...waitUntil })
+    const failed = await recordRun(() => failRun(run, attempt, error, runStore))
     await emitRunFailed({ event: "schedule.failed", schedule: failed.scheduleId, runId: failed.id, error: toRunFailedError(error), failedAt: (failed.completedAt ?? new Date()).toISOString() })
     if (options.captureHandlerFailure) return failed
+    if (logged) options.onRunLogged?.()
     throw error
   }
   logScheduleRun(runLog, startedAt, "success", waitUntil)
-  try {
-    return await completeRun(run, attempt, response, runStore)
-  }
-  catch (error) {
-    // The handler finished, but the run store failed. That is a failure of its own, not of the handler.
-    const recorded = emitLogEvent({ field: "schedule", fields: { op: "record-run", name: run.target, runId: run.id, ...errorCodeField(error) }, level: "error", message: "Schedule could not record a finished run", ...waitUntil })
-    throw recorded ? markLoggedScheduleError(error) : error
-  }
+  return await recordRun(() => completeRun(run, attempt, response, runStore))
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {

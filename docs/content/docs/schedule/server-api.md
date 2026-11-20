@@ -168,7 +168,9 @@ Call `controller.close()` on shutdown. It waits for active runs and their `waitU
 
 ## See Schedule runs in logs
 
-With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each run of a Schedule handler is its own evlog event. A run has no request, so it has no request fields:
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each Schedule handler run inside Nitro gets its own evlog event. Standalone provider output runs outside Nitro and does not send these events. Standalone is the default for Vercel and Deno cron wakes and can also be selected on Cloudflare and Netlify.
+
+A run has no request, so it has no request fields:
 
 ```json
 { "level": "info", "action": "schedule", "message": "Schedule run succeeded", "schedule": { "name": "digest", "source": "static", "scheduledAt": "2026-11-17T08:00:00.000Z", "ms": 412, "outcome": "success" } }

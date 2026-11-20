@@ -262,7 +262,7 @@ The Console Schedules section lists Schedule Definitions with their cron, time z
 
 ## Runs in logs
 
-With the evlog Nitro module registered, each run of a Schedule handler is its own evlog event, `schedule: { name, source, scheduledAt, ms, outcome }`, with the error when it fails. Without evlog, failures go to the console and runs go to the run history only. See [Server API](https://vitehub.dev/docs/schedule/server-api#see-schedule-runs-in-logs).
+With the evlog Nitro module registered, each Schedule handler run inside Nitro gets its own evlog event, `schedule: { name, source, scheduledAt, ms, outcome }`, with the error when it fails. Standalone provider wakes do not send these events. This includes Vercel and Deno cron wakes by default, and Cloudflare or Netlify when you select standalone output. Without evlog, failures go to the console and runtimes with a run store keep their run history. See [Server API](https://vitehub.dev/docs/schedule/server-api#see-schedule-runs-in-logs).
 
 ## Import runtime helpers
 

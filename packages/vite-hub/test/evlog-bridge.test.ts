@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { evlogBridge, logFailure, setEvlogBridge } from "@vite-hub/internal/runtime/request-log"
+import { executeStaticSchedule } from "@vite-hub/schedule/runtime/static"
 import { createLogger, createRequestLogger, initLogger } from "evlog"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -90,6 +91,16 @@ describe("generated evlog bridge Nitro plugin", () => {
 describe("ViteHub failures with the real evlog", () => {
   // A failure whose message names a user's file, as an `fs` error does.
   const failure = () => Object.assign(new Error("EACCES: permission denied, open '/srv/data/.vitehub/blob-hashes/users/42/passport.jpg.json'"), { code: "EACCES" })
+
+  it("keeps the reason when a Schedule throws a string", async () => {
+    initLogger({ enabled: true, silent: true, drain: () => {} })
+    const { drained } = await runBridge({ evlog: {} })
+    const cron = "0 8 * * *"
+    const handler = () => Promise.reject("quota exceeded")
+
+    await expect(executeStaticSchedule({ cron, definition: { cron, handler }, name: "digest" })).rejects.toBe("quota exceeded")
+    expect(drained).toMatchObject([{ error: { message: "quota exceeded" }, schedule: { name: "digest", outcome: "failure" } }])
+  })
 
   it("puts a fixed message and the code on the request's wide event, never the error's message", async () => {
     initLogger({ enabled: true, silent: true, drain: () => {} })

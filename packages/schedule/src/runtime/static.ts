@@ -209,17 +209,18 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
   if (options.name === startedSchedulesTickName) return await execute()
   const run = { name: options.name, source: "static" as const, scheduledAt }
-  const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
   const startedAt = performance.now()
-  try {
-    const value = await execute()
-    logScheduleRun(run, startedAt, "success", waitUntil)
-    return value
-  }
-  catch (error) {
-    if (logScheduleRun(run, startedAt, "failure", { error, ...waitUntil })) options.onRunLogged?.()
-    throw error
-  }
+  return await runWithScheduleWaitUntil(async (waitUntil) => {
+    try {
+      const value = await execute()
+      logScheduleRun(run, startedAt, "success", { waitUntil })
+      return value
+    }
+    catch (error) {
+      if (logScheduleRun(run, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), waitUntil })) options.onRunLogged?.()
+      throw error
+    }
+  }, options.waitUntil)
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
