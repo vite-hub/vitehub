@@ -648,6 +648,9 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
           rootDir: config.root,
+          // The entry imports only ViteHub's own modules, and `nuxt prepare` reaches it before Nuxt writes the
+          // `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+          tsconfig: false,
         })
       }
       finally {
