@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { createSource } from "@vite-hub/source"
+import { useSource } from "@vite-hub/source"
 import type { GitHubRefTarget, GitHubSource, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
@@ -579,7 +579,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         return reuseParsed ? { files: stored.files, commit: stored } : await parseCommit(state, stored.files)
       }
       state.stats.misses++
-      const loaded = await parseCommit(state, await createSource(state.definition, { revision }).items())
+      const loaded = await parseCommit(state, await useSource(state.definition, { revision }).items())
       if (loaded.commit) await writeCommit(state, key, loaded.commit)
       return loaded
     })()
@@ -616,7 +616,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const before = await read(state)
     if (before?.pinned) return before
     // A fresh reader resolves the branch, not the head that the instance reads.
-    const revision = await createSource(state.definition).revision()
+    const revision = await useSource(state.definition).revision()
     // Without an immutable commit, such as when GitHub rate limits the lookup, the head stays where it is.
     if (!revision?.immutable) {
       // Log once until a lookup succeeds again.
@@ -1075,9 +1075,9 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async snapshot(name) {
       const state = stateOf(name)
       if (!await state.definition.authenticated()) return
-      const revision = await createSource(state.definition).revision()
+      const revision = await useSource(state.definition).revision()
       if (!revision?.immutable) return `GitHub gave no commit for the branch of Content source ${JSON.stringify(name)}.`
-      const loaded = await parseCommit(state, await createSource(state.definition, { revision }).items())
+      const loaded = await parseCommit(state, await useSource(state.definition, { revision }).items())
       if (!loaded.commit) return `Commit ${revision.id} of Content source ${JSON.stringify(name)} failed validation: ${loaded.reason}`
       return { sha: revision.id, ref: revision.ref ?? null, origin: origin(state), json: commitJson(loaded.commit) }
     },
@@ -1094,7 +1094,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
           if (state.served) return state.served.sha
         }
       }
-      const revision = await createSource(state.definition).revision()
+      const revision = await useSource(state.definition).revision()
       return revision?.immutable ? revision.id : null
     },
     attach(name: string, instance: ComarkContent): void {
@@ -1200,7 +1200,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         revision = { id: sha.toLowerCase(), immutable: true }
       }
       else {
-        revision = await createSource(state.definition).revision()
+        revision = await useSource(state.definition).revision()
         if (!revision?.immutable) throw contentErrorDiagnostics.CONTENT_R0069({ message: `[vitehub] GitHub gave no commit for the branch of Content source ${JSON.stringify(name)}, so there is nothing to check. Try again, or pass a sha.` })
       }
       let loaded: LoadedCommit

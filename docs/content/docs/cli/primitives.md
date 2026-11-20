@@ -233,7 +233,7 @@ pnpm vitehub database up
 
 `database up` converts each migrations folder of Drizzle Kit 0.x, with `meta/_journal.json`, to one folder per migration, as Drizzle Kit 1.0 writes them. `database generate` and `database migrate` refuse a 0.x folder with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
 
-`database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, with `CI` set, or with `--non-interactive`, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
+`database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 
@@ -255,13 +255,13 @@ See [Export a database](/docs/database/configure#export-a-database) for each dri
 
 ## Run SQL on a Database
 
-`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. `database reset` drops the same way, then applies the migrations of that database again. They use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--yes` without a terminal. `database reset` drops the same way, then applies the migrations of that database again. They use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
 
 ```bash [Terminal]
 pnpm vitehub database sql "select id, email from users limit 5"
 pnpm vitehub database sql --json < report.sql
-pnpm vitehub database drop --force
-pnpm vitehub database reset --force
+pnpm vitehub database drop --yes
+pnpm vitehub database reset --yes
 ```
 
 | Option | Description |
@@ -270,7 +270,7 @@ pnpm vitehub database reset --force
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | The database to use. Needed when the app has several. |
 | `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
-| `--force` | `drop` and `reset` only. Drop without asking. |
+| `--yes` | `drop` and `reset` only. Drop without asking. |
 
 See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 

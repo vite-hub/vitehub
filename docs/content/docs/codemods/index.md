@@ -47,6 +47,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
 | [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |
+| [`cli-yes-flag`](/docs/codemods/upgrade-vitehub#cli-yes-flag) | Replace old CLI prompt flags in scripts and CI, or report a manual migration |
 | [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 | [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |
 
