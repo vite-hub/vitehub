@@ -1,5 +1,5 @@
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
-import { claimMotionLayer, defineOwnEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
+import { claimMotionLayer, defineOwnEffect, handOffMotionEffects, listMotionEffects, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
@@ -268,7 +268,7 @@ export function installMotion(root: MotionRoot, options: InstallMotionOptions): 
   const shared = otherMotionLayer();
   if (shared) {
     // The effects that the app defined on this copy before it installed, such as one that replaces a built-in effect.
-    for (const effect of listMotionEffects()) shared.define(effect);
+    handOffMotionEffects(shared);
     return shared.install(root, options.effects);
   }
   claimMotionLayer(sharedLayer);

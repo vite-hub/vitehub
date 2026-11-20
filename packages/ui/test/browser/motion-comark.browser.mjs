@@ -77,6 +77,8 @@ describe("copies of the motion layer", () => {
       const { a, b } = window.copies
       // Each effect of copy b counts its own calls, so a select that both copies ran would count twice.
       let calls = 0
+      let pendingCalls = 0
+      const removePending = b.defineMotionEffect({ name: "pending-select", selector: "[role=tab]", state: () => { pendingCalls++ } })
       const counter = { name: "count-select", selector: "[role=tab]", state: () => { calls++ } }
       const stopA = a.installMotion()
       b.defineMotionEffect(counter)
@@ -88,11 +90,16 @@ describe("copies of the motion layer", () => {
       await new Promise(requestAnimationFrame)
       const names = a.listMotionEffects().map(effect => effect.name)
       const ownOfB = b.listMotionEffects().length
+      removePending()
+      b.installMotion()()
+      one.setAttribute("aria-selected", "true")
+      await new Promise(requestAnimationFrame)
       stopB()
       stopA()
-      return { calls, names, ownOfB }
+      return { calls, pendingCalls, names, ownOfB }
     })
-    assert.equal(result.calls, 2, "the old and the new tab each change once")
+    assert.equal(result.calls, 3, "each state change runs the effect once")
+    assert.equal(result.pendingCalls, 2, "the disposer removes the handed-off effect, even across another install")
     assert.ok(result.names.includes("count-select"), "the effect that copy b defined runs in copy a")
     assert.equal(result.ownOfB, 0, "copy b keeps no registry of its own")
     assert.deepEqual(errors, [])
@@ -187,10 +194,12 @@ describe("travel", () => {
       const next = frame.getBoundingClientRect().left
       const landed = await back.done
       const box = frame.getBoundingClientRect()
-      return { before, next, landed, left: Math.round(box.left), width: Math.round(box.width) }
+      back.stop()
+      return { before, next, landed, left: Math.round(box.left), width: Math.round(box.width), cleared: !frame.style.translate && !frame.style.scale }
     })
     assert.ok(result.next > result.before, `it still moves the way it went for a frame: ${result.before} then ${result.next}`)
     assert.deepEqual({ landed: result.landed, left: result.left, width: result.width }, { landed: true, left: 10, width: 120 })
+    assert.equal(result.cleared, true, "stop clears a travel held at its target")
     await context.close()
   })
 
@@ -203,6 +212,23 @@ describe("travel", () => {
       return { landed: await travel.done, left: Math.round(frame.getBoundingClientRect().left), inline: frame.style.translate }
     })
     assert.deepEqual(result, { landed: false, left: 300, inline: "" })
+    await context.close()
+  })
+
+  test("opting out during a travel clears it without another frame", async () => {
+    const { context, page } = await open()
+    const result = await page.evaluate(async () => {
+      const frame = document.querySelector("#frame")
+      const { travel } = window.copies.a
+      const from = { left: 10, top: 20, width: 120, height: 90 }
+      const active = travel(frame, { from })
+      frame.dataset.motion = "none"
+      const skipped = travel(frame, { from })
+      const atRest = !frame.style.translate && !frame.style.scale
+      await new Promise(requestAnimationFrame)
+      return { landed: await active.done, skipped: await skipped.done, atRest, noWrite: !frame.style.translate && !frame.style.scale }
+    })
+    assert.deepEqual(result, { landed: false, skipped: false, atRest: true, noWrite: true })
     await context.close()
   })
 })
