@@ -25,7 +25,7 @@ interface EndpointLike {
  * receiver's secret. The generated plugin imports the package only when `send` is on.
  */
 export interface CommentSendWebhooks {
-  createMemberEndpoint: (options: { owner: string, ownerEmail?: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
+  createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
   getMemberEndpoint: (owner: string) => Promise<Result<EndpointLike | null, string>>
   sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
   checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
@@ -451,7 +451,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const tools = await webhooks()
       const agent = agentOf(used)!
       const email = verifiedEmail(user)
-      const owner = email ? { ownerEmail: email } : {}
+      const name = typeof user.name === "string" && user.name.trim() ? user.name : undefined
+      const owner = { ...(name ? { ownerName: name } : {}), ...(email ? { ownerEmail: email } : {}) }
       let created: Awaited<ReturnType<CommentSendWebhooks["createMemberEndpoint"]>>
       if (used.host) {
         const [openError, opened] = await tools.unsealWebhooksText(`comments-send-code:${id}`, used.sealed)

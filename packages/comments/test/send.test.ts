@@ -161,14 +161,14 @@ describe("pairing", () => {
     expect(status.working).not.toHaveProperty("thread")
   })
 
-  it("gives the endpoint the member's email only when it is verified", async () => {
+  it("gives the endpoint the member's name, and their email only when it is verified", async () => {
     const { comment, connect } = await setup()
     await comment("cora", "Swap the photos")
     await comment("dan", "Fix the map")
     await connect("cora")
     await connect("dan")
-    expect((await getMemberEndpoint("cora"))[1]).toMatchObject({ ownerEmail: "cora@example.com" })
-    expect((await getMemberEndpoint("dan"))[1]).toMatchObject({ ownerEmail: null })
+    expect((await getMemberEndpoint("cora"))[1]).toMatchObject({ ownerName: "Cora", ownerEmail: "cora@example.com" })
+    expect((await getMemberEndpoint("dan"))[1]).toMatchObject({ ownerName: "Dan", ownerEmail: null })
     expect((await getMemberEndpoint("ana"))[1]).toBeNull()
   })
 
