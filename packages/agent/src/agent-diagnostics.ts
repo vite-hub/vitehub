@@ -5004,6 +5004,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ trigger }: { trigger: string }) => `[vitehub] The github() Channel has the pull request trigger "${trigger}", but \`pullRequest\` is not set, so the Channel does not read pull request events.`,
       fix: "Set `pullRequest` on the github() Channel, such as `pullRequest: { reply: false }`, or remove the trigger.",
     },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] sendChannelTrigger() for the GitHub pull request trigger "${trigger}" needs \`{ pullRequest: { repository: "owner/repo", number } }\`, with an optional string \`id\` and \`body\`.`,
+      fix: "Pass `{ pullRequest: { repository: \"owner/repo\", number: 42 } }`. Set `id` to a non-empty string to send the run once, and `body` to the request text.",
+    },
     AGENT_GMAIL_AGENT_AMBIGUOUS: {
       why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,
       fix: "Pass `gmailChannelStatus(channel, { agent })` with the name of one Agent that the message lists.",
