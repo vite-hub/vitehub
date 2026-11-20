@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-lucide-search
 ---
 
-`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
+`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/choices/vue` sends the request, and your `onSelect` applies the result to your state.
 
 ::example{name="FilterSearchExample" height=8}
 ::
@@ -33,7 +33,7 @@ Wrap `clear()` to reset your filters too.
 ```vue
 <script setup lang="ts">
 import type { forecast } from "~~/server/choices/forecast";
-import { useChoices } from "vite-hub/decisions/vue";
+import { useChoices } from "vite-hub/choices/vue";
 
 const filters = useFilters();
 

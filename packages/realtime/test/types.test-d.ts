@@ -17,9 +17,13 @@ describe("realtime client result types", () => {
     expectTypeOf<RealtimeRequestErrorCode>().toEqualTypeOf<
       | "REALTIME_DISABLED"
       | "REALTIME_DISCONNECTED"
+      | "REALTIME_INVALID_DOCUMENT"
       | "REALTIME_INVALID_RESPONSE"
       | "REALTIME_MISSING_DOCUMENT"
+      | "REALTIME_READ_ONLY"
       | "REALTIME_REQUEST_FAILED"
+      | "REALTIME_SOURCE_CHANGED"
+      | "REALTIME_SYNC_PENDING"
     >()
     expectTypeOf(realtime.save).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeSaved>>>()
     expectTypeOf(realtime.history.checkpoint).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeCheckpoint>>>()

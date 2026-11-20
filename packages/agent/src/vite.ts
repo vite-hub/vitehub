@@ -469,7 +469,8 @@ function transformGeneratedAgentWorkflowRegistry(
   const stateImports = state.libsql
     ? [
         `import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`,
-        `import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
+        // The State helper throws AGENT_R0893 and AGENT_R0894 with this import.
+        `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
       ]
     : state.cloudflare
       ? [

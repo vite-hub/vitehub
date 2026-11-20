@@ -28,7 +28,7 @@ pnpm vitehub --help
 - `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDb()`, `hubEnv()`, `hubKv()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
 - `content` when the app defines `server/content.ts`.
 - `console` when `console` is enabled.
-- `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` skip loading the project config, and `sandbox` also runs in a deployed container without Vite.
+- `types`, `task`, `choices`, and `sandbox` from the framework. `choices` and `sandbox` skip loading the project config, and `sandbox` also runs in a deployed container without Vite.
 - `inspect` and `provision`, which are built into the CLI. Any plugin command named `inspect` is ignored.
 
 `vitehub database --help` and `vitehub database <feature> --help` print help text without loading the project config, so they answer at once, even in a Nuxt app.
@@ -69,7 +69,7 @@ Available namespaces:
   types       Generate ViteHub TypeScript declarations.
   bundle      Inspect the size of the last production build.
   i18n        Show translation coverage, and move translations to and from PO files.
-  decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  choices     List the Choices of the app and run one with a text. Does not load the project config.
   migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
@@ -170,15 +170,15 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
-| `vitehub schedule list` | Available | Schedule Package | List the Schedules that code started with `startSchedule()`. |
+| `vitehub schedule list` | Available | Schedule Package | List the Static Schedule Definitions with their cron, and the Schedules that code started with `startSchedule()`. |
 | `vitehub schedule start` | Available | Schedule Package | Start a Schedule Definition without `cron`, once with `--at` or on `--cron`. |
 | `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub i18n export` | Available | i18n Package | Write the messages and translations of one locale as a PO file. |
 | `vitehub i18n import` | Available | i18n Package | Save the translations of a PO file as records in `locales/<locale>/`. |
 | `vitehub i18n prune` | Available | i18n Package | Delete the records of messages that the code no longer has. Lists them unless --yes. Export changed messages first: prune deletes their old translations. |
 | `vitehub i18n status` | Available | i18n Package | Show how many messages each locale translates. |
-| `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
-| `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
+| `vitehub choices list` | Available | Choices Package | List the exports of `defineChoices()` results, by file. |
+| `vitehub choices run` | Available | Choices Package | Run one Choices definition with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
 | `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
