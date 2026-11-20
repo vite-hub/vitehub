@@ -455,7 +455,7 @@ useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" 
 ```bash
 vitehub content collections
 vitehub content list <collection> [--ref published] [--search <text>]
-vitehub content show <collection> [id] [--ref published]
+vitehub content get <collection> [id] [--ref published]
 vitehub content status [collection] [id]
 vitehub content diff <collection> [id]
 vitehub content revisions <collection> [id] [--ref published]
