@@ -39,6 +39,13 @@ export interface BundleEsmEntryOptions {
   /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
   resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
+  /**
+   * By default, each module uses the `paths` and compiler options of its nearest tsconfig.json. Pass `false` for a
+   * generated entry that imports no app module through tsconfig `paths`, so the bundle does not depend on the app's
+   * tsconfig files. A Nuxt app's tsconfig.json references `.nuxt/tsconfig.*.json`, which do not exist before
+   * `nuxt prepare` writes them.
+   */
+  tsconfig?: false
   workingDir?: string
 }
 
@@ -639,6 +646,7 @@ export async function bundleEsmEntry(
       symlinks: !options.preserveSymlinks,
     },
     transform: { define: options.define, target: "es2022" },
+    tsconfig: options.tsconfig ?? true,
   })
   let output: Rolldown.RolldownOutput["output"]
   try {
