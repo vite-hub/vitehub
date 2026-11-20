@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { createServer } from "node:http"
+import { mkdir, mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises"
+import { createServer, type RequestListener } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { blob } from "@vite-hub/blob"
-import { setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
+import { checkBlobStoreHealth, setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -59,15 +59,12 @@ describe("health route", () => {
         reads.push(`${kind}:${name}:${key}`)
         return name === failing ? [failure, undefined] : [undefined, null]
       }
-      return { has: read, list: async (options: unknown) => {
-        reads.push(`${kind}:${name}:list:${JSON.stringify(options)}`)
-        return name === failing ? [failure, undefined] : [undefined, { blobs: [], hasMore: false }]
-      } }
+      return { has: read }
     }
     const modules = (failingKV?: string): Modules => ({
       "@vite-hub/database/runtime/registry": { pingDatabases: async () => ({ default: true }) },
       "vite-hub/kv": { kv: { store: store("kv", failingKV) } },
-      "vite-hub/blob": { blob: { store: store("blob") } },
+      "@vite-hub/blob/runtime/state": { checkBlobStoreHealth: async (name: string) => { reads.push(`blob:${name}`) } },
     })
     const targets = { database: true, kv: ["default", "sessions"], blob: ["default"] }
 
@@ -79,7 +76,7 @@ describe("health route", () => {
       vitehub: "0.0.9",
       checks: { database: { default: true }, kv: { default: true, sessions: true }, blob: { default: true } },
     })
-    expect(reads).toEqual(["kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check", "blob:default:list:{\"limit\":1}"])
+    expect(reads).toEqual(["kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check", "blob:default"])
 
     const failing = await handler(targets, modules("sessions")).fetch()
     expect(failing.status).toBe(503)
@@ -92,7 +89,7 @@ describe("health route", () => {
   it("counts a store that does not answer within 2 seconds as failed", async () => {
     vi.useFakeTimers()
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
-    const modules: Modules = { "vite-hub/blob": { blob: { store: () => ({ list: () => new Promise(() => {}) }) } } }
+    const modules: Modules = { "@vite-hub/blob/runtime/state": { checkBlobStoreHealth: () => new Promise(() => {}) } }
 
     const pending = handler({ blob: ["uploads"] }, modules).fetch()
     await vi.advanceTimersByTimeAsync(2_000)
@@ -130,14 +127,28 @@ type BlobStore = Exclude<Parameters<typeof setBlobRuntimeConfig>[0], false | und
 /** The Blob check of the generated handler, run against the real Blob runtime with `store` as the `uploads` store. */
 async function checkUploads(store: BlobStore): Promise<{ status: number, uploads: boolean }> {
   setBlobRuntimeConfig({ store, stores: { uploads: store } })
-  const response = await handler({ blob: ["uploads"] }, { "vite-hub/blob": { blob } }).fetch()
+  const response = await handler({ blob: ["uploads"] }, { "@vite-hub/blob/runtime/state": { checkBlobStoreHealth } }).fetch()
   const body = await response.json() as { checks: { blob: { uploads: boolean } } }
   return { status: response.status, uploads: body.checks.blob.uploads }
 }
 
+async function listen(listener: RequestListener): Promise<{ endpoint: string, close(): Promise<void> }> {
+  const server = createServer(listener)
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("The test server has no port.")
+  return {
+    endpoint: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise(resolve => server.close(() => resolve())),
+  }
+}
+
 /** A local S3 endpoint with one empty bucket, `uploads`. Other buckets do not exist, as on AWS. */
-async function fakeS3(): Promise<{ endpoint: string, close(): Promise<void> }> {
-  const server = createServer((request, response) => {
+function fakeS3() {
+  return listen((request, response) => {
     const url = new URL(request.url ?? "/", "http://s3.test")
     const [bucket, key = ""] = url.pathname.slice(1).split(/\/(.*)/)
     if (bucket !== "uploads") {
@@ -154,25 +165,33 @@ async function fakeS3(): Promise<{ endpoint: string, close(): Promise<void> }> {
     response.writeHead(404, { "content-type": "application/xml" })
     response.end(request.method === "HEAD" ? undefined : `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>`)
   })
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  if (!address || typeof address === "string") throw new Error("The fake S3 server has no port.")
-  return {
-    endpoint: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise(resolve => server.close(() => resolve())),
-  }
 }
 
 describe("health route Blob check", () => {
-  it("passes an empty filesystem store and fails one whose folder is a file", async () => {
+  it("checks the filesystem root without reading objects or writing hash files", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const root = await mkdtemp(join(tmpdir(), "vitehub-health-blob-"))
     roots.push(root)
 
-    expect(await checkUploads({ driver: "fs", base: join(root, "blob") })).toEqual({ status: 200, uploads: true })
+    const base = join(root, "blob")
+    const store = { driver: "fs", base } as const
+    expect(await checkUploads(store)).toEqual({ status: 200, uploads: true })
+    expect(await readdir(root)).toEqual([])
+    await mkdir(base)
+    expect(await checkUploads(store)).toEqual({ status: 200, uploads: true })
 
-    await writeFile(join(root, "blob"), "not a folder")
-    expect(await checkUploads({ driver: "fs", base: join(root, "blob") })).toEqual({ status: 503, uploads: false })
+    const object = join(base, "raw-object")
+    await writeFile(object, "uncached")
+    expect(await checkUploads(store)).toEqual({ status: 200, uploads: true })
+    expect(await readdir(base)).toEqual(["raw-object"])
+    await truncate(object, 3 * 1024 ** 3)
+    expect(await checkUploads(store)).toEqual({ status: 200, uploads: true })
+    expect(await readdir(base)).toEqual(["raw-object"])
+
+    await rm(base, { recursive: true })
+    await writeFile(base, "not a folder")
+    expect(await checkUploads(store)).toEqual({ status: 503, uploads: false })
+    expect(await checkUploads({ driver: "fs", base: join(base, "nested") })).toEqual({ status: 503, uploads: false })
   })
 
   it("passes an empty S3 bucket and fails a bucket that does not exist", async () => {
@@ -196,6 +215,39 @@ describe("health route Blob check", () => {
     }
     finally {
       await s3.close()
+    }
+  })
+
+  it("passes an Azure store with read permission but not list permission", async () => {
+    const requests: string[] = []
+    const azure = await listen((request, response) => {
+      requests.push(`${request.method} ${new URL(request.url ?? "/", "http://azure.test").pathname}`)
+      if (request.method === "HEAD") {
+        response.writeHead(404, { "x-ms-error-code": "BlobNotFound" }).end()
+      }
+      else {
+        response.writeHead(403, { "x-ms-error-code": "AuthorizationPermissionMismatch" }).end()
+      }
+    })
+    try {
+      const store: BlobStore = {
+        driver: "azure",
+        accountName: "healthcheck",
+        container: "uploads",
+        endpoint: azure.endpoint,
+        sasToken: "sp=r&sig=health-check",
+      }
+      setBlobRuntimeConfig({ store })
+      const [listError] = await blob.list({ limit: 1 })
+      expect(listError).toBeDefined()
+      expect(requests).toEqual(["GET /uploads"])
+      requests.length = 0
+
+      expect(await checkUploads(store)).toEqual({ status: 200, uploads: true })
+      expect(requests).toEqual(["HEAD /uploads/vitehub-health-check"])
+    }
+    finally {
+      await azure.close()
     }
   })
 })

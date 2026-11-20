@@ -33,6 +33,8 @@ const driverModules = {
   vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
+const healthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
+
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare") {
     // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
@@ -85,7 +87,7 @@ async function importRuntimeDriverModule(config: ResolvedBlobStoreConfig) {
   const modulePath = isSourceRuntime
     ? new URL(`../drivers/${moduleName}.ts`, import.meta.url).href
     : `@vite-hub/blob/drivers/${moduleName}`
-  const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
+  const module = await import(modulePath) as { createDriver: (options: typeof config) => BlobDriverAdapter<ResolvedBlobStoreConfig> }
   return module.createDriver(config)
 }
 
@@ -105,11 +107,19 @@ async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions, na
     ...config,
     store: resolveRuntimeBlobStore(config.store),
   }
-  const driver = await importRuntimeDriver(resolvedConfig.store)
-  return createBlobStorage(driver, name, {
+  const driver: BlobDriverAdapter<ResolvedBlobStoreConfig> = await importRuntimeDriver(resolvedConfig.store)
+  const storage = createBlobStorage(driver, name, {
     ...(config.images === undefined ? {} : { images: config.images }),
     url: pathname => servedBlobUrl(name, pathname),
   })
+  if (driver.checkHealth) healthChecks.set(storage, driver.checkHealth.bind(driver))
+  else if (driver.name === "s3") {
+    healthChecks.set(storage, async () => {
+      const [error] = await storage.list({ limit: 1 })
+      if (error) throw error
+    })
+  }
+  return storage
 }
 
 function joinServedBlobUrl(...parts: string[]): string {
@@ -164,6 +174,14 @@ async function resolveStorageResult(operation: BlobOperation, name: string): Pro
   const result = await blobResult(operation, name, () => resolveStorage(name))
   if (result[0]?.cause instanceof UnknownBlobStoreError) throw result[0].cause
   return result
+}
+
+export async function checkBlobStoreHealth(name: string): Promise<void> {
+  const storage = await resolveStorage(name)
+  const check = healthChecks.get(storage)
+  if (check) return check()
+  const [error] = await storage.head("vitehub-health-check")
+  if (error) throw error
 }
 
 // Completed multipart objects get the served URL, like put().

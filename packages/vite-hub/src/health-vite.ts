@@ -32,17 +32,16 @@ const probeKey = "vitehub-health-check"
 
 /**
  * The health handler: `{ ok, version, commit, vitehub }`, and `checks` with whether each Database answered `SELECT 1`,
- * each KV store answered one read, and each Blob store listed one object, within {@link healthCheckTimeoutMs}. It answers
+ * each KV store answered one read, and each Blob store passed its driver check, within {@link healthCheckTimeoutMs}. It answers
  * 503 when a check fails. The response holds no error text, so it shows no connection details. The error goes to the
- * server log. A Blob store lists in place of a read of an absent object: drivers answer "not found" for an absent object
- * when the folder is a file or the bucket does not exist, but a list fails then.
+ * server log.
  */
 export function renderHealthHandler(input: { version?: string, commit: string | null, vitehub: string } & HealthTargets): string {
   const headers = `{ "cache-control": "no-store" }`
   const groups = [
     ...(input.database ? [`database: import("@vite-hub/database/runtime/registry").then(({ pingDatabases }) => pingDatabases())`] : []),
-    ...(input.kv.length ? [`kv: import("vite-hub/kv").then(({ kv }) => checkStores("KV store", ${JSON.stringify(input.kv)}, name => kv.store(name, { mode: "read" }).has(${JSON.stringify(probeKey)})))`] : []),
-    ...(input.blob.length ? [`blob: import("vite-hub/blob").then(({ blob }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, name => blob.store(name, { mode: "read" }).list({ limit: 1 })))`] : []),
+    ...(input.kv.length ? [`kv: import("vite-hub/kv").then(({ kv }) => checkStores("KV store", ${JSON.stringify(input.kv)}, async (name) => { const [error] = await kv.store(name, { mode: "read" }).has(${JSON.stringify(probeKey)}); if (error) throw error }))`] : []),
+    ...(input.blob.length ? [`blob: import("@vite-hub/blob/runtime/state").then(({ checkBlobStoreHealth }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, checkBlobStoreHealth))`] : []),
   ]
   const build = input.version ? "version, commit, vitehub" : "commit, vitehub"
   return [
@@ -53,13 +52,12 @@ export function renderHealthHandler(input: { version?: string, commit: string | 
     ...(input.kv.length || input.blob.length
       ? [
           "/** Whether each store answers within the timeout. A store that fails is `false`, and its error goes to the server log. */",
-          "async function checkStores(kind, names, read) {",
+          "async function checkStores(kind, names, check) {",
           "  return Object.fromEntries(await Promise.all(names.map(async (name) => {",
           "    let timer",
           "    try {",
           `      const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("No answer within ${healthCheckTimeoutMs} ms.")), ${healthCheckTimeoutMs}) })`,
-          "      const [error] = await Promise.race([read(name), timeout])",
-          "      if (error) throw error",
+          "      await Promise.race([check(name), timeout])",
           "      return [name, true]",
           "    }",
           "    catch (error) {",
