@@ -236,11 +236,11 @@ is a wall-clock command deadline instead.
 Before you debug model output, inspect the resolved Definition as JSON:
 
 ```bash
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get --agent support --json
 ```
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and
-metadata. `agent info` does not run the Driver. The
+metadata. `agent get` does not run the Driver. The
 [CLI reference](/docs/cli/agents#inspect-an-agent-definition) lists the
 route and authentication needs for a dev server.
 
@@ -256,7 +256,7 @@ so keep an Eval for tool choice.
 ## Check provider readiness
 
 Provider-backed Agents need a provider executable and an authentication path:
-local credentials, or a `gateway` that replaces them. `vitehub agent info` does
+local credentials, or a `gateway` that replaces them. `vitehub agent get` does
 not call the provider. To run the readiness probe, call the `status.get`
 operation of the Console endpoint for the Agent:
 
@@ -284,7 +284,7 @@ evidence. That does not prove a turn will fail.
 
 Fix the first layer that fails:
 
-1. `agent info` fails: fix discovery or Definition configuration.
+1. `agent get` fails: fix discovery or Definition configuration.
 2. `agent dev` cannot start: check the host route, authentication path,
    requirements, and Capability requirements.
 3. The Invocation starts but behaves wrong: add or update an Eval.

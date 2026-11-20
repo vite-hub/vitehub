@@ -182,7 +182,7 @@ Read the outbox from a running Development Server, or render a template without 
 
 ```bash
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html
+pnpm vitehub email outbox get outbox-1 --html
 pnpm vitehub email outbox clear
 pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```

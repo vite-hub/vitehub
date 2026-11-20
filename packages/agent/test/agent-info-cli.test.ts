@@ -12,7 +12,7 @@ function stream() {
   return { get output() { return output }, write: (chunk: string | Uint8Array) => { output += String(chunk) } }
 }
 
-describe("agent info CLI", () => {
+describe("agent get CLI", () => {
   it("rejects an empty inline development server URL as a missing value", async () => {
     const stderr = stream()
     const stdout = stream()
@@ -26,7 +26,7 @@ describe("agent info CLI", () => {
 
     expect(exitCode).toBe(1)
     expect(stderr.output).toContain("Missing value for --url=.")
-    expect(stdout.output).toContain("Usage: vitehub agent info")
+    expect(stdout.output).toContain("Usage: vitehub agent get")
   })
 
   it("inspects the dev server that runs in the project without --url", async () => {

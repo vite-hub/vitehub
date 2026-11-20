@@ -232,11 +232,11 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
 | [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap`, `content.previews` |
-| [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
+| [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-clear` (development only) |
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-`blob.put`, `blob.delete`, `kv.set` and `kv.delete` write, so a read-only role needs `'blob:read'` or `'kv:read'`. `databases.browse` and `databases.tables` run as `vitehub database rows` and `tables`, and the Workspace operations, which read kept history, as `vitehub workspace history`, `refs` and `show`. An app without `server/content.ts` has no Content operations.
+`blob.put`, `blob.delete`, `kv.set` and `kv.delete` write, so a read-only role needs `'blob:read'` or `'kv:read'`. `databases.browse` and `databases.tables` run as `vitehub database rows` and `tables`, and the Workspace operations, which read kept history, as `vitehub workspace history`, `refs` and `get`. An app without `server/content.ts` has no Content operations.
 
 The task operations exist only when the app has tasks, and `task.run` is `destructive`, so the CLI asks for `--yes` and Agents need approval. The Console shows no `tasks` section, but `authorize` can grant it by name. Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
 
