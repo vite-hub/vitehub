@@ -42,6 +42,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
+import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
@@ -1630,6 +1631,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
   if (plan.host === "cloudflare") plugins.push(cloudflareNodeDevPlugin())
+  plugins.push(forgeBuildCheckPlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
@@ -1938,10 +1940,11 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ))
   }
   if (options.workspace) {
-    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
+    // SAFETY: ViteHub supplies its internal hosting and dependency checks in addition to the public Workspace options.
     plugins.push(requireOptionalOwner(ownerModules.workspaceVite, "workspace").hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
+      assertGitHubStoreAvailable: () => assertFeaturePackages(["forge"]),
     } as WorkspaceOptions))
   }
   if (options.seo?.sitemap || options.seo?.robots) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))
