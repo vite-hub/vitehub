@@ -21,7 +21,7 @@ import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentP
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { formatDiagnostic } from "nostics"
@@ -281,6 +281,24 @@ function workspaceShellPlugin(imports: FrameworkWorkspaceDependencyRuntimeImport
         const root = projectRoot ? resolve(projectRoot) : resolveViteHubProjectRoot(config.root ?? process.cwd())
         if (!isPackageInstalledInApp(root, "@vite-hub/shell")) delete imports.shellWorkspace
       },
+    },
+  }
+}
+
+/**
+ * ViteHub writes generated files to `.vitehub/` while the dev server runs, such as the dev server address, Env types,
+ * and generated Nitro plugins. The dev watcher must not see them, or each write starts a reload. The Workspace, Agent,
+ * and Auth plugins add the same pattern, so an app that uses none of them gets it here.
+ */
+function generatedFilesWatchPlugin(): Plugin {
+  return {
+    name: "vite-hub/generated-files-watch",
+    apply: "serve",
+    config(config) {
+      // `watch: null` turns the watcher off. Leave it off.
+      if (config.server?.watch === null) return
+      const ignored = generatedViteHubWatchIgnoredAddition(config.server?.watch?.ignored)
+      return ignored && { server: { watch: { ignored } } }
     },
   }
 }
@@ -1627,6 +1645,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
+  plugins.push(generatedFilesWatchPlugin())
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
