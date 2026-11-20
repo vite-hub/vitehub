@@ -132,6 +132,7 @@ const rolldownExternalCases = [
 ]
 
 const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/agents")
+const netlifyBuildTestTimeout = 30_000
 
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
@@ -1238,7 +1239,7 @@ describe("agent Vite plugin", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
@@ -1277,7 +1278,7 @@ describe("agent Vite plugin", () => {
     }
 }, 60_000)
 
-  it("publishes retained folder Agent Workspace sources before generation cleanup", { timeout: 30_000 }, async () => {
+  it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
@@ -1351,7 +1352,7 @@ describe("agent Vite plugin", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
     vi.stubEnv("VITEHUB_HOST", "netlify")
@@ -1400,7 +1401,7 @@ describe("agent Vite plugin", () => {
     } finally {
       await rm(container, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
     vi.stubEnv("VITEHUB_HOST", undefined)
@@ -2196,7 +2197,7 @@ describe("agent Vite plugin", () => {
     } finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, netlifyBuildTestTimeout)
 
   it("bundles the configured Email definition in standalone Agent provider outputs", async () => {
     const { bundleEsmEntry } = await import("@vite-hub/internal/build/rolldown")

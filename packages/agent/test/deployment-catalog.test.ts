@@ -321,19 +321,22 @@ async function createDeploymentRuntimeFixture(
   }
 }
 
+let runtime: DeploymentRuntimeFixture | undefined
+
+beforeEach(() => {
+  vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
+  vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
+})
+
+afterEach(async () => {
+  await runtime?.close()
+  runtime = undefined
+  vi.unstubAllEnvs()
+})
+
 describe("generated Agent deployment catalog", () => {
-  let runtime: DeploymentRuntimeFixture | undefined
-
-  beforeEach(async ({ task }) => {
-    vi.stubEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN", "")
-    vi.stubEnv("VITEHUB_AGENT_STATE_URL", "")
-    if (!task.meta?.hostFixture) runtime = await createDeploymentRuntimeFixture()
-  })
-
-  afterEach(async () => {
-    await runtime?.close()
-    runtime = undefined
-    vi.unstubAllEnvs()
+  beforeEach(async () => {
+    runtime = await createDeploymentRuntimeFixture()
   })
 
   it("dispatches aliases without router parameters and retains the original body and signature", async () => {
@@ -567,33 +570,6 @@ describe("generated Agent deployment catalog", () => {
     await expect(runtime.workspace("support-workspace")).resolves.toBeDefined()
   })
 
-  it("executes the same catalog through the Netlify Adapter", { meta: { hostFixture: true }, timeout: 30_000 }, async () => {
-    vi.stubEnv("VITEHUB_HOST", "netlify")
-    runtime = await createDeploymentRuntimeFixture("netlify")
-
-    await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
-      agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
-      kind: "chat",
-    })
-    await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
-      agent: "support",
-      agentIdentity: { name: "support", workspace: "support" },
-      kind: "webhook",
-      webhook: "channel",
-    })
-    await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
-      capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
-      name: "reviewer",
-    })
-    expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
-    const workspace = await runtime.workspace("support")
-    const sourceRootDir = parse(string(), workspace.sourceRootDir)
-    await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
-      .resolves.toBe("Retained Workspace context.\n")
-    expect(runtime.waitUntilTasks).toHaveLength(2)
-  })
-
   it("executes the same catalog through the Deno Adapter", async () => {
     await runtime!.close()
     runtime = await createDeploymentRuntimeFixture("deno", "team/support")
@@ -617,3 +593,30 @@ describe("generated Agent deployment catalog", () => {
     expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["team/support"])
   })
 })
+
+it("executes the same catalog through the Netlify Adapter", async () => {
+  vi.stubEnv("VITEHUB_HOST", "netlify")
+  runtime = await createDeploymentRuntimeFixture("netlify")
+
+  await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({
+    agent: "support",
+    agentIdentity: { name: "support", workspace: "support" },
+    kind: "chat",
+  })
+  await expect((await runtime.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
+    agent: "support",
+    agentIdentity: { name: "support", workspace: "support" },
+    kind: "webhook",
+    webhook: "channel",
+  })
+  await expect((await runtime.request("reviewer", "inspection")).json()).resolves.toMatchObject({
+    capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
+    name: "reviewer",
+  })
+  expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
+  const workspace = await runtime.workspace("support")
+  const sourceRootDir = parse(string(), workspace.sourceRootDir)
+  await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
+    .resolves.toBe("Retained Workspace context.\n")
+  expect(runtime.waitUntilTasks).toHaveLength(2)
+}, 30_000)
