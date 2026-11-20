@@ -291,6 +291,16 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   return configs
 }
 
+/**
+ * The Definitions that the config loads to find their Cloudflare Artifacts stores. A build loads all of them to learn
+ * which stores it bundles. `vite dev` and CLI calls (`serve`) load them only on the Cloudflare host, because only a
+ * Cloudflare server binds Artifacts. Loading runs app code outside Nitro, so its Nitro runtime imports would print
+ * Nitro's "stub implementation" warning on every command.
+ */
+function definitionsToLoad(definitions: DiscoveredWorkspaceDefinition[], command: string | undefined, hosting: string | undefined): DiscoveredWorkspaceDefinition[] {
+  return command !== "serve" || getHostingProvider(hosting) === "cloudflare" ? definitions : []
+}
+
 async function resolveCloudflareArtifactsConfigs(
   config: ResolvedWorkspaceModuleOptions,
   definitions: DiscoveredWorkspaceDefinition[],
@@ -831,7 +841,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
   const storeUsage: WorkspaceDefinitionStoreUsage | undefined = options.command === "build" ? new Set() : undefined
-  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+  const cloudflareArtifactsConfigs = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, options.command, hosting), roots.projectRoot, {
     aliases: options.aliases,
     env: options.env,
     hosting,
@@ -970,7 +980,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
         // Dev regenerates the plugin when definitions change, so it keeps every hosted store.
         const storeUsage: WorkspaceDefinitionStoreUsage | undefined = env?.command === "build" ? new Set() : undefined
-        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitions, roots.projectRoot, {
+        const artifacts = await resolveCloudflareArtifactsConfigs(normalized, definitionsToLoad(definitions, env?.command, resolvedHosting), roots.projectRoot, {
           aliases: config.resolve?.alias ? workspaceDefinitionLoaderAliases(config.resolve.alias) : undefined,
           hosting: resolvedHosting,
           definitionOverrides,
