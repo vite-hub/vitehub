@@ -20,7 +20,7 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
-import { emulatedGateway, languageModelRoute, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { emulatedGateway, isModelEmulationRequested, languageModelRoute, resolveModelEmulation } from "./internal/agent-emulation.ts"
 import { emulatedModelOverride, materializeAgentModel } from "./internal/agent-model.ts"
 import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
@@ -1354,10 +1354,25 @@ function withEmulatedModelOverrides(settings: Record<string, unknown>, context: 
   }
 }
 
-/** Records `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED` on the Invocation for each hosted tool that an emulated run drops. */
-async function traceDroppedProviderTools(context: AgentAdapterRunContext): Promise<void> {
-  for (const tool of context.providerTools || []) {
-    const diagnostic = agentDiagnostics.AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED({ tool: tool.id })
+type EmulationSource = "gateway" | "switch"
+
+function isHostedTool(tool: unknown): boolean {
+  return typeof tool === "object" && tool !== null && Reflect.get(tool, "type") === "provider"
+}
+
+/**
+ * Keeps hosted provider tools away from the AI emulator, which rejects them. It filters the tools and tool choice
+ * of every call and step, because tools arrive from Capabilities, `runAgent(..., { tools })`, and `prepareCall`.
+ * A tool choice that only a dropped tool can satisfy becomes `"auto"`, so the run continues as it does without the
+ * tool. Each drop records a coded `agent.diagnostic.warning` observation on the Invocation.
+ */
+function createEmulatorToolFilter(context: AgentAdapterRunContext, source: EmulationSource) {
+  const traced = new Set<string>()
+  const dropped = new Set<string>()
+  let remaining: string[] | undefined
+  const warn = async (key: string, diagnostic: { code: string, fix?: unknown, message: string }, attributes: Record<string, string> = {}) => {
+    if (traced.has(key)) return
+    traced.add(key)
     await traceAgentEvent({
       context: context.context,
       driverContributions: context.driverContributions,
@@ -1368,14 +1383,60 @@ async function traceDroppedProviderTools(context: AgentAdapterRunContext): Promi
     }, {
       attributes: {
         "diagnostic.code": diagnostic.code,
-        "diagnostic.fix": diagnostic.fix,
+        ...(typeof diagnostic.fix === "string" ? { "diagnostic.fix": diagnostic.fix } : {}),
         "diagnostic.message": diagnostic.message,
-        "tool.id": tool.id,
-        "tool.name": tool.name,
+        ...attributes,
       },
       name: "agent.diagnostic.warning",
       type: "policy",
     })
+  }
+  const tools = async <TTool>(set: Readonly<Record<string, TTool>>): Promise<Record<string, TTool>> => {
+    const kept: Record<string, TTool> = {}
+    for (const [name, tool] of Object.entries(set)) {
+      if (!isHostedTool(tool)) {
+        kept[name] = tool
+        continue
+      }
+      dropped.add(name)
+      const id = Reflect.get(tool as object, "id")
+      const label = typeof id === "string" ? id : name
+      await warn(`tool:${name}`, agentDiagnostics.AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED({ source, tool: label }), { "tool.id": label, "tool.name": name })
+    }
+    return kept
+  }
+  const toolChoice = async (choice: unknown, available: readonly string[] | undefined): Promise<unknown> => {
+    const named = typeof choice === "object" && choice !== null ? Reflect.get(choice, "toolName") : undefined
+    const unsatisfiable = typeof named === "string"
+      ? dropped.has(named)
+      : choice === "required" && dropped.size > 0 && available !== undefined && available.length === 0
+    if (!unsatisfiable) return choice
+    const label = typeof named === "string" ? `the tool "${named}"` : "\"required\""
+    await warn(`choice:${label}`, agentDiagnostics.AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED({ choice: label, source }))
+    return "auto"
+  }
+  const active = (names: string[], activeTools: unknown) => Array.isArray(activeTools) ? names.filter(name => activeTools.includes(name)) : names
+  return {
+    tools,
+    /** Wraps `prepareCall`, so the tools and tool choice that reach the model have no hosted tool. */
+    prepareCall: (prepare: unknown) => async (input: Record<string, unknown>) => {
+      // SAFETY: AI SDK passes prepareCall the call arguments and accepts the returned arguments.
+      const call = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> : input
+      const callTools = call.tools && typeof call.tools === "object" ? await tools(call.tools as Record<string, unknown>) : undefined
+      remaining = Object.keys(callTools ?? {})
+      return {
+        ...call,
+        ...(callTools ? { tools: Object.keys(callTools).length ? callTools : undefined } : {}),
+        toolChoice: await toolChoice(call.toolChoice, active(remaining, call.activeTools)),
+      }
+    },
+    /** Wraps `prepareStep`, so a step tool choice cannot name a dropped tool. */
+    prepareStep: (prepare: unknown) => async (input: unknown) => {
+      // SAFETY: AI SDK passes prepareStep the step state and accepts the returned step settings.
+      const step = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> | undefined : undefined
+      if (!step || step.toolChoice === undefined) return step
+      return { ...step, toolChoice: await toolChoice(step.toolChoice, remaining && active(remaining, step.activeTools)) }
+    },
   }
 }
 
@@ -1435,15 +1496,17 @@ async function createAgent(
     ...context.tools,
     ...adapterTools,
   }, [])).tools, fallbackCapture)), jsonSchema)
-  // The AI emulator rejects hosted tools, so an emulated run drops them and records why.
-  if (emulated) await traceDroppedProviderTools(context)
-  const providerTools = Object.fromEntries((emulated ? [] : context.providerTools || []).map(tool => [tool.name, {
+  const emulatorTools = languageModelRoute(model)?.gateway === emulatedGateway
+    ? createEmulatorToolFilter(context, isModelEmulationRequested(modelContext) ? "switch" : "gateway")
+    : undefined
+  const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
     name: tool.name,
     type: "provider",
   }]))
-  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
+  const modelTools = { ...resolvedTools, ...providerTools }
+  const toolSet = withAgentToolExecutionBudget(emulatorTools ? await emulatorTools.tools(modelTools) : modelTools, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && typeof model === "object" ? model as { modelId?: unknown, provider?: unknown } : undefined
@@ -1492,9 +1555,13 @@ async function createAgent(
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
   const runtimeSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
-  const commonSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext, [model, observedModel, instrumentedModel]) : runtimeSettings
-  const repairSettings = withoutToolCallSettings(commonSettings)
-  const prepareCall = commonSettings.prepareCall
+  const modelSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext, [model, observedModel, instrumentedModel]) : runtimeSettings
+  const commonSettings = emulatorTools
+    ? { ...modelSettings, prepareCall: emulatorTools.prepareCall(modelSettings.prepareCall), prepareStep: emulatorTools.prepareStep(modelSettings.prepareStep) }
+    : modelSettings
+  // Repair calls send no tools, so they keep the settings without the emulator filter.
+  const repairSettings = withoutToolCallSettings(modelSettings)
+  const prepareCall = modelSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"
     ? async (input: Record<string, unknown>) => ({
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
