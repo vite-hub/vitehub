@@ -4,9 +4,8 @@ import { emulate } from "@vite-hub/gateways"
 import { resolveAiGatewayRoute } from "@vite-hub/gateways/internal"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { isModelEmulationRequested, resolveModelEmulation } from "./agent-emulation.ts"
+import { emulatorUrl, isModelEmulationRequested, resolveModelEmulation } from "./agent-emulation.ts"
 import { codexGateway } from "./agent-gateway.ts"
-import { readHostEnv } from "./builtin-env.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
 import { withProviderStatusError } from "./provider-status-error.ts"
 
@@ -100,8 +99,8 @@ export function emulatedCodexLaunchArgs(options: { catalogPath: string, cwd: str
 
 /**
  * The emulator gateway for a Codex run, with the overrides that keep Codex on the emulator. `root` is a private folder
- * of the run: it gets the model catalog file. The URL comes only from the `VITEHUB_EMULATE_URL` host variable, like
- * `VITEHUB_MODELS`, so an unset Server Env value of a real provider cannot stop a local run.
+ * of the run: it gets the model catalog file. The URL comes from `emulatorUrl()`, which reads no other Server Env value,
+ * so an unset Server Env value of a real provider cannot stop a local run.
  *
  * `emulate()` has no Codex route, so `codexDriver({ gateway: emulate() })` stays a type error: without these overrides,
  * Codex sends tools that the emulator rejects. The emulator serves OpenAI Responses under the same `/v1` base as Chat
@@ -112,8 +111,8 @@ export async function emulatedCodexGateway(
   options: { cwd: string, root: string },
 ): Promise<ResolvedAgentDriverGateway> {
   const catalogPath = join(options.root, "codex-model-catalog.json")
-  const url = readHostEnv(["VITEHUB_EMULATE_URL"], context)
-  const gateway = emulate(typeof url === "string" ? { url } : {})
+  const url = emulatorUrl(context)
+  const gateway = emulate(url ? { url } : {})
   const [route] = await Promise.all([
     // The emulator reads no credential, so the route reads no other Server Env value.
     resolveAiGatewayRoute(gateway, "openai-compatible", { ...context, env: async () => undefined }),
