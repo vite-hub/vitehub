@@ -1,4 +1,5 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isWorkersRuntime } from "./workers-runtime.ts"
 
 let warnedLocalDefault = false
 
@@ -9,11 +10,11 @@ let warnedLocalDefault = false
  * `file:` URL that the app set throws `AGENT_STATE_FILE_URL_UNSUPPORTED`.
  */
 export function opensLibsqlAgentState(url: string | undefined, options: { configured: boolean }): boolean {
-  if (!url || !/^file:/i.test(url) || globalThis.navigator?.userAgent !== "Cloudflare-Workers") return true
+  if (!url || !/^file:/i.test(url) || !isWorkersRuntime()) return true
   if (options.configured) throw agentDiagnostics.AGENT_STATE_FILE_URL_UNSUPPORTED({ url })
   if (!warnedLocalDefault) {
     warnedLocalDefault = true
-    console.warn("[vitehub] Agent State is not kept on this dev runner: workerd cannot open the local SQLite file. Channel conversations stay in memory, and queued Channel tasks and triggers are off. Set VITEHUB_AGENT_STATE_URL to a libSQL server URL to keep them, or run `vite dev` on a Node dev runner.")
+    console.warn("[vitehub] Agent State is not kept on this dev runner: workerd cannot open the local SQLite file. Channel conversations stay in memory, and queued Channel tasks and triggers are off. Set agent.providers.state.url to a libSQL server URL, or run `vite dev` on a Node dev runner.")
   }
   return false
 }

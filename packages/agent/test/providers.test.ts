@@ -156,11 +156,17 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const agentWithColocatedInstructions = agent => agent",
     "export const inheritAgentLayerOptions = agent => agent",
     "export const markDiscoveredAgentName = () => {}",
+    "export const markDiscoveredWorkspaceAgentDefinitionRegistered = () => {}",
     "export const withDiscoveredAgentName = agent => agent",
+    "export const withDeclaredAgentWorkspace = agent => agent",
     "export const resetPublicUrlAgentNames = () => {}",
     "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
     "export const workspaceDefinitionFromOptions = () => undefined",
     "export const setAgentWorkspaceDefinitions = () => {}",
+    "export const setAgentHostCapabilities = () => {}",
+    "export const installHostedWorkspaceRuntime = () => {}",
+    "export const installHostedVercelBlobWorkspaceRuntime = () => {}",
+    "export const resolveAgentInspectionMetadata = () => undefined",
     "export const agentGeneratedRuntimeError = (_code, message) => new Error(message)",
     "export const createAgentWebhookRequest = () => { throw new Error('Unexpected webhook request') }",
     "export const createChannelChatRouteHandler = () => { throw new Error('Unexpected chat handler') }",
@@ -170,7 +176,7 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const resolvePublicUrl = () => undefined",
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
   ].join("\n"), "utf8")
-  return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
+  return (["index", "server/internal", "server/workspace", "internal/workspace/internal/runtime/hosted", "internal/workspace/internal/runtime/hosted-vercel-blob"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
 
 function createTestChatAdapter(
@@ -1340,7 +1346,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
@@ -2276,7 +2282,7 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      const netlifyPlugin = hubAgent()
+      const netlifyPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
       if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2288,13 +2294,12 @@ describe("agent Vite plugin", () => {
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
             vitehub: { host: "netlify" },
             resolve: {
-              alias: agentProviderOutputAliases([
-                // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
-                { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
+              alias: [
                 { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
                 // Since #2493 the Netlify function also imports the host database capability.
                 { find: "@vite-hub/database/runtime/registry", replacement: resolve(import.meta.dirname, "../../database/src/runtime/registry.ts") },
-              ]),
+                ...await stubNetlifyAgentRuntime(root),
+              ],
             },
             root,
           } as never,

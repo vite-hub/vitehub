@@ -4695,7 +4695,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_STATE_FILE_URL_UNSUPPORTED: {
       why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
-      fix: "Set VITEHUB_AGENT_STATE_URL or agent.providers.state.url to a libSQL server URL, such as a Turso URL, or remove the URL so that `vite dev` runs without durable State. Or run `vite dev` on a Node dev runner.",
+      fix: "Set agent.providers.state.url to a libSQL server URL, such as a Turso URL. If VITEHUB_AGENT_STATE_URL is supplied to the Worker, change or remove that override. To keep using the local file, run `vite dev` on a Node dev runner.",
     },
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
