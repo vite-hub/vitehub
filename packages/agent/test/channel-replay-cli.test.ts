@@ -23,6 +23,8 @@ function output() {
 }
 
 const serverId = "replay-test-server"
+/** The dev server of the project. The command never guesses a port. */
+const devServer = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
 let rootDir = ""
 let devToken = ""
 
@@ -81,19 +83,22 @@ describe("vitehub channels replay", () => {
   it("lists history query flags from the JSON Schema in --help", async () => {
     const stdout = output()
     const { fetcher } = replayFetch([])
-    await expect(runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--help"], { env: {}, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })).resolves.toBe(0)
+    await expect(runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--help"], { env: devServer, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })).resolves.toBe(0)
     expect(stdout.chunks.join("")).toContain("  --folder <archive|inbox>  required")
     expect(stdout.chunks.join("")).toContain("  --query label=<array>  repeatable")
     expect(channelReplayQueryHelp(undefined)).toEqual(["  This history query has no JSON Schema. Use --filter key=value."])
   })
 
-  it("replays through the dev server in batches and prints a resume cursor at the limit", async () => {
+  it.each([
+    { mode: "discovered", target: [] },
+    { mode: "explicit", target: ["--url", devServer.VITEHUB_DEV_SERVER_URL] },
+  ])("replays through the $mode dev target and prints a resume cursor", async ({ target }) => {
     const stdout = output()
     const { fetcher, requests } = replayFetch([
       { failed: 0, items: [{ key: "m1", status: "completed" }, { key: "m2", reason: "existing", status: "skipped" }], nextCursor: "c2", processed: 1, skipped: 1 },
       { failed: 0, items: [{ key: "m3", status: "completed" }], nextCursor: "c3", processed: 1, skipped: 0 },
     ])
-    const code = await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--limit", "3", "--folder", "inbox"], { env: {}, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })
+    const code = await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", "--limit", "3", "--folder", "inbox", ...target], { env: devServer, rootDir, stderr: output(), stdout }, { fetch: fetcher as typeof fetch })
 
     expect(code).toBe(0)
     expect(requests[0]?.url).toBe("http://localhost:5173/__vitehub/agent/invocation-stream")
@@ -109,9 +114,22 @@ describe("vitehub channels replay", () => {
     expect(stdout.chunks.join("")).toContain("Continue with --cursor c3")
   })
 
+  it("fails without a dev server, for --server, and for a Console URL, and names the fix", async () => {
+    const { fetcher, requests } = replayFetch([])
+    const run = async (args: string[], env: NodeJS.ProcessEnv) => {
+      const stderr = output()
+      const code = await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox", ...args], { env, rootDir, stderr, stdout: output() }, { fetch: fetcher as typeof fetch })
+      return { code, stderr: stderr.chunks.join("") }
+    }
+    expect(await run([], {})).toEqual({ code: 1, stderr: expect.stringContaining("INTERNAL_DEV_SERVER_NOT_FOUND") })
+    expect(await run(["--server", "http://localhost:5173"], {})).toEqual({ code: 1, stderr: expect.stringContaining("--server is now --url") })
+    expect(await run(["--url", "https://mail.example.com/app/_vitehub"], {})).toEqual({ code: 1, stderr: expect.stringContaining("Pass --url https://mail.example.com/app.") })
+    expect(requests).toEqual([])
+  })
+
   it("does not read a token for a dev server outside the project root", async () => {
     const { fetcher, requests } = replayFetch([], "/another-project")
-    await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox"], { env: {}, rootDir, stderr: output(), stdout: output() }, { fetch: fetcher as typeof fetch })
+    await runAgentChannelReplayCli(["--agent", "labeller", "--channel", "mailbox"], { env: devServer, rootDir, stderr: output(), stdout: output() }, { fetch: fetcher as typeof fetch })
     expect(requests.length).toBeGreaterThan(0)
     expect(requests.every(request => !request.headers.has(workspaceDevTokenHeader))).toBe(true)
   })
@@ -135,13 +153,13 @@ describe("vitehub channels replay", () => {
 
     await expect(runAgentChannelReplayCli(
       ["--agent", "labeller", "--channel", "mailbox"],
-      { env: {}, rootDir, stderr, stdout: output() },
+      { env: devServer, rootDir, stderr, stdout: output() },
       { fetch: fetcher as typeof fetch },
     )).resolves.toBe(1)
     expect(stderr.chunks.join("")).toContain("Channel replay returned a repeated pagination cursor.")
   })
 
-  it("calls the channels.replay operation of the deployed app with a signed call and fails on item failures", async () => {
+  it.each(["https://mail.example.com", "http://localhost:3000"])("signs the channels.replay operation on %s and fails on item failures", async origin => {
     const stdout = output()
     const requests: Array<{ body: Record<string, unknown>, headers: Headers, url: string }> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -151,7 +169,7 @@ describe("vitehub channels replay", () => {
       return operationRpcResponse(init?.body, { ok: true, value: { failed: 1, items: [{ error: "Invalid input", key: "m1", status: "failed" }], nextCursor: null, processed: 0, skipped: 0 } })
     })
     const code = await runAgentChannelReplayCli(
-      ["--agent", "labeller", "--channel", "mailbox", "--url", "https://mail.example.com/app", "--dry-run", "--folder", "inbox"],
+      ["--agent", "labeller", "--channel", "mailbox", "--url", `${origin}/app`, "--dry-run", "--folder", "inbox"],
       {
         env: {
           VITEHUB_CONSOLE_AUTHORIZATION: "Basic abc",
@@ -169,7 +187,7 @@ describe("vitehub channels replay", () => {
       { input: { agent: "labeller", channel: "mailbox", describe: true }, operation: "channels.replay" },
       { input: { agent: "labeller", channel: "mailbox", dryRun: true, limit: 10, query: { folder: "inbox" } }, operation: "channels.replay" },
     ])
-    expect(requests[1]?.url).toBe("https://mail.example.com/app/_vitehub/rpc")
+    expect(requests[1]?.url).toBe(`${origin}/app/_vitehub/rpc`)
     // A bearer token is not a Console credential: the call carries only the signature.
     expect(requests[1]?.headers.has("authorization")).toBe(false)
     expect(requests[1]?.headers.get("x-vitehub-signature")).toContain("key=CI")
@@ -180,18 +198,18 @@ describe("vitehub channels replay", () => {
   it("reports a failed operation with its status and message", async () => {
     const stderr = output()
     const fetcher = vi.fn(async () => Response.json({ code: "CONSOLE_REQUEST_NOT_FOUND", message: "Channel replay is not available. Enable Console invocation for this Agent.", ok: false, status: 404 }, { status: 404 }))
-    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "https://example.com"], { env: {}, rootDir, stderr, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
+    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "https://example.com"], { env: devServer, rootDir, stderr, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
     expect(stderr.chunks.join("")).toContain("Channel replay failed with HTTP 404: Channel replay is not available. Enable Console invocation for this Agent.")
   })
 
   it("reports Console authentication failures and rejects plain HTTP deployments", async () => {
     const stderr = output()
     const fetcher = vi.fn(async () => new Response(null, { headers: { location: "/_vitehub/sign-in" }, status: 302 }))
-    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "https://example.com"], { env: {}, rootDir, stderr, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
+    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "https://example.com"], { env: devServer, rootDir, stderr, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
     expect(stderr.chunks.join("")).toContain("Console authentication failed with HTTP 401: https://example.com asked for authentication (HTTP 302).")
 
     const insecure = output()
-    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "http://example.com"], { env: {}, rootDir, stderr: insecure, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
+    await expect(runAgentChannelReplayCli(["--agent", "a", "--channel", "c", "--url", "http://example.com"], { env: devServer, rootDir, stderr: insecure, stdout: output() }, { fetch: fetcher as typeof fetch })).resolves.toBe(1)
     expect(insecure.chunks.join("")).toContain("must use HTTPS")
   })
 })

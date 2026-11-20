@@ -114,6 +114,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ variable }: { variable: string }) => `[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`,
       fix: "Set the variable that the message names to the private key that `vitehub secret console-key` prints, and name it `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` with A-Z, 0-9, and _ in `<NAME>`.",
     },
+    INTERNAL_DEV_SERVER_NOT_FOUND: {
+      why: ({ command }: { command: string }) => `[vitehub] No dev server of this project is running, and --url is not set, so \`vitehub ${command}\` has no app to call.`,
+      fix: "Start the dev server of this project, such as with `pnpm dev`, or pass --url with the app URL, such as --url http://localhost:3000.",
+    },
     INTERNAL_FORGE_NOT_INSTALLED: {
       why: ({ feature }: { feature: string }) => `${feature} needs @vite-hub/forge, and the app did not install it.`,
       fix: "Install Forge in your app with `pnpm add @vite-hub/forge`, then build again.",

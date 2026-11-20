@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { rmSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -378,12 +379,12 @@ describe("hubConnections", () => {
     await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root });
     const registryFile = (config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!;
     const watcher = Object.assign(new EventEmitter(), { add: vi.fn() });
-    const httpServer = new EventEmitter();
+    const httpServer = createHttpServer();
     const module = {};
     const invalidateModule = vi.fn();
     const logger = { error: vi.fn() };
     const server = {
-      config: { root, logger },
+      config: { base: "/", root, logger, server: {} },
       httpServer,
       moduleGraph: { getModuleById: () => module, invalidateModule },
       watcher,

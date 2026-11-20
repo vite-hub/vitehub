@@ -6,10 +6,6 @@ import { isRuntimeDiagnostic } from "./diagnostics.ts"
 
 const resultErrorBrand = Symbol.for("vitehub.runtime.resultError")
 
-export function isPreparedResultError(value: unknown): value is ResultError {
-  return isRuntimeDiagnostic(value) && Object.getOwnPropertyDescriptor(value, resultErrorBrand)?.value === true
-}
-
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
  *

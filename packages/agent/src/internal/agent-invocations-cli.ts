@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, isViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -75,10 +75,8 @@ interface ParsedArgs {
   change?: string
   /** The app URL from `--url`. Commands use the Console RPC under it. */
   console?: URL
-  /** A localhost app URL. When no Console answers there, the old local meaning runs, with AGENT_R1053. */
+  /** cancel on a localhost app URL. When no Console answers there, the command uses the dev endpoint of that dev server. */
   consoleFallback?: boolean
-  /** An old `--url` form that still works for one minor version. The command reports it with AGENT_R1053. */
-  deprecated?: { form: string, use: string }
   database?: string
   dryRun: boolean
   help: boolean
@@ -101,8 +99,6 @@ interface ParsedArgs {
   tablePrefix?: string
   timeout?: number
   url: string
-  /** `--server` selects the Vite Development Server, never a Console. */
-  server: boolean
   /** wait-idle ignores pending or running records last updated before this age. */
   staleAfter: number
   urlSet: boolean
@@ -134,6 +130,7 @@ const devTargetErrors = {
   invalidInlineTimeout: (message: string) => agentDiagnostics.AGENT_R0503({ message }),
   invalidTimeout: (message: string) => agentDiagnostics.AGENT_R0503({ message }),
   missingValue: (message: string) => agentDiagnostics.AGENT_R0502({ message }),
+  unknownOption: (message: string) => agentDiagnostics.AGENT_R0504({ message }),
 }
 
 const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
@@ -165,7 +162,6 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls to a deployment.",
     "                            Without --url, the commands use the dev server of this project",
     "                            (.vitehub/dev-server.json) and its Console.",
-    "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
     "                            Defaults to 30m.",
     "  --status <status>         Filter list results by pending, running, completed, failed, or cancelled.",
@@ -278,7 +274,6 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     interval: 1_000,
     json: false,
     observations: false,
-    server: false,
     staleAfter: waitIdleDefaults.staleAfter,
     // Without --url or this variable, useProjectDevServer() reads the dev server of the project.
     url: env.VITEHUB_AGENT_INVOCATIONS_URL || "",
@@ -307,10 +302,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (waiting && argument.startsWith("--timeout=")) parsed.waitTimeout = milliseconds(argument.slice("--timeout=".length), "--timeout")
     else if (used !== undefined) {
       index += used
-      if (argument === "--url" || argument === "--server" || argument.startsWith("--url=")) {
-        parsed.urlSet = true
-        parsed.server = argument === "--server"
-      }
+      if (argument === "--url" || argument.startsWith("--url=")) parsed.urlSet = true
       parsed.url = target.url
       if (target.timeout !== undefined) parsed.timeout = target.timeout
     }
@@ -370,7 +362,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
   if (!parsed.help && !waiting && parsed.action !== "export" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle and export." })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
-  if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
+  if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url." })
   const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
   const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
   if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
@@ -380,25 +372,21 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
-  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune" && parsed.action !== "compact") {
+  if (!parsed.help && parsed.urlSet && parsed.action !== "delete" && parsed.action !== "prune" && parsed.action !== "compact") {
     const app = appUrl(parsed.url)
-    if (app) {
-      parsed.console = app.base
-      parsed.consoleFallback = app.loopback && !app.consolePath
-      if (app.consolePath) parsed.deprecated = { form: "is the Console URL", use: `--url ${displayUrl(app.base)}, the app URL` }
-    }
-    else if (localUrl(parsed.url)) parsed.deprecated = oldLocalForm(parsed)
+    parsed.console = app.base
+    parsed.consoleFallback = app.loopback && parsed.action === "cancel"
   }
   if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations get <id>` lists." })
   if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
   if (!parsed.help && parsed.action === "undo" && !parsed.console) {
-    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000/_vitehub." })
+    throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000." })
   }
   if (!parsed.urlSet && !env.VITEHUB_AGENT_INVOCATIONS_URL && parsed.database === undefined && fileActions.has(parsed.action)) {
     parsed.database = env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim() || undefined
   }
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
-    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url instead of --database." })
   }
   if (!parsed.help && parsed.database !== undefined && fileActions.has(parsed.action) && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
   if ((parsed.console || readsJournalFile(parsed)) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
@@ -414,40 +402,30 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * `--url` is the app URL, as in every `vitehub` command, so the command calls the Console RPC under it. A pasted
- * Console URL (a `/_vitehub` path) still works for one minor version. A localhost URL with a query or a fragment can
- * only be an old local endpoint, so it returns undefined.
+ * `--url` is the app URL, as in every `vitehub` command, so the command calls the Console RPC under it. A Console URL
+ * (a `/_vitehub` path) fails with the app URL to pass instead.
  */
-function appUrl(value: string): { base: URL, consolePath: boolean, loopback: boolean } | undefined {
+function appUrl(value: string): { base: URL, loopback: boolean } {
   let url: URL
   try {
     url = new URL(value)
   }
   catch {
-    return
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must be the app URL, such as https://app.example.com or http://localhost:3000." })
   }
-  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(url.pathname)
   const loopback = isLoopbackHost(url.hostname)
-  if (loopback && !consolePath && (url.username || url.password || url.search || url.hash)) return
   if (url.protocol !== "https:" && !(loopback && url.protocol === "http:")) {
-    throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed Console, except for localhost." })
+    throw agentDiagnostics.AGENT_R0503({ message: "--url must use HTTPS for a deployed app, except for localhost." })
   }
   if (url.username || url.password || url.search || url.hash) {
     throw agentDiagnostics.AGENT_R0503({ message: "--url must not contain credentials, a query, or a fragment. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls." })
   }
+  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(url.pathname)
   // The RPC endpoint is under the app base.
   const base = consolePath ? url.pathname.slice(0, consolePath.index) : url.pathname
   url.pathname = base.endsWith("/") ? base : `${base}/`
-  return { base: url, consolePath: Boolean(consolePath), loopback }
-}
-
-function localUrl(value: string): boolean {
-  try {
-    return isLoopbackHost(new URL(value).hostname)
-  }
-  catch {
-    return false
-  }
+  if (consolePath) throw agentDiagnostics.AGENT_R0503({ message: `--url is the app URL, not the Console URL. Pass --url ${displayUrl(url)}.` })
+  return { base: url, loopback }
 }
 
 /** A URL without credentials, a query, or a fragment, for messages. */
@@ -459,17 +437,6 @@ function displayUrl(value: string | URL): string {
   catch {
     return "the URL"
   }
-}
-
-/** The old local meaning of a localhost `--url`: the dev server for cancel, a local invocation endpoint otherwise. */
-function oldLocalForm(parsed: ParsedArgs): { form: string, use: string } {
-  return parsed.action === "cancel"
-    ? { form: "has no ViteHub Console, so the command sent the cancel to the Vite Development Server", use: `--server ${new URL(parsed.url).origin} for the Development Server, or the URL of an app with the Console on` }
-    : { form: "has no ViteHub Console, so the command read it as a local invocation endpoint", use: "the URL of an app with the Console on, such as --url http://localhost:3000. The command reads its Invocations through the Console" }
-}
-
-function writeDeprecation(context: AgentInvocationsCliContext, parsed: ParsedArgs, deprecated: { form: string, use: string }): void {
-  context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_R1053({ ...deprecated, url: displayUrl(parsed.url) }))}\n`)
 }
 
 function endpoint(parsed: ParsedArgs, id?: string): URL {
@@ -572,7 +539,7 @@ async function consoleCall<T>(target: ConsoleTarget, operation: string, input: R
   if (status === 403) {
     throw agentDiagnostics.AGENT_R0511({ message: `Console denied the request with HTTP 403${message ? `: ${message}` : ""}.${hasConsoleCredentials(target.env) ? "" : ` ${operationCredentialHint}`}` })
   }
-  // A page, another JSON endpoint, or a missing route, not a Console reply. On localhost the old local meaning can run instead.
+  // A page, another JSON endpoint, or a missing route, not a Console reply. On localhost, cancel asks the dev endpoint instead.
   if (!answered && (!isRuntimeRecord(json) || status < 300 || status === 404 || status === 405)) {
     const error = agentDiagnostics.AGENT_R0511({ message: `${url.origin}${target.base.pathname} did not answer as a ViteHub Console (HTTP ${status}). Pass the app URL of a deployment that enables the Console.` })
     notConsoleAnswers.add(error)
@@ -587,10 +554,10 @@ type InvocationSummary = AgentInvocationListResult["invocations"][number]
 const notConsoleAnswers = new WeakSet<Error>()
 
 /**
- * A localhost app URL: its Console. When no Console answers, the old local meaning runs once for the whole command,
- * after AGENT_R1053, for one minor version.
+ * cancel on a localhost app URL: its Console. When no Console answers, the command asks the dev endpoint of that dev
+ * server, as it does without --url.
  */
-function appInvocationsTarget(consoleTarget: InvocationsTarget, local: () => InvocationsTarget, deprecate: () => void): InvocationsTarget {
+function appInvocationsTarget(consoleTarget: InvocationsTarget, local: () => InvocationsTarget): InvocationsTarget {
   let chosen: InvocationsTarget | undefined
   async function use<T>(call: (target: InvocationsTarget) => Promise<T>): Promise<T> {
     if (chosen) return await call(chosen)
@@ -601,7 +568,6 @@ function appInvocationsTarget(consoleTarget: InvocationsTarget, local: () => Inv
     }
     catch (error) {
       if (!(error instanceof Error) || !notConsoleAnswers.has(error)) throw error
-      deprecate()
       chosen = local()
       return await call(chosen)
     }
@@ -686,7 +652,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
   return {
     cancel: async () => {
-      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url instead of --database." })
     },
     close: file.close,
     detail: async (id) => {
@@ -1235,18 +1201,27 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
 }
 
 /**
- * Without --url, --server, or --database, list, get, tail, export, wait-idle, and cancel use the dev server that wrote
+ * Without --url or --database, list, get, tail, export, wait-idle, and cancel use the dev server that wrote
  * `.vitehub/dev-server.json` in this project, as every `vitehub` command does. Reads go through its Console. It never
- * guesses a port, since another project may use it. Returns false when no dev server runs for a read.
+ * guesses a port, since another project may use it. Returns false when no dev server runs.
  */
 function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
-  if (parsed.urlSet || (parsed.database !== undefined && fileActions.has(parsed.action))) return true
-  if (parsed.action !== "cancel" && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
+  if (parsed.database !== undefined && fileActions.has(parsed.action)) return true
+  if (parsed.action !== "cancel" && (parsed.urlSet || !fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
   const rootDir = context.rootDir ?? process.cwd()
-  const found = findViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], context.env)
-  // cancel keeps the Vite Development Server default for hosts that do not write the file.
+  const roots = [rootDir, resolveViteHubProjectRoot(rootDir)]
+  if (parsed.urlSet) {
+    if (isViteHubDevServerUrl(new URL(parsed.url), roots, context.env)) {
+      delete parsed.console
+      delete parsed.consoleFallback
+    }
+    return true
+  }
+  const found = findViteHubDevServerUrl(roots, context.env)
+  // cancel asks the Nitro runtime of the dev server, not its Console.
   if (parsed.action === "cancel") {
-    parsed.url = found ?? resolveViteHubDevServerUrl(context.env)
+    if (!found) return false
+    parsed.url = found
     return true
   }
   const app = found ? appUrl(found) : undefined
@@ -1283,13 +1258,12 @@ export async function runAgentInvocationsCli(
   const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
   let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
   try {
-    if (parsed.deprecated) writeDeprecation(context, parsed, parsed.deprecated)
     const local = () => localInvocationsTarget(parsed, context, fetchImpl, timeout)
     const consoleTarget = parsed.console ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed) : undefined
     const target = readsJournalFile(parsed)
       ? file = await journalFileTarget(parsed, context)
       : consoleTarget && parsed.consoleFallback
-        ? appInvocationsTarget(consoleTarget, local, () => writeDeprecation(context, parsed, oldLocalForm(parsed)))
+        ? appInvocationsTarget(consoleTarget, local)
         : consoleTarget ?? local()
     if (parsed.action === "cancel") {
       const result = await target.cancel(parsed.id!)

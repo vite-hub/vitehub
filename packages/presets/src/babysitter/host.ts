@@ -149,7 +149,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   // Report every missing secret at startup, not the webhook secret on the first delivery.
   const app = await readGitHubAppEnvironment({}, { webhookSecret: true });
   const credentials = createGitHubAppCredentials(app);
-  const repositories = babysitterRepositories(agent.options.filter, () => credentials.repositories());
+  const repositories = babysitterRepositories(agent.options.filter, signal => credentials.repositories(signal));
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
@@ -218,7 +218,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     event: host.event,
     error: host.error,
     wake: () => host.wake(),
-    admission,
+    admission: signal => admission(undefined, signal),
     // A sample that times out while the disk is busy keeps the worker queue's fallback slots instead of none.
     hostCapacity: async ({ active, signal }) => {
       try {
