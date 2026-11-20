@@ -353,6 +353,9 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     && value.env.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
     throw agentDiagnostics.AGENT_R0489({ message: "[vitehub] Codex reasoning options cannot be combined with driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
   }
+  if (provider === "codex" && isPlainRecord(value.env) && value.env.T3_MCP_BEARER_TOKEN !== undefined && value.env.VITEHUB_MCP_BEARER_TOKEN === undefined) {
+    throw agentDiagnostics.AGENT_MCP_BEARER_TOKEN_RENAMED()
+  }
   if (value.cwd !== undefined && typeof value.cwd !== "function" && !isResolver(value.cwd) && (typeof value.cwd !== "string" || !value.cwd.trim())) {
     throw agentDiagnostics.AGENT_R0938({ message: "[vitehub] defineAgent({ driver.cwd }) must be a non-empty directory path or resolver." })
   }

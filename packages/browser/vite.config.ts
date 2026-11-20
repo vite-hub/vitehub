@@ -7,7 +7,7 @@ export default defineConfig({
     ...packDefaults,
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "esbuild", "playwright-core", "vite"],
+      neverBundle: [/^#vitehub\/browser\//, "@cloudflare/playwright", "playwright-core", "vite"],
       onlyBundle: false,
     },
     entry: [

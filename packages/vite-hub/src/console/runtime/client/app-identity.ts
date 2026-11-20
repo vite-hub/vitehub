@@ -2,7 +2,7 @@ import { computed, shallowRef } from "vue"
 
 import type { ComputedRef } from "vue"
 import type { ConsoleLinkedProject } from "./projects"
-import { consoleProjectDisplayName, useConsoleProjects } from "./project-session"
+import { consoleOpenProjectName, consoleProjectDisplayName, useConsoleProjects } from "./project-session"
 import { consoleProjectHost, consoleProjectTarget } from "./projects"
 
 /** The name, host, and logo of an app, as the sidebar, the app switcher, and the page header show them. */
@@ -38,7 +38,7 @@ export function useConsoleApp(): ComputedRef<ConsoleAppIdentity> {
   const projects = useConsoleProjects()
   return computed(() => {
     const current = projects.current.value
-    const name = projects.info.value?.name || navigationName.value || (current ? consoleProjectDisplayName(current) : "App")
+    const name = consoleOpenProjectName(projects.info.value?.name || navigationName.value) || (current ? consoleProjectDisplayName(current) : "App")
     return current ? consoleAppIdentity(current, name) : { name, host: "", letter: letterOf(name) }
   })
 }

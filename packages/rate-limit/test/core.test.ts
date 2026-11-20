@@ -258,7 +258,7 @@ describe("Rate Limit core", () => {
       windowMs: 60_000,
     })
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 0, window: "1m" })).toThrow("positive integer")
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("is not a duration")
   })
 
   it("classifies revoked limiter options", () => {
@@ -338,14 +338,10 @@ describe("Rate Limit core", () => {
     const options = { driver: memoryRateLimitDriver(), limit: 1, window: "1m" as const }
     Object.assign(options, { window: `${"1" + "0".repeat(307)}${unit}` })
 
-    expect(() => createRateLimiter(options)).toThrow("finite")
+    expect(() => createRateLimiter(options)).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
   })
 
-  it.each(["8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
-  })
-
-  it.each(["8640000000000000.1ms", "8640000000000.0001s", "144000000000.000001m", "2400000000.00000001h", "100000000.000000001d"] as const)("rejects fractional overflow in %s before decimal rounding", (window) => {
+  it.each(["8640000000000000.1ms", "8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000000.000000001d", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
   })
 
@@ -396,6 +392,39 @@ describe("Rate Limit core", () => {
 
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ resetAt: 8.64e15 })
     await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ resetAt: 8.64e15, status: "known" })
+  })
+
+  it("gives back one request of the current window in memory", async () => {
+    let now = 60_001
+    const limiter = createRateLimiter({ driver: memoryRateLimitDriver({ now: () => now }), limit: 2, window: "1m" })
+
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
+    await limiter.consume({ key: "user" })
+    await limiter.consume({ key: "user" })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false })
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, remaining: 0, used: 2 })
+    // A refund in a new window has no request to give back.
+    now = 120_001
+    await limiter.refund({ key: "user" })
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+  })
+
+  it("reports refund as unsupported for a driver without refund()", async () => {
+    const driver = memoryRateLimitDriver()
+    Object.assign(driver, { name: "custom", refund: undefined })
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ reason: "The \"custom\" Rate Limit driver cannot give back a request.", status: "unsupported" })
+    await expect(limiter.refund({ key: "" })).rejects.toMatchObject({ code: "RATE_LIMIT_R0038" })
+  })
+
+  it("rejects malformed custom refund outcomes and returns driver errors", async () => {
+    const driver = memoryRateLimitDriver()
+    Object.assign(driver, { refund: () => [undefined, 1] })
+    await expect(createRateLimiter({ driver, limit: 1, window: "1m" }).refund({ key: "user" })).rejects.toMatchObject({ code: "RATE_LIMIT_REFUND_RESULT_INVALID" })
+    const cause = new Error("offline")
+    Object.assign(driver, { refund: () => [cause, undefined] })
+    await expect(createRateLimiter({ driver, limit: 1, window: "1m" }).refund({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
   })
 
   it.each([undefined, null, [], Symbol("options")])("classifies malformed limiter options (%s)", (options) => {

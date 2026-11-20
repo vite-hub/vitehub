@@ -20,6 +20,8 @@ import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 import { ELEMENT_NODE, parse as parseHtml, walkSync } from "ultrahtml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { ComarkPlugin, ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { PresetOptions } from "comark-ui/vue"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
@@ -114,8 +116,8 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   // A block reads its children by tag, as `::compare` finds its `::screenshot`s, so it renders from its source tree.
   const source = (node: ComarkNode): ComarkNode => {
     if (!isElement(node)) return node
-    const original = blocks.get(node) ?? node
-    return [original[0], original[1], ...original.slice(2).map(source)]
+    const [tag, attributes, ...children] = blocks.get(node) ?? node
+    return [tag, attributes, ...children.map(source)]
   }
   let assets = ""
   // A block inside another one renders on its own too, for a page that overrides the outer block.
@@ -254,7 +256,7 @@ function examples(parse: (markdown: string) => Promise<MarkdownDocument>, source
       const name = typeof node[1].name === "string" ? node[1].name : undefined
       if (name) {
         const source = sources[name]
-        if (source === undefined) throw new Error(`::example names "${name}", but the examples folder has no ${name}.vue.`)
+        if (source === undefined) throw docsErrorDiagnostics.DOCS_EXAMPLE_MISSING({ name })
         // A fence longer than any run of backticks in the file keeps the file whole.
         const fence = "`".repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(run => run[0].length + 1)))
         const { nodes: code } = await parse(`${fence}vue\n${source.trim()}\n${fence}\n`)

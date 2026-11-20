@@ -37,6 +37,8 @@ vitehub bundle --against .vitehub/bundle-before.json --json  # the same as JSON
 
 The commands read `.vitehub/bundle/` and need no dev server. Development builds are not measured.
 
+The Console and the ViteHub MCP read the same report through two read operations on the dev server: `bundle.report` returns what `vitehub bundle --json` prints, and `bundle.why` with `{ target }` returns what `vitehub bundle why <target> --json` prints. The dev server reads `.vitehub/bundle/` of its project, so run a production build first. A deployed server has no project files and answers `BUNDLE_DEV_SERVER_REQUIRED`. Without a report, the operations answer `BUNDLE_REPORT_MISSING`. Access to the `bundle` Console section allows both.
+
 The build also saves the report location in `.vitehub/bundle-root.json` at the build's working directory and beside the Vite config. This lets `vitehub bundle` find reports for a configured nested root without loading the project. Run a production build once to create this file for reports from an older version.
 
 ## What the report says

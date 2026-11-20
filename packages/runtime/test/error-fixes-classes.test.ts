@@ -13,7 +13,7 @@ it("throws RUNTIME_EXECUTION_BUDGET_EXCEEDED with the counter, the limit, and a 
   expect(error).toMatchObject({
     code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED",
     counter: "toolCalls",
-    docs: "https://vitehub.dev/docs/development/diagnostics/runtime_execution_budget_exceeded",
+    docs: "https://vitehub.dev/docs/runtime/diagnostics/runtime_execution_budget_exceeded",
     fix: expect.stringContaining("maxToolCalls"),
     limit: 1,
   })

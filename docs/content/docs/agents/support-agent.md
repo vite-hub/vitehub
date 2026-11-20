@@ -2,7 +2,7 @@
 title: Build a support Agent
 description: Build a support Agent that answers in Teams from files it is allowed to read.
 navigation.order: 80
-navigation.group: Recipes
+navigation.group: Start
 icon: i-lucide-life-buoy
 navigation.kind: Guides
 ---

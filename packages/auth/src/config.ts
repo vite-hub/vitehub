@@ -334,6 +334,28 @@ function readAuthAccessPublicConfig(body: ObjectExpression | undefined): string[
   })
 }
 
+/** `access.signIn` and `access.afterSignIn`, which the Nuxt page guard reads at build time, like `basePath`. */
+function readAuthAccessSignInConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access) return {}
+  const resolved: Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> = {}
+  if (hasObjectProperty(access, "signIn")) {
+    const value = readObjectPropertyValue(access, "signIn")
+    const page = staticString(value)
+    const provider = objectLiteral(value)
+    if (provider && hasObjectProperty(provider, "callbackURL")) throw authErrorDiagnostics.AUTH_SIGN_IN_CALLBACK_URL_MOVED()
+    if (provider) resolved.signIn = { provider: true }
+    else if (page?.startsWith("/") && !/^\/[/\\]/.test(page)) resolved.signIn = { page }
+    else throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be an inline path that starts with one `/`, such as `'/login'`, or an inline object, such as `{ provider: 'github' }`." })
+  }
+  if (hasObjectProperty(access, "afterSignIn")) {
+    const afterSignIn = staticString(readObjectPropertyValue(access, "afterSignIn"))
+    if (!afterSignIn?.startsWith("/") || /^\/[/\\]/.test(afterSignIn)) throw authErrorDiagnostics.AUTH_AFTER_SIGN_IN_INVALID()
+    resolved.afterSignIn = afterSignIn
+  }
+  return resolved
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -377,7 +399,7 @@ function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: b
   const database = readObjectPropertyValue(body, "database")
   if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
     if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
-      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
     }
   }
   if (hasObjectProperty(body, "secondaryStorage")) {
@@ -414,6 +436,7 @@ export function resolveAuthViteConfig(
     access: {
       routes: readAuthAccessRoutesConfig(body),
       ...(publicRoutes.length ? { public: publicRoutes } : {}),
+      ...readAuthAccessSignInConfig(body),
     },
     basePath,
     definition,

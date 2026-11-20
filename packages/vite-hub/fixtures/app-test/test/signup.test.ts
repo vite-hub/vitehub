@@ -37,7 +37,7 @@ test("signup saves the user, counts it, sends the welcome email, queues the foll
   expect(await db.select().from(schema.users)).toEqual([{ email: "ada@example.com", id: 1 }])
   expect(await kv.get("signups")).toEqual([undefined, 1])
   expect(hub.emails).toEqual([{ from: "hello@example.com", subject: "Welcome", text: "Thanks for signing up.", to: "ada@example.com" }])
-  expect(hub.jobs).toMatchObject([{ options: { delaySeconds: 86_400 }, payload: { userId: 1 }, queue: "welcome" }])
+  expect(hub.jobs).toMatchObject([{ options: { delay: "1d" }, payload: { userId: 1 }, queue: "welcome" }])
   expect(hub.workflows).toMatchObject([{ payload: { userId: 1 }, status: "queued", workflow: "onboarding" }])
 })
 
@@ -58,7 +58,7 @@ test("keeps configured provider rules and Definition lookup in app tests", async
   await expect(startWorkflow("misspelled", {})).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
   expect(await dynamicQueue.send("welcome", { userId: 1 }, { contentType: "json" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(hub.jobs).toEqual([])
-  expect(await startWorkflow("onboarding", { userId: 1 })).toMatchObject({ provider: "openworkflow", status: "queued" })
+  expect(await startWorkflow("onboarding", { userId: 1 })).toMatchObject([undefined, { provider: "openworkflow", status: "queued" }])
 })
 
 test("the nightly Schedule resets the counter", async () => {

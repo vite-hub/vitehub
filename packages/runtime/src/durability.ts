@@ -145,7 +145,7 @@ interface InstanceCountDiagnosticData extends Record<string, unknown> {
 }
 
 const durabilityDiagnostics = defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/runtime/diagnostics",
   codes: {
     RUNTIME_R0017: {
       why: ({ instances, lines }: DurabilityDiagnosticData) => [

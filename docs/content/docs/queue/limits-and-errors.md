@@ -19,8 +19,10 @@ icon: i-lucide-circle-alert
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -79,7 +81,7 @@ A Vercel response with `messageId: null` means the job is accepted for later pro
 
 ### QUEUE_UNSUPPORTED_OPTION
 
-The provider does not support an option. Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel rejects `contentType`. The local provider rejects `contentType`, `region`, and `retentionSeconds`. See [Queue Enqueue options](/docs/queue/server-api#queue-enqueue-options).
+The provider does not support an option. Cloudflare rejects `idempotencyKey`, `region`, and `retention`. Vercel rejects `contentType`. The local provider rejects `contentType`, `region`, and `retention`. Every provider rejects `delaySeconds` and `retentionSeconds`, which are now `delay` and `retention`. See [Queue Enqueue options](/docs/queue/server-api#queue-enqueue-options).
 
 ## Configuration errors
 
@@ -167,7 +169,7 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_DEFINITION
 
-`defineQueue()` received no handler function.
+`defineQueue()` did not receive one object with a `handler` function, or the object has an option that Queue does not know. The former `defineQueue(handler, options)` form fails with this code too. Run `npx vitehub migrate` to move it to `defineQueue({ handler, ...options })`.
 
 ### QUEUE_INVALID_NAME
 
@@ -201,7 +203,7 @@ The local driver is the Node host's driver when the app has no Postgres Database
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs per queue and deletes older ones. `vitehub queue list` counts them and shows the limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes them.
 - The attempt count is saved before the handler runs. If the process stops during a handler, the job runs again after restart with the next attempt number. If it stopped during the fourth attempt, the job becomes dead, so a handler that crashes the process cannot run on every restart.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before it saves completion, or if deleting the job and saving its state both fail. Make side effects safe to repeat.
-- `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at once. A dead job frees its key, so a new send with it runs.
+- `delay` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at once. A dead job frees its key, so a new send with it runs.
 - `sendBatch()` stores all jobs or none. If one file fails, it returns `QUEUE_PROVIDER_FAILED` and removes the batch's other files, so a retry does not store jobs twice.
 - `concurrency` limits how many jobs of one queue run at once. The default is 1. The local provider does not call `onError` or `callbackOptions`.
 - Jobs survive a restart on the same host and disk. A temporary container filesystem loses them, and other hosts cannot see them. In Docker, mount `.vitehub/data` as a volume.
@@ -211,7 +213,7 @@ The local driver is the Node host's driver when the app has no Postgres Database
 
 ## Postgres delivery
 
-The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
+The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
 
 - The first server to start creates the table and its indexes under a transaction lock, so servers that start at once do not race.
 - A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so instances cannot take a job while its claim is held. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.
@@ -229,11 +231,11 @@ In `vite dev` and `nuxt dev`, every app runs its jobs in the dev server with the
 | --- | --- | --- | --- |
 | Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
 | Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |
-| Largest `delaySeconds` | 86400 (24 hours) | 604800 (7 days) | No limit |
-| Retention | None | `retentionSeconds` from 60 to 604800, default 86400 | None |
+| Largest `delay` | `'24h'` (86400 seconds) | `'7d'` (604800 seconds) | No limit |
+| Retention | None | `retention` from `'1m'` to `'7d'`, default `'1d'` | None |
 | Largest payload | 128 KB of JSON | 100 MB of JSON | No limit |
 | Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
-| Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
+| Rejected options | `idempotencyKey`, `region`, `retention` | `contentType` | `contentType`, `region`, `retention` |
 
 The rules come from the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails the send with [`QUEUE_PROVIDER_FAILED`](#queue_provider_failed), and `error.cause` names the limit. A rejected option fails with [`QUEUE_UNSUPPORTED_OPTION`](#queue_unsupported_option) and names the build's provider, as on the host.
 

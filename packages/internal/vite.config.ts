@@ -15,6 +15,7 @@ export default defineConfig({
       "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/ast.ts",
+      "src/browser-environment.ts",
       "src/channel-archive.ts",
       "src/cli.ts",
       "src/config-edit.ts",
@@ -70,6 +71,7 @@ export default defineConfig({
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
       "src/build/revision.ts",
+      "src/build/rolldown.ts",
       "src/build/scan-module.ts",
       "src/build/user-entry.ts",
       "src/build/vercel-config.ts",
@@ -96,6 +98,7 @@ export default defineConfig({
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
       "src/runtime/user-agent.ts",
+      "src/runtime/user-data.ts",
       "src/runtime/vercel-hosted.ts",
     ],
     outExtensions: () => ({

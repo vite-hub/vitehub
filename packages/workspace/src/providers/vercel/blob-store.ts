@@ -455,6 +455,14 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
+    // `undefined` removes the key, as JSON has no value for it.
+    if (value === undefined) {
+      const client = await this.#client()
+      await Promise.all([this.#metaKey(key), this.#legacyMetaKey(key)].map(pathname => client.delete(pathname).catch((error: unknown) => {
+        if (!client.isMissing(error)) throw error
+      })))
+      return
+    }
     await (await this.#client()).upload(this.#metaKey(key), JSON.stringify(value), {
       contentType: "application/json; charset=utf-8",
     })

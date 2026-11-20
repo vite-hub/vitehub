@@ -25,6 +25,8 @@ export interface ConsoleProjectBuild {
     /** The name of the commit author, without the email. */
     author?: string
     branch?: string
+    /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
+    repository?: string
   }
 }
 

@@ -21,9 +21,9 @@ export function normalizeSandboxTaskDefinitionBundle(source: SandboxTaskDefiniti
   return source
 }
 
-export function createExecutionFiles(definitionName: string) {
+export function createExecutionFiles(definitionName: string, tempDir = '/tmp') {
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  const baseDir = `/tmp/vitehub-sandbox-task/${definitionName.replace(/[^a-z0-9/_-]/gi, '_')}-${nonce}`
+  const baseDir = `${tempDir}/vitehub-sandbox-task/${definitionName.replace(/[^a-z0-9/_-]/gi, '_')}-${nonce}`
   return {
     baseDir,
     entryPath: `${baseDir}/entry.mjs`,

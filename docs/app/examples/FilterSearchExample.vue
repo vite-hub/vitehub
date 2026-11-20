@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useChoices } from "vite-hub/decisions/vue";
+import { useChoices } from "vite-hub/choices/vue";
 
 interface Selection {
   supplier: { exclude: string[]; include: string[] };

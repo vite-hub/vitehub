@@ -18,12 +18,13 @@ import { EmailLanding } from "./email";
 import { ChannelsLanding } from "./channels";
 import { CmsLanding } from "./cms";
 import { CommentsLanding } from "./comments";
-import { DecisionsLanding } from "./decisions";
+import { ChoicesLanding } from "./choices";
 import { EnvLanding } from "./env";
 import { FormsLanding } from "./forms";
 import { I18nLanding } from "./i18n";
 import { RateLimitsLanding } from "./rate-limits";
 import { RealtimeLanding } from "./realtime";
+import { WebhooksLanding } from "./webhooks";
 import type { PrimitiveLanding } from "./types";
 
 export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEntries([
@@ -47,12 +48,13 @@ export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEn
   ChannelsLanding,
   CmsLanding,
   CommentsLanding,
-  DecisionsLanding,
+  ChoicesLanding,
   EnvLanding,
   FormsLanding,
   I18nLanding,
   RateLimitsLanding,
   RealtimeLanding,
+  WebhooksLanding,
 ].map((landing) => [landing.slug, landing]));
 
 export function getPrimitiveLanding(slug: string): PrimitiveLanding | undefined {

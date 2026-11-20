@@ -22,7 +22,14 @@ vi.mock("better-auth/vue", () => ({
     betterAuth.created.push(options)
     return {
       signIn: { social: async (input: unknown) => { betterAuth.calls.push(["signIn.social", input]); return { data: input } } },
-      signOut: async (...args: unknown[]) => { betterAuth.calls.push(["signOut", ...args]); return betterAuth.signOutResult },
+      signOut: async (...args: unknown[]) => {
+        betterAuth.calls.push(["signOut", ...args])
+        // Better Auth calls the success hook of the merged fetch options, as its client proxy does.
+        const fetchOptions: unknown = typeof args[0] === "object" && args[0] !== null ? Reflect.get(args[0], "fetchOptions") : undefined
+        const onSuccess: unknown = typeof fetchOptions === "object" && fetchOptions !== null ? Reflect.get(fetchOptions, "onSuccess") : undefined
+        if (typeof onSuccess === "function") await onSuccess({ data: betterAuth.signOutResult })
+        return betterAuth.signOutResult
+      },
       // Better Auth reads the session when its `useSession()` hook first mounts.
       useSession: () => {
         betterAuth.subscriptions++
@@ -39,7 +46,7 @@ vi.mock("better-auth/vue", () => ({
 const appClient = vi.hoisted(() => ({ options: { plugins: [{ id: "admin-client" }] } }))
 vi.mock("#vitehub/auth/client", () => ({ default: appClient.options }))
 
-const { authClient, createAuthClient, loadAuthClient, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useSession, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, onSignOut, setDefaultAuthBasePath, setNuxtAppResolver, setSessionSeedResolver, setSignOutHandler, useAuthClient, useUserSession } = await import("../src/vue.ts")
 
 const signedIn = { session: { id: "s" }, user: { id: "u", name: "Ada" } }
 
@@ -82,7 +89,7 @@ afterEach(() => {
 describe("Vue Auth composables", () => {
   it("projects the shared client", () => {
     expect(useAuthClient() === authClient).toBe(true)
-    expect(useSession()).toBeDefined()
+    expect(useAuthClient().useSession()).toBeDefined()
   })
 
   it("creates the default client with the options of the app's auth.client.ts, on the first call", async () => {
@@ -107,7 +114,7 @@ describe("Vue Auth composables", () => {
     setNuxtAppResolver(() => ({ runWithContext: run => run(), $vitehubAuthClient: client }))
     const real = ref({ data: null, error: null, isPending: true, isRefetching: false, refetch: async () => {} })
     betterAuth.session = real
-    const state = useSession()
+    const state = useAuthClient().useSession()
     const session = useUserSession()
 
     expect(useAuthClient()).toBe(client)
@@ -193,8 +200,7 @@ describe("Vue Auth composables", () => {
     await nextTick()
     expect(betterAuth.subscriptions).toBe(1)
     expect(new Set(sessions).size).toBe(1)
-    expect(useSession(client)).toBe(useSession(client))
-    expect(client.useSession()).toBe(useSession(client))
+    expect(client.useSession()).toBe(client.useSession())
   })
 
   it("reads once for callers at the same time and returns the session from refresh()", async () => {
@@ -301,7 +307,7 @@ describe("Vue Auth composables", () => {
     setSessionSeedResolver(() => signedIn)
     const scope = effectScope()
     const client = createAuthClient()
-    const [session, can] = scope.run(() => [useUserSession(client), useSession(client)])!
+    const [session, can] = scope.run(() => [useUserSession(client), client.useSession()] as const)!
     await settle()
     expect(session.loggedIn.value).toBe(true)
     expect(can!.value.data).toEqual(signedIn)
@@ -489,18 +495,84 @@ describe("signOut() of useUserSession()", () => {
     await signOut({ redirectTo: "/goodbye", fetchOptions: { headers: { "x-reason": "menu" } } })
 
     // The session store follows Better Auth's session atom before the call runs.
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { fetchOptions: { headers: { "x-reason": "menu" } } }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true, fetchOptions: { headers: { "x-reason": "menu" }, body: { disableRedirect: true }, onSuccess: expect.any(Function) } }]])
     expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
-  it("gives Better Auth its second argument, the fetch options", async () => {
+  it("gives Better Auth its second argument, the fetch options, merged with the first", async () => {
     signedIn()
     const onSuccess = vi.fn()
     const { signOut } = useUserSession(createAuthClient())
 
-    await signOut(undefined, { onSuccess })
+    await signOut(undefined, { onSuccess, headers: { "x-reason": "menu" } })
 
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", {}, { onSuccess }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true, fetchOptions: { headers: { "x-reason": "menu" }, body: { disableRedirect: true }, onSuccess: expect.any(Function) } }]])
+    expect(onSuccess).toHaveBeenCalledExactlyOnceWith({ data: { data: true } })
+  })
+
+  it.each([
+    ["the options", (body: object) => [{ fetchOptions: { body } }]],
+    ["the second argument", (body: object) => [undefined, { body }]],
+  ])("keeps disableRedirect when the fetch options of %s set their own body", async (_name, call) => {
+    signedIn()
+    const { signOut } = useUserSession(createAuthClient())
+
+    await (signOut as (...args: unknown[]) => Promise<unknown>)(...call({ disableRedirect: false, reason: "menu" }))
+
+    expect(betterAuth.calls.at(-1)?.[1]).toMatchObject({ fetchOptions: { body: { disableRedirect: true, reason: "menu" } } })
+  })
+
+  it("opens the provider's sign-out page and runs every listener when one listener fails", async () => {
+    signedIn()
+    const steps: string[] = []
+    vi.stubGlobal("location", { assign: (url: string) => void steps.push(`open ${url}`) })
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const stops = [
+      onSignOut(() => { throw new Error("sync failure") }),
+      onSignOut(async () => { throw new Error("async failure") }),
+      onSignOut(() => void steps.push("last listener")),
+    ]
+    betterAuth.signOutResult = { data: { success: true, url: logout, redirect: false }, error: null }
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut()
+    for (const stop of stops) stop()
+
+    expect(steps).toEqual(["last listener", `open ${logout}`])
+    expect(console.error).toHaveBeenCalledTimes(2)
+  })
+
+  it("runs the success hook of the caller after the onSignOut() listeners", async () => {
+    signedIn()
+    const steps: string[] = []
+    const stop = onSignOut(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ fetchOptions: { onSuccess: () => void steps.push("caller success") } })
+    stop()
+
+    expect(steps).toEqual(["listener done", "caller success"])
+  })
+
+  it("waits for the onSignOut() listeners after the server ended the session, and before the next page opens", async () => {
+    signedIn()
+    const steps: string[] = []
+    setSignOutHandler(redirectTo => void steps.push(`open ${redirectTo}`))
+    const stop = onSignOut(async () => {
+      steps.push(`listener after ${betterAuth.calls.at(-1)?.[0]}`)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ redirectTo: "/goodbye" })
+    stop()
+    await signOut()
+
+    expect(steps).toEqual(["listener after signOut", "listener done", "open /goodbye", "open undefined"])
   })
 
   it("lets the Nuxt module open the next page", async () => {
@@ -516,21 +588,57 @@ describe("signOut() of useUserSession()", () => {
     expect(pageLoads).not.toHaveBeenCalled()
   })
 
+  // The provider's sign-out page, as the server answers it with `disableRedirect: true`.
+  const logout = "https://idp.example.com/logout?id_token_hint=token"
+
   it.each([
-    ["{ data, error }", { data: { success: true, url: "https://idp.example.com/logout", redirect: true }, error: null }],
-    ["fetchOptions.throw", { success: true, url: "https://idp.example.com/logout", redirect: true }],
-  ])("lets Better Auth open the provider's sign-out page (%s)", async (_name, result) => {
+    ["{ data, error }", { data: { success: true, url: logout, redirect: false }, error: null }, { data: { success: true, url: logout, redirect: true }, error: null }],
+    ["fetchOptions.throw", { success: true, url: logout, redirect: false }, { success: true, url: logout, redirect: true }],
+  ])("opens the provider's sign-out page after the onSignOut() listeners (%s)", async (_name, answer, returned) => {
     signedIn()
+    const steps: string[] = []
+    vi.stubGlobal("location", { assign: (url: string) => void steps.push(`open ${url}`) })
     const handler = vi.fn()
     setSignOutHandler(handler)
-    betterAuth.signOutResult = result
+    const stop = onSignOut(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    betterAuth.signOutResult = answer
     const session = useUserSession(createAuthClient())
     await vi.waitFor(() => expect(session.loggedIn.value).toBe(true))
 
-    await session.signOut({ redirectTo: "/goodbye" })
+    const result = await session.signOut({ redirectTo: "/goodbye" })
+    stop()
 
+    // Without `disableRedirect`, Better Auth opens the page inside its `signOut()`, before the listeners run.
+    expect(betterAuth.calls.at(-1)).toEqual(["signOut", { disableRedirect: true, fetchOptions: { body: { disableRedirect: true }, onSuccess: expect.any(Function) } }])
+    expect(steps).toEqual(["listener done", `open ${logout}`])
+    expect(result).toEqual(returned)
     expect(session.user.value).toBeNull()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it.each(["javascript:alert(1)", "data:text/html,bye", "myapp://logout", "/logout"])("does not open a provider sign-out page that is not http(s): %s", async (url) => {
+    signedIn()
+    const answer = { data: { success: true, url, redirect: false }, error: null }
+    betterAuth.signOutResult = answer
+    const { signOut } = useUserSession(createAuthClient())
+
+    await expect(signOut({ redirectTo: "/goodbye" })).resolves.toEqual(answer)
+
+    expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
+  })
+
+  it("returns the provider's sign-out page with disableRedirect, and opens redirectTo", async () => {
+    signedIn()
+    const answer = { data: { success: true, url: logout, redirect: false }, error: null }
+    betterAuth.signOutResult = answer
+    const { signOut } = useUserSession(createAuthClient())
+
+    await expect(signOut({ redirectTo: "/goodbye", disableRedirect: true })).resolves.toEqual(answer)
+
+    expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
   it("leaves the shared session store alone on the server", async () => {

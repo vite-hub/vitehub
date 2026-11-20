@@ -1,3 +1,4 @@
+import { createTelegramAdapter } from "@chat-adapter/telegram"
 import { MockLanguageModelV3 } from "ai/test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -30,6 +31,7 @@ function mockTelegramApi() {
   globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.includes("/getMe")) return Response.json({ ok: true, result: { ...bot, username: "vitehub_test_bot" } })
+    if (url.includes("/getBusinessConnection")) return Response.json({ ok: true, result: { id: "connection", is_enabled: true, rights: { can_reply: true }, user: bot } })
     if (url.includes("/sendChatAction")) return Response.json({ ok: true, result: true })
     if (url.includes("/sendMessage") || url.includes("/sendRichMessage")) {
       // SAFETY: The Telegram adapter sends a JSON object body to sendMessage.
@@ -42,10 +44,17 @@ function mockTelegramApi() {
   return sent
 }
 
-function webhook(handler: ReturnType<typeof createChannelWebhookRouteHandler>, messageId: number, text: string) {
+function webhook(handler: ReturnType<typeof createChannelWebhookRouteHandler>, messageId: number, text: string, field = "message", updateId = messageId) {
   const tasks: Array<Promise<unknown>> = []
-  const response = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-    body: JSON.stringify({ message: { chat, date: telegramDate, from: user, message_id: messageId, text }, update_id: messageId }),
+  const response = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
+    body: JSON.stringify({
+      [field]: {
+        chat, date: telegramDate, from: user, message_id: messageId, text,
+        ...(field.startsWith("edited_") ? { edit_date: telegramDate } : {}),
+        ...(field.includes("business") ? { business_connection_id: "connection" } : {}),
+      },
+      update_id: updateId,
+    }),
     method: "POST",
   }), "telegram", {
     agentName: "support",
@@ -106,6 +115,144 @@ describe("steer concurrency with debounceMs", () => {
     ])
     expect(sent).toHaveLength(1)
     expect(JSON.stringify(sent[0])).toContain("One reply")
+  })
+
+  it.each([
+    { field: "message", provider: "telegram" },
+    { field: "edited_channel_post", provider: "telegram" },
+    { field: "business_message", provider: "telegram" },
+    { field: "edited_business_message", provider: "telegram" },
+    { field: "message", provider: "custom" },
+    { field: "edited_message", provider: "telegram", duplicate: true },
+    { field: "edited_message", provider: "telegram", concurrency: "queue" as const },
+    { field: "edited_message", provider: "telegram", concurrency: "serial" as const },
+  ])("settles each queued $field delivery ($provider, $concurrency, repeated edit: $duplicate)", async ({ field, provider, duplicate, concurrency }) => {
+    mockTelegramApi()
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const releaseFirst = deferred<void>()
+    const firstHeld = deferred<void>()
+    if (duplicate) {
+      const dequeue = state.dequeue.bind(state)
+      vi.spyOn(state, "dequeue").mockImplementationOnce(async (key) => {
+        firstHeld.resolve()
+        await releaseFirst.promise
+        return await dequeue(key)
+      })
+    }
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ text: "One reply", type: "text" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => createTelegramAdapter({ allowedUserIds: [123], allowUnverifiedWebhooks: true, botToken: "test-token", businessMode: field.includes("business"), mode: "webhook" }),
+          messages: { concurrency: concurrency ?? "steer", debounceMs: concurrency ? undefined : 100, delivery: "manual", fallbackStreamingPlaceholderText: null, state },
+          mode: "webhook",
+          webhooks: { id: "telegram", provider, secret: false },
+        }),
+      },
+      driver: { model },
+      hooks: {
+        async "agent:finish"(event) {
+          if (concurrency) {
+            firstHeld.resolve()
+            await releaseFirst.promise
+          }
+          return event.reply(event.text ?? "")
+        },
+      },
+      runtime: false,
+    }))
+    try {
+      const first = webhook(handler, 8_201, "I had two different things", field)
+      if (duplicate || concurrency) await firstHeld.promise
+      if (duplicate) {
+        await webhook(handler, 8_201, "Edited", field, 8_203)
+        await webhook(handler, 8_201, "I had two different things", field, 8_204)
+      }
+      const second = webhook(handler, 8_202, "Both!", field)
+      if (duplicate || concurrency) {
+        await second
+        releaseFirst.resolve()
+      }
+      await Promise.all([first, second])
+      expect(model.doGenerateCalls).toHaveLength(concurrency ? 2 : 1)
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram"), "telegram", { agentName: "support" })
+      const outcomes = Object.fromEntries(deliveries.map(delivery => [delivery.sourceId, delivery.status]))
+      expect(outcomes).toEqual({ 8201: "completed", 8202: "completed", ...(duplicate ? { 8203: "rejected", 8204: "rejected" } : {}) })
+      const started = deliveries.filter(delivery => delivery.events.some(event => event.type === "invocation.started"))
+      expect(started.map(delivery => delivery.sourceId).sort()).toEqual(["8201", "8202"])
+      expect(new Set(started.map(delivery => delivery.invocationId)).size).toBe(concurrency ? 2 : 1)
+    } finally {
+      releaseFirst.resolve()
+      await state.disconnect()
+    }
+  })
+
+  it("runs a queued Telegram message whose delivery record is written while the active run releases the lock", async () => {
+    mockTelegramApi()
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const releaseFirst = deferred<void>()
+    const firstHeld = deferred<void>()
+    const writeHeld = deferred<void>()
+    const releaseWrite = deferred<void>()
+    // Hold the delivery record of the second update, as a slow State does.
+    const setIfNotExists = state.setIfNotExists.bind(state)
+    vi.spyOn(state, "setIfNotExists").mockImplementation(async (key, ...rest) => {
+      if (key.startsWith("deliveries:source:") && key.includes("8212")) {
+        writeHeld.resolve()
+        await releaseWrite.promise
+      }
+      return await setIfNotExists(key, ...rest)
+    })
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ text: "One reply", type: "text" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => createTelegramAdapter({ allowedUserIds: [123], allowUnverifiedWebhooks: true, botToken: "test-token", mode: "webhook" }),
+          messages: { concurrency: "queue", delivery: "manual", fallbackStreamingPlaceholderText: null, state },
+          mode: "webhook",
+          webhooks: { id: "telegram", secret: false },
+        }),
+      },
+      driver: { model },
+      hooks: {
+        async "agent:finish"(event) {
+          firstHeld.resolve()
+          await releaseFirst.promise
+          return event.reply(event.text ?? "")
+        },
+      },
+      runtime: false,
+    }))
+    try {
+      const first = webhook(handler, 8_211, "First")
+      await firstHeld.promise
+      const second = webhook(handler, 8_212, "Second")
+      await writeHeld.promise
+      // The active run finishes and releases the thread lock while the second delivery record is still being written.
+      releaseFirst.resolve()
+      await first
+      releaseWrite.resolve()
+      await second
+      expect(model.doGenerateCalls).toHaveLength(2)
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram"), "telegram", { agentName: "support" })
+      expect(Object.fromEntries(deliveries.map(delivery => [delivery.sourceId, delivery.status]))).toEqual({ 8211: "completed", 8212: "completed" })
+    } finally {
+      releaseFirst.resolve()
+      releaseWrite.resolve()
+      await state.disconnect()
+    }
   })
 
   it("keeps concurrent handling without debounceMs, so a second message steers into the active run", async () => {

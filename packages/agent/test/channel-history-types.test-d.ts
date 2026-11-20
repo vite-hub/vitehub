@@ -3,7 +3,7 @@ import * as v from "valibot"
 import type { AgentChannelMessageContext } from "@vite-hub/agent"
 import type { AgentInvocationRecord } from "@vite-hub/agent"
 import { defineCollection } from "@vite-hub/source"
-import { channelAdapter, discord, github, http, slack, teams, telegram, webChat } from "@vite-hub/agent/channels"
+import { channelAdapter, discord, github, slack, teams, telegram, webChat } from "@vite-hub/agent/channels"
 
 interface HistoryItem {
   id: string
@@ -88,14 +88,14 @@ describe("built-in Channel replay public types", () => {
   })
 
   it("infers http replay items independently of message data", () => {
-    http({
+    channelAdapter("http", {
       history: { collection, trigger: "received", key(item) {
         expectTypeOf(item).toEqualTypeOf<HistoryItem>()
         return item.id
       } },
       triggers: { received: { invoke: () => ({ input: { prompt: "Replay" } }) } },
     })
-    http({
+    channelAdapter("http", {
       history: { collection, trigger: "received", key(item) {
         expectTypeOf(item).toEqualTypeOf<HistoryItem>()
         return item.id

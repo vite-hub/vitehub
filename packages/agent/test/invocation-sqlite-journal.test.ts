@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
@@ -168,20 +168,61 @@ describe("SQLite invocation journal", () => {
     expect((await store.list({ search: "null-search" })).invocations.map(record => record.id)).toEqual(["null-search"])
   })
 
-  it("uses WAL with synchronous NORMAL for local database files", async () => {
+  it("uses WAL with synchronous NORMAL and a WAL size limit for local database files", async () => {
     const recording = recordingClient(client)
     const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
-    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nCREATE TABLE")))
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;\nCREATE TABLE")))
       .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
-    // synchronous is per connection, so every write sets it on the connection it borrows.
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
-    expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL")
+    expect(recording.statements.map(statementSql).slice(0, 2)).toEqual(["PRAGMA synchronous = NORMAL;", "PRAGMA journal_size_limit = 67108864"])
     expect((await client.execute("PRAGMA synchronous")).rows[0]?.synchronous).toBe(1)
+  })
+
+  it.each(["update", "prune"] as const)("limits WAL reuse on a different pooled connection during %s", async (operation) => {
+    const limit = 64 * 1024 * 1024
+    const wal = join(directory, "invocations.sqlite-wal")
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    await store.create(invocation("run", { status: operation === "prune" ? "completed" : "running" }))
+    await client.execute("CREATE TABLE wal_burst (payload BLOB)")
+    await client.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    const reader = await client.transaction("read")
+    try {
+      await reader.execute("SELECT count(*) FROM wal_burst")
+      await client.execute(`INSERT INTO wal_burst VALUES (zeroblob(${limit + 1024 * 1024}))`)
+    }
+    finally {
+      await reader.rollback()
+    }
+    const checkpoint = (await client.execute("PRAGMA wal_checkpoint(PASSIVE)")).rows[0]
+    expect(checkpoint?.checkpointed).toBe(checkpoint?.log)
+    expect((await stat(wal)).size).toBeGreaterThan(limit)
+
+    const held: Transaction[] = []
+    const borrowIdle = async () => { held.push(await client.transaction("read")) }
+    const executeMultiple = client.executeMultiple.bind(client)
+    client.executeMultiple = async (sql) => {
+      await executeMultiple(sql)
+      if (sql.startsWith("PRAGMA synchronous")) await borrowIdle()
+    }
+    try {
+      await borrowIdle()
+      await borrowIdle()
+      if (operation === "update") {
+        expect((await store.update("run", { observation: step(1), timestamp: at(1) }))?.observations).toEqual([step(1)])
+      }
+      else {
+        expect((await store.prune({ updatedBefore: at(1) })).ids).toEqual(["run"])
+      }
+      expect((await stat(wal)).size).toBe(limit)
+    }
+    finally {
+      for (const transaction of held) await transaction.rollback()
+    }
   })
 
   it.each([false, true])("uses NORMAL on each borrowed schema connection (legacy: %s)", async (legacy) => {
@@ -242,21 +283,21 @@ describe("SQLite invocation journal", () => {
       const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
-      expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA journal_mode") || sql.startsWith("PRAGMA synchronous"))).toEqual([])
+      expect(recording.statements.map(statementSql).filter(sql => /PRAGMA (journal_mode|synchronous|journal_size_limit)/.test(sql))).toEqual([])
     }
     finally {
       memory.close()
     }
   })
 
-  it("does not set synchronous NORMAL for in-memory databases", async () => {
+  it("does not set WAL write pragmas for in-memory databases", async () => {
     const memory = createClient({ url: ":memory:" })
     try {
       const recording = recordingClient(memory)
       const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
-      expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA synchronous"))).toEqual([])
+      expect(recording.statements.map(statementSql).filter(sql => /PRAGMA (synchronous|journal_size_limit)/.test(sql))).toEqual([])
     }
     finally {
       memory.close()

@@ -80,7 +80,7 @@ it("gives each GitHub install and host code a fix and its own docs page", () => 
     // SAFETY: Each code reads only the params that its `why` names; the loop checks the static fields.
     const error = (presetsErrorDiagnostics[code] as (params: { message: string }) => Error & { fix?: string, docs?: string })({ message: "m" })
     expect(error.fix, code).toMatch(/\S/)
-    expect(error.docs, code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${code.toLowerCase()}`)
+    expect(error.docs, code).toBe(`https://vitehub.dev/docs/presets/diagnostics/${code.toLowerCase()}`)
   }
 })
 
