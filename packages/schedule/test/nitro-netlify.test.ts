@@ -49,8 +49,8 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     await writeFile(join(root, "package.json"), "{\"type\":\"module\"}\n")
     await symlink(fileURLToPath(new URL("../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
     // Nitro's plugins configure the app's primitives, such as the Database, before any handler runs.
-    const startup = Promise.withResolvers<void>()
-    scheduleGlobal.vitehubNetlifyStartup = startup.promise
+    let finishStartup!: () => void
+    scheduleGlobal.vitehubNetlifyStartup = new Promise<void>(resolve => { finishStartup = resolve })
     await writeFile(join(root, "configure.mjs"), [
       "export default async () => {",
       "  await globalThis.vitehubNetlifyStartup",
@@ -158,7 +158,7 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     expect(typeof (await import(pathToFileURL(join(deployed, "main.mjs")).href) as { default: unknown }).default).toBe("function")
     expect(scheduled.config).toEqual({ includedFiles: ["**"], nodeBundler: "none", schedule: "0 0 * * *" })
     const response = scheduled.default(new Request("https://app.netlify.app/", { body: "{\"next_run\":\"\"}", method: "POST" }))
-    setImmediate(() => startup.resolve())
+    setImmediate(finishStartup)
     expect((await response).status).toBe(204)
     expect(scheduleGlobal.vitehubNetlifyScheduleRun).toMatchObject({ cron: "0 0 * * *", nitroPlugin: "configured" })
     expect(scheduleGlobal.vitehubNetlifyScheduleRun?.scheduledAt).toBeInstanceOf(Date)
