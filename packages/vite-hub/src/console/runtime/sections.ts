@@ -352,7 +352,7 @@ export function resolveConsoleSectionIds(options: {
   database?: unknown;
   email?: unknown;
   kv?: unknown;
-  observability?: unknown;
+  logs?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
   sandboxTask?: unknown;
@@ -362,8 +362,7 @@ export function resolveConsoleSectionIds(options: {
 }): ConsoleSectionId[] {
   return [
     ...(options.auth ? ["auth"] : []),
-    // `observability: { logs }` connects the log source that the section reads.
-    ...(options.observability && typeof options.observability === "object" && "logs" in options.observability && options.observability.logs ? ["logs"] : []),
+    ...(options.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
     ...(isConsoleMcpClientEnabled(options.console) ? ["mcp-client"] : []),

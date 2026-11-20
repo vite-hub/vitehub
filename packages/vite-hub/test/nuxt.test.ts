@@ -585,7 +585,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.vitehub.mockReturnValue([logsVitePlugin({})])
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { _prepare: prepare })
-    await viteHubNuxtModule({ console: false, env: false, observability: { logs: true }, host: "cloudflare" }, nuxt)
+    await viteHubNuxtModule({ console: false, env: false, logs: true, host: "cloudflare" }, nuxt)
 
     const result = runNitroConfigHook({})
     if (prepare) await expect(result).resolves.toBeUndefined()

@@ -96,7 +96,7 @@ Some host defaults build and run but keep state in one process. `nextSteps` name
 
 Observability papercut reports require Agent and Console. The command collects their provider inputs before applying these options.
 
-Console does not enable Comments or Database. `vitehub add observability` registers Evlog. `--option observability.service=<name>` adds Agent telemetry, installs `@vite-hub/agent`, and supports Agents only when Nitro hosts them. Selecting PostHog installs `posthog-node` and enables Server Env. `--option observability.logs.source=./server/logs.ts` connects an existing log source for production. A Realtime starter enables Workspace; add the Workspace Definition named in its next steps.
+Console does not enable Comments or Database. `vitehub add observability` registers Evlog. `--option observability.service=<name>` adds Agent telemetry, installs `@vite-hub/agent`, and supports Agents only when Nitro hosts them. Selecting PostHog installs `posthog-node` and enables Server Env. To read an existing log source in production, set `logs: { source: './server/logs.ts' }` in `vitehub()`. A Realtime starter enables Workspace; add the Workspace Definition named in its next steps.
 
 When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
