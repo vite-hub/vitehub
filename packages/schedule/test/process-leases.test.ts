@@ -2,9 +2,13 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { markViteConfigPlugin } from "@vite-hub/internal/build/vite"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
+
+import type { Plugin, PluginOption } from "vite"
 
 const roots: string[] = []
 
@@ -20,20 +24,23 @@ async function projectRoot(): Promise<string> {
   return root
 }
 
-async function generatedPlugin(plugins: unknown[], internal: { requireKVPluginForProcessStores?: boolean } = {}): Promise<string> {
+function storagePlugin(name: string, apply?: Plugin["apply"]): Plugin {
+  return { name, apply, config: { order: "pre", handler: (_config, env) => markViteConfigPlugin(env, name) } }
+}
+
+async function generatedPlugin(plugins: PluginOption[], internal: { requireKVPluginForProcessStores?: boolean } = {}): Promise<string | undefined> {
   const root = await projectRoot()
   // SAFETY: `requireKVPluginForProcessStores` is an internal option that vitehub() passes.
   const plugin = hubSchedule({ projectRoot: root, providerOutput: false, runtime: { driver: "process", leaseTtlMs: 30_000, prefix: "app:schedule" }, ...internal } as Parameters<typeof hubSchedule>[0])
-  await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>)(
-    { plugins, root },
-    { command: "build", mode: "production" },
-  )
-  return await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+  let generated: string | undefined
+  const probe: Plugin = { name: "probe", async config() { generated = await readFile(join(root, ".vitehub/nitro/schedule/plugin.ts"), "utf8") } }
+  await resolveConfig({ configFile: false, logLevel: "silent", plugins: [plugins, plugin, probe], root }, "build")
+  return generated
 }
 
 describe("Process Runtime leases in the generated Nitro plugin", () => {
   it("claims occurrences in the Default Database when the app has the Database plugin", async () => {
-    const generated = await generatedPlugin([[{ name: "@vite-hub/database/vite" }]])
+    const generated = await generatedPlugin([[storagePlugin("@vite-hub/database/vite")]])
 
     expect(generated).toContain("import { useLeases } from \"@vite-hub/database\"")
     expect(generated).toContain("leases = useLeases()")
@@ -47,8 +54,8 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
   // `configResolved` rewrites it.
   it("ignores Database and KV plugins that Vite does not apply", async () => {
     const generated = await generatedPlugin([[
-      { name: "@vite-hub/database/vite", apply: () => false },
-      { name: "@vite-hub/kv/vite", apply: "serve" },
+      storagePlugin("@vite-hub/database/vite", () => false),
+      storagePlugin("@vite-hub/kv/vite", "serve"),
     ]], { requireKVPluginForProcessStores: true })
 
     expect(generated).not.toContain("useLeases")
@@ -57,7 +64,7 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
   })
 
   it("claims occurrences in the Default Database when the Database plugin applies to the command", async () => {
-    const generated = await generatedPlugin([{ name: "@vite-hub/database/vite", apply: (_config: unknown, env: { command: string }) => env.command === "build" }])
+    const generated = await generatedPlugin([storagePlugin("@vite-hub/database/vite", (_config, env) => env.command === "build")])
 
     expect(generated).toContain("import { useLeases } from \"@vite-hub/database\"")
   })

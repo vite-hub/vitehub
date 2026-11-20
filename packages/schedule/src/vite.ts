@@ -8,7 +8,7 @@ import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, hasViteConfigPlugin, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -21,7 +21,7 @@ import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, readStaticScheduleTiming, readTimeZoneCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
-import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -211,21 +211,8 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 
 const databaseVitePluginName = "@vite-hub/database/vite"
 
-/**
- * Whether `plugins` has a plugin called `name`. With `env`, the `config` hook's raw list counts only plugins whose
- * `apply` keeps them, as Vite filters them before `configResolved`. vitehub() lists plugins of its `cms` variant that
- * Vite drops when the app does not use it.
- */
-function hasVitePlugin(plugins: readonly unknown[] | undefined, name: string, env?: { config: UserConfig, env: ConfigEnv }): boolean {
-  return (plugins ?? []).some(plugin => Array.isArray(plugin)
-    ? hasVitePlugin(plugin, name, env)
-    : isRecord(plugin) && plugin.name === name && (!env || vitePluginApplies(plugin.apply, env.config, env.env)))
-}
-
-function vitePluginApplies(apply: unknown, config: UserConfig, env: ConfigEnv): boolean {
-  // SAFETY: Vite calls a function `apply` with the user config and the config env.
-  if (typeof apply === "function") return Boolean((apply as NonNullable<Exclude<Plugin["apply"], string>>)(config, env))
-  return apply === undefined || apply === env.command
+function hasVitePlugin(plugins: readonly unknown[] | undefined, name: string): boolean {
+  return (plugins ?? []).some(plugin => Array.isArray(plugin) ? hasVitePlugin(plugin, name) : isRecord(plugin) && plugin.name === name)
 }
 
 /**
@@ -865,9 +852,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   let command: "build" | "serve" | undefined
-  const processStorageOptions = (plugins: readonly unknown[] | undefined, env?: { config: UserConfig, env: ConfigEnv }) => ({
-    ...(hasVitePlugin(plugins, databaseVitePluginName, env) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
-    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasVitePlugin(plugins, "@vite-hub/kv/vite", env),
+  const processStorageOptions = (hasPlugin: (name: string) => boolean) => ({
+    ...(hasPlugin(databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
+    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
   })
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
@@ -913,8 +900,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
-        // configResolved writes the plugin again, but Vite can load this copy first. Both must import the same stores.
-        ...processStorageOptions(config.plugins, { config, env }),
+        ...processStorageOptions(typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function"
+          ? name => hasVitePlugin(config.plugins, name)
+          : name => hasViteConfigPlugin(env, name)),
         preliminary: true,
         root: config.root || process.cwd(),
         serverDirs,
@@ -935,7 +923,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       const definitions = discoverRegistrySchedules()
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
-      const storage = processStorageOptions(config.plugins)
+      const storage = processStorageOptions(name => hasVitePlugin(config.plugins, name))
       if (config.command) {
         const nitro = await createScheduleNitroConfig({
           ...options,
