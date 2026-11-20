@@ -3587,6 +3587,40 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
+  it.each(["cached", "uncached", "prepare"])("checks Agent State on a %s Nuxt build", async (mode) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-state-warning-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.stubEnv("VITEHUB_AGENT_STATE_URL", undefined)
+    vi.stubEnv("VERCEL", "1")
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+      warn.mockRestore()
+    })
+    const owner = hubAgent()
+    mocks.vitehub.mockReturnValue([owner])
+    const app = createNuxt()
+    const serverDir = resolve(root, "server")
+    Object.assign(app.nuxt.options, {
+      rootDir: root,
+      serverDir,
+      buildDir: resolve(root, ".nuxt"),
+      experimental: { nitroViteEnvironment: false },
+      _prepare: mode === "prepare",
+    })
+    await mkdir(resolve(serverDir, "agents"), { recursive: true })
+    await writeFile(resolve(serverDir, "agents/support.ts"), "export default {}\n")
+    await viteHubNuxtModule({ console: false, env: false, host: "vercel" }, app.nuxt)
+    await app.runNitroConfigHook({})
+    if (mode === "uncached") {
+      for (const hook of app.buildBeforeHooks) hook()
+      const configResolved = owner.configResolved as (config: Record<string, unknown>) => Promise<void>
+      await configResolved({ ...app.nuxt.options.vite, root, command: "build", logger: { info: vi.fn(), warn } })
+    }
+    if (mode !== "prepare") for (const hook of app.nitroBuildBeforeHooks) hook()
+    expect(warn.mock.calls.filter(([message]) => String(message).includes("AGENT_R0893"))).toHaveLength(mode === "prepare" ? 0 : 1)
+  })
+
   it("writes primitive deployment env on a Nuxt Nitro-only cache hit", async () => {
     const { viteHubPlugins } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).filter(

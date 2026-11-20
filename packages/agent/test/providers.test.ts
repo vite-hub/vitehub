@@ -2911,10 +2911,10 @@ export default defineAgent({
       }
     }
 
-    const [vercel] = await build("vercel", undefined)
-    expect(vercel).toContain("This Vercel build has no VITEHUB_AGENT_STATE_URL")
-    expect(vercel).toContain("AGENT_R0893")
-    expect(await build("netlify", "")).toEqual([expect.stringContaining("This Netlify build has no VITEHUB_AGENT_STATE_URL")])
+    expect(await build("vercel", undefined)).toEqual([expect.stringContaining("VITEHUB_AGENT_STATE_URL is not visible to this Vercel build")])
+    const netlify = await build("netlify", "")
+    expect(netlify).toEqual([expect.stringContaining("If the deployed function also lacks it, Agent State fails with AGENT_R0893")])
+    expect(netlify[0]).toContain("Functions scope for the target deploy context")
     expect(await build("vercel", "libsql://state.example.turso.io")).toEqual([])
     // A Node server reads its variables when it starts, not when it builds.
     expect(await build("node", undefined)).toEqual([])

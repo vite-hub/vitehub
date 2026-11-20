@@ -26,6 +26,7 @@ import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitr
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -736,16 +737,10 @@ function resolveLibsqlAgentState(
   }
 }
 
-/**
- * Vercel and Netlify give the build the variables of the project, so a build without `VITEHUB_AGENT_STATE_URL` deploys
- * a server whose first State call fails with `AGENT_R0893`. The build still succeeds: the URL is read at runtime.
- */
-function warnMissingServerlessStateUrl(config: { logger?: { warn: (message: string) => void } }, state: GeneratedLibsqlAgentStateOptions | undefined, env: NodeJS.ProcessEnv = process.env): void {
+function warnMissingServerlessStateUrl(config: ViteHubHintsConfig, state: GeneratedLibsqlAgentStateOptions | undefined): void {
   if (!state?.durableUrlRequired || (state.ephemeralHosting !== "vercel" && state.ephemeralHosting !== "netlify")) return
-  if (env.VITEHUB_AGENT_STATE_URL?.trim()) return
-  const host = state.ephemeralHosting === "vercel" ? "Vercel" : "Netlify"
-  const logger = config.logger ?? console
-  logger.warn(`[vitehub] This ${host} build has no VITEHUB_AGENT_STATE_URL, and agent.providers.state sets no URL. The deployed Agents keep no State: their first webhook or chat answers 500 with AGENT_R0893. Set VITEHUB_AGENT_STATE_URL to a libSQL URL, such as a Turso URL, in the ${host} project environment, or set agent.providers.state.url.`)
+  if (process.env.VITEHUB_AGENT_STATE_URL?.trim()) return
+  reportViteHubHint(config, agentDiagnostics.AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD({ host: state.ephemeralHosting }))
 }
 
 /** The Agent state store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
@@ -2879,8 +2874,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         module: agentRuntimeModule("runtime/invocations-dev"),
       }))
     }
-    if (normalized && hasHostedAgents && config.command === "build") warnMissingServerlessStateUrl(config, resolveLibsqlAgentState(normalized, config))
     if (normalized && hasHostedAgents) {
+      if (normalized.runtime !== "deno" && config.command === "build" && !Reflect.get(config, VITEHUB_NUXT_HINTS)) {
+        warnMissingServerlessStateUrl(config, resolveLibsqlAgentState(normalized, config))
+      }
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(generatedRoot, {
           sourceRootDir: viteHubProjectRoot(config),
@@ -3231,6 +3228,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
+      if (resolved && hasHostedAgents && !denoOutput && environment?.command === "build" && typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function") {
+        const buildConfig = { ...config, root, command: environment.command }
+        warnMissingServerlessStateUrl(buildConfig, resolveLibsqlAgentState(resolved, buildConfig))
+      }
       const stateDriver = resolved && resolved.providers.state.driver
       stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState) : undefined
       const installWebhookQueue = Boolean(
@@ -3412,6 +3413,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       return result
     },
     async configResolved(config) {
+      if (config.command === "build") startViteHubHints(config)
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       installsCloudflareState ||= shouldInstallCloudflareAgentState(normalizeAgentOptions(agent), config)
