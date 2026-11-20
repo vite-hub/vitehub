@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
+import { detectCodemods, runCodemod, runMigration, upgradeCodemods } from "../src/index.ts"
 
 const scratch = fileURLToPath(new URL("../.tmp/cli-url-flag-test/", import.meta.url))
 
@@ -31,7 +31,7 @@ describe("cli-url-flag", () => {
         unrelated: "acme-vitehub dev --server localhost; echo 'vitehub agent dev --server localhost'",
         serve: "nuxt dev --server http://x",
       } }, null, 2)}\n`,
-      ".github/workflows/ci.yml": "steps:\n  - run: pnpm vitehub workspace dev docs --server http://localhost:3000 exec ls\n",
+      ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: pnpm exec vitehub workspace dev docs --server http://localhost:3000 exec ls\n",
     })
     expect(upgradeCodemods.map(codemod => codemod.name)).toContain("cli-url-flag")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-url-flag")
@@ -47,6 +47,15 @@ describe("cli-url-flag", () => {
     })
     expect(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8")).toContain("docs --url http://localhost:3000 exec ls\n")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("cli-url-flag")
+  })
+
+  it("migrates a connection command that uses both removed flags", async () => {
+    const cwd = await project({ "package.json": JSON.stringify({ scripts: {
+      revoke: 'vitehub connections revoke mail --confirm "mail" --server http://localhost:3000',
+    } }) })
+    const migration = await runMigration({ cwd, codemods: upgradeCodemods })
+    expect(migration.steps.filter(step => step.codemod.name.startsWith("cli-")).map(step => step.codemod.name)).toEqual(["cli-url-flag", "cli-yes-flag"])
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).scripts.revoke).toBe("vitehub connections revoke mail --yes --url http://localhost:3000")
   })
 
   it("reports ambiguous shell syntax rather than editing heredoc data", async () => {

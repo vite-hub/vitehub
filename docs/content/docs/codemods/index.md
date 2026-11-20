@@ -47,6 +47,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
 | [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |
+| [`cli-yes-flag`](/docs/codemods/upgrade-vitehub#cli-yes-flag) | Replace old CLI prompt flags in scripts and CI, or report a manual migration |
 | [`cli-url-flag`](/docs/codemods/upgrade-vitehub#cli-url-flag) | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.

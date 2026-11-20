@@ -22,9 +22,11 @@ function cli(test = createTestRuntime()) {
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler.fetch(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const request = vi.fn<typeof fetch>(async (input, init) => handler.fetch(new Request(input, init)))
+  const options = { openBrowser: false as const, fetch: request, timeout: 5 }
   return {
     output,
+    request,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
     test,
   }
@@ -297,9 +299,18 @@ describe("vitehub connections", () => {
     expect(await harness.run("approvals", ["approve", approval!.id])).toBe(0)
     expect(harness.output.stdout).toContain("executed")
 
+    // Vitest has no terminal, so nothing can confirm.
     expect(await harness.run("revoke", ["mail"])).toBe(1)
-    expect(harness.output.stderr).toContain("--confirm mail")
-    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(0)
+    expect(harness.output.stderr).toContain("run it again with --yes")
+    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
+    expect(harness.output.stderr).toContain("--confirm <name> is now --yes")
+    harness.request.mockClear()
+    for (const flag of ["--yes=false", "--yes=", "-y=false"]) {
+      expect(await harness.run("revoke", ["mail", flag])).toBe(1)
+      expect(harness.output.stderr).toContain("does not take a value")
+    }
+    expect(harness.request).not.toHaveBeenCalled()
+    expect(await harness.run("revoke", ["mail", "-y"])).toBe(0)
     expect(harness.output.stdout).toContain("revoked")
   })
 
