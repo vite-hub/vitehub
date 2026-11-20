@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { normalizeKVOptions } from "../src/config.ts"
 import { kvResult } from "../src/errors.ts"
+import { kvTable } from "../src/runtime/database.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
