@@ -531,6 +531,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * or a GitHub error left closed.
    */
   async function reopenForkPullRequest(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal): Promise<boolean> {
+    if (!hostIdentity) return false;
     const key = forkReopenKey(repository, number);
     const previous = await pullRequestInbox.meta(key);
     if (isRuntimeRecord(previous) && (previous.closing === true || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
@@ -545,7 +546,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await noteForgeQuota(error, "fork-reopen");
       return false;
     }
-    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: true });
+    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: true, login: hostIdentity.toLowerCase() });
     try {
       await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "closed" }, signal });
       // The PR is closed now. Reopen it even when the run is aborting.
@@ -562,22 +563,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   async function reopenPullRequest(repository: string, number: number): Promise<void> {
     const { provider } = await forge(repository, new AbortController().signal);
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
-        return;
-      } catch (error) {
-        if (attempt >= 2) throw error;
-        await new Promise(resolve => setTimeout(resolve, 2_000 * (attempt + 1)));
-      }
-    }
+    await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
   }
 
   const forkReopenKey = (repository: string, number: number) => `fork-reopen:${repository}#${number}`;
 
   /**
    * Finishes a close and reopen that a restart or a GitHub error interrupted. A PR that is still closed
-   * is reopened only when a bot closed it while the host's close was in flight, never when a person did.
+   * is reopened only when this host's identity closed it while the close was in flight.
    */
   async function recoverForkReopens(signal: AbortSignal): Promise<void> {
     for (const [key, value] of await pullRequestInbox.metaEntries("fork-reopen:")) {
@@ -591,7 +584,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         const issue = (await provider.request<unknown>("GET", `/repos/${repository}/issues/${number}`, { signal })).data;
         if (!isRuntimeRecord(issue)) continue;
         const closedBy = isRuntimeRecord(issue.closed_by) ? issue.closed_by : undefined;
-        const ours = issue.state === "closed" && String(closedBy?.type) === "Bot" && Date.parse(String(issue.closed_at)) >= Number(value.at) - 60_000;
+        const ours = issue.state === "closed" && typeof value.login === "string" && String(closedBy?.login).toLowerCase() === value.login
+          && Date.parse(String(issue.closed_at)) >= Math.floor(Number(value.at) / 1000) * 1000;
         const merged = isRuntimeRecord(issue.pull_request) && issue.pull_request.merged_at != null;
         if (ours && !merged) {
           await reopenPullRequest(repository, Number(number));
@@ -749,7 +743,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (baseFlows?.entries.get(name)?.sha === entry.sha) continue;
       const blob = await read(`/repos/${repository}/git/blobs/${entry.sha}`);
       const text = isRuntimeRecord(blob) && hasRuntimeType(blob.content, "string") ? Buffer.from(blob.content, "base64").toString("utf8") : undefined;
-      if (text === undefined || runsOnPush(text, branch)) return `.github/workflows/${name} runs on push and differs from ${baseRef}`;
+      if (text === undefined || runsOnPush(text, branch)) return `.github/workflows/${name} can run on push and differs from ${baseRef}`;
     }
     return undefined;
   }
@@ -772,6 +766,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (!match || !isRuntimeRecord(value) || !hasRuntimeType(value.branch, "string") || !hasRuntimeType(value.sha, "string")) continue;
       const [, repository, number] = match;
       if ((await pullRequestInbox.get(repository, Number(number)))?.status !== "terminal") continue;
+      const reopen = await pullRequestInbox.meta(forkReopenKey(repository, Number(number)));
+      if (isRuntimeRecord(reopen) && reopen.closing === true) continue;
       try {
         signal.throwIfAborted();
         const { provider } = await forge(repository, signal);

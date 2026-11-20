@@ -459,6 +459,8 @@ describe("runsOnPush", () => {
   it.each([
     ["on: push", true],
     ["on: [pull_request, create]", true],
+    ["on: workflow_call", true],
+    ["on:\n  workflow_call:\n  push:\n    branches: [main]", true],
     ["on: pull_request", false],
     ["on:\n  schedule:\n    - cron: '0 0 * * *'", false],
     ["on:\n  push:\n", true],

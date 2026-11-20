@@ -2472,7 +2472,7 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("reopens a fork PR on the next run when the reopen after its close failed", async () => {
+  it.each([["repair-bot", true], ["other[bot]", false]] as const)("recovers an interrupted reopen only if the closer %s is the host", async (login, recovered) => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
     let reopenFails = true;
@@ -2480,7 +2480,7 @@ describe("Babysitter preset runtime", () => {
       const path = args.find(arg => arg.startsWith("repos/")) ?? "";
       if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
       if (args.includes("state=open") && reopenFails) throw new Error("HTTP 502: Bad Gateway");
-      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date().toISOString(), closed_by: { login: "babysitter[bot]", type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
+      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date().toISOString(), closed_by: { login, type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
       const result = await command(args, request);
       if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
       return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {
@@ -2494,8 +2494,8 @@ describe("Babysitter preset runtime", () => {
       reopenFails = false;
       const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * 60_000);
       try { await f.reconcile(); } finally { now.mockRestore(); }
-      expect(f.events).toHaveBeenCalledWith("babysitter.fork_checks.reopen_recovered", expect.objectContaining({ pullRequest: 12 }));
-      expect(f.command.mock.calls.filter(([args]) => args.includes("state=open"))).toHaveLength(4);
+      expect(f.events).toHaveBeenCalledWith(recovered ? "babysitter.fork_checks.reopen_recovered" : "babysitter.fork_checks.reopen_abandoned", expect.objectContaining({ pullRequest: 12 }));
+      expect(f.command.mock.calls.filter(([args]) => args.includes("PATCH") && args.includes("state=open"))).toHaveLength(recovered ? 2 : 1);
     } finally { await f.runtime.inbox.close(); }
   }, 30_000);
 
@@ -2584,7 +2584,7 @@ describe("Babysitter preset runtime", () => {
           return { stdout: JSON.stringify({ tree: Object.entries(tree).map(([name, [type, sha]]) => ({ path: name, type, sha })) }), stderr: "" };
         }
         if (path.startsWith("repos/acme/app/git/blobs/")) {
-          const workflow = path.endsWith("/main-only") ? "on:\n  push:\n    branches: [main]\n  pull_request:\n" : "on:\n  push:\n    branches: ['**']\n";
+          const workflow = path.endsWith("/main-only") ? "on:\n  push:\n    branches: [main]\n  pull_request:\n" : path.endsWith("/deploy") ? "on: workflow_call\n" : "on:\n  push:\n    branches: ['**']\n";
           return { stdout: JSON.stringify({ content: Buffer.from(workflow).toString("base64"), encoding: "base64" }), stderr: "" };
         }
         if (path === "repos/acme/app/git/ref/heads/preview/pr-12") {
@@ -2645,8 +2645,8 @@ describe("Babysitter preset runtime", () => {
       ["an approval of an older head", { review: "stale" }, "no approval of aaaaaaa by a reviewer with write access"],
       ["an approval by a reader", { review: "reader" }, "no approval of aaaaaaa by a reviewer with write access"],
       ["a change request", { review: "changes" }, "changes requested"],
-      ["an edited push workflow", { github: "changed" }, ".github/workflows/preview.yml runs on push and differs from main"],
-      ["a push workflow the base deleted", { github: "retired" }, ".github/workflows/deploy.yml runs on push and differs from main"],
+      ["an edited push workflow", { github: "changed" }, ".github/workflows/preview.yml can run on push and differs from main"],
+      ["a reusable workflow the base deleted", { github: "retired" }, ".github/workflows/deploy.yml can run on push and differs from main"],
       ["a branch the host did not create", { ref: "foreign" }, "branch exists and the host did not create it"],
     ] as const)("does not push a fork head with %s", async (_name, options, reason) => {
       const f = await forkFixture(options);

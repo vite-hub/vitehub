@@ -107,17 +107,17 @@ export function foldMethod(method: BabysitterMergeMethod, repository: unknown): 
 }
 
 /**
- * Whether a workflow file starts when `branch` is pushed or created. It reads the push trigger's
- * `branches`, `branches-ignore`, and `tags` filters; anything it cannot read counts as yes.
+ * Whether a workflow can run on a push or creation of `branch`, including as a local reusable
+ * workflow called by another workflow. Anything we cannot read counts as yes.
  */
 export function runsOnPush(workflow: string, branch: string): boolean {
   let document: unknown;
   try { document = parse(workflow); } catch { return true; }
   if (!isRuntimeRecord(document)) return true;
   const on = document.on ?? document.true;
-  if (typeof on === "string" || Array.isArray(on)) return [on].flat().some(event => event === "push" || event === "create");
+  if (typeof on === "string" || Array.isArray(on)) return [on].flat().some(event => event === "push" || event === "create" || event === "workflow_call");
   if (!isRuntimeRecord(on)) return true;
-  if ("create" in on) return true;
+  if ("create" in on || "workflow_call" in on) return true;
   if (!("push" in on)) return false;
   const push = on.push;
   if (push == null) return true;
@@ -125,8 +125,8 @@ export function runsOnPush(workflow: string, branch: string): boolean {
   const list = (value: unknown) => value === undefined ? undefined : [value].flat().map(String);
   const branches = list(push.branches);
   const ignored = list(push["branches-ignore"]);
-  // Character classes are not read here, so such a filter counts as matching.
-  if ([...branches ?? [], ...ignored ?? []].some(pattern => pattern.includes("["))) return true;
+  // Complex branch filters count as matching.
+  if ([...branches ?? [], ...ignored ?? []].some(pattern => /[[\\?+]/.test(pattern))) return true;
   // A push trigger with only tag filters never starts on a branch push.
   if (!branches && !ignored) return push.tags === undefined && push["tags-ignore"] === undefined;
   if (ignored) return !ignored.some(pattern => branchFilter(pattern).test(branch));
@@ -145,8 +145,6 @@ function branchFilter(pattern: string): RegExp {
     const char = pattern[index]!;
     if (char === "*" && pattern[index + 1] === "*") { source += ".*"; index++; }
     else if (char === "*") source += "[^/]*";
-    // `?` and `+` repeat the previous character, as in a regular expression.
-    else if (char === "?" || char === "+") source += char;
     else source += char.replace(/[.^${}()|[\]\\]/g, "\\$&");
   }
   return new RegExp(`^${source}$`);
