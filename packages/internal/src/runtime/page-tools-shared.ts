@@ -61,8 +61,11 @@ export function viteHubPageToolsWanted(search: string, cookie: string): boolean 
  */
 export const viteHubPageToolsAssets = "/_vitehub/page/assets"
 
-/** The route of the visitor check. */
-export const viteHubPageSessionPath = "/_vitehub/page/session"
+/**
+ * The route of the visitor check. It is public, and each tool checks the visitor itself. Its path has no auth word,
+ * such as `session`, because Vite Doctor takes a handler on such a path for an auth route without a guard.
+ */
+export const viteHubPageSessionPath = "/_vitehub/page/tools"
 
 /**
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
@@ -143,7 +146,7 @@ export function withViteHubBase(base: string, path: string): string {
 
 /**
  * The URL of the session route, from the URL of the loader: the loader is at `<base>/_vitehub/page/assets/loader.js`,
- * so the session is at `<base>/_vitehub/page/session`. Without that shape, it is the session path at the root.
+ * so the session is at `<base>/_vitehub/page/tools`. Without that shape, it is the session path at the root.
  */
 export function viteHubPageSessionUrl(loaderUrl: string): string {
   const path = new URL(loaderUrl, "http://localhost").pathname
@@ -192,7 +195,7 @@ export interface ViteHubPageAccount {
   signOut: string
 }
 
-/** The answer of `GET /_vitehub/page/session`. */
+/** The answer of `GET /_vitehub/page/tools`. */
 export interface ViteHubPageSession {
   tools: ViteHubPageToolInfo[]
   account?: ViteHubPageAccount

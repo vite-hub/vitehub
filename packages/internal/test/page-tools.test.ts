@@ -447,7 +447,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     const app = nitro3App()
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
-    const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } })
+    const request = new Request("http://site.test/_vitehub/page/tools", { headers: { cookie: "person=ada" } })
     await app.fetch(request)
     const response = await viteHubPageSessionHandler.fetch(request)
     expect(response.status).toBe(200)
@@ -464,10 +464,10 @@ describe("installViteHubPageTools on Nitro 3", () => {
   })
 })
 
-describe("GET /_vitehub/page/session", () => {
+describe("GET /_vitehub/page/tools", () => {
   const app = nitro3App()
   const session = async (cookie: string, headers: Record<string, string> = {}) => {
-    const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }))
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/tools", { headers: { cookie, ...headers } }))
     return { response, body: await response.json() as { tools?: unknown[], account?: unknown, error?: { code: string } } }
   }
 
@@ -531,7 +531,7 @@ describe("GET /_vitehub/page/session", () => {
       return true
     } })
     installViteHubPageTools(app)
-    const request = new Request("http://site.test/_vitehub/page/session")
+    const request = new Request("http://site.test/_vitehub/page/tools")
     await app.fetch(request)
     expect((await viteHubPageSessionHandler.fetch(request)).status).toBe(200)
     expect(seen).toEqual([request])
@@ -609,7 +609,7 @@ describe("page tools below an app base", () => {
     installViteHubPageTools(app)
     registerViteHubPageTool(app, comments)
     registerViteHubPageTool(app, { ...pill, script: "https://cdn.test/console.js" })
-    const response = await respondViteHubPageSession(app, new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }))
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/portal/_vitehub/page/tools", { headers: { cookie: "person=ada" } }))
     expect(await response.json()).toEqual({ tools: [
       expect.objectContaining({ id: "comments", script: "/portal/comments.js" }),
       expect.objectContaining({ id: "console", script: "https://cdn.test/console.js" }),
@@ -620,7 +620,7 @@ describe("page tools below an app base", () => {
 describe("per-app page tools", () => {
   it("isolates Nitro 3 loader injection and sessions across bundled copies, late registration and replacement", async () => {
     const makeApp = () => {
-      const h3 = new H3().get("/_vitehub/page/session", viteHubPageSessionHandler)
+      const h3 = new H3().get("/_vitehub/page/tools", viteHubPageSessionHandler)
       h3.get("/", () => new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }))
       return { fetch: (request: Request) => h3.fetch(request) }
     }
@@ -639,9 +639,9 @@ describe("per-app page tools", () => {
     expect(appB.fetch).toBe(wrapped)
     const pages = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/?vitehub"))).text()))
     expect(pages).toEqual([`<body>Page${loaderTag}</body>`, `<body>Page${loaderTag}</body>`, "<body>Page</body>"])
-    const sessions = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } }))).json()))
+    const sessions = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/_vitehub/page/tools", { headers: { cookie: "person=ada" } }))).json()))
     expect(sessions.map(session => session.tools.map((tool: { script: string }) => tool.script))).toEqual([["/comments.js"], ["/b.js", "/console.js"], []])
-    const unbound = await otherOwner.viteHubPageSessionHandler.fetch(new Request("http://site.test/_vitehub/page/session"))
+    const unbound = await otherOwner.viteHubPageSessionHandler.fetch(new Request("http://site.test/_vitehub/page/tools"))
     expect(unbound.status).toBe(503)
   })
 })

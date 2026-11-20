@@ -31,9 +31,9 @@ describe("mounted page tools", () => {
       const hook = plugin.config
       if (!hook) throw new Error("Expected a config hook")
       await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
-      const sessionRoute = config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/session"))!.route
+      const sessionRoute = config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/tools"))!.route
       const asset = config.nitro!.publicAssets.find(asset => asset.baseURL?.endsWith("/_vitehub/page/assets"))!
-      expect(sessionRoute).toBe(`${mount}/_vitehub/page/session`)
+      expect(sessionRoute).toBe(`${mount}/_vitehub/page/tools`)
       expect(asset.baseURL).toBe(`${mount}/_vitehub/page/assets`)
       // Deny access so the real browser loader stops after the visitor check, without needing an overlay DOM.
       const authorize = vi.fn(() => false)

@@ -41,7 +41,7 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
       const source = await readFile(file, "utf8")
       expect(source).toContain(`development: ${development}`)
       expect(source).toContain('overlay: "/_vitehub/comments/assets/overlay.js?v=4", base: "/portal"')
-      expect(instance.options.handlers).toContainEqual({ route: "/portal/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") })
+      expect(instance.options.handlers).toContainEqual({ route: "/portal/_vitehub/page/tools", handler: join(root, ".vitehub/nitro/comments/page-tools-route.mjs") })
       expect(source).toContain("session: undefined, githubLogin,")
       expect(source).toContain(`from "@vite-hub/comments/runtime/connect${node ? "/node" : ""}"`)
       expect(source).toContain(development && node

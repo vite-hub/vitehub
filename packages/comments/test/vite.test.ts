@@ -82,7 +82,7 @@ describe("hubComments", () => {
     const root = await project({})
     const plugin = hubComments({ enabled: true })
     const nitro = await configure(plugin, root)
-    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/_vitehub/comments/**", "/_vitehub/page/session"])
+    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/_vitehub/comments/**", "/_vitehub/page/tools"])
     const definition = join(root, ".vitehub/nitro/comments/definition.mjs")
     expect(await readFile(definition, "utf8")).toContain("export const comments = defineComments()")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
@@ -104,14 +104,14 @@ describe("hubComments", () => {
     const nitro = await configure(hubComments({ auth: true }), root)
     expect(nitro?.handlers).toEqual([
       { route: "/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
-      { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
+      { route: "/_vitehub/page/tools", handler: join(root, ".vitehub/nitro/comments/page-tools-route.mjs") },
     ])
     expect(nitro?.plugins).toEqual([join(root, ".vitehub/nitro/comments/plugin.mjs")])
     expect(nitro?.publicAssets).toEqual([
       expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/dist[/\\]page$/) }),
       expect.objectContaining({ baseURL: "/_vitehub/comments/assets" }),
     ])
-    expect(await readFile(join(root, ".vitehub/nitro/comments/page-session.mjs"), "utf8")).toBe("export { viteHubPageSessionHandler as default } from \"@vite-hub/comments/runtime\"\n")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/page-tools-route.mjs"), "utf8")).toBe("export { viteHubPageSessionHandler as default } from \"@vite-hub/comments/runtime\"\n")
     // The page tool check reads the same session as the API.
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession,")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
@@ -134,13 +134,13 @@ describe("hubComments", () => {
   it("serves the API, the overlay, and the page tools below the Vite base, and passes the base to the runtime", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
     const nitro = await configure(hubComments(), root, "build", { base: "/portal/" })
-    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/portal/_vitehub/comments/**", "/portal/_vitehub/page/session"])
+    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/portal/_vitehub/comments/**", "/portal/_vitehub/page/tools"])
     expect(nitro?.publicAssets?.map(asset => asset.baseURL)).toEqual(["/portal/_vitehub/page/assets", "/portal/_vitehub/comments/assets"])
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("overlay: \"/_vitehub/comments/assets/overlay.js?v=4\", base: \"/portal\"")
     // Nitro serves its routes below its own baseURL, as Nuxt does for `app.baseURL`.
     const nested = await configure(hubComments(), root, "build", { base: "/portal/", nitro: { baseURL: "/portal/" } })
-    expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/_vitehub/comments/**", "/_vitehub/page/session"])
+    expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/_vitehub/comments/**", "/_vitehub/page/tools"])
     // The overlay finds the API next to itself.
     expect(commentsApiRoute("http://site.test/portal/_vitehub/comments/assets/overlay.js?v=4")).toBe("/portal/_vitehub/comments")
     expect(commentsApiRoute("http://site.test/_vitehub/comments/assets/chunk-1.js")).toBe("/_vitehub/comments")
@@ -446,7 +446,7 @@ describe("comments() without vite-hub", () => {
     const plugin = standalone()
     const nitro = await configure(plugin, root, command, { base: "/portal/", nitro: { preset, compatibilityDate: "2026-10-27" } })
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/_vitehub/comments/**")
-    expect(nitro?.handlers).toContainEqual({ route: "/portal/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") })
+    expect(nitro?.handlers).toContainEqual({ route: "/portal/_vitehub/page/tools", handler: join(root, ".vitehub/nitro/comments/page-tools-route.mjs") })
     expect(nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }))
     const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(generated).toContain('overlay: "/_vitehub/comments/assets/overlay.js?v=4", base: "/portal"')
@@ -465,7 +465,7 @@ describe("comments() without vite-hub", () => {
     const nitro = await configure(standalone(), root, "serve")
     expect(nitro?.handlers).toEqual(expect.arrayContaining([
       { route: "/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
-      { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
+      { route: "/_vitehub/page/tools", handler: join(root, ".vitehub/nitro/comments/page-tools-route.mjs") },
     ]))
     expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")

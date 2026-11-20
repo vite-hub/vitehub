@@ -637,7 +637,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const definition = discover() ?? await writeDefaultDefinition(directory, imports)
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
-        const pageSession = join(directory, "page-session.mjs")
+        const pageToolsRoute = join(directory, "page-tools-route.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
         const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development }
@@ -646,13 +646,13 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeComponents(),
           // Standalone storage waits for Nitro's resolved dev runner in the module setup above.
           options.standalone ? undefined : writeFile(plugin, renderCommentsPlugin(pluginInput)),
-          writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
+          writeFile(pageToolsRoute, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // The handler imports server/content.ts and its Markdown renderer, so load it on the first Comments request.
         kit.addHandler({ handler, lazy: true, route: `${mount}${commentsRoute}/**` })
         kit.addPlugin(plugin)
-        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), mount })
+        addViteHubPageToolRoutes(kit, { handler: pageToolsRoute, loader: builtDirectory("page"), mount })
         const nitro = kit.config
         // Nuxt forwards Nitro config without loading Vite's plugin.nitro convention.
         if (integration.nitro) {

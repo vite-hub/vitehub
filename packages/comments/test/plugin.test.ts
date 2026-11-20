@@ -27,7 +27,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
 }
 
 async function pageSession(app: object, cookie: string, page?: string) {
-  const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
+  const request = new Request(`http://site.test/_vitehub/page/tools${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
   const response = await respondViteHubPageSession(app, request)
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
