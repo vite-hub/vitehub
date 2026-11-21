@@ -22,7 +22,7 @@ import { getSandboxTaskFeatureDriver } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
 import { resolveCloudflareSandboxTaskInstanceType, resolveVercelSandboxTaskVcpus } from './size'
-import { createSandboxTaskTypeTemplateContents } from './type-template'
+import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from './type-template'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -87,7 +87,7 @@ function createSandboxTaskManifest(aliasPath: string, typeTemplate: string): Fea
       { name: 'SandboxTaskRunResult', as: 'SandboxTaskRunResult', from: '@vite-hub/sandbox/task', type: true },
     ],
     typeTemplate: {
-      filename: 'runtime/sandbox-task.d.ts',
+      filename: sandboxTaskTypeTemplateFilename,
       contents: typeTemplate,
     },
   }
@@ -102,8 +102,6 @@ type SandboxTaskDefinitionMetadata = {
 
 type SandboxTaskDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
   bundleAlias?: Record<string, string>
-  /** `false` bundles Definitions without the app's tsconfig files. See `bundleDiscoveredDefinitionModuleGraph()`. */
-  bundleTsconfig?: false
 }
 
 function normalizeSandboxTaskDefinitionOptions(name: string, options: SandboxTaskDefinitionOptions | undefined) {
@@ -242,16 +240,9 @@ export async function createSandboxTaskFeaturePlan(
     discoveredDefinitionOptions.rootDir || process.cwd(),
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
-  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions.map((definition) => {
-    return {
-      handler: definition.handler,
-      kind: definition.kind,
-      name: definition.name,
-    }
-  })))
+  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions))
   const {
     bundleAlias,
-    bundleTsconfig,
     featureImports = manifest.imports,
     ...definitionCompilerOptions
   } = discoveredDefinitionOptions
@@ -272,7 +263,6 @@ export async function createSandboxTaskFeaturePlan(
         execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
         includeProject: metadata?.projectMode,
         project: metadata?.project,
-        ...(bundleTsconfig === false ? { tsconfig: false as const } : {}),
       })
       return `export default ${JSON.stringify({
         bundle,

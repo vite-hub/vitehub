@@ -13,6 +13,7 @@ import { basename, dirname, resolve } from 'pathe'
 import { discoverSandboxTaskDefinitions } from '../discovery'
 import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeLocalProviderSpecifier, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
 import { getSandboxTaskFeatureDriver } from '../module-types'
+import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from '../type-template'
 import {
   activateSandboxTaskRuntimeFile,
   markSandboxTaskRuntimeGeneration,
@@ -467,11 +468,24 @@ export async function prepareSandboxTaskRuntime(options: {
     root: rootDir,
   }, options.env, definitions.length > 0)
   const stateModule = createSandboxTaskStateModuleContents(context)
-  if (!context.config) {
+  const prepareOnly = options.userConfig[VITEHUB_PREPARE] === true
+  if (!context.config || prepareOnly) {
+    const files: string[] = []
+    if (context.config && options.writeArtifacts !== false) {
+      const generatedDir = ensureGeneratedDir(rootDir, 'sandbox-task')
+      const file = resolve(generatedDir, sandboxTaskTypeTemplateFilename)
+      const contents = createSandboxTaskTypeTemplateContents(definitions)
+      await mkdir(generatedDir, { recursive: true })
+      await withSandboxTaskRuntimeGenerationLock(generatedDir, lease => lease.publish(async () => {
+        await mkdir(dirname(file), { recursive: true })
+        await writeStableSandboxTaskRuntimeFile(file, contents, lease)
+      }))
+      files.push(file)
+    }
     return {
       aliases: {} as AliasMap,
-      definitions: [],
-      files: [],
+      definitions,
+      files,
       hosting: context.hosting,
       localDev: false,
       provider: undefined,
@@ -494,9 +508,6 @@ export async function prepareSandboxTaskRuntime(options: {
     context.hosting,
     {
       bundleAlias: resolveStringAliases(options.resolvedConfig?.resolve.alias ?? readResolveOptions(options.userConfig).alias),
-      // `nuxt prepare` replays the hooks before Nuxt writes the `.nuxt/tsconfig.*.json` files that the app's
-      // tsconfig.json references. Prepare builds nothing, and `nuxt dev` or `nuxt build` bundles again with them.
-      ...(options.userConfig[VITEHUB_PREPARE] === true ? { bundleTsconfig: false as const } : {}),
       rootDir,
       scanRoots: [rootDir],
       serverImports: { presets: [] },
