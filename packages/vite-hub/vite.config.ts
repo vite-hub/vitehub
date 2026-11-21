@@ -9,6 +9,8 @@ import { end, parseProgram, start } from "@vite-hub/internal/ast";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
+const motionCoreAlias = { "@vite-hub/ui/motion/core": resolve(import.meta.dirname, "../ui/src/motion-core.ts") };
+
 const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() =>
   v.union([
     v.pipe(
@@ -723,6 +725,7 @@ export default defineConfig({
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
       // own build, so it shares no chunk with the server code.
+      alias: motionCoreAlias,
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page/loader": "src/page/loader.ts" },
@@ -745,6 +748,7 @@ export default defineConfig({
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).
+      alias: motionCoreAlias,
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "page/pill": "src/page/pill.ts" },
