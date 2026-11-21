@@ -157,6 +157,33 @@ export default ({ mode }) => ({
     }
   })
 
+  it("passes the root selected by Vite's config environment to commands", async () => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "web"))
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  root: process.env.NODE_ENV === "development" ? "web" : "wrong",
+  plugins: [{
+    name: "root-contributor",
+    vitehub: { cli: { namespaces: [{ name: "probe", features: [{ name: "root", run(args, context) { context.stdout.write(context.rootDir); return 0 } }] }] } },
+  }],
+}
+`)
+    const stdout = stream()
+    const stderr = stream()
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+    expect(stderr.output()).toBe("")
+    expect(stdout.output()).toBe(join(rootDir, "web"))
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()

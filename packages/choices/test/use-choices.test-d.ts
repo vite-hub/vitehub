@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineChoices } from "../src/index.ts"
 import { useChoices } from "../src/vue.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 import type { MultipleSelection, SingleSelection } from "../src/index.ts"
 import type { ChoicesSelectionOf } from "../src/vue.ts"
@@ -22,7 +22,7 @@ describe("useChoices types", () => {
     expectTypeOf<Selection["supplier"]>().toEqualTypeOf<MultipleSelection<"S2">>()
     const choices = useChoices<typeof forecast>({
       onSelect: selection => expectTypeOf(selection.supplier.include).toEqualTypeOf<"S2"[]>(),
-      resolve: async () => ({ chart: { confidence: 1, ranked: [], value: null }, supplier: { exclude: [], include: [] } }),
+      resolve: async () => ({ chart: { confidence: 0, ranked: [], value: null }, supplier: { exclude: [], include: [] } }),
     })
     expectTypeOf(choices.selection.value?.chart.value).toEqualTypeOf<"bar" | "line" | null | undefined>()
   })

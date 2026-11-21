@@ -18,6 +18,7 @@ export type {
   AuthAnonymousAuthorize,
   AuthAnonymousGuardedHandler,
   AuthAuthorization,
+  AuthComponentsOptions,
   AuthDefinition,
   AuthDefinitionInput,
   AuthDefinitionOptions,

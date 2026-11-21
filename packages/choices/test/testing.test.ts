@@ -1,0 +1,168 @@
+import { describe, expect, it } from "vitest"
+
+import { answers, scriptedAsk } from "@vite-hub/gateways/testing"
+import { defineChoices } from "../src/index.ts"
+import { selectionGateway, unsupported, wordGateway } from "../src/testing.ts"
+
+const groups = {
+  chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] },
+  supplier: { label: "Supplier", options: [{ label: "Vak Supply", value: "S1" }, { label: "Nord Parts", value: "S2" }, { label: "Vakuum Co", value: "S3" }] },
+} as const
+
+describe("selectionGateway()", () => {
+  it("returns the selection that you give, by group key and option value", async () => {
+    const choices = defineChoices({ gateway: selectionGateway<typeof groups>({ chart: "bar", supplier: { exclude: ["S1"], include: ["S2"] } }), groups })
+    const [error, selection] = await choices.resolve("anything")
+    expect(error).toBeUndefined()
+    expect(selection?.chart).toMatchObject({ confidence: 1, value: "bar" })
+    expect(selection?.supplier).toEqual({ exclude: ["S1"], include: ["S2"] })
+  })
+
+  it("selects nothing for a group that you leave out", async () => {
+    const [, selection] = await defineChoices({ gateway: selectionGateway({}), groups }).resolve("anything")
+    expect(selection).toMatchObject({ chart: { value: null }, supplier: { exclude: [], include: [] } })
+  })
+
+  it("matches options that share a label by value", async () => {
+    const sites = { site: { label: "Site", options: [{ label: "Main", value: "east" }, { label: "Main", value: "west" }] } }
+    const gateway = selectionGateway({ site: { exclude: ["west"], include: ["east"] } })
+    await expect(defineChoices({ gateway, groups: sites }).resolve("x")).resolves.toEqual([undefined, { site: { exclude: ["west"], include: ["east"] } }])
+  })
+
+  it("accepts null for an empty single group and a value for a singleton infer group", async () => {
+    const mixed = {
+      ...groups,
+      empty: { label: "Empty", multiple: false, options: [] },
+      project: { infer: true, label: "Project", multiple: false, options: [{ label: "Docs", value: "docs" }] },
+    } as const
+    const [error, selection] = await defineChoices({ gateway: selectionGateway({ empty: null, project: "docs" }), groups: mixed }).resolve("x")
+    expect(error).toBeUndefined()
+    expect(selection).toMatchObject({ empty: { confidence: 0, value: null }, project: { confidence: 1, value: "docs" } })
+  })
+
+  it("answers from the text and the request context", async () => {
+    const seen: unknown[] = []
+    const sites = async (context: { tenant: string }) => [{ label: `${context.tenant} Mill`, value: context.tenant }]
+    const siteGroups = { site: { label: "Site", options: sites } }
+    const gateway = selectionGateway<typeof siteGroups>((text, context) => {
+      seen.push([text, context])
+      return { site: { include: [context.tenant] } }
+    })
+    const [, selection] = await defineChoices({ gateway, groups: siteGroups }).resolve(" acme ", { context: { tenant: "acme" } })
+    expect(selection?.site.include).toEqual(["acme"])
+    expect(seen).toEqual([["acme", { tenant: "acme" }]])
+  })
+
+  it("passes no context when the request contains only a signal", async () => {
+    const seen: unknown[] = []
+    const gateway = selectionGateway((_text, context) => {
+      seen.push(context)
+      return { chart: "bar" }
+    })
+    const [error, selection] = await defineChoices({ gateway, groups }).resolve("x", { signal: new AbortController().signal })
+    expect(error).toBeUndefined()
+    expect(selection?.chart.value).toBe("bar")
+    expect(seen).toEqual([undefined])
+  })
+
+  it("gives an infer group no value when you leave it out", async () => {
+    const options = [{ label: "Docs", value: "docs" }, { label: "Console", value: "console" }]
+    const [, selection] = await defineChoices({ gateway: selectionGateway({}), groups: { project: { infer: true, label: "Project", multiple: false, options } } }).resolve("x")
+    expect(selection?.project.value).toBeNull()
+  })
+
+  it("returns DECISIONS_R0004 for unsupported", async () => {
+    const gateway = selectionGateway(unsupported)
+    const inferOnly = { project: { infer: true, label: "Project", multiple: false, options: [{ label: "Docs", value: "docs" }] } } as const
+    for (const resolve of [defineChoices({ gateway, groups, thresholds: { supported: 0 } }).resolve, defineChoices({ gateway, groups: inferOnly }).resolve]) {
+      const [error] = await resolve("price above 100")
+      expect(error?.code).toBe("DECISIONS_R0004")
+    }
+    const [error] = await defineChoices({ gateway: selectionGateway(() => ({ project: "missing" })), groups: inferOnly }).resolve("x")
+    expect(error?.cause).toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
+  })
+
+  it("returns DECISIONS_R0005 when the function throws", async () => {
+    const cause = new Error("offline")
+    const [error] = await defineChoices({ gateway: selectionGateway(() => { throw cause }), groups }).resolve("x")
+    expect(error).toMatchObject({ cause, code: "DECISIONS_R0005" })
+  })
+
+  it("returns DECISIONS_R0005 for an unknown group or value, with DECISIONS_TESTING_SELECTION_INVALID as the cause", async () => {
+    for (const selection of [{ shipper: "x" }, { chart: "pie" }, { chart: { include: ["line"] } }, { supplier: "S1" }, { supplier: { exclude: ["S1"], include: ["S1"] } }]) {
+      const [error] = await defineChoices({ gateway: selectionGateway(selection), groups }).resolve("x")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.cause).toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
+    }
+  })
+
+  it("throws outside defineChoices()", async () => {
+    await expect(selectionGateway({}).ask("x", {})).rejects.toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
+  })
+})
+
+describe("wordGateway()", () => {
+  const forecast = defineChoices({
+    gateway: wordGateway(),
+    groups: {
+      ...groups,
+      supplier: { label: "Supplier", options: [{ aliases: ["vak"], label: "Vak Supply", value: "S1" }, { aliases: ["nord"], label: "Nord Parts", value: "S2" }, { label: "Vakuum Co", value: "S3" }] },
+    },
+  })
+
+  it("matches option aliases", async () => {
+    const [error, selection] = await forecast.resolve("nord except vak")
+    expect(error).toBeUndefined()
+    expect(selection?.supplier).toEqual({ exclude: ["S1"], include: ["S2"] })
+  })
+
+  it("matches names as whole words", async () => {
+    const [, selection] = await forecast.resolve("vakuum co, barcode scan by deadline")
+    expect(selection?.supplier).toEqual({ exclude: [], include: ["S3"] })
+    expect(selection?.chart).toMatchObject({ value: null })
+  })
+
+  it.each([["line, not columns", "line"], ["not columns", null]] as const)("skips negated options in a single group: %s", async (text, value) => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: { chart: { ...groups.chart, options: [{ aliases: ["columns"], label: "Bar", value: "bar" }, groups.chart.options[0]] } },
+    })
+    const [error, selection] = await choices.resolve(text)
+    expect(error).toBeUndefined()
+    expect(selection?.chart.value).toBe(value)
+  })
+
+  it.each([
+    ["east", { exclude: [], include: ["east"] }],
+    ["except east", { exclude: ["east"], include: [] }],
+  ] as const)("keeps alias matches tied to the option: %s", async (text, expected) => {
+    const options = [{ aliases: ["east"], label: "Depot", value: "east" }, { aliases: ["west"], label: "Depot", value: "west" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { site: { label: "Site", options } } }).resolve(text)
+    expect(selection?.site).toEqual(expected)
+  })
+
+  it.each([
+    ["कला", { exclude: [], include: ["art"] }],
+    ["except कला", { exclude: ["art"], include: [] }],
+  ] as const)("keeps combining marks within a word: %s", async (text, expected) => {
+    const options = [{ aliases: ["कल"], label: "Yesterday", value: "yesterday" }, { label: "कला", value: "art" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { topic: { label: "Topic", options } } }).resolve(text)
+    expect(selection?.topic).toEqual(expected)
+  })
+
+  it("ignores blank aliases", async () => {
+    const options = [{ aliases: ["", "  "], label: "Line", value: "line" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { chart: { label: "Chart", options } } }).resolve("show chart.")
+    expect(selection?.chart).toEqual({ exclude: [], include: [] })
+  })
+})
+
+describe("scriptedAsk() with defineChoices()", () => {
+  it("returns DECISIONS_R0005 with the public reason of a rejected key", async () => {
+    const { gateway } = scriptedAsk((_key, question) => answers.first(question), { error: "GATEWAYS_R0008" })
+    const [error] = await defineChoices({ gateway, groups }).resolve("x")
+    expect(error?.code).toBe("DECISIONS_R0005")
+    expect(error?.message).toContain("rejected the API key with HTTP 401")
+    expect(error?.fix).toBe("Pass a valid apiKey to the gateway, or rotate the key.")
+  })
+})

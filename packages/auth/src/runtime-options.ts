@@ -25,7 +25,7 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
-import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
+import { assertNoRuntimeOption, validateAuthAccessPolicy, validateAuthComponents } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
 import { createDeleteAccount, validateDeleteAccount } from "./delete-account.ts"
 import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
@@ -140,6 +140,7 @@ function stripViteHubOptions(
   const {
     access,
     adminClaim: _adminClaim,
+    components,
     console: _console,
     database,
     deleteAccount,
@@ -166,6 +167,7 @@ function stripViteHubOptions(
     assertAuthDatabaseNames(rest)
   }
   validateAuthEvents(events)
+  validateAuthComponents(components)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   // `stateless()` keeps everything in cookies and must stay without a database.
   if (!storage.database && options.preset === undefined) {

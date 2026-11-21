@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { readdir } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
@@ -243,6 +243,32 @@ export function createCliDiscoveryNitroCloser(): { close: () => Promise<void>, p
       name: "vite-hub/cli-discovery-nitro",
       nitro: { setup: nitro => { instances.push(nitro) } },
     },
+  }
+}
+
+/** The inline config of {@link viteCliProjectConfig}. Its plugin is typed structurally, because this package does not depend on Vite. */
+export interface ViteCliProjectConfig {
+  configFile?: string
+  plugins: { config: { handler: (config: { root?: string }) => { root: string }, order: "pre" }, enforce: "pre", name: string }[]
+  root?: string
+}
+
+/** Let Vite load its config normally, without overriding the root declared by the project. */
+export function viteCliProjectConfig(rootDir: string): ViteCliProjectConfig {
+  const configFile = ["js", "mjs", "ts", "cjs", "mts", "cts"]
+    .map(extension => resolve(rootDir, `vite.config.${extension}`))
+    .find(file => existsSync(file))
+  if (!configFile) return { root: rootDir, plugins: [] }
+  return {
+    configFile,
+    plugins: [{
+      name: "vite-hub/cli-discovery-root",
+      enforce: "pre" as const,
+      config: {
+        order: "pre" as const,
+        handler: ({ root }: { root?: string }) => ({ root: resolve(rootDir, root || ".") }),
+      },
+    }],
   }
 }
 

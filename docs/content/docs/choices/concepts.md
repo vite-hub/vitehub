@@ -42,13 +42,13 @@ With `multiple: true` (the default), a group can have many options. The text can
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 ```
 
-With `multiple: false`, a group has at most one option. You get the best value, the model's confidence, and every option ranked:
+With `multiple: false`, a group has at most one option. You get the best value, its probability as `confidence`, and every option ranked:
 
 ```ts fragment
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, { value: "line", probability: 0.1 }] }
 ```
 
-`value` is `null` when no option passes the `option` threshold. Show the ranked list, or ask.
+When `value` is `null`, `confidence` is `0`. That happens when no option passes the `option` threshold, or, in a group without `infer: true`, when the text names no option. Show the ranked list, or ask.
 
 ## Infer one option
 

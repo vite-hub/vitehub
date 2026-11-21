@@ -52,6 +52,31 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 - A root secret shorter than 32 characters throws `AUTH_R0016`.
 - Rotating `VITEHUB_SECRET` signs out every session.
 
+### Type the Definition in a composite project
+
+A `tsconfig.json` with `composite: true`, such as the `tsconfig.node.json` of a Vite app, writes declarations. TypeScript cannot write the inferred type of a Definition with some Better Auth plugins, such as `apiKey()`, and fails with `TS7056`. Pass an explicit options type to `defineAuth()` and default-export the Definition:
+
+```ts [server/auth.ts] fragment
+import { apiKey } from '@better-auth/api-key'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+type Options = {
+  database: ReturnType<typeof authDatabase>
+  plugins: [ReturnType<typeof apiKey>]
+}
+
+const auth = defineAuth<Options>(({ requestOrigin }) => ({
+  baseURL: requestOrigin,
+  database: authDatabase(),
+  plugins: [apiKey()],
+}))
+
+export default auth
+```
+
+The type keeps the plugin endpoints, such as `useAuth(event).api.createApiKey`. The Vite plugin reads the `defineAuth()` call of the exported `const` like an inline `export default defineAuth(...)`.
+
 ## Runtime options
 
 When values depend on the request, Server Env, provider credentials, or request origin, pass a callback to `defineAuth()`. The callback returns all the options, the static ones too. Auth does not merge it with other options, so each nested object, such as `advanced`, has all its fields in one place. Declare the secrets in [Env](/docs/env) first.
