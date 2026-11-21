@@ -18,6 +18,9 @@ import { verifyAgentWebhookRequest } from "../src/trigger-runtime.ts"
 import { operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 import { telegram } from "../src/channels.ts"
 
+/** The dev server of the project. The CLI never guesses a port, so each test names it. */
+const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
+
 function stream() {
   let value = ""
   return {
@@ -52,7 +55,7 @@ describe("agent CLI", () => {
         description: "Agent development workflows.",
         features: [
           expect.objectContaining({ name: "eval" }),
-          expect.objectContaining({ name: "info" }),
+          expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
         ],
@@ -75,7 +78,7 @@ describe("agent CLI", () => {
       namespaces: [{
         description: "Agent development workflows.",
         features: [
-          expect.objectContaining({ name: "info" }),
+          expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
         ],
@@ -114,7 +117,7 @@ describe("agent CLI", () => {
     const channel = {
       ...base,
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      webhooks: { ...base.webhooks as object, secretToken: "new-secret" },
+      webhooks: { ...base.webhooks as object, secret: () => "new-secret" },
     }
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
@@ -163,7 +166,7 @@ describe("agent CLI", () => {
       "--json",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout,
@@ -199,7 +202,7 @@ describe("agent CLI", () => {
         channel: "telegram",
         desired: {
           secretToken: "configured",
-          url: "https://staging.example.com/api/_vitehub/agents/calories/webhooks/telegram",
+          url: "https://staging.example.com/_vitehub/agents/calories/webhooks/telegram",
         },
         preflight: "verified",
         provider: "telegram",
@@ -214,7 +217,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const stderr = stream()
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://example.com/api/_vitehub/agents/calories/webhooks/telegram")
+      expect(String(input)).toBe("https://example.com/_vitehub/agents/calories/webhooks/telegram")
       if (init?.method === "HEAD") {
         expect(new Headers(init.headers).has("x-test-secret")).toBe(false)
         return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
@@ -242,7 +245,7 @@ describe("agent CLI", () => {
         "--output", "archives/export",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr,
         stdout,
@@ -278,12 +281,12 @@ describe("agent CLI", () => {
       const exitCode = await runAgentChannelHistoryCli([
         "--stage", "production", "--url", "https://example.com", "--output", "export",
         "--query", "status=open", "--query", "status=urgent", "--thread", "thread-1", "--invocations",
-        ...(override ? ["--webhook-path", "/api/_vitehub/agents/support/webhooks/productlane"] : []),
+        ...(override ? ["--webhook-path", "/_vitehub/agents/support/webhooks/productlane"] : []),
       ], {
-        cwd: rootDir, env: {}, rootDir, stderr: stream(), stdout: stream(),
+        cwd: rootDir, env: { ...devServerEnv }, rootDir, stderr: stream(), stdout: stream(),
       }, {
         fetch: async (_input, init) => {
-          expect(String(_input)).toBe(override ? "https://example.com/api/_vitehub/agents/support/webhooks/productlane" : "https://example.com/api/productlane/webhook")
+          expect(String(_input)).toBe(override ? "https://example.com/_vitehub/agents/support/webhooks/productlane" : "https://example.com/api/productlane/webhook")
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "productlane" }, status: 204 })
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           bodies.push(body)
@@ -308,15 +311,15 @@ describe("agent CLI", () => {
     const stderr = stream()
     const loadTargets = vi.fn(async () => [])
     expect(await runAgentChannelHistoryCli(["--webhook-path", path], {
-      cwd: process.cwd(), env: {}, rootDir: process.cwd(), stderr, stdout: stream(),
+      cwd: process.cwd(), env: { ...devServerEnv }, rootDir: process.cwd(), stderr, stdout: stream(),
     }, { loadTargets })).toBe(1)
     expect(stderr.output()).toContain("--webhook-path expects an absolute deployment path")
     expect(loadTargets).not.toHaveBeenCalled()
   })
 
-  it("signs stripe-sha256 Channel history requests", async () => {
+  it("signs stripe Channel history requests", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-stripe-"))
-    const registration = { id: "productlane", provider: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: "stripe-sha256" }
+    const registration = { id: "productlane", provider: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: "stripe" }
     let verified: unknown
     try {
       const exitCode = await runAgentChannelHistoryCli([
@@ -326,14 +329,14 @@ describe("agent CLI", () => {
         "--thread", "productlane:123",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         stderr: stream(),
         stdout: stream(),
       }, {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "productlane" }, status: 204 })
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "productlane:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "productlane", mode: "webhook" as const, provider: "productlane", registration }],
@@ -342,8 +345,8 @@ describe("agent CLI", () => {
       expect(exitCode).toBe(0)
       expect(verified).toMatchObject({ verified: true })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "productlane", secretHeader: "x-test-signature", secretToken: "webhook-secret", signature: { preset: "stripe-sha256", toleranceSeconds: 600 } } } as never, {}, "productlane"))
-        .resolves.toMatchObject({ signature: "stripe-sha256" })
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "productlane", secretHeader: "x-test-signature", secret: () => "webhook-secret", signature: { type: "stripe", tolerance: "10m" } } } as never, {}, "productlane"))
+        .resolves.toMatchObject({ secretToken: "webhook-secret", signature: "stripe" })
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -353,7 +356,7 @@ describe("agent CLI", () => {
   it("signs hmac-sha256 Channel history requests with the preset options", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-hmac-"))
     const secretToken = Buffer.from("airtable-mac-secret").toString("base64")
-    const signature = { encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" } as const
+    const signature = { encoding: "base64", type: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" } as const
     const registration = { id: "airtable", provider: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature }
     let verified: unknown
     try {
@@ -364,14 +367,14 @@ describe("agent CLI", () => {
         "--thread", "airtable:123",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         stderr: stream(),
         stdout: stream(),
       }, {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "airtable" }, status: 204 })
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "airtable:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "airtable", mode: "webhook" as const, provider: "airtable", registration }],
@@ -380,7 +383,7 @@ describe("agent CLI", () => {
       expect(exitCode).toBe(0)
       expect(verified).toMatchObject({ verified: true })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature } } as never, {}, "airtable"))
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "airtable", secretHeader: "x-airtable-content-mac", secret: () => secretToken, signature } } as never, {}, "airtable"))
         .resolves.toMatchObject({ signature })
     }
     finally {
@@ -407,7 +410,7 @@ describe("agent CLI", () => {
         "--webhook", "secondary",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         stderr: stream(),
         stdout: stream(),
@@ -438,7 +441,7 @@ describe("agent CLI", () => {
         "--thread", "prefect:123",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         stderr: stream(),
         stdout: stream(),
@@ -446,7 +449,7 @@ describe("agent CLI", () => {
         fetch: async (input, init) => {
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "prefect" }, status: 204 })
           expect(new Headers(init?.headers).get("authorization")).toBe("Bearer history-secret")
-          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          verified = await verifyAgentWebhookRequest([{ ...registration, secret: () => registration.secretToken }], new Request(String(input), init))
           return Response.json({ messages: [], schemaVersion: 1, threadId: "prefect:123" })
         },
         loadTargets: async () => [{ agent: "support", channel: "prefect", mode: "webhook" as const, provider: "prefect", registration }],
@@ -465,8 +468,8 @@ describe("agent CLI", () => {
     const channel = {
       kind: "http",
       webhooks: [
-        { path: "/first", secretToken: "first" },
-        { path: "/second", secretToken: "second" },
+        { path: "/first", secret: () => "first" },
+        { path: "/second", secret: () => "second" },
       ],
     } as never
 
@@ -507,7 +510,7 @@ describe("agent CLI", () => {
       "--output", "archives/export",
     ], {
       cwd: rootDir,
-      env: {},
+      env: { ...devServerEnv },
       rootDir,
       stderr,
       stdout,
@@ -550,7 +553,7 @@ describe("agent CLI", () => {
       "--output", "export",
     ], {
       cwd: rootDir,
-      env: {},
+      env: { ...devServerEnv },
       rootDir,
       stderr: stream(),
       stdout: stream(),
@@ -597,7 +600,7 @@ describe("agent CLI", () => {
       "--url", "https://staging.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -634,7 +637,7 @@ describe("agent CLI", () => {
       "--json",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -667,7 +670,7 @@ describe("agent CLI", () => {
       "--json",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -699,7 +702,7 @@ describe("agent CLI", () => {
       "--url", "https://example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -731,7 +734,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -775,7 +778,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://preview.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -791,7 +794,7 @@ describe("agent CLI", () => {
     const run = async (args: string[], publicUrl?: string) => {
       const stderr = stream()
       const exitCode = await runAgentChannelSyncCli(["--stage", "production", "--json", ...args], {
-        cwd: "/repo", env: {}, publicUrl, rootDir: "/repo", stderr, stdout: stream(),
+        cwd: "/repo", env: { ...devServerEnv }, publicUrl, rootDir: "/repo", stderr, stdout: stream(),
       }, {
         fetch: (async () => new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })) as never,
         envDir: "/repo/config",
@@ -820,8 +823,8 @@ describe("agent CLI", () => {
     expect(await run(["--apply"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
     expect(await run(["--apply", "--url", "https://preview.example.com", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
     expect(applied).toEqual([
-      "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
-      "https://preview.example.com/api/_vitehub/agents/support/webhooks/telegram",
+      "https://app.example.com/_vitehub/agents/support/webhooks/telegram",
+      "https://preview.example.com/_vitehub/agents/support/webhooks/telegram",
     ])
     expect((await run(["--apply", "--url", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--apply requires --confirm-origin")
     expect((await run(["--apply", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--confirm-origin must exactly match vitehub({ publicUrl })")
@@ -834,7 +837,7 @@ describe("agent CLI", () => {
     const applyPlan = vi.fn(async () => ({ topic: "mail" }))
     const fetch = vi.fn()
     const exitCode = await runAgentChannelSyncCli(["--stage", "production", ...apply ? ["--apply"] : []], {
-      cwd: "/repo", env: {}, publicUrl: "http://localhost:3000", rootDir: "/repo", stderr, stdout: stream(),
+      cwd: "/repo", env: { ...devServerEnv }, publicUrl: "http://localhost:3000", rootDir: "/repo", stderr, stdout: stream(),
     }, {
       fetch,
       loadTargets: async () => [{
@@ -855,7 +858,7 @@ describe("agent CLI", () => {
     const stderr = stream()
     try {
       const exitCode = await runAgentChannelHistoryCli(["--stage", "production", "--output", "export"], {
-        cwd: rootDir, env: {}, publicUrl: "https://app.example.com", rootDir, stderr: stderr, stdout: stream(),
+        cwd: rootDir, env: { ...devServerEnv }, publicUrl: "https://app.example.com", rootDir, stderr: stderr, stdout: stream(),
       }, {
         envDir: false,
         fetch: async (input, init) => {
@@ -870,7 +873,7 @@ describe("agent CLI", () => {
       })
       expect(stderr.output()).toBe("")
       expect(exitCode).toBe(0)
-      expect(new Set(urls)).toEqual(new Set(["https://app.example.com/api/_vitehub/agents/calories/webhooks/telegram"]))
+      expect(new Set(urls)).toEqual(new Set(["https://app.example.com/_vitehub/agents/calories/webhooks/telegram"]))
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -905,7 +908,7 @@ describe("agent CLI", () => {
       "--json",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -931,7 +934,7 @@ describe("agent CLI", () => {
       allowed_updates: ["message"],
       drop_pending_updates: false,
       secret_token: "webhook-token",
-      url: "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
+      url: "https://app.example.com/_vitehub/agents/support/webhooks/telegram",
     })
   })
 
@@ -952,7 +955,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://app.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -991,7 +994,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://staging.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -1033,7 +1036,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://staging.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -1083,7 +1086,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://staging.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -1115,7 +1118,7 @@ describe("agent CLI", () => {
       "--confirm-origin", "https://app.example.com",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -1174,7 +1177,7 @@ describe("agent CLI", () => {
       "--json",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1229,7 +1232,7 @@ describe("agent CLI", () => {
         "      botToken: process.env.TELEGRAM_BOT_TOKEN,",
         "      webhooks: {",
         "        secretHeader: 'x-telegram-bot-api-secret-token',",
-        "        secretToken: { resolve: () => process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN },",
+        "        secret: 'TELEGRAM_WEBHOOK_SECRET_TOKEN',",
         "      },",
         "    }),",
         "  },",
@@ -1353,7 +1356,7 @@ describe("agent CLI", () => {
         "--url", "https://example.com",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr: stream(),
         stdout: stream(),
@@ -1546,7 +1549,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1585,7 +1588,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const exitCode = await runAgentInfoCli(["--agent", "support"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1625,7 +1628,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentInfoCli(["--agent", "support", "--json"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1647,21 +1650,26 @@ describe("agent CLI", () => {
     expect(fetchAgentInfo).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocation-stream?inspect=1&agent=support", expect.anything())
   })
 
-  it.each([undefined, "http://localhost:5173/custom/api/invocations?status=running#details"])("cancels through the registered dev route with invocation URL %s", async (url) => {
+  it.each([undefined, "http://localhost:5173"])("cancels through the registered dev route with app URL %s", async (url) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-cancel-cli-"))
     const serverId = `${process.pid + 1}:5173`
     const token = await refreshWorkspaceDevToken(rootDir, { serverId })
     try {
-      const fetchInvocations = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => Response.json(init?.method === "POST"
-        ? { id: "invocation-1", outcome: "requested" }
-        : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      const fetchInvocations = vi.fn(async (target: string | URL | Request, init?: RequestInit) => String(target).endsWith("/_vitehub/rpc")
+        ? new Response(null, { status: 403 })
+        : Response.json(init?.method === "POST"
+          ? { id: "invocation-1", outcome: "requested" }
+          : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       const stderr = stream()
       const exitCode = await runAgentInvocationsCli([
         "cancel", "invocation-1", ...(url ? ["--url", url] : []),
-      ], { env: {}, rootDir, stderr, stdout: stream() }, { fetch: fetchInvocations })
+      ], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout: stream() }, { fetch: fetchInvocations })
 
       expect(exitCode, stderr.output()).toBe(0)
-      expect(String(fetchInvocations.mock.calls[0]?.[0])).toBe("http://localhost:5173/__vitehub/agent/invocations/dev")
+      expect(fetchInvocations.mock.calls.map(([called]) => String(called))).toEqual([
+        "http://localhost:5173/__vitehub/agent/invocations/dev",
+        "http://localhost:5173/__vitehub/agent/invocations/dev",
+      ])
       expect(fetchInvocations).toHaveBeenCalledWith("http://localhost:5173/__vitehub/agent/invocations/dev", expect.objectContaining({
         body: JSON.stringify({ id: "invocation-1", operation: "cancel" }),
         headers: expect.objectContaining({ [workspaceDevTokenHeader]: token, [agentInvocationsDevTokenServerHeader]: serverId }),
@@ -1677,7 +1685,7 @@ describe("agent CLI", () => {
     const fetchInvocations = vi.fn(async () => Response.json(discovery))
     const stderr = stream()
     expect(await runAgentInvocationsCli(["cancel", "invocation-1"], {
-      env: {}, rootDir: process.cwd(), stderr, stdout: stream(),
+      env: { ...devServerEnv }, rootDir: process.cwd(), stderr, stdout: stream(),
     }, { fetch: fetchInvocations })).toBe(1)
     expect(fetchInvocations).toHaveBeenCalledTimes(1)
     expect(stderr.output()).toMatch(/invalid response|token server ID|root mismatch/)
@@ -1694,7 +1702,7 @@ describe("agent CLI", () => {
         const result = { id: "invocation-1", outcome, ...(outcome === "terminal" ? { status: "cancelled" } : {}) }
         const exitCode = await runAgentInvocationsCli([
           "cancel", "invocation-1", ...(json ? ["--json"] : []),
-        ], { env: {}, rootDir, stderr, stdout }, { fetch: async (_url, init) => Response.json(init?.method === "POST"
+        ], { env: { ...devServerEnv }, rootDir, stderr, stdout }, { fetch: async (_url, init) => Response.json(init?.method === "POST"
           ? result
           : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }) })
 
@@ -1724,7 +1732,7 @@ describe("agent CLI", () => {
     const stderr = stream()
     const exitCode = await runAgentInvocationsCli([
       "list", "--urll=https://user:secret@example.test/?token=private#fragment",
-    ], { env: {}, stderr, stdout: stream() })
+    ], { env: { ...devServerEnv }, stderr, stdout: stream() })
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toContain("Unknown option: --urll=https://example.test/.")
@@ -1744,7 +1752,7 @@ describe("agent CLI", () => {
         { id: "invocation-1", outcome: "terminal", status: "completed" },
         { delivery: "journal", id: "invocation-1", outcome: "requested", status: "running" },
       ]
-      // This dev server has no Console, so `--url` falls back to the dev endpoint for one minor version.
+      // This dev server has no Console, so cancel with `--url` asks its dev endpoint.
       const fetchCancel = vi.fn(async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/_vitehub/rpc")
         ? new Response("Not found", { status: 404 })
         : init?.method === "POST"
@@ -1754,7 +1762,7 @@ describe("agent CLI", () => {
         const stdout = stream()
         const stderr = stream()
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        const exitCode = await runAgentInvocationsCli(args, { env: {}, rootDir, stderr, stdout }, { fetch: fetchCancel as never })
+        const exitCode = await runAgentInvocationsCli(args, { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout }, { fetch: fetchCancel as never })
         return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
       }
 
@@ -1768,7 +1776,7 @@ describe("agent CLI", () => {
       const json = await run(["cancel", "invocation-1", "--json", "--url", "http://127.0.0.1:5174"])
       expect(json.exitCode).toBe(0)
       expect(JSON.parse(json.stdout)).toEqual({ id: "invocation-1", outcome: "terminal", status: "cancelled" })
-      expect(json.stderr).toContain("AGENT_R1053")
+      expect(json.stderr).toBe("")
       expect(fetchCancel.mock.calls[2]?.[0]).toBe("http://127.0.0.1:5174/_vitehub/rpc")
       expect(fetchCancel.mock.calls[3]?.[0]).toBe("http://127.0.0.1:5174/__vitehub/agent/invocations/dev")
 
@@ -1790,7 +1798,7 @@ describe("agent CLI", () => {
       for (const json of [false, true]) {
         const stdout = stream()
         const stderr = stream()
-        const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1", ...(json ? ["--json"] : [])], { env: {}, rootDir, stderr, stdout }, { fetch: fetchCancel })
+        const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1", ...(json ? ["--json"] : [])], { env: { ...devServerEnv }, rootDir, stderr, stdout }, { fetch: fetchCancel })
         expect(exitCode).toBe(1)
         expect(stderr.output()).toBe("")
         if (json) expect(JSON.parse(stdout.output())).toEqual(result)
@@ -1813,7 +1821,7 @@ describe("agent CLI", () => {
       })
     })
     expect(await runAgentInvocationsCli(["cancel", "invocation-1", "--timeout", "10"], {
-      env: {}, stderr, stdout: stream(),
+      env: { ...devServerEnv }, stderr, stdout: stream(),
     }, { fetch: stalledFetch })).toBe(1)
     expect(signal?.aborted).toBe(true)
     expect(stalledFetch).toHaveBeenCalledTimes(1)
@@ -1830,7 +1838,7 @@ describe("agent CLI", () => {
         ? Response.json({ error: { message: "No Agent invocation journal is configured." } }, { status: 404 })
         : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1"], { env: {}, rootDir, stderr, stdout: stream() }, { fetch: fetchCancel as never })
+      const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1"], { env: { ...devServerEnv }, rootDir, stderr, stdout: stream() }, { fetch: fetchCancel as never })
       expect(exitCode).toBe(1)
       expect(stderr.output()).toMatch(/^\[AGENT_R0972\] No Agent invocation journal is configured\.\n.*fix: /s)
     }
@@ -1842,7 +1850,7 @@ describe("agent CLI", () => {
   it("does not post a cancel after malformed discovery", async () => {
     const stderr = stream()
     const fetchCancel = vi.fn(async () => Response.json({ root: process.cwd(), runtime: "nitro", message: { invalid: true } }))
-    const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1"], { env: {}, rootDir: process.cwd(), stderr, stdout: stream() }, { fetch: fetchCancel })
+    const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1"], { env: { ...devServerEnv }, rootDir: process.cwd(), stderr, stdout: stream() }, { fetch: fetchCancel })
     expect(exitCode).toBe(1)
     expect(fetchCancel).toHaveBeenCalledTimes(1)
   })
@@ -1853,7 +1861,7 @@ describe("agent CLI", () => {
       const stderr = stream()
       const fetchCancel = vi.fn(async () => Response.json({ message: "Nuxt and plain Vite are not supported.", root: rootDir, runtime: "unavailable" }))
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1", "--json"], { env: {}, rootDir, stderr, stdout: stream() }, { fetch: fetchCancel as never })
+      const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1", "--json"], { env: { ...devServerEnv }, rootDir, stderr, stdout: stream() }, { fetch: fetchCancel as never })
       expect(exitCode).toBe(1)
       expect(stderr.output()).toBe("Nuxt and plain Vite are not supported.\n")
       expect(fetchCancel).toHaveBeenCalledTimes(1)
@@ -1878,8 +1886,8 @@ describe("agent CLI", () => {
       observations: [{ name: "agent.completed", sequence: 1, timestamp, type: "lifecycle" }],
     } }))
 
-    const exitCode = await runAgentInvocationsCli(["show", "invocation-1", "--url", "https://app.example.com"], {
-      env: {},
+    const exitCode = await runAgentInvocationsCli(["get", "invocation-1", "--url", "https://app.example.com"], {
+      env: { ...devServerEnv },
       stderr: stream(),
       stdout,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1924,7 +1932,7 @@ describe("agent CLI", () => {
     const fetchInvocations = vi.fn(async (_url: string, init?: RequestInit) => operationRpcResponse(init?.body, { ok: true, value: details.shift() }))
 
     const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--url", "https://app.example.com", "--json"], {
-      env: {},
+      env: { ...devServerEnv },
       stderr,
       stdout,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1944,7 +1952,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1974,7 +1982,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -1995,7 +2003,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr: stream(),
       stdout,
@@ -2019,7 +2027,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -2034,7 +2042,7 @@ describe("agent CLI", () => {
     const stderr = stream()
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -2056,7 +2064,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -2071,7 +2079,7 @@ describe("agent CLI", () => {
     const stderr = stream()
     const exitCode = await runAgentInfoCli([], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       stderr,
       stdout: stream(),
@@ -2101,7 +2109,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["-p", "hello agent"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -2137,7 +2145,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["-p", "hello agent"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2167,7 +2175,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["--agent", "chat", "--prompt", "!portal-api help"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -2206,7 +2214,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["--agent", "summary", "-p", "/summary"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -2247,7 +2255,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["--agent", "chat", "--cli", "inventory", "--", "items", "list", "--json"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -2279,7 +2287,7 @@ describe("agent CLI", () => {
         }
         return Response.json(String(url).includes("inspect=1") ? { inspection: { name: "chat" }, root: rootDir } : discovery)
       })
-      const context = { cwd: rootDir, env: {}, rootDir, spawn: vi.fn(), stderr: stream(), stdout: stream() }
+      const context = { cwd: rootDir, env: { ...devServerEnv }, rootDir, spawn: vi.fn(), stderr: stream(), stdout: stream() }
 
       expect(await runAgentDevCli(["-p", "hello"], context, { fetch: fetchAgentStream as never })).toBe(0)
       expect(await runAgentDevCli(["--cli", "inventory", "--", "list"], context, { fetch: fetchAgentStream as never })).toBe(0)
@@ -2325,7 +2333,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--agent", "chat", "--input", "@payload.json", "!pnpm", "test", "--filter", "api"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr,
@@ -2380,7 +2388,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--url", "http://127.0.0.1:5173", "--timeout", "10000", "proof-agent", "!printf", "ok", "--flag"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr: stream(),
@@ -2439,7 +2447,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--agent", "chat", "--input", "@payload.json", "--cli", "inventory", "--", "list", "--json"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr,
@@ -2484,7 +2492,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["hello"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2516,7 +2524,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["hello"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2549,7 +2557,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["hello"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2594,7 +2602,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--agent", "review", "--input", "@payload.json", "--prompt=/summary"], {
         cwd: workspaceDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr: stream(),
@@ -2648,7 +2656,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--agent", "support", "--input", "@payload.json"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr,
@@ -2675,7 +2683,7 @@ describe("agent CLI", () => {
       const fetchAgentStream = vi.fn()
       const exitCode = await runAgentDevCli(["--input", "@payload.json", "hello"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr,
@@ -2690,7 +2698,7 @@ describe("agent CLI", () => {
       const inlineStderr = stream()
       const inlineExitCode = await runAgentDevCli(["--input", "[1,2,3]", "hello"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr: inlineStderr,
@@ -2725,7 +2733,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["hello"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2786,7 +2794,7 @@ describe("agent CLI", () => {
 
     const exitCode = await runAgentDevCli(["hello"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
@@ -2865,7 +2873,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["hello"], {
         cwd: "/repo",
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         spawn: vi.fn(),
         stderr,
@@ -2912,7 +2920,7 @@ describe("agent CLI", () => {
       await writeFile(payloadPath, "{}", "utf8")
       const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--input", "@payload.json"], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         spawn: vi.fn(),
         stderr,
@@ -2965,7 +2973,7 @@ describe("agent CLI", () => {
 
       const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "-p", "/review"], {
         cwd: "/repo",
-        env: {},
+        env: { ...devServerEnv },
         rootDir: "/repo",
         spawn: vi.fn(),
         stderr,
@@ -3001,7 +3009,7 @@ describe("agent CLI", () => {
     const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli(["server/agents/support.eval.ts"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -3051,7 +3059,7 @@ describe("agent CLI", () => {
       "--no-cache",
     ], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -3086,7 +3094,7 @@ describe("agent CLI", () => {
     const runner = vi.fn()
     const exitCode = await runAgentEvalCli(["--help"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr: stream(),
@@ -3103,7 +3111,7 @@ describe("agent CLI", () => {
     const runner = vi.fn()
     const exitCode = await runAgentEvalCli(["--config", "evalite.config.ts"], {
       cwd: "/repo",
-      env: {},
+      env: { ...devServerEnv },
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,

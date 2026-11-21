@@ -85,10 +85,14 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     ...actual,
     createWorkspaceTools,
     resolveRegisteredWorkspaceDefinition,
-    resolveWorkspaceAutoCommit,
     useWorkspace,
   }
 })
+
+vi.mock("@vite-hub/workspace/internal/workspace", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace/internal/workspace")>(),
+  resolveWorkspaceAutoCommit,
+}))
 
 vi.mock("@vite-hub/workspace/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace/runtime")>()
@@ -420,7 +424,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("records opt-in skill shell execution mode", async () => {
@@ -1574,7 +1578,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("resolves explicit workspace instruction bindings through workspace files", async () => {
@@ -2290,7 +2294,7 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.model).toMatchObject({ modelId: "model-acme" })
   })
 
-  it("passes provider-defined capability tools to AI SDK agents", async () => {
+  it("passes provider capability tools to AI SDK agents", async () => {
     const { webSearch } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
 
@@ -2307,7 +2311,7 @@ describe("defineAgent workspace option", () => {
         args: {},
         id: "openai.web_search",
         name: "web_search",
-        type: "provider-defined",
+        type: "provider",
       },
     })
   })
@@ -2622,7 +2626,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalled()
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("throws when explicit callback instructions fail", async () => {

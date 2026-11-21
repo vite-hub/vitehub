@@ -376,4 +376,11 @@ describe("vitehub content check --dir", () => {
     expect(await cli(root, ["--schema", "schema.json"])).toMatchObject({ code: 1, stderr: expect.stringContaining("need --dir") })
     expect(await cli(root, ["--dir", "missing", "--json"])).toMatchObject({ code: 1, stdout: expect.stringContaining("CONTENT_R0069") })
   })
+
+  it.each([["a list", "[\"title\"]"], ["a string", "\"title\""], ["null", "null"]])("rejects a --schema file that holds %s with CONTENT_R0069", async (_name, text) => {
+    const root = await folder({ "posts/hello.md": page("Hello", "Body\n"), "schema.json": text })
+    const result = await cli(root, ["--dir", "posts", "--schema", "schema.json", "--json"])
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout)).toMatchObject({ error: { code: "CONTENT_R0069", message: "Could not read the JSON Schema schema.json: the file does not hold a JSON Schema object." } })
+  })
 })

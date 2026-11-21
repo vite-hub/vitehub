@@ -25,7 +25,7 @@ const nuxtUIRequire = createRequire(fileURLToPath(import.meta.resolve("@nuxt/ui/
 const server = await createServer({
   configFile: false,
   logLevel: "warn",
-  plugins: [vue(), nuxtUI({ autoImport: false, colorMode: false, components: false, dts: false, router: false, ui: vitehubTheme })],
+  plugins: [vue(), nuxtUI({ autoImport: false, colorMode: false, components: false, dts: false, router: false, ui: vitehubTheme, icon: { clientBundle: { icons: ["lucide:bookmark"] } } })],
   resolve: { alias: [{ find: /^@iconify\/vue$/, replacement: nuxtUIRequire.resolve("@iconify/vue") }] },
   root,
   server: { host: "127.0.0.1", port: 0 },
@@ -133,16 +133,13 @@ describe("toggle: switch", async () => {
     const box = await page.locator("[data-test=switch-xl]").boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
-    await page.waitForTimeout(150)
-    // The press spring has settled after 150ms, unless a busy machine drops frames.
-    await page.waitForFunction(() => {
-      const thumb = document.querySelector("[data-test=switch-xl] [data-slot=thumb]").getBoundingClientRect()
-      return thumb.width / thumb.height > 1.25
-    }, undefined, { timeout: 2000 }).catch(() => {})
+    await settle(page)
     const pressed = { track: await page.locator("[data-test=switch-xl]").evaluate(element => getComputedStyle(element).scale), ...await page.locator("[data-test=switch-xl]").evaluate(knob) }
     await page.mouse.up()
     assert.equal(pressed.track, "none", "the switch itself does not squash")
     assert.ok(pressed.width / pressed.height > 1.25, `a pressed knob grows into a pill (${(pressed.width / pressed.height).toFixed(2)})`)
+    await settle(page)
+    assert.equal((await page.locator("[data-test=switch-xl]").evaluate(knob)).written, 0)
     await context.close()
   })
 
@@ -215,6 +212,21 @@ describe("toggle: switch", async () => {
 })
 
 describe("toggle: checkbox", async () => {
+  test("clearing an initially mixed checkbox never animates a checkmark", async () => {
+    for (const reducedMotion of ["no-preference", "reduce"]) {
+      const { context, page } = await open("", { reducedMotion })
+      const checkbox = page.locator("[data-test=checkbox-mixed]")
+      assert.equal(await checkbox.getAttribute("aria-checked"), "mixed")
+      const original = await checkbox.locator("svg path").getAttribute("d")
+      const trace = await sample(page, "[data-test=checkbox-mixed]", element => element.querySelector("svg path")?.getAttribute("d") ?? null)
+      await page.locator("[data-test=set-unchecked]").click()
+      await settle(page)
+      assert.equal(await checkbox.getAttribute("aria-checked"), "false")
+      assert.ok((await trace.stop()).every(path => path === original || path === null))
+      await context.close()
+    }
+  })
+
   test("the check draws in when it turns on and draws out when it turns off", async () => {
     const { context, errors, page } = await open()
     const on = await sample(page, "[data-test=checkbox]", mark)
@@ -289,6 +301,41 @@ describe("toggle: checkbox", async () => {
 })
 
 describe("toggle: pressed icon", async () => {
+  test("jelly restores Nuxt UI's inline CSS mask and leaves an open stroke alone", async () => {
+    const { context, page } = await open()
+    const button = page.locator("[data-test=inline-mask]")
+    const icon = button.locator(".iconify")
+    await page.waitForFunction(() => document.querySelector("[data-test=inline-mask] .iconify")?.style.getPropertyValue("--svg"))
+    const original = await icon.evaluate(element => getComputedStyle(element).maskImage)
+    assert.match(original, /^url\(/)
+    await icon.evaluate(element => element.style.setProperty("--svg", element.style.getPropertyValue("--svg"), "important"))
+    const originalValue = await icon.evaluate(element => element.style.getPropertyValue("--svg"))
+    const trace = await sample(page, "[data-test=inline-mask]", outline)
+    await button.click()
+    await settle(page)
+    assert.ok((await trace.stop()).some(value => value !== originalValue && value !== "class"), "the inline mask deforms")
+    assert.equal(await icon.evaluate(element => getComputedStyle(element).maskImage), original)
+    assert.equal(await icon.evaluate(element => element.style.getPropertyValue("--svg")), originalValue)
+    assert.equal(await icon.evaluate(element => element.style.getPropertyPriority("--svg")), "important")
+
+    await button.click()
+    await page.waitForFunction(original => {
+      const value = document.querySelector("[data-test=inline-mask] .iconify")?.style.getPropertyValue("--svg")
+      return value && value !== original
+    }, originalValue)
+    await icon.evaluate(element => element.style.setProperty("--svg", "none"))
+    const changed = await sample(page, "[data-test=inline-mask]", outline)
+    await settle(page)
+    assert.ok((await changed.stop()).every(value => value === "none"), "motion does not reclaim a mask changed by the component")
+
+    const bold = await page.locator("[data-test=bold]").evaluate(outline)
+    const boldTrace = await sample(page, "[data-test=bold]", outline)
+    await page.locator("[data-test=bold]").click()
+    await settle(page)
+    assert.ok((await boldTrace.stop()).every(value => value === bold), "the open path is never deformed")
+    await context.close()
+  })
+
   test("a pressed bookmark wobbles like jelly and gets its exact path data back", async () => {
     const { context, errors, page } = await open()
     const original = await page.locator("[data-test=bookmark]").evaluate(outline)
@@ -322,12 +369,25 @@ describe("toggle: pressed icon", async () => {
     assert.ok(starFrames.filter(d => d !== star).length > 10)
     assert.equal(starFrames.at(-1), star)
 
+    await page.evaluate(() => {
+      window.measuredAttributes = []
+      new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node instanceof SVGSVGElement) {
+              window.measuredAttributes.push([...node.children].map(child => child.getAttributeNames()))
+            }
+          }
+        }
+      }).observe(document.body, { childList: true })
+    })
     const cssTrace = await sample(page, "[data-test=css-bookmark]", outline)
     await page.locator("[data-test=css-bookmark]").click()
     await settle(page)
     const cssFrames = await cssTrace.stop()
     assert.ok(new Set(cssFrames.filter(value => value !== "class")).size > 10, "the mask changes on each frame")
     assert.equal(cssFrames.at(-1), "class", "the layer removes its --svg")
+    assert.deepEqual(await page.evaluate(() => window.measuredAttributes), [[["d"]]], "only fresh path geometry enters the page")
     await context.close()
   })
 

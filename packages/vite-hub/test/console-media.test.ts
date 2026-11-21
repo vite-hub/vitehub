@@ -101,8 +101,8 @@ function file(name: string, text: string, type = "text/plain"): File {
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "vitehub-console-media-"))
-  storage = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default", { images: false, url: pathname => `/api/_vitehub/blob/${pathname}` })
-  setBlobRuntimeConfig({ images: false, serve: { route: "/api/_vitehub/blob", store: "default" }, store: { base: directory, driver: "fs" } })
+  storage = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default", { images: false, url: pathname => `/_vitehub/blob/${pathname}` })
+  setBlobRuntimeConfig({ images: false, serve: { route: "/_vitehub/blob", store: "default" }, store: { base: directory, driver: "fs" } })
   role = "editor"
   references.mockClear()
   installConsoleAccess({ mode: "open" })
@@ -135,7 +135,7 @@ describe("Console media library", () => {
 
   it("uploads into a folder without overwriting, and reuses stored bytes", async () => {
     const first = await upload({ file: file("Cover Photo.txt", "one"), folder: "posts" })
-    expect(first).toMatchObject({ status: 200, body: { ok: true, value: { duplicate: false, file: { name: "cover-photo.txt", pathname: "posts/cover-photo.txt", url: "/api/_vitehub/blob/posts/cover-photo.txt" } } } })
+    expect(first).toMatchObject({ status: 200, body: { ok: true, value: { duplicate: false, file: { name: "cover-photo.txt", pathname: "posts/cover-photo.txt", url: "/_vitehub/blob/posts/cover-photo.txt" } } } })
     // Another file with the same name gets its own pathname.
     await expect(upload({ file: file("cover photo.txt", "two"), folder: "posts" })).resolves.toMatchObject({ body: { value: { duplicate: false, file: { pathname: "posts/cover-photo-2.txt" } } } })
     // The same bytes return the stored file.
@@ -199,14 +199,14 @@ describe("Console media library", () => {
       folder: "",
       folders: ["blog-heroes"],
       items: [{ pathname: "a.txt" }],
-      served: "/api/_vitehub/blob/",
+      served: "/_vitehub/blob/",
       store: "default",
     })
     await expect(media("list", { folder: "blog-heroes" })).resolves.toMatchObject({ body: { value: { folder: "blog-heroes", folders: [], items: [{ pathname: "blog-heroes/b.txt" }] } } })
     // Search finds file names in every folder below the listed one.
     await expect(media("list", { search: "B." })).resolves.toMatchObject({ body: { value: { folders: [], items: [{ pathname: "blog-heroes/b.txt" }] } } })
     await expect(media("list", { search: "history" })).resolves.toMatchObject({ body: { value: { items: [] } } })
-    await expect(media("info")).resolves.toMatchObject({ body: { value: { access: roles.editor, served: "/api/_vitehub/blob/", store: "default" } } })
+    await expect(media("info")).resolves.toMatchObject({ body: { value: { access: roles.editor, served: "/_vitehub/blob/", store: "default" } } })
   })
 
   it("updates details, renames, moves, and deletes files and folders", async () => {

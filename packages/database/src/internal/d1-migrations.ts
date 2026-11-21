@@ -91,7 +91,7 @@ const folderTag = /^\d{14}_(.+)$/
  */
 export const d1MigrationNamesFile = "d1-migrations.json"
 
-function readD1MigrationNames(migrationsDir: string): Record<string, string> {
+export function readD1MigrationNames(migrationsDir: string): Record<string, string> {
   const file = join(migrationsDir, d1MigrationNamesFile)
   if (!existsSync(file)) return {}
   const shape = `${file} must map each migration folder to its Wrangler file name, such as { "20261109120000_init": "0000_init.sql" }.`
@@ -158,6 +158,68 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
     }
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
   })
+}
+
+/** A flat Wrangler migration file and the Drizzle Kit 1.0 folder that `vitehub database up` moves it to. */
+export interface FlatMigrationMove {
+  /** The flat file name, such as `0000_init.sql`. Wrangler keeps it in its ledger, so `d1-migrations.json` keeps it too. */
+  file: string
+  /** The folder, such as `20261029101500_0000_init`. It keeps the file name, which other ledgers match too. */
+  folder: string
+}
+
+function folderTimestamp(millis: number): string {
+  return new Date(millis).toISOString().replace(/\D/g, "").slice(0, 14)
+}
+
+function readLegacyJournal(migrationsDir: string) {
+  const file = join(migrationsDir, "meta", "_journal.json")
+  if (!existsSync(file)) return []
+  const journal: unknown = JSON.parse(readFileSync(file, "utf8"))
+  if (!isRecord(journal) || !Array.isArray(journal.entries)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal: ${file}.` })
+  return journal.entries.map((entry: unknown) => {
+    if (!isRecord(entry) || typeof entry.tag !== "string" || typeof entry.when !== "number" || !Number.isSafeInteger(entry.when) || entry.when < 0 || entry.when >= Date.UTC(10000, 0, 1)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal entry: ${file}.` })
+    }
+    return { tag: entry.tag, when: entry.when }
+  })
+}
+
+/** Kit can convert a journal only when it lists every file and each entry has a snapshot. */
+export function canDrizzleKitConvert(migrationsDir: string): boolean {
+  const tags = readLegacyJournal(migrationsDir).map(entry => entry.tag)
+  const flat = readdirSync(migrationsDir).filter(name => name.endsWith(".sql"))
+  return flat.every(name => tags.includes(name.slice(0, -".sql".length)))
+    && tags.every(tag => flat.includes(`${tag}.sql`) && existsSync(join(migrationsDir, "meta", `${tag.split("_")[0]}_snapshot.json`)))
+}
+
+/**
+ * Plans one migration folder per flat `.sql` file, in Wrangler's order. A file that a Drizzle Kit 0.x journal lists
+ * keeps the second of its journal entry, as `drizzle-kit up` does, so a 0.x ledger row still matches it. The other
+ * files take the seconds around them, one second apart, or the seconds before `now` when the journal lists none.
+ */
+export function planFlatMigrationFolders(migrationsDir: string, now = Date.now()): FlatMigrationMove[] {
+  const files = listD1Migrations(migrationsDir).filter(file => file.source === join(migrationsDir, file.name)).map(file => file.name)
+  const anchors = new Map<string, number>()
+  for (const { tag, when } of readLegacyJournal(migrationsDir)) {
+    const file = `${tag}.sql`
+    if (!files.includes(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file}, but that file is missing.` })
+    if (anchors.has(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file} more than once.` })
+    anchors.set(file, Math.floor(when / 1000) * 1000)
+  }
+  const listed = files.map(file => anchors.get(file))
+  const first = listed.findIndex(second => second !== undefined)
+  // Files before the first listed one count back from it. Without a listed file, the last one takes the second of `now`.
+  const start = first < 0 ? Math.floor(now / 1000) * 1000 - (files.length - 1) * 1000 : listed[first]! - first * 1000
+  const seconds: number[] = []
+  for (const [index, second] of listed.entries()) {
+    const next = index === 0 ? start : seconds[index - 1]! + 1000
+    if (second !== undefined && second < next) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `There is not enough time between journal entries to keep ${files[index]} in order without changing its recorded timestamp.` })
+    }
+    seconds.push(second ?? next)
+  }
+  return files.map((file, index) => ({ file, folder: `${folderTimestamp(seconds[index]!)}_${file.slice(0, -".sql".length)}` }))
 }
 
 /** Writes `d1-migrations.json` when it does not list every migration folder yet. Returns the migrations. */

@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_PREPARE, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, mergeNitroExternal, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { normalizeRoute } from "nitro/h3"
@@ -84,7 +84,7 @@ function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
   if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
   if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
   if (store.driver === "cloudflare" && store.localFallback) {
-    return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
+    return `Local. \`vite dev\` uses the dev runner's R2 binding, or the \`fs\` driver in ${store.localFallback.base} on Node without a binding. Miniflare requires a local R2 binding.`
   }
   return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
 }
@@ -187,7 +187,8 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   kit.addPlugin(plugin)
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
   // Only an `fs` store signs links to this route. A hosted store signs links to its provider.
-  if (signedRoute) kit.addHandler({ handler: signedRouteModule, route: signedNitroRoute })
+  // The route checks the signature of each link.
+  if (signedRoute) kit.addHandler({ handler: signedRouteModule, meta: { ...ownAccessRouteMeta }, route: signedNitroRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
     const existingHandlers = kit.config.handlers.filter(handler =>

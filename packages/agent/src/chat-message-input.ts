@@ -1,6 +1,9 @@
 import * as v from "valibot"
 import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
+import { chatMessageHeaderPartType } from "./internal/chat-message-header.ts"
+import { chatOmittedAttachments } from "./internal/input-attachments.ts"
+import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type {
   AgentChatAgentHookArgs,
@@ -397,6 +400,19 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
+/** How many history images a provider Driver gets again when `triggerHistory.maxImages` is not set. */
+const providerDriverHistoryImages = 4
+
+/**
+ * Codex and Claude Code read images, so a thread window sends them the newest history images unless `maxImages` is set.
+ * Other Drivers keep 0: ViteHub cannot tell whether their model reads images.
+ */
+export function withDriverTriggerHistoryDefaults<TOptions extends Pick<AgentChatOptions, "triggerHistory">>(options: TOptions | undefined, driverKind: unknown): TOptions | undefined {
+  const triggerHistory = options?.triggerHistory
+  if (driverKind !== "provider" || !options || !triggerHistory || triggerHistory === "none" || triggerHistory.maxImages !== undefined) return options
+  return { ...options, triggerHistory: { ...triggerHistory, maxImages: providerDriverHistoryImages } }
+}
+
 /** Returns how many recent history images to send again, and how old they may be. */
 export function chatTriggerHistoryImages(triggerHistory: AgentChatTriggerHistory | undefined): { maxAgeMs: number, maxImages: number } {
   if (!chatTriggerHistoryLimit(triggerHistory) || !triggerHistory || triggerHistory === "none") return { maxAgeMs: Infinity, maxImages: 0 }
@@ -416,11 +432,30 @@ function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Excl
   return messages
 }
 
-function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
+function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]) {
   const sessionMessages = selectChatSession(messages, sessions, triggerSession)
   const limit = chatTriggerHistoryLimit(triggerHistory)
-  if (!limit || !triggerHistory || triggerHistory === "none") return sessionMessages.slice(-1)
-  return selectRecentChatHistory(sessionMessages, triggerHistory).slice(-limit)
+  if (!limit || !triggerHistory || triggerHistory === "none") return { ageDropped: [], selected: sessionMessages.slice(-1) }
+  const recent = selectRecentChatHistory(sessionMessages, triggerHistory)
+  return { ageDropped: sessionMessages.slice(0, sessionMessages.length - recent.length), selected: recent.slice(-limit) }
+}
+
+function carryAgeOmissions(messages: Message[], ageDropped: UIMessageLike[]): Message[] {
+  const expired = ageDropped.flatMap(message => (message.parts ?? []).flatMap(part => {
+    if (part?.type !== chatMessageHeaderPartType || !("data" in part)) return []
+    return chatOmittedAttachments(part.data)
+      .filter(item => item.reason === "max-age")
+      .map(item => ({ ...item, messageId: message.id }))
+  }))
+  if (!expired.length) return messages
+  const current = messages.at(-1)
+  if (!current || current.role !== "user") return messages
+  return [...messages.slice(0, -1), {
+    ...current,
+    parts: current.parts.map(part => part.type === chatMessageHeaderPartType && isRuntimeRecord(part.data)
+      ? { ...part, data: { ...part.data, omittedAttachments: [...chatOmittedAttachments(part.data), ...expired] } }
+      : part),
+  }]
 }
 
 export function chatMessageHookArgs(message: UIMessageLike | undefined): AgentChatMessageHookArgs {
@@ -458,7 +493,8 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     throw agentDiagnostics.AGENT_R0375({ message: "[vitehub] chat.message trigger requires at least one UI message." })
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
-  let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  const { ageDropped, selected } = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  let selectedMessages = selected
   if (options.concurrency === "queue" || options.concurrency === "steer") {
     const metadata = v.safeParse(retainedQueueMetadataSchema, messages.at(-1)?.metadata)
     if (metadata.success) {
@@ -499,7 +535,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
           user: triggerInput?.user,
         },
       },
-      messages: uiMessagesToAgentMessages(selectedMessages),
+      messages: carryAgeOmissions(uiMessagesToAgentMessages(selectedMessages), ageDropped.filter(message => !selectedMessages.includes(message))),
       timeout: triggerInput?.timeout,
     },
     selectedMessages,

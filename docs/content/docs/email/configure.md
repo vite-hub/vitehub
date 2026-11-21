@@ -70,7 +70,18 @@ export default defineConfig({
 | `remote` | `boolean` | `false` | `true` makes `vite dev` send real email through the provider. Else a dev send stays in the [development outbox](/docs/email/hosts#development-outbox). Builds ignore it. |
 | `outbox` | `false \| { limit?: number }` | `{ limit: 50 }` | Sets up the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. `false` needs `remote: true`, except with `log`. Never in build output. |
 
-No `email`, or `email: false`, keeps Email off. `email: true` picks `cloudflare`, which needs Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. On other hosts, set `driver: 'resend'`.
+No `email`, or `email: false`, keeps Email off.
+
+## Start with `email: true`
+
+`email: true` works on every host. It picks the default driver of the host:
+
+| Host | `vite dev` | Production build |
+| --- | --- | --- |
+| `cloudflare` | `cloudflare` | `cloudflare`, with an `EMAIL` `send_email` Worker binding |
+| Every other host | `log`, in the [development outbox](/docs/email/hosts#development-outbox) | Fails with [`VITE_HUB_R0089`](/docs/development/diagnostics/vite_hub_r0089) |
+
+Only Cloudflare has an Email provider of its own. On other hosts, set `driver` before you build, such as `driver: 'resend'`. Set `driver: 'log'` to build an app that sends no email.
 
 ## Run without a provider
 
@@ -153,7 +164,7 @@ ViteHub writes the driver name, plain options, and `env()` declarations into a g
 
 ## Configure another provider
 
-Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare`, implement the exported `EmailDriver` interface and pass it to `createEmail()`.
+Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare`, implement the exported `EmailDriver` interface and pass it to `createEmail()`. Its `send()` returns `[error, data]`, the same order as `email.send()`: `[undefined, { id, driver, at }]` on success, or `[error, undefined]` with an error that has a `code` such as `PROVIDER` and the `driver` name.
 
 - A driver object starts once per client. Sends at the same time share the pending start. After a failed start, the next send tries again.
 - A driver factory creates and starts a driver for each send.

@@ -32,15 +32,15 @@ The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM`
 
 ## Cleanup failures
 
-`runSandboxTask()` returns a non-2xx response when Cloudflare cannot remove the run's files from a Sandbox that stays open, even when the handler succeeds. The files can then stay in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing removes the files. A failed session cleanup also returns a non-2xx response.
+`runSandboxTask()` returns an error when Cloudflare cannot remove the run's files from a Sandbox that stays open, even when the handler succeeds. The files can then stay in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing removes the files. A failed session cleanup also returns an error.
 
-If execution and cleanup both fail, the response keeps the first error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()`, the thrown error keeps both failures in an `AggregateError` in its cause chain, with provider details. JSON responses omit causes.
+If execution and cleanup both fail, `error.cause` keeps the first error code and message, and both failures in an `AggregateError` in its own cause chain, with provider details. Timeouts keep `SANDBOX_TASK_TIMEOUT` in `error.data.code` and status 504. `resolveSandboxTaskRunner().run()` throws the same error that `error.cause` holds.
 
 ## Error responses
 
-A failed `runSandboxTask()` returns a JSON body with `error.code`, `error.message`, and `error.details`. Your route can send this body to the client, so outside `vite dev` the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `outputPreview`, `cause`, `cwd`, or `args`. These fields can hold source paths, environment values, or user data from the Sandbox process. The body keeps facts such as `provider`, `exitCode`, and `timeout`. In `vite dev`, the body keeps all details.
+A failed `runSandboxTask()` returns `SANDBOX_TASK_RUN_FAILED`. `error.data` has the task `name` and the `code` of the failure, such as `SANDBOX_TASK_HANDLER_ERROR` or `SANDBOX_TASK_TIMEOUT`. `error.status` is 504 for a timeout and defaults to 500 for other failures, including an unknown task name or validation that throws inside a handler.
 
-To read the full details on the server, call `resolveSandboxTaskRunner(name).run()`. It throws the error with every detail and its cause. Log it on the server. Do not send it to the client.
+`return toResponse(error)` sends only `code`, `why`, and `fix`, with that status. `error.cause` has the message and every detail, such as `stack`, `stdout`, `stderr`, and `exitCode`. These fields can hold source paths, environment values, or user data from the Sandbox process. Log `error.cause` on the server. Do not send it to the client.
 
 ## Cloudflare retries
 

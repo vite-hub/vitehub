@@ -6,6 +6,7 @@ import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
 import UButton from "@nuxt/ui/components/Button.vue";
 import UCheckbox from "@nuxt/ui/components/Checkbox.vue";
+import UIcon from "@nuxt/ui/components/Icon.vue";
 import URadioGroup from "@nuxt/ui/components/RadioGroup.vue";
 import USlider from "@nuxt/ui/components/Slider.vue";
 import USplitter from "@nuxt/ui/components/Splitter.vue";
@@ -16,7 +17,7 @@ import { createApp, h, ref } from "vue";
 import type { VNode } from "vue";
 
 import { createViteHubUI } from "../../../src/config.ts";
-import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
+import { defineMotionEffect, forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
 import { textRows } from "./text.ts";
 
@@ -30,6 +31,18 @@ const todayThumb = "transition-transform duration-200 ease-out data-[state=unche
 const switchUI = today ? { thumb: todayThumb } : undefined;
 // The UTabs indicator transition of Nuxt UI's theme before the motion layer.
 const todayIndicator = "transition-[translate,width] duration-200 ease-out";
+
+if (new URLSearchParams(location.search).has("override")) {
+  const remove = defineMotionEffect({
+    name: "press",
+    selector: "[data-test=button]",
+    press(element) {
+      element.dataset.customPress = "true";
+    },
+  });
+  Object.assign(window, { removePressOverride: remove });
+}
+Object.assign(window, { forceReducedMotion });
 
 addCollection(lucide);
 
@@ -46,6 +59,8 @@ const saved = ref(false);
 const starred = ref(false);
 const pinned = ref(false);
 const cssSaved = ref(false);
+const inlineSaved = ref(false);
+const bold = ref(false);
 const view = ref("grid");
 const offOn = ref(false);
 const offChecked = ref(false);
@@ -242,6 +257,7 @@ const app = createApp({
     row("Plain elements by role", [
       h("button", { "class": "plain", "data-test": "plain-button" }, "button"),
       h("a", { "class": "plain", "href": "#a", "data-test": "plain-a" }, "a[href]"),
+      h("p", ["Read the ", h("a", { "href": "#inline", "data-test": "inline-a" }, "inline link"), "."]),
       h("details", [h("summary", { "class": "plain", "data-test": "plain-summary" }, "summary")]),
       ...plainRoles.map(role => h("div", { "class": "plain", role, "tabindex": 0, "data-test": `role-${role}` }, `role=${role}`)),
     ]),
@@ -274,6 +290,8 @@ const app = createApp({
       h(UButton, { "data-test": "pin", "variant": "ghost", "icon": "i-lucide-pin", "aria-label": "Pin", "aria-pressed": pinned.value, "class": buttonClass, "onClick": () => (pinned.value = !pinned.value) }),
       // An Iconify CSS icon, as `@nuxt/icon` renders one in CSS mode: a span that draws `--svg` as a mask.
       h("button", { "class": "plain", "data-test": "css-bookmark", "aria-label": "Save", "aria-pressed": String(cssSaved.value), "onClick": () => (cssSaved.value = !cssSaved.value) }, [h("span", { class: "iconify css-bookmark" })]),
+      h("button", { "class": "plain", "data-test": "inline-mask", "aria-label": "Save", "aria-pressed": String(inlineSaved.value), "onClick": () => (inlineSaved.value = !inlineSaved.value) }, [h(UIcon, { name: "i-lucide-bookmark", mode: "css" })]),
+      h(UButton, { "data-test": "bold", "icon": "i-lucide-bold", "aria-label": "Bold", "aria-pressed": bold.value, "onClick": () => (bold.value = !bold.value) }),
       // A segmented control: a choice of one of many, not a toggle. Its icons do not wobble.
       h("div", { class: "segments" }, ["grid", "list"].map(value => h(UButton, { "data-test": `view-${value}`, "variant": "ghost", "icon": value === "grid" ? "i-lucide-layout-grid" : "i-lucide-list", "aria-label": value, "aria-pressed": view.value === value, "onClick": () => (view.value = value) }))),
     ]),

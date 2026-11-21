@@ -1,4 +1,4 @@
-import type { CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
 import { RollNumber } from "./motion.ts";
 import {
@@ -10,7 +10,7 @@ import {
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
-import { messagesSinceResolved } from "../internal/comment-status.ts";
+import { commentTitle, deliveryAttributes, messagesSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -44,12 +44,32 @@ export interface CommentReplySlotScope {
   message: CommentMessage;
 }
 
+/** The scope of the `status` slot: a message that the outbox holds, and what the reader can do with it. */
+export interface CommentStatusSlotScope {
+  message: CommentMessage;
+  /** `pending` while it waits or goes out, `failed` when the server refused it, with `error` saying why. */
+  delivery: CommentDelivery;
+  /** Sends it again now. Only available with edit permission. */
+  retry?: () => Promise<void>;
+  /** Throws it away. Only available with delete permission. `false` while it is on its way. */
+  dismiss?: () => Promise<boolean>;
+  /** Changes its text. Only available with edit permission. A refused one goes back in the queue. */
+  edit?: (body: string, mentions?: string[]) => Promise<boolean>;
+}
+
 export type CommentReplySlots = {
   /** The text of the message. Replaces the Markdown body with its mention chips. */
   body?: (scope: CommentReplySlotScope) => VNode[];
   /** The attachments of the message. Replaces the default thumbnails. */
   attachments?: (scope: CommentReplySlotScope) => VNode[];
+  /**
+   * Below a message that has not reached the server, such as "Waiting to send" or a refusal with Retry and Discard.
+   * Nothing shows without it. The message also gets `data-pending` or `data-failed`.
+   */
+  status?: (scope: CommentStatusSlotScope) => VNode[];
 };
+
+
 
 /** The scope of the `actions`, `anchor`, and `after` slots of `CommentThread`. */
 export interface CommentThreadSlotScope {
@@ -221,6 +241,21 @@ export const CommentReply = defineComponent({
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
     }
 
+    const statusOf = (message: CommentMessage, delivery: CommentDelivery): VNode | null => {
+      if (!slots.status) return null;
+      const outbox = comments?.outbox;
+      const current = () => !props.compact && props.message.id === message.id && props.message.delivery !== undefined;
+      const mayEdit = () => current() && props.editable;
+      const mayDelete = () => current() && (props.deletable ?? props.editable);
+      return h("div", { "data-slot": "comment-reply-status" }, slots.status({
+        delivery,
+        dismiss: outbox?.enabled && mayDelete() ? async () => mayDelete() && await outbox.dismiss(message.id) : undefined,
+        edit: outbox?.enabled && mayEdit() ? async (body, mentions) => mayEdit() && await outbox.edit(message.id, body, mentions) : undefined,
+        message,
+        retry: outbox?.enabled && mayEdit() ? async () => { if (mayEdit()) await outbox.retry(message.id); } : undefined,
+      }));
+    };
+
     return () => {
       const { message } = props;
       return h(
@@ -228,6 +263,7 @@ export const CommentReply = defineComponent({
         {
           "data-compact": props.compact ? "true" : undefined,
           "data-editing": editing.value ? "true" : undefined,
+          ...deliveryAttributes(message.delivery),
           "data-size": props.size,
           "data-slot": "comment-reply",
         },
@@ -267,6 +303,7 @@ export const CommentReply = defineComponent({
                   value: message.body,
                 })),
             editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon, icons.value.file)),
+            !editing.value && message.delivery ? statusOf(message, message.delivery) : null,
             confirming.value
               ? h("div", { "aria-label": "Confirm delete", "data-slot": "comment-reply-confirm", role: "group" }, [
                   h("p", "Delete this comment and every reply to it?"),
@@ -295,10 +332,14 @@ export const CommentReply = defineComponent({
   },
 });
 
-/** "Resolved by Ana", as a line across the thread. */
+/** "Resolved by Ana", or "Resolved by Claude (Ana)" when her agent did, as a line across the thread. */
 const resolvedMarker = (thread: CommentThreadModel) =>
   h(Marker, { key: "resolved", variant: "separator" }, () =>
-    h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
+    h(
+      MarkerContent,
+      () =>
+        `Resolved${thread.resolvedBy ? ` by ${writerName({ author: thread.resolvedBy, ...(thread.resolvedActor ? { actor: thread.resolvedActor } : {}) })}` : ""}`,
+    ),
   );
 
 export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";
@@ -435,6 +476,7 @@ export const CommentThread = defineComponent({
     const replySlots = () => ({
       ...(slots.body ? { body: slots.body } : {}),
       ...(slots.attachments ? { attachments: slots.attachments } : {}),
+      ...(slots.status ? { status: slots.status } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
       ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
@@ -454,8 +496,8 @@ export const CommentThread = defineComponent({
       const quote = thread.anchor.kind === "text" ? thread.anchor.exact : undefined;
       if (props.preview) {
         const replies = thread.messages.length - 1;
-        return h("div", { "data-preview": "true", "data-size": props.size, "data-slot": "comment-thread", "data-status": thread.status }, [
-          first ? h(CommentReply, { compact: true, message: first, people: people.value, size: props.size, user: user.value }, slots.body ? { body: slots.body } : undefined) : null,
+        return h("div", { ...deliveryAttributes(thread.delivery), "data-preview": "true", "data-size": props.size, "data-slot": "comment-thread", "data-status": thread.status }, [
+          first ? h(CommentReply, { compact: true, message: first, people: people.value, size: props.size, user: user.value }, { ...(slots.body ? { body: slots.body } : {}), ...(slots.status ? { status: slots.status } : {}) }) : null,
           replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, [h(RollNumber, { value: replies }), replies === 1 ? " reply" : " replies"]) : null,
         ]);
       }
@@ -464,7 +506,8 @@ export const CommentThread = defineComponent({
       return h(
         "section",
         {
-          "aria-label": `Comment ${thread.n}`,
+          "aria-label": commentTitle(thread),
+          ...deliveryAttributes(thread.delivery),
           "data-size": props.size,
           "data-slot": "comment-thread",
           "data-status": thread.status,
@@ -475,7 +518,7 @@ export const CommentThread = defineComponent({
         [
           h("header", { "data-slot": "comment-thread-header" }, [
             back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: icons.value.arrowLeft, onClick: close, size: "xs", variant: "ghost" }) : null,
-            h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
+            h("span", { "data-slot": "comment-thread-title" }, commentTitle(thread)),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {

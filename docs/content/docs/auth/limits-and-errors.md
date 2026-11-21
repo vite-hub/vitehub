@@ -30,7 +30,7 @@ console.log(error.toJSON())
 | Code | When |
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
-| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
+| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is a refusal instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
 | `AUTH_C0039` | The Definition, or the object that its callback returns, sets the removed `runtime` option. Pass one callback that returns all the options, such as `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. |
 | `AUTH_C0041` | `session.onRefresh` is not a function. |
 | `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |
@@ -40,7 +40,7 @@ console.log(error.toJSON())
 | `AUTH_C0053` | `authDatabase()` needs text IDs from Better Auth or a custom function. `serial`, `uuid`, and `false` need another adapter and schema. |
 | `AUTH_C0054` | `authDatabase()` needs one fixed Database target. Use one unconditional inline call, and keep the Database out of runtime overrides. |
 | `AUTH_C0055` | The Auth Vite plugin cannot read an `additionalFields` entry. Write it inline in `server/auth.ts`, with a literal `type`. |
-| `AUTH_C0056` | The options need a table or a column that the Database of `authDatabase()` does not have, a field conflicts with a column, or a model or field mapping renames a table or a column. Call the plugin in `server/auth.ts` or add its tables to the Database Definition, then run `vitehub database generate`. |
+| `AUTH_C0056` | The options need a table or a column that the Database of `authDatabase()` does not have, a field conflicts with a column, or a model or field mapping renames a table or a column. Call the plugin in `server/auth.ts` or a file it imports with a relative path, or add its tables to the Database Definition, then run `vitehub database generate`. |
 | `AUTH_C0057` | `VITEHUB_ADMIN_EMAILS` is set. It is removed: list the admin's social account in `VITEHUB_ADMINS`. |
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
@@ -91,6 +91,7 @@ export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'f
 
 - An HTML `GET` that `withAuth()` or an access route refuses still gets the `access.signIn` redirect. When `withAuthorization()` or an access route refuses it with `403`, it gets the text `Forbidden.`. `requireAuth()` and `requireAuthorization()` still put the code in `data` of their error.
 - A `Response` that `authorize` returns goes to the client as it is, without a code.
+- When a Better Auth plugin refuses the credentials of the request while Auth reads the session, the guards answer with the plugin's status, code, and headers instead of `SIGNED_OUT`: `withAuth()` and the other wrappers return that refusal, and `requireAuth()`, `requireAuthorization()`, and `requireAbility()` throw it as an H3 `HTTPError`. For example, the API Key plugin refuses an unknown key with `401` and a key that is too short with `403`, both with `data.code` `INVALID_API_KEY`. A Better Auth error with a `5xx` status stays `AUTH_PROVIDER_OPERATION_FAILED`.
 
 ## SIGNED_OUT
 
@@ -140,7 +141,7 @@ Better Auth or a computed column reader failed. Read the error cause in server c
 
 ## AUTH_MCP_OAUTH_MISSING
 
-`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `oauthProvider()` with `resources`. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
+`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `jwt()` and `oauthProvider()` with `resources`. An `oauthProvider()` with `disableJwtPlugin` issues opaque access tokens, which these helpers do not check. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
 
 ## AUTH_MCP_TOKEN_MISSING
 

@@ -1,9 +1,10 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -34,6 +35,8 @@ let openWorkflowImporter = defaultImporter
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
+  /** The registered ViteHub definitions, by name. */
+  definitions: Map<string, WorkflowDefinition>
   /** Returns the OpenWorkflow id of the first run of `name` that started with the id `key`. */
   findRunId: (name: string, key: string) => Promise<string | undefined>
   workflows: Map<string, OpenWorkflowRunnable>
@@ -248,10 +251,32 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
   }
 }
 
+/**
+ * The backend that the OpenWorkflow client and its workers use. OpenWorkflow retries a failed run by its retry policy, so
+ * only `failWorkflowRun()` knows when a run ends as `failed`. This wrapper sends `workflow.failed` then.
+ */
+function reportFailedRuns<TBackend extends OpenWorkflowBackend>(backend: TBackend, definitions: ReadonlyMap<string, WorkflowDefinition>): TBackend {
+  const failWorkflowRun: TBackend["failWorkflowRun"] = async (params) => {
+    const run = await backend.failWorkflowRun(params)
+    if (run.status === "failed") {
+      await emitWorkflowFailed(run.workflowName, run.idempotencyKey || run.id, run.error ?? params.error, definitions.get(run.workflowName))
+    }
+    return run
+  }
+  return new Proxy(backend, {
+    get(target, property) {
+      if (property === "failWorkflowRun") return failWorkflowRun
+      const value: unknown = Reflect.get(target, property)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
+
 async function createOpenWorkflowRuntime(
   options: OpenWorkflowStorageConfig,
   importer: OpenWorkflowImporter,
 ): Promise<OpenWorkflowRuntime> {
+  const definitions = new Map<string, WorkflowDefinition>()
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
     importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
     options.backend === "sqlite"
@@ -279,12 +304,13 @@ async function createOpenWorkflowRuntime(
         ? await connect()
         : await withPostgresSetupLock(await importOpenWorkflowModule<PostgresModule>("postgres", importer), options.url, options.schema, connect)
     }
-    return { backend, client: new OpenWorkflow({ backend }) }
+    return { backend, client: new OpenWorkflow({ backend: reportFailedRuns(backend, definitions) }) }
   })
 
   return {
     backend,
     client,
+    definitions,
     findRunId: createRunIdLookup(backend, options),
     workflows: new Map(),
   }
@@ -415,6 +441,7 @@ export async function registerOpenWorkflowDefinition(
 
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
   const openWorkflowDefinition = definition as never
+  runtime.definitions.set(name, definition)
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
     const stored = await runtime.backend.getWorkflowRun({ workflowRunId: run.id })
     return await runSerializedWorkflowHandler({

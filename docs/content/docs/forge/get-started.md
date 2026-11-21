@@ -7,12 +7,12 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-A Forge is a code host, such as GitHub, GitLab, or Forgejo. `useForge()` gives server code one Forge identity. With a GitHub App, it signs the App JWT, finds the installation of a repository, and mints installation tokens. You do not write JWT or token code.
+A Forge is a code host, such as GitHub, GitLab, Forgejo, or Gitea. `useForge()` gives your server code one Forge identity. With a GitHub App, it signs the App JWT, finds the installation of a repository, and mints installation tokens. You do not write JWT or token code.
 
 In this tutorial, you open an issue as your GitHub App from a server route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need a GitHub App that is installed on a test repository, and its private key.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need a GitHub App installed on a test repository and its private key.
 
 ::tutorial-step{title="Install Forge"}
 ## Install Forge
@@ -35,12 +35,12 @@ VITEHUB_GITHUB_APP_ID=123456
 VITEHUB_GITHUB_PRIVATE_KEY_PATH=./github-app.pem
 ```
 
-- `VITEHUB_GITHUB_APP_ID` is the App ID or the Client ID of the GitHub App.
-- `VITEHUB_GITHUB_PRIVATE_KEY_PATH` names a file with the private key in PEM. The file must be available at runtime. Or set the key itself in `VITEHUB_GITHUB_PRIVATE_KEY`.
+- `VITEHUB_GITHUB_APP_ID` is the App ID or Client ID of your GitHub App.
+- `VITEHUB_GITHUB_PRIVATE_KEY_PATH` points to a file with the private key in PEM. The file must be available at runtime. Or set the PEM text in `VITEHUB_GITHUB_PRIVATE_KEY`.
 
-Keep the private key and `.env` out of version control and public assets.
+Keep `.env` and the key out of git and public assets.
 
-When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. [Configure](/docs/forge/configure) lists every variable.
+When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` authenticates as the App. [Configure](/docs/forge/configure) lists every variable.
 
 ::
 
@@ -64,8 +64,8 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- `provider({ repository })` returns a [`forges`](https://forges.link) client that sends the installation token of the repository.
-- The call returns `[error, provider]`. When the App is not installed on the repository, `error.code` is `FORGE_APP_NOT_INSTALLED`.
+- `provider({ repository })` returns a [`forges`](https://forges.link) client authenticated with that repository's installation token.
+- The call returns `[error, provider]`. If your App is not installed on the repository, `error.code` is `FORGE_APP_NOT_INSTALLED`.
 
 Start the dev server with `pnpm dev`, then call the route from a second terminal:
 
@@ -73,22 +73,22 @@ Start the dev server with `pnpm dev`, then call the route from a second terminal
 curl -X POST http://localhost:3000/api/issues
 ```
 
-The answer has the URL of the new issue. The issue author is the bot user of the App, such as `acme-bot[bot]`.
+The response has the URL of the new issue. The issue author is the bot user of your App, such as `acme-bot[bot]`.
 
 ::
 
 ## In production
 
-Set `VITEHUB_GITHUB_APP_ID` on the host and provide the private key in a form the host can read at runtime:
+Set `VITEHUB_GITHUB_APP_ID` on your host and provide the private key at runtime in a form that the host can read:
 
-- On Cloudflare, store the PEM itself in a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding. Remove the local `VITEHUB_GITHUB_PRIVATE_KEY_PATH` setting: a deployed Worker does not have your local `github-app.pem` file. `useForge()` reads the bindings of the request.
-- On hosts where a private key file is available at runtime, set `VITEHUB_GITHUB_PRIVATE_KEY_PATH` to that file. Otherwise, store the PEM in `VITEHUB_GITHUB_PRIVATE_KEY` through the host's secret settings.
+- On Cloudflare, store the PEM in a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding. Remove the local `VITEHUB_GITHUB_PRIVATE_KEY_PATH` setting, because a deployed Worker does not have your local `github-app.pem` file. `useForge()` reads the request bindings.
+- On hosts where a private key file is available at runtime, set `VITEHUB_GITHUB_PRIVATE_KEY_PATH` to that file. Otherwise, store the PEM in `VITEHUB_GITHUB_PRIVATE_KEY` in the host's secret settings.
 
-When the App has many installations, `useForge()` finds the installation of each repository. To skip that lookup, see [Installations](/docs/forge/configure#installations).
+When an App has multiple installations, `useForge()` looks up the installation for each repository. To skip that lookup, see [Installations](/docs/forge/configure#installations).
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/forge/configure"}
-Set the env for GitHub, GitLab, and Forgejo.
+Set the env for GitHub, GitLab, Forgejo, and Gitea.
 :::
 
 :::card{title="Server API" icon="i-lucide-code-2" to="/docs/forge/server-api"}

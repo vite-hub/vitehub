@@ -5,7 +5,7 @@ import { basename, join, relative, resolve, sep } from "node:path"
 import createDriver from "unstorage/drivers/fs-lite"
 import { lock } from "proper-lockfile"
 
-import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
+import type { KVPageOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
@@ -321,7 +321,7 @@ export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStor
     try { await continuations.dispose() }
     finally { await dispose?.call(driver) }
   }
-  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
+  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVPageOptions) => {
     const keys: string[] = []
     const iterator = cursor ? continuations.take(cursor) : walk()
     if (!iterator) throw expired()

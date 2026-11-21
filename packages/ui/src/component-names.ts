@@ -31,6 +31,7 @@ const partFamilies = {
     "CommentPanel",
     "CommentPin",
     "CommentReply",
+    "CommentSelectionBar",
     "CommentThread",
     "CommentToolbar",
   ],

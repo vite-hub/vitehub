@@ -42,7 +42,7 @@ export interface RealtimeRoomOptions {
   /** Query parameters sent to the definition's authorization on presence and workspace connections. */
   params?: Record<string, string>
   /**
-   * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
+   * The person this browser shows as. A definition with `identify` or `authorize: true` replaces it with the server's
    * identity, so only public definitions show it as given.
    */
   identity?: { id: string, name?: string, image?: string }
@@ -104,7 +104,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   const url = () => {
     const app = options.origin ? new URL(options.origin) : window.location
     const protocol = app.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${app.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
+    return `${protocol}//${app.host}${resolveRealtimeApplicationPath(`/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}

@@ -51,10 +51,10 @@ Authenticate each request at its trusted entry point, then authorize the operati
 Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeScript types check callers in development, but not JSON from the network or records from an earlier release. Verify webhook signatures before you pass trusted caller metadata. Take tenant, user, and session identity from the authenticated request, not from a client value.
 
 ::warning
-The [Console](/docs/development/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
+The [Console](/docs/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
 ::
 
-The Console endpoint takes only [signed requests](/docs/development/console#sign-console-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
+The Console endpoint takes only [signed requests](/docs/console/signed-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
 
 Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
@@ -157,7 +157,7 @@ A Queue enqueue result means accepted, not done. A retry can repeat a side effec
 
 For external effects, use the service's idempotency support. A welcome-email job can send and then fail before acknowledgement, so the retry must reuse the same idempotency key. If the service cannot deduplicate, decide how your app handles an unknown delivery result before it retries. The same rule applies to retryable Workflow steps and scheduled targets.
 
-Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/reference/runtime-context#background-work-and-cleanup). A promise started after the response is not durable work.
+Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/runtime/context#background-work-and-cleanup). A promise started after the response is not durable work.
 
 ## Open tabs after a deploy
 

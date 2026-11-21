@@ -13,6 +13,11 @@
       "import": "./dist/abort.js",
       "default": "./dist/abort.js"
     },
+    "./browser-environment": {
+      "types": "./dist/browser-environment.d.ts",
+      "import": "./dist/browser-environment.js",
+      "default": "./dist/browser-environment.js"
+    },
     "./channel-archive": {
       "types": "./dist/channel-archive.d.ts",
       "import": "./dist/channel-archive.js",
@@ -278,6 +283,11 @@
       "import": "./dist/runtime/client-rate-limit.js",
       "default": "./dist/runtime/client-rate-limit.js"
     },
+    "./runtime/user-data": {
+      "types": "./dist/runtime/user-data.d.ts",
+      "import": "./dist/runtime/user-data.js",
+      "default": "./dist/runtime/user-data.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -357,6 +367,11 @@
       "types": "./dist/build/esbuild.d.ts",
       "import": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
+    },
+    "./build/rolldown": {
+      "types": "./dist/build/rolldown.d.ts",
+      "import": "./dist/build/rolldown.js",
+      "default": "./dist/build/rolldown.js"
     },
     "./build/scan-module": {
       "types": "./dist/build/scan-module.d.ts",
@@ -452,11 +467,12 @@
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "birpc": "catalog:runtime",
-    "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",
+    "minimatch": "catalog:workspace",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
+    "resolve-pkg-maps": "^1.0.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {
@@ -464,6 +480,7 @@
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
+    "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
@@ -475,6 +492,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -69,7 +69,7 @@ it("does not ask for the Workflow DevKit when no Workflow is native", async () =
   const rootDir = await createTempDir("vitehub-workflow-devkit-inline-")
   const workflowFile = join(rootDir, "server", "workflows", "welcome.ts")
   await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
-  await writeFile(workflowFile, `export default defineWorkflow("welcome", async () => "inline")\n`)
+  await writeFile(workflowFile, `export default defineWorkflow({ handler: async () => "inline" })\n`)
   const restore = hidePackage("workflow")
   try {
     expect(hasVercelNativeWorkflowEntry(rootDir, [{ handler: workflowFile, name: "welcome", source: "vite-suffix" }])).toBe(false)

@@ -1,5 +1,5 @@
 import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
-import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
+import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
@@ -240,7 +240,9 @@ function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext
  * their step files. The context keeps the provider step at runtime, so the generated step runner can use it.
  */
 function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"]): WorkflowExecutionContext<TPayload> {
-  return { ...context, sleep, steps: {} }
+  // SAFETY: `WorkflowSteps` types the steps of every folder Workflow. A Workflow without step files has none, and the
+  // generated entry of a folder Workflow replaces this object with its own steps.
+  return { ...context, sleep, steps: {} as WorkflowExecutionContext["steps"] }
 }
 
 /** The root step result that says the handler called `context.sleep()`. A replay reads it and fails the same way. */
@@ -280,8 +282,8 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   definition: WorkflowDefinition<TPayload, TResult>,
   encode: (value: TResult) => TOutput | Promise<TOutput>,
 ): Promise<TOutput> {
-  if (definition.options?.rootStep === false) {
-    return await encode(await definition.handler(context.payload, toExecutionContext(context, createSleep(context))))
+  if (definition.rootStep === false) {
+    return await encode(await definition.handler(toExecutionContext(context, createSleep(context))))
   }
 
   let slept = false
@@ -292,7 +294,7 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   }
   const output = await runProviderStep(context.step, context.name, async () => {
     try {
-      const value = await encode(await definition.handler(context.payload, toExecutionContext(context, sleep)))
+      const value = await encode(await definition.handler(toExecutionContext(context, sleep)))
       return slept ? rootStepSleepResult : value
     }
     catch (error) {

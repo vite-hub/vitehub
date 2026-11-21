@@ -13,7 +13,7 @@ The journal gives the model no conversation context. Use [Chat History](/docs/ag
 
 ## Store invocation history
 
-An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
+An Agent Definition that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -500,7 +500,9 @@ const invocations = defineAgentInvocations({
 
 The byte limit counts the UTF-8 observations array after privacy filtering, not provider output, the live trace log, or process memory. A resumed record keeps its limits.
 
-At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a message header, the list names `input.messages.parts` instead of `input.messages`.
+At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a deeply nested part field, the list names `input.messages.parts` instead of `input.messages`.
+
+The input history has its own budget of 256 messages and four times the content string limit. The journal fills it from the newest message back and keeps each message whole, so the messages next to the trigger survive. When older messages do not fit, it leaves them out and records `input.messages.omitted` and `input.messages.total`. `input.trigger.message` keeps the message that started the run, whole: the message with the run's `messageId`, else the last user message.
 
 `flushTimeoutMs` sets how long finish waits for queued observations. A longer drain helps a long queue of working writes, not an unavailable store.
 
@@ -524,13 +526,13 @@ Inspect the [default journal](#use-the-default-journal) of the project from the 
 
 ```sh
 vitehub agent invocations list --status running
-vitehub agent invocations show INVOCATION_ID
+vitehub agent invocations get INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
+Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `get`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
-See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
+See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
 Before a rollout, wait until nothing is pending or running, so the restart interrupts no work:
 
@@ -585,8 +587,8 @@ vitehub agent invocations prune --database /data/agent-invocations.sqlite --max-
 vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root.
-- The CLI does not read your config. When the journal is next to a `file:` Agent State, pass that file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
+- Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, the CLI uses `agent-invocations.sqlite` next to a `file:` Agent State URL if it can read that URL from the config. Otherwise it uses `.vitehub/data/agent-invocations.sqlite` in the project root.
+- The CLI does not run the config. It needs `vite` and a literal `host: 'node'` and State URL, in the exported Vite `plugins` array or under Nuxt's `vitehub` key. If the config computes these options, has overrides such as Nuxt module options, or sets `dataDir`, pass the journal file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
 - Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint.
 - Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`.
 - With `--max-size` or `--max-records`, prune removes the oldest terminal records first, and `--older-than` applies only if passed.
@@ -614,7 +616,7 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 ```sh
 vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
-vitehub agent invocations show INVOCATION_ID --database /data/agent-invocations.sqlite --json
+vitehub agent invocations get INVOCATION_ID --database /data/agent-invocations.sqlite --json
 ```
 
 It opens the file read-only with `node:sqlite` and never migrates or writes it, so the app can keep writing. It reads observations from the record and from the running-record table. It takes a path or `file:` URL, refuses remote libSQL (use `--url`), and honors `--table-prefix`. `cancel` still needs the running app. Without `node:sqlite`, it says so and exits 1.
@@ -760,4 +762,4 @@ Then it retries each interrupted inline Chat turn once. A turn is interrupted wh
 
 - [Observability](/docs/agents/observability) exports lifecycle events.
 - [Evals](/docs/agents/evals) check behavior.
-- The [Console](/docs/development/console) reads the configured journal. Its authorization stays your app's policy.
+- The [Console](/docs/console) reads the configured journal. Its authorization stays your app's policy.

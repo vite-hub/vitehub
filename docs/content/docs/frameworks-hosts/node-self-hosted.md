@@ -185,7 +185,7 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+Set `health: true` in `vitehub()` to add `/_vitehub/health`. It tells
 which app version, commit, and ViteHub version are live, and whether each
 Database, KV store, and Blob store of the app answers:
 
@@ -199,15 +199,19 @@ Database, KV store, and Blob store of the app answers:
 }
 ```
 
-A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
-has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+A Database runs `SELECT 1`, and a KV store checks for one key. For an `fs` Blob
+store, the check opens the root directory without reading objects. A directory
+that does not exist yet passes, but a file in place of the directory fails. For
+an `s3` store, the check lists up to one object, so a missing bucket fails. The
+credential needs `s3:ListBucket`. Other Blob drivers check object metadata
+without listing. Each check has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
 error goes to the server log, never to the response. The
 [generated Dockerfile](#run-the-server-with-docker) checks this route. For
 your own image or a load balancer, point the health check at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
 A Docker build context often has no `.git`. Pass the commit as
@@ -382,8 +386,8 @@ one disk, so they do not work across several instances.
 | Queue | `postgres` with a Postgres Default Database, else `local` with files under `.vitehub/data/queue`. | Yes with Postgres: every instance shares the jobs and claims due jobs from the same table. With `local`, a job runs only on the instance that accepted it. A shared volume has no lock between processes, so two instances can run the same job. |
 | Rate Limit | `kv` when KV is on, else `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory`, or `kv` on `fs-lite`, counts in one process and resets on restart. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
-| Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
-| Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. The Workflow that only `agent` turns on runs inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
+| Schedule | The Process Runtime runs Schedules in the server process. Set `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
+| Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. With Workflow off, Agents run inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
 | Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
 
 A multi-instance deploy today needs one instance that owns Schedule.
@@ -456,7 +460,7 @@ that an environment variable or the Default Database selects at boot shows
 correctly. Agent state, the Agent Invocation journal, and Workspace files
 report too. Run
 `vitehub durability list` to read the same report from the dev server. It is
-the `durability.list` [operation](/docs/development/operations). On a
+the `durability.list` [operation](/docs/console/operations). On a
 deployment, `--url` works when the app enables the Console, with credentials
 for the `durability` section. Server code can read the report with
 `getDurabilityReport()` from `vite-hub/runtime/durability`.

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { dirname, resolve } from "node:path"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { bundleCliContributor } from "./cli.ts"
@@ -8,6 +9,7 @@ import { collectEnvironmentReport } from "./collect.ts"
 import { writeBundleReportRoot, writeEnvironmentReport } from "./files.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin } from "vite"
 import type { ModuleInfoLike } from "./collect.ts"
 import type { PageRoute } from "./routes.ts"
@@ -43,7 +45,7 @@ export type BundleVitePlugin = Plugin & {
     startBuild: () => string
   }
   nitro: BundleNitroModule
-  vitehub: ViteHubCliPluginMetadata
+  vitehub: ViteHubCliPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
 export interface BundleViteOptions {
@@ -177,7 +179,11 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
       },
     },
     nitro: bundleNitroModule(() => coordinatedBuild, (instance) => { nitro = instance }),
-    vitehub: { cli: bundleCliContributor },
+    vitehub: {
+      cli: bundleCliContributor,
+      // `bundle.report` and `bundle.why` for the Console and the ViteHub MCP. They answer only on a dev server.
+      operations: [{ export: "bundleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).bundleOperations, module: ownModule(import.meta.url, "operations") }],
+    },
   }
 }
 

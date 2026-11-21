@@ -77,20 +77,23 @@ function toMilliseconds(amount: string, size: number, round?: "ceil"): number {
  * Reads a {@link Duration} such as `"30s"`, `"5m"`, or `"1 day"` and returns its milliseconds. A number, a negative
  * value, an unknown unit, or a value too large for a number throws `RUNTIME_DURATION_INVALID`. Pass `option`, such as
  * `"debounce"`, so the error names the option. Pass `"ceil"` to round up to whole milliseconds before converting
- * to a number.
+ * to a number. For a number, the fix shows the same time as a string. Pass `"s"` as `legacyUnit` when the option took a
+ * number of seconds before, so `60` gets the fix `"1m"` and not `"60ms"`. It changes only the fix text.
  *
  * ```ts
  * parseDuration("90s") // 90000
  * parseDuration("1 day") // 86400000
  * ```
  */
-export function parseDuration(value: Duration, option?: string, round?: "ceil"): number {
+export function parseDuration(value: Duration, option?: string, round?: "ceil", legacyUnit: "ms" | "s" = "ms"): number {
   const [, amount, suffix] = (typeof value === "string" ? pattern.exec(value.trim()) : null) ?? []
   const unit = suffix?.toLowerCase()
   const size = unit !== undefined && Object.hasOwn(units, unit) ? units[unit] : undefined
   const milliseconds = amount === undefined || size === undefined ? Number.NaN : toMilliseconds(amount, size, round)
   if (Number.isFinite(milliseconds)) return milliseconds
   const received: unknown = value
-  const suggestion = typeof received === "number" && Number.isFinite(received) && received >= 0 ? suggest(received) : undefined
-  throw runtimeErrorDiagnostics.RUNTIME_DURATION_INVALID({ option, value: describe(received), suggestion })
+  const legacy = typeof received === "number" && received >= 0 ? received * (legacyUnit === "s" ? second : 1) : Number.NaN
+  const suggestion = Number.isFinite(legacy) ? suggest(legacy) : undefined
+  const legacyUnitName = legacyUnit === "s" ? "seconds" : "milliseconds"
+  throw runtimeErrorDiagnostics.RUNTIME_DURATION_INVALID({ option, value: describe(received), suggestion, unit: legacyUnitName })
 }

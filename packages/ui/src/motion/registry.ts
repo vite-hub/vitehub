@@ -31,13 +31,12 @@ export interface MotionContentChange {
 
 /** What a press does next. The motion layer calls it until the pointer or the key goes up. */
 export interface MotionPress {
-  /**
-   * The pointer moved while it was down, such as on a resize handle. Not called for a key press. A press with `move`
-   * is a drag: it goes on when the pointer leaves the element, until the pointer goes up.
-   */
+  /** The pointer moved while it was down, such as on a resize handle. Not called for a key press. */
   move?(event: PointerEvent): void;
-  /** The pointer or the key went up, or the pointer left the element or was cancelled. */
+  /** The pointer or the key went up. Also called on cancellation if there is no `cancel` hook. */
   release(): void;
+  /** The pointer left, the press was interrupted, or reduced motion turned on. */
+  cancel?(): void;
 }
 
 /**
@@ -70,7 +69,12 @@ export interface MotionEffect {
 }
 
 const effects = new Map<string, MotionEffect>();
+const defaults = new Map<string, MotionEffect>();
 const changeListeners = new Set<() => void>();
+
+export function defineDefaultMotionEffect(effect: MotionEffect): void {
+  defaults.set(effect.name, effect);
+}
 
 /**
  * Adds an effect to the motion layer. Every installed layer runs it from the next interaction on. Returns a function
@@ -88,7 +92,7 @@ export function defineMotionEffect(effect: MotionEffect): () => void {
 
 /** The effects of the motion layer, in the order they were defined. */
 export function listMotionEffects(): MotionEffect[] {
-  return [...effects.values()];
+  return [...new Map([...defaults, ...effects]).values()];
 }
 
 export function onMotionEffectsChange(listener: () => void): () => void {

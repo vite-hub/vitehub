@@ -28,6 +28,7 @@ import { Readable, Writable } from "node:stream";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
+import { isTrustedHostReservedCommandEnvironmentKey } from "./trusted-host-environment.ts";
 
 import type {
   SandboxFileEntry,
@@ -91,17 +92,6 @@ const baseEnvironmentKeys = [
   "TMPDIR",
   "USER",
 ] as const;
-
-const runtimeEnvironmentKeys = new Set([
-  "CODEX_HOME",
-  "HOME",
-  "INIT_CWD",
-  "OLDPWD",
-  "PWD",
-  "XDG_CACHE_HOME",
-  "XDG_CONFIG_HOME",
-  "XDG_STATE_HOME",
-]);
 
 const trustedHostExecutionAuthority = {
   credentials: "unknown",
@@ -685,7 +675,7 @@ async function createTrustedHostSession(options: {
 function assertCommandEnvironment(env: Record<string, string> | undefined) {
   const name = Object.keys(env || {}).find((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
   if (name) throw sandboxErrorDiagnostics.SANDBOX_R0112({ message: `[vitehub] Invalid Sandbox environment variable: ${name}` });
-  const reservedName = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
+  const reservedName = Object.keys(env || {}).find(isTrustedHostReservedCommandEnvironmentKey);
   if (reservedName) throw sandboxErrorDiagnostics.SANDBOX_R0137({ message: `[vitehub] Sandbox commands cannot override ${reservedName}.` });
 }
 

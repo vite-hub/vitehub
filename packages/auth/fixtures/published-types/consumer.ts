@@ -1,5 +1,5 @@
 import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
-import { createAuthClient, useSession, useUserSession } from "@vite-hub/auth/vue"
+import { createAuthClient, useUserSession } from "@vite-hub/auth/vue"
 
 const required = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in required.")
 required.toJSON() satisfies ViteHubErrorShape<"AUTHENTICATION_REQUIRED">
@@ -13,6 +13,6 @@ provider.toJSON() satisfies ViteHubErrorShape<"AUTH_PROVIDER_OPERATION_FAILED", 
 
 const customClient = createAuthClient({ basePath: "/auth" })
 customClient.useSession().value.data?.user.id satisfies string | undefined
-useSession(customClient).value.data?.user.id satisfies string | undefined
-useSession().value.data?.user.id satisfies string | undefined
+useUserSession(customClient).data.value?.user.id satisfies string | undefined
+useUserSession().data.value?.user.id satisfies string | undefined
 useUserSession(customClient).loggedIn.value satisfies boolean

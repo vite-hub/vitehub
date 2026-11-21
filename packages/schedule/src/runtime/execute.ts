@@ -1,6 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
-import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
@@ -231,6 +232,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   }
   catch (error) {
     const failed = await failRun(run, attempt, error, runStore)
+    await emitRunFailed({ event: "schedule.failed", schedule: failed.scheduleId, runId: failed.id, error: toRunFailedError(error), failedAt: (failed.completedAt ?? new Date()).toISOString() })
     if (options.captureHandlerFailure) return failed
     throw error
   }
@@ -257,9 +259,8 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && Object.hasOwn(value, "cron")
 }
 
-async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
+export async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted boundary values before use.
   const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined
   const definition = record && isStaticScheduleDefinition(record)

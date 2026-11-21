@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
 export type QueueDriver = "cloudflare" | "local" | "postgres" | "vercel"
 
@@ -18,6 +18,14 @@ interface CloudflareQueueSendBatchOptions {
 
 interface CloudflareQueueSendBatchMessage<T = unknown> extends CloudflareQueueSendOptions {
   body: T
+}
+
+/** One job in `sendBatch()` of a Cloudflare QueueClient. */
+export interface CloudflareQueueSendBatchItem<T = unknown> {
+  body: T
+  contentType?: CloudflareQueueContentType
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
 }
 
 interface CloudflareQueueRetryOptions {
@@ -45,10 +53,11 @@ export interface CloudflareQueueMessageBatch<T = unknown> {
   retryAll: (options?: CloudflareQueueRetryOptions) => void
 }
 
+/** What `onError` returns: `"ack"`, `"retry"`, or `{ retry: { delay: "30s" } }` to retry after a time. */
 export type CloudflareQueueBatchErrorAction =
   | "ack"
   | "retry"
-  | { retry: CloudflareQueueRetryOptions }
+  | { retry: { delay?: Duration } }
 
 export interface CloudflareQueueBatchHandlerOptions<T = unknown> {
   concurrency?: number
@@ -95,15 +104,17 @@ export type VercelQueueBatchSendResult =
  */
 export interface VercelQueueSendBatchMessage<T = unknown> {
   body: T
-  delaySeconds?: number
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
   idempotencyKey?: string
-  retentionSeconds?: number
+  /** How long Vercel keeps the job: a duration such as `"1h"`, or a number of seconds. */
+  retention?: Duration | number
 }
 
 /** Options that apply to every job of a Vercel `sendBatch()` unless the job sets its own. */
 export interface VercelQueueSendBatchOptions {
-  delaySeconds?: number
-  retentionSeconds?: number
+  delay?: Duration
+  retention?: Duration | number
 }
 
 type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unknown) => unknown | Promise<unknown>
@@ -221,26 +232,36 @@ export type ResolvedQueueOptions =
   | ResolvedPostgresQueueOptions
   | VercelQueueModuleDriverOptions
 
+/** The one object that a Queue handler receives: the `payload` that was sent, and the delivery details. */
 export interface QueueJob<TPayload = unknown> {
+  /** Delivery count of this job, from 1. */
   attempts: number
+  /** Message ID of this job. */
   id: string
+  /** Delivery metadata of the provider, when it gives some. */
   metadata?: unknown
   payload: TPayload
 }
 
 export type QueueHandler<TPayload = unknown, TResult = unknown> = (job: QueueJob<TPayload>) => TResult
 
+/** Options of `defineQueue()`, next to `handler`. */
 export interface QueueDefinitionOptions {
   cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
   concurrency?: number
+  /**
+   * Cloudflare: the most messages in one batch, from 1 to 100. Cloudflare's default is 10. Write it as a number literal,
+   * because the build reads it from the file to configure the consumer.
+   */
+  maxBatchSize?: number
   onDispatchError?: (error: unknown, context: { name: string }) => unknown | Promise<unknown>
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
 
-export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
+/** A Queue Definition: `defineQueue({ handler, ...options })`. */
+export interface QueueDefinition<TPayload = unknown, TResult = unknown> extends QueueDefinitionOptions {
   handler: QueueHandler<TPayload, TResult>
-  options?: QueueDefinitionOptions
 }
 
 /**
@@ -249,10 +270,12 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
  */
 export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
-  delaySeconds?: number
+  /** Time before delivery, such as `"30s"`, `"5m"`, or `"1 day"`. A number fails with `RUNTIME_DURATION_INVALID`. */
+  delay?: Duration
   idempotencyKey?: string
   region?: string
-  retentionSeconds?: number
+  /** How long the provider keeps the job: a duration such as `"1h"`, or a number of seconds. */
+  retention?: Duration | number
 }
 
 export type QueueSendResult = {
@@ -271,20 +294,22 @@ export type QueueErrorCode =
   | "QUEUE_PROVIDER_FAILED"
   | "QUEUE_PROVIDER_INVALID_RESPONSE"
   | "QUEUE_UNSUPPORTED_OPTION"
+  | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a Cloudflare QueueClient return. */
-export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a local QueueClient return. */
-export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a postgres QueueClient return. */
-export type PostgresQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type PostgresQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** One job in `sendBatch()` of a local or postgres QueueClient. */
 export interface LocalQueueSendBatchMessage<T = unknown> {
   body: T
-  delaySeconds?: number
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
   idempotencyKey?: string
 }
 
@@ -303,7 +328,7 @@ export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBa
   readonly binding: CloudflareQueueBinding
   createBatchHandler: <TMessage = unknown>(options: CloudflareQueueBatchHandlerOptions<TMessage>) => (batch: CloudflareQueueMessageBatch<TMessage>) => Promise<void>
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, CloudflareQueueErrorCode>>
-  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
+  sendBatch: (items: CloudflareQueueSendBatchItem<TPayload>[], options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
 }
 
 /**
@@ -329,7 +354,7 @@ export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"
 export interface LocalQueueClient<TPayload = unknown> extends QueueClientBase<"local"> {
   readonly queue: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, LocalQueueErrorCode>>
-  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delay?: Duration }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
 }
 
 /**
@@ -340,7 +365,7 @@ export interface PostgresQueueClient<TPayload = unknown> extends QueueClientBase
   readonly queue: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, PostgresQueueErrorCode>>
   /** Inserts all jobs in one transaction. When one insert fails, no job of the batch is stored. */
-  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], PostgresQueueErrorCode>>
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delay?: Duration }) => Promise<Result<QueueSendResult[], PostgresQueueErrorCode>>
 }
 
 interface QueueClientMap<TPayload> {
@@ -389,7 +414,7 @@ export interface QueueDeliveryErrorDetails {
 export interface LocalQueueDeliveryRules {
   /** Deliveries before a failing job becomes a dead job. `Infinity` retries until the job expires. */
   maxAttempts: number
-  /** Largest `delaySeconds` that a send accepts. */
+  /** Largest `delay`, in seconds, that a send accepts. */
   maxDelaySeconds?: number
   /** Largest number of jobs in one `sendBatch()`. */
   maxBatchJobs?: number
@@ -397,14 +422,14 @@ export interface LocalQueueDeliveryRules {
   maxBatchBytes?: number
   /** Largest JSON size in bytes of one payload. */
   maxPayloadBytes?: number
-  /** Accepted `retentionSeconds`. A job expires at the end of its retention, whether it ran or not. */
+  /** Accepted `retention`, in seconds. A job expires at the end of its retention, whether it ran or not. */
   retention?: { defaultSeconds: number, maxSeconds: number, minSeconds: number }
   /** Milliseconds before the next delivery after `attempts` failed deliveries. */
   retryDelayMs: (attempts: number) => number
   /** The provider whose documented rules these are. */
   rules: LocalQueueRules
   /** Enqueue options that fail with `QUEUE_UNSUPPORTED_OPTION`. */
-  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retentionSeconds")[]
+  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retention")[]
 }
 
 export interface LocalQueueStatus {
@@ -438,7 +463,7 @@ export interface LocalQueueJob {
   state: "dead" | "pending" | "running"
 }
 
-/** One stored job with its payload, as `vitehub queue jobs show` shows it. */
+/** One stored job with its payload, as `vitehub queue jobs get` shows it. */
 export interface LocalQueueJobDetail extends LocalQueueJob {
   /** The local provider only: the file of the job. */
   file?: string

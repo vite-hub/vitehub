@@ -83,7 +83,7 @@ describe("standalone primitive operation transport", () => {
       if (enabled("rate-limit")) expect(await call("rate-limit.peek", { name: "missing", key: "client" })).toMatchObject({ ok: true })
       if (enabled("forms")) {
         expect(await call("forms.list", {})).toEqual({ ok: true, value: [] })
-        const sent = await fetch(`${url}api/_vitehub/forms/contact`, {
+        const sent = await fetch(`${url}_vitehub/forms/contact`, {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hello from the direct plugin" }),
         })
         expect(sent.status).toBe(201)

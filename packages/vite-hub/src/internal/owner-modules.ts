@@ -176,7 +176,7 @@ export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {})
       if (hasWebhooksDirectory(projectRoot, serverDirs)) features.push("webhooks")
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
-      assertFeaturePackages([...new Set(features)])
+      assertFeaturePackages([...new Set(features)], {}, false)
     },
   }
 }
@@ -202,7 +202,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "channels": "channels",
   "connections": "connections",
   "console/ui": "console ui",
-  "decisions": "decisions",
+  "choices": "choices",
   "device": "device",
   "email": "email",
   "forge": "forge",

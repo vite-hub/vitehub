@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. `readRequestPayload()` returns `unknown`: check it with `validatePayload()`, or call `readValidatedPayload()`. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
 `vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
@@ -36,6 +36,8 @@ export default defineEventHandler(async (event) => {
   return run
 })
 ```
+
+ViteHub writes the names and payload types of your Workflows to `.vitehub/workflow.d.ts`, so a misspelled name or a wrong payload is a type error in `startWorkflow()` and `deferWorkflow()`.
 
 `startWorkflow()` returns `[error, run]`. Check `error` before you use `run`. A provider failure, an unsupported option, an invalid run `id`, or an invalid `delay` is `error`, and its `code` is a `WorkflowResultErrorCode`. A setup error, such as a Workflow name that does not exist or a disabled Workflow, throws. `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` follow the same rule.
 
@@ -89,7 +91,7 @@ Inline runs buffer a returned `Response` body before they complete. Each inspect
 Inspection holds a weak reference to an active inline run:
 
 - A run that your code still reaches stays inspectable. An abandoned run can be garbage-collected and then reports `unknown`.
-- ViteHub keeps completed inline runs for five minutes, up to 1,024 per runtime. Completed runs do not push out active ones.
+- ViteHub keeps completed inline runs for five minutes, up to 1,024 per runtime. Completed runs do not push out active ones. In `vite dev`, `getWorkflowRun()` also reads the dev run history, which keeps the newest 200 runs until the dev server restarts.
 - Without `WeakRef` or `FinalizationRegistry`, inspection uses strong references, up to 1,024. A new run then pushes out the oldest active entry, even if it is still reachable. That entry reports `unknown`, also after it completes.
 
 Use a durable provider when inspection must survive abandonment or a process restart.
@@ -134,11 +136,11 @@ export default defineEventHandler(async (event) => {
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
 const [error, run] = await welcome.start({ email: "ada@example.com" })
 // welcome.start() is a type error.
 ```
 
-Functions that take a workflow name do not infer a handler from the string, and stored run results stay `unknown`.
+`startWorkflow()` and `deferWorkflow()` read the payload type of a discovered Workflow from `.vitehub/workflow.d.ts`. A Workflow that code creates with `createWorkflow()` is not in that file, so use its handle. Stored run results stay `unknown`.

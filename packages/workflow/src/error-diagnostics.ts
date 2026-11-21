@@ -7,7 +7,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
+// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_C0018, WORKFLOW_C0019, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
@@ -54,15 +54,11 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_RUNS_UNAVAILABLE: {
       why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
-      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.",
+      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow runs get <runId> --workflow <name>`, or use the provider dashboard.",
     },
     WORKFLOW_RUN_AMBIGUOUS: {
       why: ({ id, workflows }: { id: string, workflows: string }) => `Runs of ${workflows} have the id ${id}.`,
       fix: "Pass the name of the Workflow with `--workflow <name>`.",
-    },
-    WORKFLOW_RUN_NOT_FOUND: {
-      why: ({ id }: { id: string }) => `No recorded run has the id ${id}.`,
-      fix: "Run `vitehub workflow runs list` for the ids. The dev server keeps the newest 200 runs until it restarts or `vitehub workflow runs clear` empties the history.",
     },
     WORKFLOW_RUN_UNKNOWN: {
       why: ({ runId }: { runId: string }) => `Run ${runId} was not started by \`workflow.start\` in this runtime.`,
@@ -124,27 +120,19 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0014: {
       ...dynamicError,
-      fix: "Pass a function as the second argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", async (payload, { steps }) => { ... })`.",
+      fix: "Set `handler` to a function in the object that you pass to `defineWorkflow()`, such as `defineWorkflow({ handler: async ({ payload, steps }) => { ... } })`.",
     },
     WORKFLOW_C0015: {
       ...dynamicError,
-      fix: "Pass the options of `defineWorkflow()` as an object, such as `{ native: durableOnboard }`, or remove the third argument.",
+      fix: "Pass one object to `defineWorkflow()`, such as `defineWorkflow({ handler, native })`, with only `handler`, `native`, and `rootStep`. The file path is the Workflow name, so do not pass a name.",
     },
     WORKFLOW_C0016: {
       ...dynamicError,
-      fix: "Set `native` in the `defineWorkflow()` options to a function, or remove it.",
+      fix: "Set `native` in the object that you pass to `defineWorkflow()` to a function, or remove it.",
     },
     WORKFLOW_C0017: {
       ...dynamicError,
       fix: "Remove `workflow.database`, and set `workflow.sqlite.path` or `workflow.postgres.url`.",
-    },
-    WORKFLOW_C0018: {
-      ...dynamicError,
-      fix: "Pass the Workflow name as the first argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", handler)`.",
-    },
-    WORKFLOW_C0019: {
-      ...dynamicError,
-      fix: "Pass the name that the message gives to `defineWorkflow()`, or rename the Workflow file or folder to the name that the definition uses.",
     },
     WORKFLOW_C0020: {
       ...dynamicError,
@@ -169,6 +157,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT: {
       why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
       fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
+    },
+    WORKFLOW_PAYLOAD_JSON_INVALID: {
+      why: "[vitehub] The request has the `application/json` content type, but its body is not valid JSON.",
+      fix: "Send a JSON body with `content-type: application/json`, or send another content type to read the body as text. Read `error.cause` for the parse error.",
     },
     WORKFLOW_R0001: {
       ...dynamicError,

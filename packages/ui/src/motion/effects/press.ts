@@ -38,19 +38,31 @@ function squash(element: HTMLElement): { target: HTMLElement | SVGElement; amoun
  * allowlist of `test/design-rules.test.ts` does. The transition would smear each frame of the spring, so that element
  * keeps its own press until its wave moves it onto the layer. Tailwind's plain `transition` class also animates `scale`.
  */
-function transitionsScale(element: Element): boolean {
-  const style = getComputedStyle(element);
+function transitionsScale(style: CSSStyleDeclaration): boolean {
   const durations = style.transitionDuration.split(",");
   return style.transitionProperty.split(",").some((property, index) =>
     /^\s*(?:scale|all)\s*$/.test(property) && Number.parseFloat(durations[index % durations.length]!) > 0);
 }
 
+function nearEdge(bounds: DOMRect, event: PointerEvent, amount: number): boolean {
+  const { left, right, top, bottom, width, height } = bounds;
+  return Math.min(event.clientX - left, right - event.clientX) <= width * amount
+    || Math.min(event.clientY - top, bottom - event.clientY) <= height * amount;
+}
+
 export const press: MotionEffect = {
   name: "press",
   selector: pressSelector,
-  press(element) {
+  press(element, event) {
     const { target, amount } = squash(element);
-    if (transitionsScale(target)) return;
+    const style = getComputedStyle(target);
+    if (transitionsScale(style) || style.display === "contents") return;
+    if (style.display === "inline" && target === element && !(element instanceof HTMLInputElement)) return;
+    let bounds: DOMRect | undefined;
+    if (target === element && "pointerId" in event) {
+      bounds = element.getBoundingClientRect();
+      if (nearEdge(bounds, event, amount)) return;
+    }
     let state = pressed.get(target);
     if (!state) {
       const current = { amount, spring: createSpring(0, (value) => {
@@ -62,6 +74,20 @@ export const press: MotionEffect = {
     state.amount = amount;
     const { spring } = state;
     spring.to(1, { preset: down });
-    return { release: () => spring.to(0, { preset: up }) };
+    let cancelled = false;
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      spring.set(0);
+    };
+    return {
+      move: bounds ? (pointer) => {
+        if (nearEdge(bounds, pointer, amount)) cancel();
+      } : undefined,
+      release: () => {
+        if (!cancelled) spring.to(0, { preset: up });
+      },
+      cancel,
+    };
   },
 };
