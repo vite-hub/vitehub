@@ -27,6 +27,8 @@ Read [Agent Definitions](/docs/agents/agent-definitions) to see how that first f
 
 Swap the function Driver for a model as shown in [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver). Put the model API key on the server and keep the same route while you test the model's replies.
 
+To try the model and tool steps with no API key, [run the Agent on the AI emulator](/docs/agents/no-ai-key). It answers from rules that you write.
+
 Then add [Instructions](/docs/agents/instructions) and one [Capability](/docs/agents/capabilities). A Capability gives the Agent a tool it can call, such as reading files in a Workspace or searching docs. Pick one from the [official Capability catalog](/docs/agents/capabilities/official), which shows how to set up each tool and what it can access.
 
 ## Build a complete chat application

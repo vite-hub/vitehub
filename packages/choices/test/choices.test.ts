@@ -3,16 +3,22 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { typesafe } from "@vite-hub/gateways"
 import { defineChoices, toOptions } from "../src/index.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 const suppliers = toOptions([{ code: "S1", name: "Vak Supply" }, { code: "S2", name: "Nord Parts" }, { code: "S3", name: "Vakuum Co" }], {
   label: item => item.name,
   value: item => item.code,
 })
 
-function forecast(calls: Parameters<typeof wordGateway>[0] = []) {
+/** A word gateway whose `ask()` calls you can read: `ask.mock.calls[0]` is `[state, questions, options]`. */
+function spiedGateway() {
+  const gateway = wordGateway()
+  return { ask: vi.spyOn(gateway, "ask"), gateway }
+}
+
+function forecast(gateway = wordGateway()) {
   return defineChoices({
-    gateway: wordGateway(calls),
+    gateway,
     groups: {
       chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] },
       supplier: { label: "Supplier", options: suppliers },
@@ -37,10 +43,34 @@ describe("defineChoices().resolve()", () => {
     expect(selection?.supplier.include).toEqual(["S2"])
   })
 
+  it("sets confidence to the probability of value, not the gateway's margin", async () => {
+    const [, selection] = await forecast().resolve("show bar for nord parts")
+    expect(selection?.chart).toMatchObject({ confidence: 0.8, value: "bar" })
+    expect(selection?.chart.ranked[0]).toEqual({ probability: 0.8, value: "bar" })
+  })
+
   it("returns an empty selection when the text names nothing but is supported", async () => {
     const [error, selection] = await forecast().resolve("something else")
     expect(error).toBeUndefined()
     expect(selection).toMatchObject({ chart: { value: null }, supplier: { exclude: [], include: [] } })
+  })
+
+  it("sets confidence to 0 when the model chooses \"(none)\"", async () => {
+    const [, selection] = await forecast().resolve("something else")
+    // The gateway is sure of "(none)", but "(none)" is not an option, so nothing has a probability to report.
+    expect(selection?.chart).toMatchObject({ confidence: 0, value: null })
+    expect(selection?.chart.ranked.map(item => item.value).sort()).toEqual(["bar", "line"])
+  })
+
+  it("sets confidence to 0 when the chosen option is below the threshold", async () => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] } },
+      thresholds: { option: 0.95 },
+    })
+    const [, selection] = await choices.resolve("bar")
+    expect(selection?.chart).toMatchObject({ confidence: 0, value: null })
+    expect(selection?.chart.ranked[0]).toEqual({ probability: 0.8, value: "bar" })
   })
 
   it("returns DECISIONS_R0004 when the model says the options cannot express the text", async () => {
@@ -60,32 +90,32 @@ describe("defineChoices().resolve()", () => {
   })
 
   it("passes context to option functions and the signal to the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const seen: unknown[] = []
     const options = async (context: { tenant: string }) => {
       seen.push(context)
       return [{ label: `${context.tenant} Mill`, value: context.tenant }]
     }
-    const choices = defineChoices({ gateway: wordGateway(calls), groups: { site: { label: "Site", options } } })
+    const choices = defineChoices({ gateway, groups: { site: { label: "Site", options } } })
     const controller = new AbortController()
     const [error, selection] = await choices.resolve("acme mill", { context: { tenant: "acme" }, signal: controller.signal })
     expect(error).toBeUndefined()
     expect(seen).toEqual([{ tenant: "acme" }])
     expect(selection?.site.include).toEqual(["acme"])
-    expect(calls[0]?.signal).toBe(controller.signal)
+    expect(ask.mock.calls[0]?.[2]?.signal).toBe(controller.signal)
   })
 
   it("sends one question per option of a multiple group, one per single group, and the supported check", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    await forecast(calls).resolve("bar")
-    expect(Object.keys(calls[0]!.questions).sort()).toEqual(["g0", "g1_o0", "g1_o1", "g1_o2", "supported"])
+    const { ask, gateway } = spiedGateway()
+    await forecast(gateway).resolve("bar")
+    expect(Object.keys(ask.mock.calls[0]![1]).sort()).toEqual(["g0", "g1_o0", "g1_o1", "g1_o2", "supported"])
   })
 
   it("adds top-level hints to every question, including the supported check", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const hints = "mtop means Make to order"
     const choices = defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: {
         chart: { label: "Chart", multiple: false, options: [{ label: "Bar", value: "bar" }] },
         strategy: { label: "Strategy", options: [{ label: "Make to order", value: "mto" }] },
@@ -100,7 +130,7 @@ describe("defineChoices().resolve()", () => {
       supported: { instructions: expect.stringContaining(hints) },
     })
     await choices.resolve("mtop")
-    expect(calls[0]?.questions).toEqual(plan?.questions)
+    expect(ask.mock.calls[0]?.[1]).toEqual(plan?.questions)
   })
 })
 
@@ -135,7 +165,8 @@ describe("defineChoices() with a model", () => {
 
     const [error, selection] = await inbox.resolve("the queue tab crashes")
     expect(error).toBeUndefined()
-    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.8, 5), value: "console" })
+    // The model says 0.9 for Console. The selection reports that probability, not the 0.8 margin over Docs.
+    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.9, 5), value: "console" })
     expect(JSON.stringify(prompts[0])).toContain("Console: Runs, queues, and logs.")
   })
 
@@ -153,9 +184,9 @@ describe("defineChoices() with infer", () => {
     { description: "Thai lessons and flash card decks.", label: "Thai", value: "thai" },
   ]
 
-  function router(calls: Parameters<typeof wordGateway>[0] = []) {
+  function router(gateway = wordGateway()) {
     return defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: { project: { infer: true, label: "Project", multiple: false, options: projects } },
       limits: { text: 2000 },
     })
@@ -169,44 +200,44 @@ describe("defineChoices() with infer", () => {
   })
 
   it("asks no supported check and offers no none answer", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    await router(calls).resolve("translate this")
-    expect(Object.keys(calls[0]!.questions)).toEqual(["g0"])
-    expect(calls[0]!.questions.g0).toMatchObject({
+    const { ask, gateway } = spiedGateway()
+    await router(gateway).resolve("translate this")
+    expect(Object.keys(ask.mock.calls[0]![1])).toEqual(["g0"])
+    expect(ask.mock.calls[0]![1].g0).toMatchObject({
       criteria: { "No project": projects[0]!.description, "Thai": projects[2]!.description, "ViteHub": projects[1]!.description },
       instructions: expect.stringContaining("does not have to name the option"),
     })
     // The description is sent once, in the criteria.
-    expect(JSON.stringify(calls[0]!.state)).not.toContain(projects[0]!.description)
-    expect(calls[0]!.state).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
+    expect(JSON.stringify(ask.mock.calls[0]![0])).not.toContain(projects[0]!.description)
+    expect(ask.mock.calls[0]![0]).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
   })
 
   it("keeps a weak guess out of value but ranks it", async () => {
     const [, selection] = await router().resolve("hello")
-    expect(selection?.project.value).toBeNull()
+    expect(selection?.project).toMatchObject({ confidence: 0, value: null })
     expect(selection?.project.ranked[0]).toEqual({ probability: 0.4, value: "scratch" })
   })
 
   it("answers a group with one option without the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const one = defineChoices({ gateway: wordGateway(calls), groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
+    const { ask, gateway } = spiedGateway()
+    const one = defineChoices({ gateway, groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
     const [error, selection] = await one.resolve("anything")
     expect(error).toBeUndefined()
     expect(selection?.project).toEqual({ confidence: 1, ranked: [{ probability: 1, value: "vitehub" }], value: "vitehub" })
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
   })
 
   it("still checks the groups that do not infer", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const mixed = defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: {
         project: { infer: true, label: "Project", multiple: false, options: projects },
         supplier: { label: "Supplier", options: suppliers },
       },
     })
     expect((await mixed.resolve("unsupported thai"))[0]?.code).toBe("DECISIONS_R0004")
-    const supported = JSON.stringify(calls[0]!.questions.supported)
+    const supported = JSON.stringify(ask.mock.calls[0]![1].supported)
     expect(supported).toContain("Judge only the \\\"Supplier\\\" group. Ignore every group with infer: true.")
     expect(supported).toContain("Also true when the text sets no constraint for these groups.")
     expect(supported).not.toContain("names no option at all")
@@ -217,13 +248,72 @@ describe("defineChoices() with infer", () => {
   })
 })
 
+describe("defineChoices().resolve() onUsage", () => {
+  /** A TypeSafe API that answers every question it gets: "none" for a choice that has it, else the first label. */
+  function jevFetch() {
+    return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const { questions } = JSON.parse(String(init?.body)) as { questions: Record<string, { criteria?: Record<string, unknown>, type: string }> }
+      const answers = Object.fromEntries(Object.entries(questions).map(([name, question]) => {
+        if (question.type === "noul") return [name, { noul: 0.9, type: "noul" }]
+        const labels = Object.keys(question.criteria ?? {})
+        const choice = labels.includes("none") ? "none" : labels[0]!
+        return [name, { choice, confidence: 1, probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? 1 : 0])), type: "choice" }]
+      }))
+      return Response.json({ answers, model: "jev-1.14", usage: { input_tokens: 100, output_tokens: 0 } })
+    })
+  }
+
+  it("reports the usage of each Jev batch", async () => {
+    const fetch = jevFetch()
+    const options = Array.from({ length: 100 }, (_, index) => ({ label: `Supplier ${index}`, value: index }))
+    const choices = defineChoices({ gateway: typesafe({ apiKey: "ts-key", fetch }), groups: { supplier: { label: "Supplier", options } } })
+    const onUsage = vi.fn()
+    const [error] = await choices.resolve("supplier 7", { onUsage })
+    expect(error).toBeUndefined()
+    // 100 options of a multiple group are 101 questions, more than one 60 KB request.
+    const sent = fetch.mock.calls.map(([, init]) => Object.keys(JSON.parse(String(init?.body)).questions).length)
+    expect(sent.reduce((sum, count) => sum + count, 0)).toBe(101)
+    expect(sent.length).toBeGreaterThan(1)
+    expect(onUsage).toHaveBeenCalledTimes(sent.length)
+    expect(onUsage).toHaveBeenCalledWith({ model: "jev-1.14", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 0, totalTokens: 100 } })
+  })
+
+  it("leaves onUsage out of the gateway options when resolve() gets none", async () => {
+    const { ask: answer } = wordGateway()
+    const recordOptions = vi.fn<(options: Parameters<typeof answer>[2]) => void>()
+    const ask: typeof answer = (state, questions, options) => {
+      recordOptions(options)
+      return answer(state, questions, options)
+    }
+    const choices = defineChoices({ gateway: { ask }, groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } } })
+    const [error] = await choices.resolve("line")
+    expect(error).toBeUndefined()
+    expect(recordOptions).toHaveBeenCalledTimes(1)
+    expect(recordOptions.mock.calls[0]![0]).not.toHaveProperty("onUsage")
+  })
+
+  it("does not report usage when no question is asked", async () => {
+    const fetch = jevFetch()
+    const choices = defineChoices({
+      gateway: typesafe({ apiKey: "ts-key", fetch }),
+      groups: { project: { infer: true, label: "Project", multiple: false, options: [{ label: "ViteHub", value: "vitehub" }] } },
+    })
+    const onUsage = vi.fn()
+    const [error, selection] = await choices.resolve("the console crashes", { onUsage })
+    expect(error).toBeUndefined()
+    expect(selection?.project.value).toBe("vitehub")
+    expect(fetch).not.toHaveBeenCalled()
+    expect(onUsage).not.toHaveBeenCalled()
+  })
+})
+
 describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0003 for empty and too long text, and asks nothing", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const choices = forecast(calls)
+    const { ask, gateway } = spiedGateway()
+    const choices = forecast(gateway)
     expect((await choices.resolve("   "))[0]?.code).toBe("DECISIONS_R0003")
     expect((await choices.resolve("x".repeat(301)))[0]?.code).toBe("DECISIONS_R0003")
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
   })
 
   it("returns DECISIONS_R0002 over the limits and for duplicate values", async () => {
@@ -326,10 +416,10 @@ describe("defineChoices() errors", () => {
 
 describe("defineChoices().inspect()", () => {
   it("returns the state and questions without calling the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const [error, plan] = await forecast(calls).inspect("nord parts")
+    const { ask, gateway } = spiedGateway()
+    const [error, plan] = await forecast(gateway).inspect("nord parts")
     expect(error).toBeUndefined()
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
     expect(plan?.state.query).toBe("nord parts")
     expect(plan?.state.groups.map(group => group.label)).toEqual(["Chart", "Supplier"])
     expect(Object.keys(plan?.questions ?? {})).toContain("supported")

@@ -153,7 +153,6 @@ describe("documentation tutorials", () => {
 
   it("keeps the Choices tutorial on its fixture", async () => {
     await expectPageToUseFixture("content/docs/choices/get-started.md", "choices", [
-      "server/utils/word-gateway.ts",
       "server/utils/forecast-choices.ts",
       "server/api/choices.post.ts",
       "vite.config.ts",

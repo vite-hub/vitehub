@@ -309,11 +309,33 @@ function readReturnedObject(callback: Expression): ObjectExpression | undefined 
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
+/** The value of a top-level `const name = value`, exported or not. */
+function topLevelConstValue(module: ScannedModule, name: string): Expression | undefined {
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.id.name === name) return declarator.init ? unwrapExpression(declarator.init) : undefined
+    }
+  }
+}
+
+/**
+ * The exported `defineAuth()` call: `export default defineAuth(...)`, or `export default auth` after a top-level
+ * `const auth: AuthDefinition<...> = defineAuth(...)`. A composite TypeScript project needs that annotation when it
+ * cannot write the inferred type of the Definition (TS7056), as with the Better Auth `apiKey()` plugin.
+ */
+function exportedDefineAuthCall(module: ScannedModule): CallExpression | undefined {
+  const exported = defaultExportExpression(module)
+  const call = exported?.type === "Identifier" ? topLevelConstValue(module, exported.name) : exported
+  return call?.type === "CallExpression" && call.callee.type === "Identifier" && call.callee.name === "defineAuth" ? call : undefined
+}
+
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const authDatabase = readAuthDatabaseImports(module)
-  const call = defaultExportExpression(module)
-  if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
+  const call = exportedDefineAuthCall(module)
+  if (!call) return
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
