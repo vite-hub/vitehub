@@ -137,8 +137,9 @@ After you turn on Database, generate the first migration with
 | Realtime | Each instance keeps its rooms in memory and shares them through Redis pub/sub with `REDIS_URL`, else Postgres `LISTEN`/`NOTIFY` | `REDIS_URL`, `REALTIME_POSTGRES_URL` |
 | Blob | Not shared by default. Use `driver: 's3'` or another [S3-compatible driver](/docs/blob/hosts#s3-compatible-object-storage) | The driver's credentials |
 
-Queue, Realtime, and Workflow do not read `DATABASE_URL` themselves. They use
-the connection of the Default Database, whatever variable its Definition reads.
+Queue, Realtime, and Workflow do not use `DATABASE_URL` to select Postgres.
+They can use the connection of the Default Database, whatever variable its
+Definition reads.
 
 Share a Postgres database among the instances of one deployment, not across
 apps or environments. For example, give staging and production separate
@@ -461,8 +462,11 @@ address. For Auth, set
 - Without a Postgres Default Database or other shared stores, KV uses `fs-lite`
   and Rate Limit counters that use KV are local too. Realtime rooms stay in
   memory, Queue keeps job files on one host, each instance runs every Schedule
-  occurrence, and Workflow keeps runs in a SQLite file. A `DATABASE_URL` alone
-  does not change this.
+  occurrence, and Workflow normally keeps runs in a SQLite file. If
+  `DATABASE_URL` contains a Postgres URL but no Workflow store is selected,
+  OpenWorkflow reports `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` instead of
+  falling back to SQLite. Set a Postgres Default Database or
+  `OPENWORKFLOW_POSTGRES_URL` to share Workflow runs.
 - Queue `concurrency` counts the jobs of one process.
 - With the default config above, `vite dev` keeps KV, Queue, Realtime, and
   Workflow state on your computer and does not migrate the Database on start.
