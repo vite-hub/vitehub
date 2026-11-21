@@ -87,6 +87,8 @@ export interface SyncPullResponse {
    * The client keeps such writes for when that account comes back.
    */
   account: string
+  /** The ViteHub Auth fingerprint when the definition chooses its own Sync account; `null` for a signed-out caller. */
+  authAccount?: string | null
   /**
    * A fingerprint of the table: its name, key and columns. It changes when the table changes, and the client then
    * drops the rows that it stored (the server also answers with a full snapshot).

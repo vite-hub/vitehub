@@ -243,6 +243,8 @@ A reply takes a `requestId` too. A second reply with the same `requestId` in the
 
 `createCommentsClient({ ..., outbox: { account } })` saves each new comment and reply in IndexedDB before it sends. Drafts show with `delivery: { status: "pending" }` and survive a reload. The outbox checks the author on each write and stores progress so another tab can resume. See [Write comments offline](https://vitehub.dev/docs/comments/offline).
 
+If a comment write gets no answer, retry it to recover the server copy. A later refusal does not make the draft safe to edit or dismiss. A lost upload or thread lookup answer does not lock the draft on its own.
+
 Without an explicit query `limit`, refresh loads every page. Multi-page refreshes require two matching scans before replacing the cache. If three scans cannot agree because the list keeps changing, refresh raises `COMMENTS_R0015` and preserves the previous cache; refresh again to retry. An explicit `limit` makes one request.
 
 ### Transport

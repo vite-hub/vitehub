@@ -25,6 +25,10 @@ if (packageDirectory) {
 }
 
 export default defineConfig({
+  // Root contracts import files from apps whose tsconfig extends a generated file, such as
+  // docs/tsconfig.json and docs/.nuxt/tsconfig.json. Compile every file with the root tsconfig so the
+  // contracts run in a fresh checkout before the docs are prepared.
+  tsconfig: "tsconfig.json",
   test: {
     environment: "node",
     include: testLayerIncludes.contracts,

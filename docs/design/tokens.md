@@ -74,4 +74,4 @@ Geist for text, Geist Mono for code, paths, package names, environment variables
 
 ## Motion
 
-Menus, popovers, and tooltips appear at once. Buttons scale to 97% on press. Anything else animates only `transform` and `opacity`, at 150ms to 200ms `ease-out`, and stops under `prefers-reduced-motion`.
+[Motion](motion.md) has the rules and the effect for each component. In short: springs move things, the pressed thing gives, labels change letter by letter, and menus, popovers, and dialogs still open at once.

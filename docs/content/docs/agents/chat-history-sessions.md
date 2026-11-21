@@ -103,8 +103,10 @@ that only looks similar, or a header later in the answer, stays.
 
 ## Send recent history photos
 
-History messages keep their text, but their attachments are not sent by
-default. Set `maxImages` to send the newest history photos again:
+History messages keep their text. Codex and Claude Code Drivers also get the
+4 newest history photos again, because they read images. Other Drivers get no
+history photos, because ViteHub cannot tell whether their model reads images.
+Set `maxImages` to change the number, or `0` to send none:
 
 ```ts [server/utils/meal-chat.ts]
 import { chat } from 'vite-hub/agent/capabilities'
@@ -213,7 +215,8 @@ order, retention, and deletion.
 | Host output | Default Agent State |
 | --- | --- |
 | Cloudflare | The generated Durable Object binding, also for Channel handlers that generated Workflows call. An explicit state provider wins. A state configuration with only `url` keeps automatic libSQL selection. |
-| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. |
+| Other production output | None. Set a durable `VITEHUB_AGENT_STATE_URL` or an explicit Agent State provider URL before stateful traffic. A Vercel or Netlify build warns if State needs a URL and the variable is not visible to the build. This does not check the deployed function's environment. If the function also lacks the URL, State fails with `AGENT_R0893`. On Netlify, use the Functions scope for the target deploy context. |
+| `vite dev` | Local SQLite at `.vitehub/data/agent-state.sqlite`. On Nitro's `miniflare` dev runner, which cannot open files, none: conversations stay in memory, and queued Channel tasks and triggers are off. |
 
 Cloudflare, Vercel, and Netlify production output reject `file:` URLs, because
 their filesystems are temporary.
