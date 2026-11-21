@@ -52,7 +52,8 @@ async function defaultResolveViteConfig(
   const nitro = createCliDiscoveryNitroCloser()
   try {
     const { root, ...rest } = inlineConfig
-    const config = root && inlineConfig.configFile === undefined ? { ...rest, ...viteCliProjectConfig(root) } : inlineConfig
+    const project = root && inlineConfig.configFile === undefined ? viteCliProjectConfig(root) : undefined
+    const config: InlineConfig = project ? { ...rest, ...project, plugins: [...rest.plugins ?? [], ...project.plugins] } : inlineConfig
     return await resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, command, mode)
   }
   finally {
