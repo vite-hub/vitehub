@@ -84,6 +84,8 @@ export default defineConfig({
 
 `cloudflare` and `upstash` stores also accept `remote`. Builds ignore it.
 
+A store takes only the keys in its row. Another key fails with `KV_UNKNOWN_STORE_OPTION`, also when a variable or another file builds the config, where TypeScript does not check it. For example, `kv: { binding: 'KV' }` without `driver` fails, because the inferred store would ignore `binding`. Set `driver: 'cloudflare'` to use it.
+
 ## Providers
 
 | Provider | Driver | Default resolution in a build |

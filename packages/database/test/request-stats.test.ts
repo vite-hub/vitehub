@@ -12,7 +12,7 @@ import {
 
 function requestWithLogger() {
   const set = vi.fn()
-  return { event: { req: { context: { log: { set } } } }, set }
+  return { event: { req: { context: { log: { set, warn: vi.fn(), error: vi.fn() } } } }, set }
 }
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))

@@ -53,11 +53,13 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/forms": "workspace:*",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
