@@ -159,6 +159,20 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ store, stores }: { store: string, stores?: string }) => stores ? `KV store "${store}" was not found. Stores: ${stores}.` : `The KV store "${store}" is not configured.`,
       fix: "Add the store under `kv.stores`, or use the name of a configured store.",
     },
+    KV_UNKNOWN_STORE_OPTION: {
+      why: ({ driver, key, path, stores }: { drivers: readonly string[], driver?: string, key: string, path: string, stores?: true }) => stores
+        ? `\`${path}\` has \`stores\`, so it takes no other key, and it has \`${key}\`.`
+        : driver
+          ? `\`${path}.${key}\` is not an option of the \`${driver}\` KV driver.`
+          : `\`${path}.${key}\` is not an option of a KV store without \`driver\`. ViteHub picks the driver from the host and would ignore it.`,
+      fix: ({ drivers, driver, key, stores }: { drivers: readonly string[], driver?: string, key: string, path: string, stores?: true }) => stores
+        ? `Move \`${key}\` into a store under \`stores\`, for example \`stores: { default: { driver: "fs-lite" } }\`.`
+        : drivers.length && !driver
+          ? `Set \`driver\` to ${drivers.map(name => `"${name}"`).join(" or ")}, which reads \`${key}\`. ViteHub renamed some drivers, so run \`npx @vite-hub/codemods driver-key\` when the config had an old driver name.`
+          : drivers.length
+            ? `Remove \`${key}\`, or set \`driver\` to ${drivers.map(name => `"${name}"`).join(" or ")}, which reads it.`
+            : `Remove \`${key}\`. A KV store takes \`driver\`, \`remote\`, and the options of its driver.`,
+    },
 
     // Provider and tool errors.
     KV_INVALID_COUNTER: {

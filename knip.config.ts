@@ -148,6 +148,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
     ignoreBinaries: ["ffmpeg", "ffprobe"],
+    ignoreUnresolved: ["/@uploads-today"],
     ignoreDependencies: [
       "nuxt-nightly",
       "@shikijs/langs",

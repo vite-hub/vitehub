@@ -88,8 +88,6 @@ type Wave = "W2" | "W3" | "W4" | "W5"
  * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
  */
 const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W4: the Progress helper replaces the upload bar.
-  "packages/vite-hub/src/console/runtime/components/console-media-uploads.vue": { count: 1, wave: "W4" },
   // W5: the docs site and @vite-hub/docs.
   "docs/app/assets/main.css": { count: 2, wave: "W5" },
   "docs/app/components/content/HeroFigure.vue": { count: 2, wave: "W5" },

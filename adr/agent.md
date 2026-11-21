@@ -21,3 +21,13 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Use GitHub's repository spelling, the webhook thread, and the same queue slot for both paths. Use the server send's admission time when applying later branch events. Reattach finish effects when preparing the admitted input because they are not stored in the queue delivery.
 
 **Consequences:** The two paths serialize, and a queued server send still follows the pull request's close and head-move behavior.
+
+## The State key migration opens a plain libSQL client
+
+`agent-state-cli.ts` in `packages/agent/src/internal`.
+
+**Context:** Opening the State adapter migrates the schema, deletes expired rows, and sets the journal mode.
+
+**Decision:** `vitehub agent state migrate` opens a plain libSQL client, not the State adapter.
+
+**Consequences:** A dry run leaves the database as it is.

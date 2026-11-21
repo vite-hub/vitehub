@@ -431,3 +431,13 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Inject a virtual module with prerender true; skip it for deno-kv.
 
 **Consequences:** The prerender build cannot resolve #vitehub/kv/config or tries Workers/Deno bindings from Node.
+
+## KV throws for every unknown store key
+
+`assertKnownKVStoreKeys` in `packages/kv/src/config.ts`.
+
+**Context:** A config object that a variable or another file builds skips TypeScript's check of unknown keys.
+
+**Decision:** Throw `KV_UNKNOWN_STORE_OPTION` for every key that is not `driver`, `remote`, or an option of the store's driver. An option set to `undefined` counts as omitted.
+
+**Consequences:** A store without `driver` would silently ignore a driver option, such as `binding` of a Cloudflare store.

@@ -20,6 +20,7 @@ import { createViteHubUI } from "../../../src/config.ts";
 import { defineMotionEffect, forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
 import { textRows } from "./text.ts";
+import { togetherRows } from "./together.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
 const inverted = new URLSearchParams(location.search).has("inverted");
@@ -300,6 +301,7 @@ const app = createApp({
       ]),
     ]),
     ...dragRows(),
+    ...togetherRows(row),
   ]),
 });
 const { default: ui } = await import("@nuxt/ui/vue-plugin");

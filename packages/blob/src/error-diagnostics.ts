@@ -109,6 +109,16 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ maxFiles }: { maxFiles: number }) => `\`maxFiles\` of \`handleUpload()\` is ${maxFiles}. It must be a positive integer.`,
       fix: "Pass `maxFiles` as a whole number of 1 or more, such as `blob.handleUpload(event, { maxFiles: 5 })`, or omit it to accept any number of files.",
     },
+    BLOB_UNKNOWN_STORE_OPTION: {
+      why: ({ driver, key, path }: { drivers: readonly string[], driver?: string, key: string, path: string }) => driver
+        ? `\`${path}.${key}\` is not an option of the \`${driver}\` Blob driver.`
+        : `\`${path}.${key}\` is not an option of a Blob store without \`driver\`. ViteHub picks the driver from the host and would ignore it.`,
+      fix: ({ drivers, driver, key }: { drivers: readonly string[], driver?: string, key: string, path: string }) => drivers.length && !driver
+        ? `Set \`driver\` to ${drivers.map(name => `"${name}"`).join(" or ")}, which reads \`${key}\`. ViteHub renamed some drivers, so run \`npx @vite-hub/codemods driver-key\` when the config had an old driver name.`
+        : drivers.length
+          ? `Remove \`${key}\`, or set \`driver\` to ${drivers.map(name => `"${name}"`).join(" or ")}, which reads it.`
+          : `Remove \`${key}\`. A Blob store takes \`driver\`, \`remote\`, and the options of its driver. The top-level \`blob\` object also takes \`serve\`, \`images\`, and \`stores\`.`,
+    },
     // Published numbered errors.
     BLOB_R0027: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_C0001: {

@@ -16,6 +16,7 @@ import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { agentDevLoopDiscoveryFetch, isCompatibleAgentDevServerRoot } from "./internal/agent-dev-loop-cli.ts"
 import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
+import { runAgentStateCli } from "./internal/agent-state-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { conversationsExportUsage, runConversationsExportCli } from "./internal/conversations-cli.ts"
@@ -1314,6 +1315,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
       usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [--url <url>] [--json]",
+    },
+    {
+      description: "Move Chat State keys that an explicit `messages.state` wrote without a scope to their Channel scope.",
+      name: "state",
+      run: async (args, context) => await runAgentStateCli(args, context),
+      usage: "vitehub agent state migrate --agent <name> --channel <adapter>[=<channel>]... [--url <libsql-url>] [--apply]",
     },
   ]
   if (evalFiles.length) {

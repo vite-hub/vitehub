@@ -562,3 +562,48 @@ describe("renamed KV drivers", () => {
     }))
   })
 })
+
+describe("unknown KV store options", () => {
+  const hostProfile = { binding: "STRATA_KV", namespaceId: "4f701e72f4414181b2a760cbb798fa8d" }
+
+  it("throws for a driver option of a store without driver, and names the driver that reads it", () => {
+    // SAFETY: An app config without types, or one that a cast widens, passes a key that the inferred store does not read.
+    expect(() => normalizeKVOptions(hostProfile as never, { env: {}, hosting: "cloudflare" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      fix: expect.stringContaining("Set `driver` to \"cloudflare\", which reads `binding`."),
+      why: "`kv.binding` is not an option of a KV store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+    expect(normalizeKVOptions({ driver: "cloudflare", ...hostProfile }, { env: {}, hosting: "cloudflare" })?.store).toMatchObject(hostProfile)
+  })
+
+  it("throws for an option of another driver and for a key that no driver reads", () => {
+    expect(() => normalizeKVOptions({ driver: "fs-lite", url: "redis://localhost:6379" } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      fix: "Remove `url`, or set `driver` to \"redis\" or \"upstash\", which reads it.",
+      why: "`kv.url` is not an option of the `fs-lite` KV driver.",
+    }))
+    expect(() => normalizeKVOptions({ stores: { default: { driver: "cloudflare", ttl: 60 } } } as never, { env: {}, hosting: "cloudflare" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      why: "`kv.stores.default.ttl` is not an option of the `cloudflare` KV driver.",
+    }))
+    expect(() => normalizeKVOptions({ driver: "fs-lite", stores: { default: { driver: "fs-lite" } } } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      why: "`kv` has `stores`, so it takes no other key, and it has `driver`.",
+    }))
+  })
+
+  it("accepts every documented option of each driver", () => {
+    const env = { KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://upstash.example" }
+    expect(() => normalizeKVOptions({
+      stores: {
+        default: { driver: "cloudflare", binding: "KV", namespaceId: "id", namespaceName: "app", remote: false },
+        database: { driver: "database", database: "default" },
+        deno: { driver: "deno-kv", path: "./kv.sqlite", remote: false },
+        fs: { driver: "fs-lite", base: ".data/kv", remote: false },
+        redis: { driver: "redis", base: "app", url: "env:REDIS_URL" },
+        upstash: { driver: "upstash", base: "app", remote: true, token: "token", url: "https://upstash.example" },
+      },
+    }, { env, hosting: "" })).not.toThrow()
+    expect(() => normalizeKVOptions({ remote: true }, { env, hosting: "vercel" })).not.toThrow()
+  })
+})

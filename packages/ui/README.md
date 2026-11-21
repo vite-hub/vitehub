@@ -304,6 +304,23 @@ document.body.append(host);
 const uninstall = installMotion(host.attachShadow({ mode: "open" }));
 ```
 
+Four parts move with the helpers of the motion layer, for events that only the component knows:
+
+- `MotionList` replaces `<TransitionGroup>`. Render keyed items in its slot: neighbors spring to their new place, a new item grows from `origin` (the row it duplicates) or from its slot, and a removed item folds away.
+- `Progress` shows work that runs: `value` from 0 to 1 fills the bar with a head, `null` shows a wave while the total is not known, and `done` draws a dot into a check. It has `role="progressbar"` and `aria-valuenow`.
+- `DropField` is a label around a file input. The dots behind its text lean toward a dragged file. A click and the keyboard open the file picker. It emits `files`.
+- `HoldToDelete` is a button that deletes when it is held. It emits `delete` (hide the item), shows Undo for `undoFor` ms (emits `undo`), and only then calls `commit`. Unmounting it during the Undo window commits. A click from a screen reader asks `confirm` first.
+
+```vue
+<MotionList tag="ul">
+  <li v-for="file in files" :key="file.id">{{ file.name }}</li>
+</MotionList>
+<Progress :value="upload.progress" :done="upload.done" label="Upload cover.png" />
+<HoldToDelete :commit="() => removeFile(file.id)" @delete="hidden = true" @undo="hidden = false" />
+```
+
+Without Vue, `createMotionList`, `createProgress`, `createDropField`, and `createHoldToDelete` from `@vite-hub/ui/motion` do the same on any element.
+
 ### Labels, icons, counts, and rings
 
 The layer also morphs what changes with state. When the label of a `UButton` changes, such as `:label="loading ? 'Publishing' : 'Publish'"`, its letters change one at a time and the button's width follows with a spring. When Vue draws another icon into the button's leading or trailing icon, such as the spinner of `loading`, the old icon blurs out and the spinner draws its stroke in. The app only changes the label and the icon. With `@nuxt/icon` in CSS mode an icon is a class, which the layer does not watch, so the icon changes at once there; use `SwapIcon` in the button's `leading` slot.

@@ -5,6 +5,10 @@ import { detectStyle, end, keyName, line, parseProgram, quoteString, start, walk
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { importedConfigOptions, optionsAt } from "../shared/config-imports.ts"
+import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { findConfigRoot } from "../vitehub-options/transform.ts"
+
 import type { File, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
@@ -74,6 +78,7 @@ interface FileContext {
   output: MagicString
   style: CodeStyle
   changed: boolean
+  rewritten: Set<ObjectExpression>
 }
 
 function isKeyFeature(feature: string): feature is KeyFeature {
@@ -148,17 +153,31 @@ function renameKey(context: FileContext, property: ObjectProperty) {
   context.changed = true
 }
 
-function renameValue(context: FileContext, property: ObjectProperty, values: Readonly<Record<string, string>>, label: string) {
-  const value = property.value
+function unwrapSafeValue(node: Node): Node {
+  let value = node
+  while (value.type === "ParenthesizedExpression" || value.type === "TSNonNullExpression" || (
+    (value.type === "TSAsExpression" || value.type === "TSTypeAssertion")
+    && value.typeAnnotation.type === "TSTypeReference" && value.typeAnnotation.typeName.type === "Identifier" && value.typeAnnotation.typeName.name === "const"
+  )) value = value.expression
+  return value
+}
+
+function renameValue(context: FileContext, property: ObjectProperty, values: Readonly<Record<string, string>>, label: string): boolean {
+  const value = unwrapExpression(property.value)
   if (value.type === "StringLiteral") {
     const next = Object.hasOwn(values, value.value) ? values[value.value] : undefined
-    if (!next) return
+    if (!next) return true
+    if (unwrapSafeValue(property.value) !== value) {
+      context.followUps.push({ file: context.file, line: line(property), message: `\`${label}\` has an explicit type constraint. Update "${value.value}" to "${next}" and update the constraint by hand.` })
+      return false
+    }
     context.output.overwrite(start(value), end(value), quoteString(next, context.style))
     context.changed = true
-    return
+    return true
   }
   const renamed = Object.entries(values).map(([from, to]) => `"${from}" is now "${to}"`).join(", ")
   context.followUps.push({ file: context.file, line: line(property), message: `\`${label}\` is not a string literal. Check its value: ${renamed}.` })
+  return false
 }
 
 /** Rewrites the options object of one feature: the old key becomes `driver`, and old driver values get the new name. */
@@ -191,10 +210,10 @@ function rewriteFeature(context: FileContext, feature: Feature | "browser", obje
 function rewriteWorkspaceStore(context: FileContext, object: ObjectExpression) {
   const properties = objectProperties(object)
   const provider = properties.find(entry => propertyName(entry) === "provider")
-  if (!provider || provider.value.type !== "StringLiteral" || !workspaceStoreDrivers.has(provider.value.value)) return
+  const providerValue = provider && unwrapExpression(provider.value)
+  if (!provider || providerValue?.type !== "StringLiteral" || !workspaceStoreDrivers.has(providerValue.value)) return
   if (properties.some(entry => propertyName(entry) === "driver")) return
-  renameKey(context, provider)
-  renameValue(context, provider, renamedValues.store, "store.driver")
+  if (renameValue(context, provider, renamedValues.store, "store.driver")) renameKey(context, provider)
 }
 
 function rewriteWorkspace(context: FileContext, object: ObjectExpression) {
@@ -204,6 +223,8 @@ function rewriteWorkspace(context: FileContext, object: ObjectExpression) {
 }
 
 function rewriteConfig(context: FileContext, object: ObjectExpression, resolveApi: ReturnType<typeof resolveApis>) {
+  if (context.rewritten.has(object)) return
+  context.rewritten.add(object)
   for (const property of objectProperties(object)) {
     const name = propertyName(property)
     if (name === "modules" && property.value.type === "ArrayExpression") {
@@ -250,8 +271,9 @@ function rewriteProgram(context: FileContext, program: File) {
 
 async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { reportParseErrors: true }): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
+  const imported = importedConfigOptions(cwd, files.filter(file => configFile.test(basename(file))), (program, file) => findConfigRoot(program, [], file))
   const edits: FileEdit[] = []
-  const followUps: FollowUp[] = []
+  const followUps = imported.followUps
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
@@ -264,8 +286,13 @@ async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { report
       if (reportParseErrors) followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Rename its backend keys to \`driver\` by hand.` })
       continue
     }
-    const context: FileContext = { changed: false, file, followUps, output: new MagicString(source), style: detectStyle(source, program) }
+    const context: FileContext = { changed: false, file, followUps, output: new MagicString(source), rewritten: new Set(), style: detectStyle(source, program) }
     rewriteProgram(context, program)
+    const positions = imported.options.get(file)
+    if (positions) {
+      const resolveApi = resolveApis(program)
+      for (const options of optionsAt(program, positions)) rewriteConfig(context, options, resolveApi)
+    }
     if (context.changed) edits.push({ path: file, before: source, after: context.output.toString() })
   }
 
@@ -273,7 +300,7 @@ async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { report
     summary: edits.length ? `renamed the backend keys and driver values of ${edits.length} file(s) to \`driver\`` : "found no backend key to rename",
     edits,
     followUps,
-    notes: edits.length ? ["Config that a variable or a helper function builds is not rewritten. Search for `provider` and `authority` next to `queue`, `workflow`, `rateLimit`, `realtime`, `sandboxTask`, and Workspace `store` options."] : [],
+    notes: edits.length ? ["Config that a variable or a helper function builds is not rewritten, except a `vitehub: { ... }` object in a file that a config file imports. Search for `provider` and `authority` next to `queue`, `workflow`, `rateLimit`, `realtime`, `sandboxTask`, and Workspace `store` options."] : [],
     nextSteps: edits.length ? ["Run your typecheck. The option types reject the old keys and values."] : [],
   }
 }

@@ -114,13 +114,14 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
   return path ? { driver: "deno-kv", path } : { driver: "deno-kv" }
 }
 
-function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, input: KVResolutionInput): ResolvedKVStoreConfig {
+function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, input: KVResolutionInput, path: string): ResolvedKVStoreConfig {
   const remote = readRemote(store, name)
   const { driver } = store
   if (input.dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
   const resolved = resolveStoreDriver(store, env, name)
+  assertKnownKVStoreKeys(store, store.driver, path)
   return resolveStoreMode(resolved, remote, input)
 }
 
@@ -138,6 +139,23 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
       throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedKVDrivers.get(String(driver)) })
     }
   }
+}
+
+const kvDriverOptions: Record<KVStoreConfig["driver"], readonly string[]> = {
+  "cloudflare": ["binding", "namespaceId", "namespaceName"],
+  "database": ["database"],
+  "deno-kv": ["path"],
+  "fs-lite": ["base"],
+  "redis": ["base", "url"],
+  "upstash": ["base", "token", "url"],
+}
+
+function assertKnownKVStoreKeys(store: object, driver: KVStoreConfig["driver"] | undefined, path: string): void {
+  const known = new Set(["driver", "remote", ...driver ? kvDriverOptions[driver] : []])
+  const key = Object.keys(store).find(name => !known.has(name) && Reflect.get(store, name) !== undefined)
+  if (key === undefined) return
+  const drivers = (Object.keys(kvDriverOptions) as KVStoreConfig["driver"][]).filter(name => kvDriverOptions[name].includes(key))
+  throw kvErrorDiagnostics.KV_UNKNOWN_STORE_OPTION({ drivers, driver, key, path })
 }
 
 const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
@@ -172,15 +190,18 @@ export function normalizeKVOptions(
   }
 
   if (hasStoresConfig(options, stores)) {
+    const extra = Object.entries(options ?? {}).find(([key, value]) => key !== "stores" && value !== undefined)?.[0]
+    if (extra !== undefined) throw kvErrorDiagnostics.KV_UNKNOWN_STORE_OPTION({ drivers: [], key: extra, path: "kv", stores: true })
     const resolvedStores = Object.fromEntries(
-      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input, `kv.stores.${name}`)]),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 
-  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input))
+  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input, "kv"))
+  if (explicit) assertKnownKVStoreKeys(explicit, undefined, "kv")
   const remote = explicit ? readRemote(explicit, "default") : undefined
   const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(resolveStoreMode(store, remote, input))
   const hosted = !input.prerender && (!input.dev || remote === true)

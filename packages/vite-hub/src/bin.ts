@@ -21,6 +21,12 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
       const stateUrl = await readAgentJournalStateUrl(context.rootDir, context.env)
       return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
     },
+  }, {
+    name: "state",
+    run: async (args, context) => {
+      const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-state-cli")), "agent")
+      return cli.runAgentStateCli(args, context)
+    },
   }],
   name: "agent",
 }
@@ -62,7 +68,7 @@ runViteHubCliEntrypoint({
   },
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
-    if (namespace !== "agent" || feature !== "invocations") return true
+    if (namespace !== "agent" || (feature !== "invocations" && feature !== "state")) return true
     const { isAgentCliEnabled } = await import("./internal/runtime-feature-guard.ts")
     return isAgentCliEnabled(cwd)
   },

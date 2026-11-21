@@ -82,6 +82,7 @@ export default defineConfig({
       "src/invocations/index.ts",
       // `vitehub agent invocations` loads only this entry, so it runs where `vite` is not installed.
       "src/internal/agent-invocations-cli.ts",
+      "src/internal/agent-state-cli.ts",
       "src/internal/default-invocations.ts",
       "src/internal/default-invocations-core.ts",
       "src/internal/default-invocations-libsql.ts",
