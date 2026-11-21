@@ -457,8 +457,11 @@ Give it a client from `createCommentSend()`. The client is the state, and the tr
 import { createCommentSend, type CommentSendTransport } from "vite-hub/comments/client";
 
 // Successful Send routes return JSON in the shape that the transport method returns.
-const api = async <T>(path: string, method = "GET"): Promise<T> => {
-  const response = await fetch(`/api/send${path}`, { method });
+const api = async <T>(path: string, method = "GET", body?: object): Promise<T> => {
+  const response = await fetch(`/api/send${path}`, {
+    method,
+    ...(body && { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  });
   if (!response.ok) throw new Error(`Send request failed (${response.status})`);
   return response.json();
 };
@@ -467,7 +470,7 @@ const transport: CommentSendTransport = {
   status: () => api("/status"),
   startPairing: () => api("/pair", "POST"),
   pollPairing: code => api(`/pair/${code}`),
-  allow: code => api(`/pair/${code}/allow`, "POST"),
+  allow: (code, selection) => api(`/pair/${code}/allow`, "POST", { selection }),
   cancel: async (code) => {
     const response = await fetch(`/api/send/pair/${code}`, { method: "DELETE" });
     if (!response.ok) throw new Error(`Cancel request failed (${response.status})`);

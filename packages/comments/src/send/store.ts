@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm"
 
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { commentSends } from "./database.ts"
@@ -13,6 +13,8 @@ export interface SentThread {
   id: string
   message: string
   role: "ask" | "quote"
+  attempt?: number
+  reopened?: boolean
 }
 
 /** The sends of one member, or of one subject, in the Database of Comments. */
@@ -22,7 +24,7 @@ export interface CommentSendStore {
   /** The latest send of a member with this key, among `states`. */
   sendByKey: (member: string, key: string, states: readonly CommentSendState[]) => Promise<SendRow | undefined>
   /** The latest sends among `states`, of one member, one subject, or both, newest first. */
-  listSends: (filter: { member?: string, subject?: { kind: string, id: string }, states: readonly CommentSendState[] }, limit: number) => Promise<SendRow[]>
+  listSends: (filter: { member?: string, subject?: { kind: string, id: string }, states: readonly CommentSendState[] }, limit: number, before?: Pick<SendRow, "createdAt" | "id">) => Promise<SendRow[]>
   /** The latest send of a member on a subject, newest first. */
   latestSend: (member: string, subject?: { kind: string, id: string }, states?: readonly CommentSendState[]) => Promise<SendRow | undefined>
   /** The thread link of the latest send of a member to `endpoint`, or `null`. */
@@ -30,6 +32,7 @@ export interface CommentSendStore {
   /** The times of the sends of a member since `since`, oldest first. */
   sendTimes: (member: string, since: number) => Promise<number[]>
   setSendState: (id: string, from: readonly CommentSendState[], to: CommentSendState, now: number, set?: Partial<Pick<SendRow, "delivery" | "error">>) => Promise<boolean>
+  updateDoneThreads: (row: SendRow, threads: string) => Promise<boolean>
 }
 
 const tableNames = ["vitehub_comment_sends"]
@@ -78,14 +81,21 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
       const [row] = await db.select().from(sends).where(and(eq(sends.member, member), eq(sends.key, key), inArray(sends.state, [...states]))).orderBy(desc(sends.createdAt)).limit(1)
       return row
     }),
-    listSends: run(async ({ member, subject, states }, limit) => db.select().from(sends)
+    listSends: run(async ({ member, subject, states }, limit, before) => db.select().from(sends)
       .where(and(
         ...member === undefined ? [] : [eq(sends.member, member)],
         ...subject ? [eq(sends.subjectKind, subject.kind), eq(sends.subjectId, subject.id)] : [],
         inArray(sends.state, [...states]),
+        ...before ? [or(lt(sends.createdAt, before.createdAt), and(eq(sends.createdAt, before.createdAt), lt(sends.id, before.id)))] : [],
       ))
-      .orderBy(desc(sends.createdAt))
+      .orderBy(desc(sends.createdAt), desc(sends.id))
       .limit(limit)),
+    updateDoneThreads: run(async (row, threads) => {
+      const updated = await db.update(sends).set({ threads })
+        .where(and(eq(sends.id, row.id), eq(sends.state, "done"), eq(sends.threads, row.threads)))
+        .returning({ id: sends.id })
+      return updated.length > 0
+    }),
     latestSend: run(async (member, subject, states) => {
       const [row] = await db.select().from(sends).where(and(
         eq(sends.member, member),

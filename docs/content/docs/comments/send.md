@@ -66,7 +66,7 @@ After the pairing, **Send N** sends at once. The pill shows **Sending** while We
 
 **N** counts the open threads on the page that you may read, whose last message is not an agent's, and whose last message was not in your own last send. Threads of other people count too. Each person has their own count: when another person sends a thread, it still counts for you. Send compares message ids, not times, so a server clock that is slow does not hide a new message.
 
-A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last. When someone reopens a thread of a done send, and the thread has no new message since that send, the send goes back to **Sent**, so the agent works on it again. A thread that the send carried as a quote brings back only a send that has no asks.
+A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last. When someone reopens a thread of a done send with no new message, an inbox send goes back to **Sent**. For a webhook agent, the thread waits for the member to press **Send** again. A thread that the send carried as a quote brings back work only if the send had no asks.
 
 ### Your own setup prompt
 
@@ -141,7 +141,7 @@ export const comments = defineComments({
 
 ## Read sends on the server
 
-`comments.listSends(user)` gives the sends of `user` that reached the agent and that it has not finished, newest first, at most 20. Each one has the threads that `user` may still read, marked `ask` or `quote`. Before it lists them, it marks done each send that the agent finished. `states` and `limit` choose other sends, and `gate` and `console` go to `comments.can()`, as for a thread. `comments.readSend(user, id)` opens one send, as `comments_get_send` does, and a send that reached the agent becomes **Working**.
+`comments.listSends(user)` gives the sends of `user` that reached the agent and that it has not finished, newest first, at most 20. Each one has the threads that `user` may still read, marked `ask` or `quote`. As it scans, it checks queued deliveries and marks finished sends as done. `states` and `limit` choose other sends, and `gate` and `console` go to `comments.can()`, as for a thread. `comments.readSend(user, id)` opens one send, as `comments_get_send` does, and a send that reached the agent becomes **Working**.
 
 ```ts [server/api/inbox.get.ts]
 import { defineEventHandler } from 'h3'

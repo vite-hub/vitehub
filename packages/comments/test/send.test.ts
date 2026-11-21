@@ -626,6 +626,44 @@ describe("sends", () => {
 })
 
 describe("the server API of Send", () => {
+  it("lists a send after a successful Queue retry without waiting for a status request", async () => {
+    const jobs: unknown[] = []
+    const { comments, comment, connect } = await setup(true, async (job) => {
+      jobs.push(job)
+      return [undefined, undefined]
+    })
+    await comment("ana", "Hello")
+    receiverStatus = 503
+    const { allowed } = await connect()
+    expect(allowed.body.data.status).toBe("pending")
+    expect(await comments.listSends(people.ana!)).toEqual([undefined, []])
+    expect(jobs).toHaveLength(1)
+    receiverStatus = 202
+    await deliverWebhookWake(jobs[0])
+    expect((await comments.listSends(people.ana!))[1]?.map(view => view.send)).toMatchObject([{ id: allowed.body.data.id, state: "sent" }])
+  })
+
+  it("fills the list limit with readable sends", async () => {
+    const { call, comments, comment, connect, page } = await setup()
+    const clock = vi.spyOn(Date, "now")
+    const now = Date.now()
+    try {
+      clock.mockReturnValue(now)
+      await comment("ana", "First batch")
+      await connect()
+      clock.mockReturnValue(now + 1)
+      const newest = await comment("ana", "Next batch")
+      const response = await call(`/send?page=${page}`, { method: "POST", as: "ana" })
+      expect(response.body.data.status).toBe("sent")
+      expect((await comments.listSends(people.ana!, { limit: 1 }))[1]?.map(view => view.send.id)).toEqual([deliveries[1]!.body.send])
+      hidden.add(newest.id)
+      expect((await comments.listSends(people.ana!, { limit: 1 }))[1]?.map(view => view.send.id)).toEqual([deliveries[0]!.body.send])
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
   it("lists the member's sends with the threads they may read, and marks done the finished ones", async () => {
     const { comments, comment, connect } = await setup()
     const own = await comment("ana", "Fix the date")
@@ -651,12 +689,16 @@ describe("the server API of Send", () => {
     expect((await comments.readSend(people.ana!, "send_1"))[0]?.code).toBe("COMMENTS_SEND_OFF")
   })
 
-  it("puts a send back when its thread opens again, from the server API and the REST route", async () => {
-    const { call, comments, comment, connect, page } = await setup()
+  it("puts an inbox send back when its thread opens again, from the server API and the REST route", async () => {
+    const { call, comments, comment, page } = await setup()
     const own = await comment("ana", "Fix the date")
     const quote = await comment("bob", "Add a map")
-    await connect()
-    const id = deliveries[0]!.body.send
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const { code, selection } = started.body.data
+    await call("/send/pair", { json: { code, inbox: "Codex" }, origin: null })
+    const allowed = await call(`/send/allow?page=${page}`, { json: { code, selection }, as: "ana" })
+    expect(allowed.body.data.status).toBe("sent")
+    const id = allowed.body.data.id
     const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
     await comments.resolve(own.id, { by: { id: "ana" } })
     expect((await status()).working).toBeUndefined()
@@ -673,5 +715,27 @@ describe("the server API of Send", () => {
     await comments.resolve(quote.id, { by: { id: "ana" } })
     await comments.reopen(quote.id)
     expect((await status()).working).toBeUndefined()
+  })
+
+  it("lets the member send a reopened ask to the webhook again without resending its quote", async () => {
+    const { call, comments, comment, connect, page } = await setup()
+    const own = await comment("ana", "Fix the date")
+    await comment("bob", "Add a map")
+    await connect()
+    const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    for (let round = 0; round < 2; round++) {
+      await comments.resolve(own.id, { by: { id: "ana" } })
+      expect((await status()).working).toBeUndefined()
+      await comments.reopen(own.id)
+      expect((await status()).count).toBe(1)
+      expect((await status()).working).toBeUndefined()
+      expect(deliveries).toHaveLength(round + 1)
+      const result = await call(`/send?page=${page}`, { method: "POST", as: "ana" })
+      expect(result.body.data.status).toBe("sent")
+      expect(deliveries).toHaveLength(round + 2)
+      expect(deliveries.at(-1)!.body.threads).toEqual([own.id])
+      expect((await status()).count).toBe(0)
+    }
+    expect(new Set(deliveries.map(delivery => delivery.body.send)).size).toBe(3)
   })
 })

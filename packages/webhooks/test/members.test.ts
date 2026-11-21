@@ -337,6 +337,8 @@ describe("member endpoints", () => {
     expect(await getMemberEndpoint("user_ana", { address: ` ${threadA} ` })).toEqual([undefined, a])
     expect(await getMemberEndpoint("user_ana", { address: "t3-thread://v2/env-1/gone" })).toEqual([undefined, inbox])
     expect(await getMemberEndpoint("user_ana")).toEqual([undefined, inbox])
+    expect(await getMemberEndpoint("user_ana", { endpointId: a!.id })).toEqual([undefined, a])
+    expect(await getMemberEndpoint("user_tom", { endpointId: a!.id })).toEqual([undefined, null])
 
     const [, toA] = await sendToMemberEndpoint("user_ana", { n: 1 }, { event: "comments.send", key: "k1", address: ` ${threadA} ` })
     expect(toA?.status).toBe("sent")

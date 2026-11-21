@@ -167,12 +167,12 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
 
 /**
  * The endpoint that a send to a member reaches, or `null` when they have none, as `[error, endpoint]`: the one with
- * `address`, else their newest. It never holds the URL or the secret.
+ * `endpointId` or `address`, else their newest. It never holds the URL or the secret.
  */
-export async function getMemberEndpoint(owner: string, options: { address?: string } = {}): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
+export async function getMemberEndpoint(owner: string, options: { address?: string, endpointId?: string } = {}): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
   const { endpoints } = requireMemberEndpoints()
   try {
-    const endpoint = await endpoints.get(owner, options.address)
+    const endpoint = await selectEndpoint(endpoints, owner, options)
     return [undefined, endpoint ? toMemberEndpoint(endpoint) : null]
   }
   catch (error) {

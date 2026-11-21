@@ -59,7 +59,7 @@ export interface Comments {
   reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
   /** `actor`: the agent that resolves it for `by`, as on `reply`. */
   resolve(threadId: string, options: { by: CommentUser, actor?: CommentActor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** With `send`, it also puts back the done sends that carried the thread, so the agent works on it again. */
+  /** With `send`, it can restore a done inbox send or make the thread available to send again to a webhook agent. */
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its messages. */
   remove(threadId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
@@ -78,7 +78,7 @@ export interface Comments {
   people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
    * With `send`: the sends of `user`, newest first, with the threads that `user` may still read. Default: the ones that
-   * reached the agent and that it has not finished, at most 20. It marks done each send that the agent finished.
+   * reached the agent and that it has not finished, at most 20. As it scans, it marks finished sends as done.
    */
   listSends(user: CommentsUser, options?: CommentSendListOptions): Promise<Result<CommentSendView[], Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_SEND_OFF">>>
   /**
