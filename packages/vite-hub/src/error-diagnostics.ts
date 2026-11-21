@@ -81,6 +81,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT: {
+      why: ({ file, names }: { file: string, names: string }) => `${file} exports ${names}, but the Worker entry already has an export of that name. The default export of the entry is the app.`,
+      fix: "Export each Durable Object, Workflow, or `WorkerEntrypoint` class from `server/cloudflare.ts` with a named export that no other export of the Worker uses, such as `export class Counter extends DurableObject {}`. Remove a default export.",
+    },
     VITE_HUB_CLOUDFLARE_RESOURCE_MISSING: {
       why: ({ file, resources }: { file: string, resources: string }) => `${file} lacks ${resources}. ViteHub generates these resources for this build, and the Worker fails when code first reads a missing one.`,
       fix: "Check the project Wrangler config and any Nitro hook or module that edits `cloudflare.wrangler` for a step that drops or renames the entry, and remove that step. Run `vitehub inspect resources` to list the resources and their names.",
