@@ -72,6 +72,14 @@ describe("member pairing", () => {
     expect((await pairMemberEndpoint({ code: other.code, url: relay, thread: "javascript:alert(1)" }))[1]).toMatchObject({ status: "paired", pairing: { address: null } })
   })
 
+  it("rejects unsupported inbox names without consuming a waiting code", async () => {
+    const { code } = await start()
+    for (const inbox of ["Cursor", "constructor", "__proto__"]) {
+      expect((await pairMemberEndpoint({ code, inbox }))[0]).toMatchObject({ code: "WEBHOOKS_ENDPOINT_INVALID" })
+    }
+    expect((await pairMemberEndpoint({ code, inbox: "Claude Code" }))[1]).toMatchObject({ status: "paired", pairing: { agent: "claude-code" } })
+  })
+
   it("refuses Allow by another member, a URL that is not safe, a used-up code, and a code past 10 minutes", async () => {
     const mine = await start()
     await pairMemberEndpoint({ code: mine.code, url: relay })

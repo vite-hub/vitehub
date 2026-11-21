@@ -12,7 +12,7 @@ import type { CreateMemberEndpointErrorCode, MemberPairingErrorCode } from "./er
 export const memberPairingLifetime = 10 * 60_000
 
 /** The agents that pair as an inbox, by the name that their pair post gives, such as `{ "code": "...", "inbox": "Codex" }`. */
-const inboxes: Record<string, string> = { "Claude Code": "claude-code", "Codex": "codex" }
+const inboxes = new Map([["Claude Code", "claude-code"], ["Codex", "codex"]])
 
 /** A T3 thread link as `t3_thread_read` gives it: `t3-thread://v2/<environmentId>/<threadId>`. */
 const t3ThreadLink = /^t3-thread:\/\/v2\/[\w.~-]{1,128}\/[\w.~:-]{1,256}$/
@@ -127,7 +127,7 @@ export async function pairMemberEndpoint(input: unknown, options: { hosts?: read
   const invalid = (problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, undefined] => [webhooksErrors.WEBHOOKS_ENDPOINT_INVALID({ problem }), undefined]
   if (typeof code !== "string" || !code || code.length > 64) return invalid("`code` must be the code of the setup prompt")
   if ((typeof url === "string") === (typeof inbox === "string")) return invalid("pass `url`, the agent's receiver URL, or `inbox`, \"Claude Code\" or \"Codex\"")
-  const agent = typeof inbox === "string" ? inboxes[inbox] : "t3"
+  const agent = typeof inbox === "string" ? inboxes.get(inbox) : "t3"
   if (!agent) return invalid("`inbox` must be \"Claude Code\" or \"Codex\"")
   const now = Date.now()
   const id = await codeKey(code)
