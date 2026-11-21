@@ -6,7 +6,7 @@ import { createSqlProxyExecutors, sqliteProxyCodecs, toSqlRow } from "./sqlite-p
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { createD1QueryAt } from "../internal/d1-ledger.ts"
+import { createD1QueryAt, defaultD1MigrationsTable } from "../internal/d1-ledger.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { D1Query } from "../internal/d1-ledger.ts"
@@ -101,8 +101,17 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
  * the rows of the last statement. Migrations on start use it.
  */
 export interface D1HttpClient {
+  migrationsTable: string
   protocol: "d1-http"
   query: D1Query
+  target: string
+}
+
+function migrationTarget(endpoint: string): string {
+  const url = new URL(endpoint)
+  url.hash = ""
+  if (url.origin === "https://api.cloudflare.com") url.pathname = url.pathname.replace(/\/(?:raw|query)$/, "")
+  return url.href
 }
 
 /** A Drizzle database that sends each query to a D1 `/raw` endpoint or a proxy with the same protocol. */
@@ -189,8 +198,10 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
     const { queryUrl, token, url } = resolveCloudflareD1HttpConnection(config, databaseId)!
     if (cached?.url === url && cached.token === token) return cached.database
     const client: D1HttpClient = {
+      migrationsTable: config.cloudflare?.migrationsTable ?? defaultD1MigrationsTable,
       protocol: "d1-http",
       query: createD1QueryAt(queryUrl, token, problem => databaseErrorDiagnostics.DATABASE_D1_MIGRATION_FAILED({ database: config.name, problem }), request),
+      target: migrationTarget(queryUrl),
     }
     const database = keepOwnClient(createCloudflareD1HttpDb<TSchema, TRelations>({ token, url }, relations, request), client)
     cached = { database, token, url }

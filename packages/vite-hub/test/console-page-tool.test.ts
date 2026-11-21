@@ -36,7 +36,7 @@ function install(app: object): void {
 }
 
 async function tools(app: object, person?: string) {
-  const request = new Request("http://site.test/portal/_vitehub/page/session", { headers: person ? { cookie: `person=${person}` } : {} })
+  const request = new Request("http://site.test/portal/_vitehub/page/tools", { headers: person ? { cookie: `person=${person}` } : {} })
   return readViteHubPageSession(await (await respondViteHubPageSession(app, request)).json()).tools
 }
 
@@ -176,7 +176,7 @@ describe("a Console app without Comments", () => {
   it("serves the session route, the loader, and the segment script", () => {
     const nitro: { handlers?: Array<{ handler: string, route?: string }>, publicAssets?: Array<{ baseURL?: string, dir: string }> } = {}
     addConsolePageToolRoutes(nitro, "/runtime", "/portal")
-    expect(nitro.handlers).toEqual([{ handler: "/runtime/server/page-session.js", route: "/portal/_vitehub/page/session" }])
+    expect(nitro.handlers).toEqual([{ handler: "/runtime/server/page-tools-route.js", meta: { vitehubOwnAccess: true }, route: "/portal/_vitehub/page/tools" }])
     expect(nitro.publicAssets?.map(({ baseURL, dir }) => ({ baseURL, dir }))).toEqual([
       { baseURL: "/portal/_vitehub/console/assets", dir: "/runtime/page-tool" },
       { baseURL: "/portal/_vitehub/page/assets", dir: "/runtime/page" },
@@ -184,7 +184,7 @@ describe("a Console app without Comments", () => {
   })
 
   it("keeps the session route and the loader that Comments added first", () => {
-    const comments = { handler: "/comments/page-session.mjs", route: "/_vitehub/page/session" }
+    const comments = { handler: "/comments/page-tools-route.mjs", route: "/_vitehub/page/tools" }
     const loader = { baseURL: "/_vitehub/page/assets", dir: "/comments/dist/page", maxAge: 300 }
     const nitro = { handlers: [comments], publicAssets: [loader] }
     addConsolePageToolRoutes(nitro, "/runtime")
@@ -236,8 +236,8 @@ describe("a Console app without Comments", () => {
         await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [config, { command: "serve", mode: "development" }])
         return config.nitro?.handlers?.map(handler => handler.route)
       }
-      expect(await routes({ console: {}, sections: [] })).toContain("/_vitehub/page/session")
-      expect(await routes({ rpcOnly: true, sections: [] })).not.toContain("/_vitehub/page/session")
+      expect(await routes({ console: {}, sections: [] })).toContain("/_vitehub/page/tools")
+      expect(await routes({ rpcOnly: true, sections: [] })).not.toContain("/_vitehub/page/tools")
     }
     finally {
       await rm(root, { force: true, recursive: true })

@@ -15,7 +15,7 @@ export const d1MigrationNamesFile = "d1-migrations.json"
 // Drizzle Kit's ledger. ViteHub used it for D1 HTTP before it used Wrangler's ledger.
 const drizzleMigrationsTable = "__drizzle_migrations"
 
-export type D1Query = (sql: string, params?: unknown[]) => Promise<unknown[]>
+export type D1Query = (sql: string, params?: unknown[], mode?: "write") => Promise<unknown[]>
 
 /** A migration that a ledger lists, but not the Wrangler table under its file name. */
 export interface AdoptedMigration {
@@ -41,14 +41,14 @@ export interface D1Ledger {
  * The SQL can hold several statements, which D1 runs as one batch. `fail` makes the caller's error for a problem.
  */
 export function createD1QueryAt(url: string, token: string | undefined, fail: (problem: string) => Error, request: typeof fetch = fetch): D1Query {
-  return async (sql, params = []) => {
+  return async (sql, params = [], mode) => {
     const response = await request(url, {
       body: JSON.stringify({ params, sql }),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       method: "POST",
     })
     const payload: unknown = await response.json().catch(() => undefined)
-    const rows = readD1Rows(payload)
+    const rows = readD1Rows(payload, mode === "write")
     if (!response.ok || !rows) throw fail(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
     return rows
   }
@@ -123,13 +123,13 @@ export async function applyD1MigrationFiles(
       // Wrangler creates the same table.
       ...ledger.exists ? [] : [`CREATE TABLE IF NOT EXISTS ${table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);`],
       ...ledger.adopted.map(migration => `INSERT OR IGNORE INTO ${table} (name) VALUES ('${migration.name.replaceAll("'", "''")}');`),
-    ].join("\n"))
+    ].join("\n"), undefined, "write")
     for (const migration of ledger.adopted) onAdopted(migration)
   }
   for (const file of files) {
     if (ledger.applied.has(file.name)) continue
     try {
-      await query(`${normalizeSqlLineEndings(file.sql())}\n;\n${insert(file.name)}`)
+      await query(`${normalizeSqlLineEndings(file.sql())}\n;\n${insert(file.name)}`, undefined, "write")
     }
     catch (error) {
       if ((await query(`SELECT name FROM ${table} WHERE name = ?`, [file.name])).length) continue
@@ -190,11 +190,13 @@ function quoteIdentifier(name: string): string {
   return `"${name.replaceAll("\"", "\"\"")}"`
 }
 
-function readD1Rows(payload: unknown): unknown[] | undefined {
+function readD1Rows(payload: unknown, write: boolean): unknown[] | undefined {
   if (!isRecord(payload) || payload.success !== true || !Array.isArray(payload.result)) return
   if (payload.result.some(result => !isRecord(result) || result.success === false)) return
   const last: unknown = payload.result.at(-1)
   if (!isRecord(last)) return
+  if (write && payload.result.every(result => isRecord(result) && result.success === true)
+    && (last.results === undefined || (isRecord(last.results) && last.results.rows === undefined))) return []
   const rows = Array.isArray(last.results)
     ? last.results
     : isRecord(last.results) && Array.isArray(last.results.rows) ? last.results.rows : undefined

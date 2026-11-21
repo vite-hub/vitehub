@@ -1,5 +1,5 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOptionalCredentials, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
@@ -20,6 +20,12 @@ export interface AiGatewayPresetOptions {
 /** Options for a gateway that you host. */
 export interface AiHostedGatewayOptions extends AiGatewayPresetOptions {
   /** Origin of the gateway, such as `https://proxy.example.com`. A trailing `/v1` is removed. When it is not set, the preset reads its Server Env value, such as `CLIPROXY_URL`. */
+  url?: string
+}
+
+/** Options for `emulate()`. */
+export interface EmulateGatewayOptions {
+  /** Origin of the AI emulator, such as `http://localhost:4014`. A trailing `/v1` is removed. When it is not set, the preset reads `VITEHUB_EMULATE_URL`, then uses `http://localhost:4014`. */
   url?: string
 }
 
@@ -202,12 +208,26 @@ function unsupportedAsk(name: string): AiGatewayAsk {
   }
 }
 
-function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver, optional?: AiGatewayOptionalCredentials, modelApis?: readonly AiGatewayCapabilities["apis"][], modelCredentials?: AiGatewayModelCredentialsResolver): AiGateway {
+/** What a preset adds to its definition. */
+interface AiGatewayExtras {
+  /** The route that answers Jev questions. */
+  route?: AskRouteResolver
+  optional?: AiGatewayOptionalCredentials
+  modelApis?: readonly AiGatewayCapabilities["apis"][]
+  modelCredentials?: AiGatewayModelCredentialsResolver
+  openAIChat?: true
+  /** The Chat Completions endpoint accepts a JSON schema. See `aiGatewayStructuredOutputs`. */
+  structuredOutputs?: true
+}
+
+function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
+  if (openAIChat) Object.defineProperty(gateway, aiGatewayOpenAIChat, { value: true })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
+  if (structuredOutputs) Object.defineProperty(gateway, aiGatewayStructuredOutputs, { value: true })
   // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
   Object.defineProperty(gateway, "ask", {
     value: route
@@ -218,8 +238,11 @@ function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolv
   return Object.freeze(gateway)
 }
 
-function preset(definition: AiGatewayDefinition, options: AiGatewayPresetOptions | undefined): AiGatewayDefinition {
-  const value: AiGatewayDefinition = { ...definition }
+/** A definition with a URL for each of `TRoutes`. */
+type AiRoutedGatewayDefinition<TRoutes extends AiGatewayRoute> = AiGatewayDefinition & { baseURL: Record<TRoutes, AiGatewayValue<string>> }
+
+function preset<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, options: AiGatewayPresetOptions | undefined): AiRoutedGatewayDefinition<TRoutes> {
+  const value: AiRoutedGatewayDefinition<TRoutes> = { ...definition }
   // A present apiKey replaces the preset variable even when it is undefined, so the invocation fails
   // instead of using another account from the environment.
   if (options && Object.hasOwn(options, "apiKey")) value.apiKey = options.apiKey
@@ -236,10 +259,10 @@ function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | u
 /** A gateway that routes model requests to `TRoutes` and has no `ask()`. */
 export type AiModelGateway<TRoutes extends AiGatewayRoute> = AiGateway<{ ask: false, routes: TRoutes }>
 
-function modelGateway<TRoutes extends AiGatewayRoute>(definition: AiGatewayDefinition, optional?: AiGatewayOptionalCredentials): AiModelGateway<TRoutes> {
-  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. Each caller passes
-  // a baseURL with the TRoutes keys, and normalizeAiGateway keeps them.
-  return createAiGateway(definition, undefined, optional) as AiModelGateway<TRoutes>
+function modelGateway<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, extras?: Omit<AiGatewayExtras, "route">): AiModelGateway<TRoutes> {
+  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. The baseURL has
+  // the TRoutes keys, and normalizeAiGateway keeps them.
+  return createAiGateway(definition, extras) as AiModelGateway<TRoutes>
 }
 
 /**
@@ -303,6 +326,32 @@ export function ollama(options: AiHostedGatewayOptions = {}): AiModelGateway<Hos
   }, options))
 }
 
+/** The model APIs of `emulate()`. It has no Codex URL, because the emulator rejects the tools that the Codex CLI sends. */
+type EmulateRoutes = "claude-code" | "openai-compatible"
+
+/**
+ * The [AI emulator](https://emulate.dev/docs/ai) (`@emulators/ai`) for dev and tests. Serves AI SDK models with OpenAI
+ * Chat Completions (`api: "chat"`), OpenAI Responses (`"responses"`), and Anthropic Messages (`"messages"`), and answers
+ * from scripted rules with no AI key. It does not serve the Claude Code Driver, because the emulator rejects its `system`
+ * turns, or the Codex Driver, because the emulator rejects the tools that the Codex CLI sends. Reads
+ * `VITEHUB_EMULATE_URL`; defaults to `http://localhost:4014`. It reads no credentials.
+ */
+export function emulate(options: EmulateGatewayOptions = {}): AiModelGateway<EmulateRoutes> {
+  const root = async (context: AiGatewayContext) => {
+    const value = await readAiGatewayEnv(context, "emulate", "url")
+    return origin(present(value) ? value : "http://localhost:4014", "emulate")
+  }
+  const url = options.url !== undefined ? origin(options.url, "emulate") : undefined
+  return modelGateway<EmulateRoutes>({
+    name: "emulate",
+    baseURL: url !== undefined
+      ? { "claude-code": url, "openai-compatible": `${url}/v1` }
+      : { "claude-code": root, "openai-compatible": async context => `${await root(context)}/v1` },
+    // The emulator never checks the key, but the AI SDK providers need one.
+    apiKey: "emulate",
+  }, { structuredOutputs: true })
+}
+
 /** [OpenRouter](https://openrouter.ai/docs). Serves Codex and Claude Code. Reads `OPENROUTER_API_KEY`. */
 export function openrouter(options?: AiGatewayPresetOptions): AiModelGateway<HostedRoutes> {
   return modelGateway<HostedRoutes>(preset({
@@ -346,16 +395,20 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
     protocol: "vercel",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above.
-  return createAiGateway(definition, route, undefined, undefined, modelCredentials) as AiGateway<{ ask: true, routes: HostedRoutes }>
+  return createAiGateway(definition, { route, modelCredentials }) as AiGateway<{ ask: true, routes: HostedRoutes }>
 }
 
-/** The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. */
+/**
+ * The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. Its AI SDK models use
+ * `@ai-sdk/openai` for both `chat` and `responses`.
+ */
 export function openai(options?: AiGatewayPresetOptions): AiModelGateway<"codex" | "openai-compatible"> {
-  return modelGateway<"codex" | "openai-compatible">(preset({
+  const definition = preset({
     name: "openai",
     baseURL: { "codex": "https://api.openai.com/v1", "openai-compatible": "https://api.openai.com/v1" },
     apiKey: apiKeyFromEnv("openai"),
-  }, options))
+  }, options)
+  return modelGateway(definition, { openAIChat: true })
 }
 
 /** The Anthropic API with an API key. Serves Claude Code and AI SDK models. Reads `ANTHROPIC_API_KEY`. */
@@ -380,7 +433,7 @@ export function typesafe(options?: TypesafeGatewayOptions): AiGateway<{ ask: tru
     protocol: "typesafe",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above.
-  return createAiGateway(definition, route) as AiGateway<{ ask: true, routes: never }>
+  return createAiGateway(definition, { route }) as AiGateway<{ ask: true, routes: never }>
 }
 
 function cloudflareRoot(options: { accountId?: string | undefined, gatewayId?: string | undefined }, preset: "cloudflare") {
@@ -455,9 +508,9 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     protocol: "typesafe",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above, and the baseURL has the openai-compatible key.
-  return createAiGateway(definition, route, {
+  return createAiGateway(definition, { route, modelApis: ["chat"], optional: {
     apiKey: true,
     headers: ["cf-aig-authorization"],
     missing: "Gateway \"cloudflare\" needs a gateway token or a provider key for model requests. Set CLOUDFLARE_AI_GATEWAY_TOKEN for stored provider keys or Unified Billing, or CLOUDFLARE_AI_GATEWAY_API_KEY, or pass token or providerApiKey.",
-  }, ["chat"]) as AiGateway<{ apis: "chat", ask: true, routes: "openai-compatible" }>
+  } }) as AiGateway<{ apis: "chat", ask: true, routes: "openai-compatible" }>
 }

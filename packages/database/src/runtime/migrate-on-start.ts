@@ -22,11 +22,10 @@ export interface StartMigration {
   when: number
 }
 
-/** The migrations of a D1 HTTP database as Wrangler applies them, and the Wrangler table that lists the applied ones. */
+/** The migrations of a D1 HTTP database as Wrangler applies them. */
 export interface StartD1Migrations {
   /** In Wrangler's order. `name` is the `.sql` file name that the table stores, and `sql` the whole file. */
   files: Array<{ dataLoss: DataLossStatement[], name: string, sql: string, statements: string[], tag: string }>
-  table: string
 }
 
 export interface StartMigrationDatabase {
@@ -180,19 +179,35 @@ function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfil
  * A D1 HTTP database uses Wrangler's migrations table, like `vitehub database migrate` and `wrangler d1 migrations
  * apply`. Each migration and its row go in one request, so D1 keeps neither when the migration fails.
  */
-export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
+export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}, d1Owners?: Map<string, string>): Promise<void> {
   const log = options.log ?? (message => console.info(message))
   const postgresDatabase = databases.find(database => database.dialect === "postgresql")
   if (options.backup && postgresDatabase) {
     throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: postgresDatabase.name, problem: "It is a Postgres database." })
   }
-  const sqlite = databases.filter(database => database.dialect === "sqlite")
-  const d1 = sqlite.filter(database => isD1HttpClient(Reflect.get(Object(database.db), "$client")))
-  if (options.backup && d1.length) {
-    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: d1[0]!.name, problem: "It uses Cloudflare D1 over HTTP." })
+  const sqlite: StartMigrationDatabase[] = []
+  const d1: Array<{ client: D1HttpClient, database: StartMigrationDatabase }> = []
+  for (const database of databases) {
+    if (database.dialect !== "sqlite") continue
+    const client: unknown = Reflect.get(Object(database.db), "$client")
+    if (isD1HttpClient(client)) d1.push({ client, database })
+    else sqlite.push(database)
   }
-  const d1Plans = await Promise.all(d1.map(database => planD1(database, options)))
-  const sqlitePlans = await planSqlite(sqlite.filter(database => !d1.includes(database)), options)
+  if (options.backup && d1.length) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: d1[0]!.database.name, problem: "It uses Cloudflare D1 over HTTP." })
+  }
+  const owners = new Map(d1Owners)
+  for (const { client, database } of d1) {
+    const table = client.migrationsTable
+    const key = JSON.stringify([client.target, table.toLowerCase()])
+    const owner = owners.get(key)
+    if (owner !== undefined && owner !== database.name) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: `Database "${owner}" also uses its D1 migrations table "${table}". Use one migration owner per D1 ledger, or configure separate migrations tables.` })
+    }
+    owners.set(key, database.name)
+  }
+  const d1Plans = await Promise.all(d1.map(({ client, database }) => planD1(client, database, options)))
+  const sqlitePlans = await planSqlite(sqlite, options)
   const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
     const value: unknown = Reflect.get(Object(database.db), "$client")
     const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
@@ -205,6 +220,7 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   await migratePostgres(postgres, {
     ...options,
     beforeApply: async () => {
+      if (d1Owners) for (const [key, owner] of owners) d1Owners.set(key, owner)
       for (const plan of d1Plans) await applyD1(plan, log)
       await applySqlite(sqlitePlans, options.backup, log)
     },
@@ -219,16 +235,15 @@ interface D1StartPlan {
 }
 
 /** Reads Wrangler's table of a D1 HTTP database and refuses pending migrations that lose data, unless `allowDataLoss` is set. */
-async function planD1(database: StartMigrationDatabase, options: MigrateOnStartOptions): Promise<D1StartPlan> {
-  // SAFETY: `migrateOnStart()` passes only databases whose `$client` is a D1 HTTP client.
-  const client = Reflect.get(Object(database.db), "$client") as D1HttpClient
+async function planD1(client: D1HttpClient, database: StartMigrationDatabase, options: MigrateOnStartOptions): Promise<D1StartPlan> {
   if (!database.d1) {
     throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "It uses Cloudflare D1 over HTTP, and the build shipped no D1 migrations for it." })
   }
-  const { files, table } = database.d1
-  const ledger = await readD1LedgerOf(client.query, table, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  const { files } = database.d1
+  const ledger = await readD1LedgerOf(client.query, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   if (!options.allowDataLoss) {
-    const losses = withoutNewTableDataLoss(files.filter(file => !ledger.applied.has(file.name)))
+    const losses = files.filter(file => !ledger.applied.has(file.name))
+      .flatMap(file => withoutNewTableDataLoss([file]))
       .flatMap(file => file.dataLoss.map(loss => `${file.tag}: ${loss.reason}: ${loss.statement}`))
     if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
   }
@@ -264,6 +279,7 @@ export interface EnsureMigrationsContext {
 
 // One run for each Database in this process. The server start and `ensureMigrations()` share it.
 const runs = new Map<string, Promise<void>>()
+const d1OwnersByRegistry = new WeakMap<EnsureMigrationsContext["databases"], Map<string, string>>()
 // Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
 // previous run committed, or both apply the same migration.
 let lastRun: Promise<unknown> = Promise.resolve()
@@ -285,6 +301,8 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
     const run = lastRun.then(() => context.load()).then(async (shipped) => {
       if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
       const test = getViteHubTestMode()
+      const d1Owners = d1OwnersByRegistry.get(context.databases) ?? new Map<string, string>()
+      d1OwnersByRegistry.set(context.databases, d1Owners)
       // A container image is built once, so its operator accepts data loss for one start with this variable.
       const allowDataLoss = shipped.allowDataLoss || process.env.VITEHUB_DATABASE_ALLOW_DATA_LOSS === "1"
       await migrateOnStart(missing.flatMap((name) => {
@@ -292,7 +310,7 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
         if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
         if (!(database?.migrations.length || database?.d1?.files.length) || (test && database.dialect === "sqlite")) return []
         return [{ ...database.d1 && { d1: database.d1 }, db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
-      }), { allowDataLoss, backup: shipped.backup })
+      }), { allowDataLoss, backup: shipped.backup }, d1Owners)
     })
     for (const name of missing) runs.set(name, run)
     lastRun = run.catch(() => {

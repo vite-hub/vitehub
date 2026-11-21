@@ -3,7 +3,7 @@ import { resolve } from "pathe"
 import { readFileSync } from "node:fs"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { defaultD1MigrationsTable, listD1Migrations, recordD1MigrationNames } from "./d1-migrations.ts"
+import { recordD1MigrationNames } from "./d1-migrations.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
 import type { MigrationBackup, StartD1Migrations, StartMigration } from "../runtime/migrate-on-start.ts"
@@ -74,12 +74,9 @@ interface RenderMigrateOnStartOptions {
 export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, settings: Pick<MigrateOnStartSettings, "allowDataLoss" | "backup"> | undefined): string {
   const databases: Record<string, { d1?: StartD1Migrations, dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
-    const database = config!.databases[name]!
     try {
-      const migrationsDir = resolve(config!.rootDir, database.migrationsDir)
-      const migrations = readStartMigrations(migrationsDir, name)
-      const d1 = database.cloudflare?.http ? readStartD1Migrations(migrationsDir, database.cloudflare.migrationsTable, name) : undefined
-      if (migrations.length || d1?.files.length) databases[name] = { ...d1 && { d1 }, dialect: database.dialect, migrations }
+      const database = readShippedDatabaseMigrations(config!, name)
+      if (database) databases[name] = database
     }
     catch (error) {
       databases[name] = { problem: error instanceof Error ? error.message : String(error) }
@@ -94,11 +91,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
  * when no database has migrations.
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
-  const databases = options.databases.filter((name) => {
-    const database = config.databases[name]!
-    const migrationsDir = resolve(config.rootDir, database.migrationsDir)
-    return database.cloudflare?.http ? listD1Migrations(migrationsDir).length : readStartMigrations(migrationsDir, name).length
-  })
+  const databases = options.databases.filter(name => readShippedDatabaseMigrations(config, name))
   if (!databases.length) return
   return [
     `import { databases } from ${JSON.stringify(options.registryImport)}`,
@@ -145,23 +138,27 @@ function assertMigrationBackupSupported(config: ResolvedDBViteConfig | undefined
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
 export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
   const entries = readMigrations(migrationsDir, database)
+  return startMigrationsFromEntries(migrationsDir, entries)
+}
+
+function startMigrationsFromEntries(migrationsDir: string, entries: ReturnType<typeof readMigrations>): StartMigration[] {
   return entries.map((entry) => {
     const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
 }
 
-/**
- * Reads the migrations of a D1 HTTP database as Wrangler applies them: each with its `.sql` file name, in Wrangler's
- * order. Like a Cloudflare build, it records new folder names in `d1-migrations.json`.
- */
-function readStartD1Migrations(migrationsDir: string, table: string | undefined, database: string): StartD1Migrations {
-  const entries = readMigrations(migrationsDir, database)
-  return {
+function readShippedDatabaseMigrations(config: ResolvedDBViteConfig, name: string) {
+  const database = config.databases[name]!
+  const migrationsDir = resolve(config.rootDir, database.migrationsDir)
+  const mayUseD1 = database.dialect === "sqlite" && (database.cloudflare || config.definitionDefaults?.cloudflareProjections[name]?.resource === "opaque")
+  const entries = readMigrations(migrationsDir, name, { flat: Boolean(database.cloudflare?.http) })
+  const migrations = startMigrationsFromEntries(migrationsDir, entries)
+  const d1: StartD1Migrations | undefined = mayUseD1 ? {
     files: recordD1MigrationNames(migrationsDir).map((file) => {
       const { dataLoss, statements } = readPendingMigration(migrationsDir, file.tag, entries)
       return { dataLoss, name: file.name, sql: readFileSync(file.source, "utf8"), statements, tag: file.tag }
     }),
-    table: table ?? defaultD1MigrationsTable,
-  }
+  } : undefined
+  if (migrations.length || d1?.files.length) return { ...d1 && { d1 }, dialect: database.dialect, migrations }
 }

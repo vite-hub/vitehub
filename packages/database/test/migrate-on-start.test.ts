@@ -12,6 +12,7 @@ import { migrate } from "drizzle-orm/libsql/migrator"
 import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { createD1QueryAt } from "../src/internal/d1-ledger.ts"
 import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
@@ -19,6 +20,7 @@ import { hubDatabase } from "../src/nuxt.ts"
 import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
 import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
+import type { D1Query } from "../src/internal/d1-ledger.ts"
 import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -513,7 +515,7 @@ describe("database.migrateOnStart", () => {
  * A D1 HTTP proxy on a local port, backed by a SQLite file. Like D1, a request with many statements changes all or
  * nothing, and a single query answers in the `/raw` shape that the runtime reads.
  */
-async function startD1Proxy(root: string) {
+async function startD1Proxy(root: string, rowlessWrites = false) {
   const client = createClient({ url: `file:${join(root, "d1.db")}` })
   const requests: string[] = []
   const server = createServer((request, response) => {
@@ -530,7 +532,7 @@ async function startD1Proxy(root: string) {
           return send(200, { result: [{ results: { columns: result.columns, rows: result.rows.map(row => result.columns.map((_, index) => row[index])) }, success: true }], success: true })
         }
         await client.executeMultiple(`BEGIN;\n${sql}\nCOMMIT;`)
-        send(200, { result: [{ results: { columns: [], rows: [] }, success: true }], success: true })
+        send(200, { result: [{ ...(!rowlessWrites && { results: { columns: [], rows: [] } }), success: true }], success: true })
       }
       catch (error) {
         await client.execute("ROLLBACK").catch(() => {})
@@ -549,13 +551,14 @@ async function startD1Proxy(root: string) {
 }
 
 describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
-  async function createD1Project() {
+  async function createD1Project(opaque = false) {
     const root = await createProject()
     await writeFile(join(root, "server/databases/default.ts"), [
       'import { defineDatabase } from "@vite-hub/database"',
       'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',
+      ...(opaque ? ['const d1 = { databaseId: "drop-d1", http: { authToken: process.env.D1_HTTP_TOKEN, url: process.env.D1_HTTP_URL }, migrationsTable: ["custom", "history"].join("_") }'] : []),
       "export default defineDatabase({",
-      '  cloudflare: { databaseId: "drop-d1", http: { authToken: process.env.D1_HTTP_TOKEN, url: process.env.D1_HTTP_URL } },',
+      opaque ? "  cloudflare: d1," : '  cloudflare: { databaseId: "drop-d1", http: { authToken: process.env.D1_HTTP_TOKEN, url: process.env.D1_HTTP_URL } },',
       '  schema: { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) },',
       "})",
     ].join("\n"))
@@ -565,7 +568,7 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
   it("applies pending migrations in Wrangler's d1_migrations table before a Node server handles requests", { timeout: 60_000 }, async () => {
     const root = await createD1Project()
     const migrationsDir = await writeMigrations(root, [init, seed])
-    const d1 = await startD1Proxy(root)
+    const d1 = await startD1Proxy(root, true)
     try {
       const server = await buildNodeServer(root, { migrateOnStart: true })
       expect(server.config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
@@ -587,6 +590,70 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
       const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
       expect(error).toBeUndefined()
       expect(plan?.pending).toEqual([])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("uses the effective D1 config when the build cannot project it", { timeout: 60_000 }, async () => {
+    const root = await createD1Project(true)
+    await writeMigrations(root, [init, seed])
+    const d1 = await startD1Proxy(root)
+    try {
+      await d1.rows(init.sql.split("--> statement-breakpoint")[0]!)
+      await d1.rows('CREATE TABLE "legacy" ("id" integer)')
+      await d1.rows('CREATE TABLE custom_history (id INTEGER PRIMARY KEY, name TEXT UNIQUE)')
+      await d1.rows("INSERT INTO custom_history (name) VALUES ('0000_init.sql')")
+      const server = await buildNodeServer(root, { migrateOnStart: true })
+      const { stdout } = await server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })
+      expect(stdout).toContain(JSON.stringify([{ id: 7, name: "Ada" }]))
+      await expect(d1.rows("SELECT name FROM custom_history ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_seed.sql"]])
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'd1_migrations'")).resolves.toEqual([])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("rejects incomplete D1 history even when no migration has SQL", async () => {
+    const root = await createD1Project()
+    const folder = join(root, "server/databases/default/migrations", init.tag)
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, "snapshot.json"), "{}")
+    await expect(buildNodeServer(root, { migrateOnStart: true })).rejects.toThrow("migration.sql")
+  })
+
+  function d1Database(name: string, target: string, migrations: (typeof init)[], query: D1Query) {
+    const files = migrations.map((migration, index) => ({ dataLoss: findDataLoss([migration.sql]), name: `000${index}_migration.sql`, sql: migration.sql, statements: migration.sql.split("--> statement-breakpoint"), tag: migration.tag }))
+    return { d1: { files }, db: { $client: { migrationsTable: "d1_migrations", protocol: "d1-http", query, target } }, dialect: "sqlite" as const, migrations: [], name }
+  }
+
+  it("rejects two Definitions sharing a D1 ledger before either writes", async () => {
+    const requests: string[] = []
+    const query = async (sql: string) => {
+      requests.push(sql)
+      return []
+    }
+    const first = d1Database("notes", "https://proxy.example/d1", [{ ...init, sql: "CREATE TABLE notes (id integer);" }], query)
+    const second = d1Database("messages", "https://proxy.example/d1", [{ ...init, sql: "CREATE TABLE messages (id integer);" }], query)
+    await expect(migrateOnStart([first, second])).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED", why: expect.stringContaining("d1_migrations") })
+    expect(requests).toEqual([])
+  })
+
+  it("requires rows when reading a D1 ledger", async () => {
+    const query = createD1QueryAt("https://proxy.example/d1", "token", problem => new Error(problem), async () => Response.json({ result: [{ success: true }], success: true }))
+    await expect(query("SELECT name FROM d1_migrations")).rejects.toThrow("HTTP 200")
+  })
+
+  it("does not carry the D1 data-loss exemption across migration files", async () => {
+    const root = await createD1Project()
+    await writeMigrations(root, [init, dropLegacy])
+    const d1 = await startD1Proxy(root)
+    try {
+      const server = await buildNodeServer(root, { migrateOnStart: true })
+      await expect(server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })).rejects.toMatchObject({ stderr: expect.stringContaining("DATABASE_MIGRATION_DATA_LOSS") })
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE type = 'table'")).resolves.toEqual([])
     }
     finally {
       await d1.close()
@@ -634,7 +701,7 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
         if (sql.startsWith("SELECT name FROM sqlite_master")) await bothRead
         return rows
       }
-      const database = { d1: { files: [file], table: "d1_migrations" }, db: { $client: { protocol: "d1-http", query: racing } }, dialect: "sqlite" as const, migrations: [startMigration], name: "default" }
+      const database = { d1: { files: [file] }, db: { $client: { migrationsTable: "d1_migrations", protocol: "d1-http", query: racing, target: d1.url } }, dialect: "sqlite" as const, migrations: [startMigration], name: "default" }
       const first: string[] = []
       const second: string[] = []
       await Promise.all([
@@ -661,13 +728,13 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     const id = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler("#vitehub/database/migrations")
     // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const shipped = JSON.parse((await (plugin.load as { handler: (id: string) => Promise<string> | undefined }).handler(id!))!.replace(/^export default /, ""))
-    expect(shipped.databases.default.d1).toMatchObject({ files: [{ name: "0000_init.sql", tag: init.tag }, { name: "0001_seed.sql", tag: seed.tag }], table: "d1_migrations" })
+    expect(shipped.databases.default.d1).toMatchObject({ files: [{ name: "0000_init.sql", tag: init.tag }, { name: "0001_seed.sql", tag: seed.tag }] })
     expect(nitro.options.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
   })
 
   it("rejects a backup of a D1 HTTP database", async () => {
     const query = async () => []
-    await expect(migrateOnStart([{ d1: { files: [], table: "d1_migrations" }, db: { $client: { protocol: "d1-http", query } }, dialect: "sqlite", migrations: [], name: "default" }], { backup: { keep: 3 } })).rejects.toMatchObject({
+    await expect(migrateOnStart([d1Database("default", "https://proxy.example/d1", [], query)], { backup: { keep: 3 } })).rejects.toMatchObject({
       code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
       why: expect.stringContaining("D1 over HTTP"),
     })
