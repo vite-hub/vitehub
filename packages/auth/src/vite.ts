@@ -162,21 +162,25 @@ interface InternalAuthModuleOptions {
   importBase?: string
 }
 
-function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
+function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, runtimeServer?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
   if (!config) {
     return "export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n"
   }
+  const runtimeServer = JSON.stringify(options.runtimeServer ?? privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
     options.testMode ? "export const getAuthApp = () => undefined" : 'export { useNitroApp as getAuthApp } from "nitro/app"',
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))}`,
+          `import { setAuthRuntimeEnvResolver } from ${runtimeServer}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "setAuthRuntimeEnvResolver(useServerEnv, definition)",
         ]
       : []),
+    // The Nuxt module guards the pages of `access.pages` that the build reads. The server stops when the Definition has others.
+    `import { checkBuiltAuthPages } from ${runtimeServer}`,
+    `checkBuiltAuthPages(definition, ${JSON.stringify(config.access.pages ?? {})})`,
     "export { definition }",
     "export default definition",
     "",
@@ -185,7 +189,7 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
 
 export async function writeNuxtAuthDefinition(root: string, config: ResolvedAuthViteConfig): Promise<string> {
   const file = resolve(resolveViteHubProjectRoot(root), ".vitehub/auth/definition.ts")
-  await writeFileIfChanged(file, renderAuthDefinitionModule(config))
+  await writeFileIfChanged(file, renderAuthDefinitionModule(config, { runtimeServer: ownModule(import.meta.url, "runtime/server"), serverEnv: false }))
   return file
 }
 

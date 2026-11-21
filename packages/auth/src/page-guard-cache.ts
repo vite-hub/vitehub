@@ -1,6 +1,8 @@
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { cachingRuleNames, createCachingRouteRuleFinder, methodOrder, type RouteRuleEntry, type RouteRules } from "./route-rule-cache.ts"
 
+import type { AuthPages } from "./nuxt-types.ts"
+
 /** A Nuxt page, as `pages:resolved` gives it after Nuxt reads the literal values of `definePageMeta()`. */
 export interface NuxtPageLike {
   path: string
@@ -12,6 +14,8 @@ export interface NuxtPageLike {
 export interface PageGuardCacheOptions {
   /** `router.options.sensitive` of Nuxt. When it is not true, Nuxt matches pages and route rules without case. */
   sensitive?: boolean
+  /** `access.pages` of the Auth Definition. It guards the pages that have no `auth` of their own. */
+  accessPages?: AuthPages
 }
 
 /** The requests that render a page: the HTML of the page, or its payload. */
@@ -24,6 +28,8 @@ interface PageTarget {
   auth: unknown
   /** True for the `<page>/_payload.json` requests of the page. */
   payload: boolean
+  /** An `access.pages` key that guards some paths of the page. */
+  accessPage?: string
 }
 
 /**
@@ -63,6 +69,20 @@ function payloadPattern(pattern: string): string | undefined {
   return `${pattern.replace(/\/$/, "")}/_payload.json`
 }
 
+function parentPath(pattern: string): string {
+  return pattern.replace(/\/[^/]*$/, "") || "/"
+}
+
+/**
+ * The page paths whose payloads a rou3 pattern matches. A last segment that matches one segment, such as `:file` or
+ * `*`, also matches the payload of the parent path.
+ */
+function payloadPages(pattern: string): string[] {
+  if (pattern.endsWith("/_payload.json")) return [parentPath(pattern)]
+  if (/\/(?:\*|:\w+(?:\([^)]*\))?)$/.test(pattern)) return [pattern, parentPath(pattern)]
+  return [pattern]
+}
+
 /**
  * Folds the case of a rou3 pattern, as Nuxt does for route rules when its router is not case sensitive. Parameter
  * names, their constraints, and escaped characters keep their case.
@@ -97,7 +117,8 @@ function pageTargets(pages: readonly NuxtPageLike[], toPatterns: (path: string) 
 }
 
 /**
- * Stops the build when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards, or its payload.
+ * Stops the build when a route rule caches or prerenders a page that `definePageMeta({ auth })` or `access.pages`
+ * guards, or its payload.
  * The page guard runs when the server renders the page, so a cached page keeps the render, or the redirect, of one
  * visitor and serves it to all visitors. The check reads `auth` only when Nuxt reads it at build time, that is when
  * `definePageMeta()` sets it to a literal value.
@@ -113,12 +134,28 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
   const [{ vueRouterToRou3 }, { compareRoutes, routesOverlap }] = await Promise.all([import("unrouting"), import("rou3")])
   const fold = options.sensitive ? (pattern: string) => pattern : foldPattern
   const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(fold))
+  const covers = (pattern: string, other: string) => ["equal", "superset"].includes(compareRoutes(pattern, other))
+  // Nuxt renders the payload of a page with the route rules of the page path, so a key covers its payload paths too.
+  const accessPages = Object.entries(options.accessPages ?? {}).flatMap(([key, mode]) => {
+    const pattern = fold(key)
+    const payload = payloadPattern(pattern)
+    return [pattern, ...payload ? [payload] : []].map(paths => ({ key, pattern, paths, mode }))
+  })
+  const accessGuards = accessPages.filter(page => page.mode)
+  for (const target of targets) {
+    if (target.auth !== undefined) continue
+    // Count each pattern that guards some paths of the page, such as `/team/admin` for `/team/:id`.
+    const on = accessGuards.filter(guard => routesOverlap(guard.paths, target.pattern))
+    const source = on.find(guard => guard.mode === "user") ?? on[0]
+    if (!source) continue
+    target.auth = source.mode
+    target.accessPage = source.key
+  }
   const guards = targets.filter(target => isGuarded(target.auth))
   if (!guards.length) return
   const open = new Set(targets.filter(target => !isGuarded(target.auth) && isStaticPath(target.path)).map(target => target.pattern))
   // Page paths and rule keys are both below `app.baseURL`.
   const findCachingRule = await createCachingRouteRuleFinder(routeRules, fold)
-  const covers = (pattern: string, other: string) => ["equal", "superset"].includes(compareRoutes(pattern, other))
   // h3 merges a narrower pattern later, and on one pattern a later method. A partial overlap counts as later.
   const mergesAfter = (on: RouteRuleEntry, off: RouteRuleEntry) => {
     const relation = compareRoutes(on.pattern, off.pattern)
@@ -129,6 +166,15 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
     const exempt = (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[]): boolean => {
       // Vue Router selects a static page before a dynamic page. Two pages on one static path stay guarded.
       if (open.has(entry.pattern) && entry.pattern !== guard.pattern) return true
+      if (guard.accessPage) {
+        // The cached paths of the page keep no guard when no pattern guards them, or when a `false` pattern covers them
+        // that is narrower than each pattern that guards them.
+        // Nuxt strips `/_payload.json` before it picks the guard of a payload, so the `false` key itself must cover the
+        // page paths behind the cached payloads.
+        const on = accessGuards.filter(on => routesOverlap(on.paths, entry.pattern) && routesOverlap(on.paths, guard.pattern))
+        const pages = [payloadPages(entry.pattern), [guard.payload ? parentPath(guard.pattern) : guard.pattern]]
+        if (!on.length || accessPages.some(off => off.mode === false && pages.some(paths => paths.every(path => covers(off.pattern, path))) && on.every(on => compareRoutes(on.pattern, off.pattern) === "superset"))) return true
+      }
       // With `ssr: false`, Nuxt sends an empty page shell and runs the page guard only in the browser. A cached shell
       // is the same for every visitor. The `ssr: false` rule must match every cached path: every path of the rule
       // that caches, or every guarded path. Nuxt adds `'/**': { ssr: true }`, so an `ssr: true` rule turns server
@@ -139,7 +185,7 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
     const cached = findCachingRule(guard.pattern, { names: isGuestGuard(guard.auth) ? guestCachingRuleNames : cachingRuleNames, exempt })
     if (!cached) continue
     throw authErrorDiagnostics.AUTH_GUARDED_PAGE_CACHED({
-      message: `[vitehub] Route rule ${JSON.stringify(cached.key)} sets \`${cached.name}\` on ${cached.method} requests to the ${guard.payload ? "payload of the " : ""}page ${JSON.stringify(guard.path)}, which \`definePageMeta({ auth })\` guards. A cached or prerendered page is rendered for one visitor and served to all visitors.`,
+      message: `[vitehub] Route rule ${JSON.stringify(cached.key)} sets \`${cached.name}\` on ${cached.method} requests to the ${guard.payload ? "payload of the " : ""}page ${JSON.stringify(guard.path)}, which ${guard.accessPage ? `\`access.pages\` ${JSON.stringify(guard.accessPage)}` : "`definePageMeta({ auth })`"} guards. A cached or prerendered page is rendered for one visitor and served to all visitors.`,
     })
   }
 }

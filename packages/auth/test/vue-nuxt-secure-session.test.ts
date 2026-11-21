@@ -21,7 +21,8 @@ const nitro = vi.hoisted(() => ({ serverFetch: vi.fn<(request: Request) => Promi
 vi.mock("nitro", () => nitro)
 
 vi.mock("#app", () => ({
-  addRouteMiddleware: (_name: string, middleware: (route: Route) => unknown) => { nuxt.middleware = middleware },
+  // The plugin also adds the named guards of `access.pages`. This test checks the global guard.
+  addRouteMiddleware: (name: string, middleware: (route: Route) => unknown) => { if (name === "vitehub-auth") nuxt.middleware = middleware },
   createError: (input: unknown) => Object.assign(new Error("nuxt"), input),
   defineNuxtPlugin: (plugin: unknown) => plugin,
   navigateTo: (target: unknown) => target,

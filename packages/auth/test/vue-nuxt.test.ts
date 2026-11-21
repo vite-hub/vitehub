@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   pages: new Map<string, object>(),
   params: new Map<string, Record<string, unknown>>(),
   middleware: undefined as Middleware | undefined,
+  named: {} as Record<string, Middleware>,
 }))
 
 /** Resolves a path to one page per path, as Vue Router does for static pages. */
@@ -46,6 +47,13 @@ function resolveRoute(target: string) {
   if (!mocks.pages.has(key)) mocks.pages.set(key, { path: key })
   return { matched: [mocks.pages.get(key)!], params: mocks.params.get(key) ?? {} }
 }
+/** The route with the record and params of its `fullPath`, unless the test names them. */
+function withRouteRecord(route: Route): Route {
+  const resolved = resolveRoute(route.fullPath)
+  route.matched ??= resolved.matched
+  route.params ??= resolved.params
+  return route
+}
 
 vi.mock("nitro", () => ({ serverFetch: mocks.requestFetch }))
 
@@ -53,12 +61,17 @@ vi.mock("#app", () => ({
   createError: mocks.createError,
   defineNuxtPlugin: (plugin: unknown) => plugin,
   // Vue Router gives the guard the record that it matched. Tests that don't name one get the record of `fullPath`.
-  addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = route => middleware({ ...resolveRoute(route.fullPath), ...route }) },
+  addRouteMiddleware: (name: string, middleware: Middleware, options?: { global?: boolean }) => {
+    // Vue Router passes the same route object to every guard and then to `currentRoute`.
+    const withRecord: Middleware = route => middleware(withRouteRecord(route))
+    if (options?.global) mocks.middleware = withRecord
+    else mocks.named[name] = withRecord
+  },
   navigateTo: mocks.navigateTo,
   showError: mocks.showError,
   tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
-  useRouter: () => ({ currentRoute: { get value() { return { ...resolveRoute(mocks.currentRoute.value.fullPath), ...mocks.currentRoute.value } } }, resolve: resolveRoute }),
+  useRouter: () => ({ currentRoute: { get value() { return withRouteRecord(mocks.currentRoute.value) } }, resolve: resolveRoute }),
   useRuntimeConfig: () => mocks.config,
   useState: (key: string) => key === "vitehub:auth:guard-route" ? mocks.guardRoute : mocks.state,
 }))
@@ -126,6 +139,7 @@ beforeEach(async () => {
   mocks.payload = {}
   mocks.app = { runWithContext: run => run(), payload: mocks.payload }
   mocks.middleware = undefined
+  mocks.named = {}
   mocks.getSession.mockResolvedValue({ data: session })
   mocks.signOut.mockResolvedValue({ data: { success: true }, error: null })
   mocks.currentRoute.value = { fullPath: "/", meta: {} }
@@ -182,6 +196,7 @@ describe("Nuxt session and page guard", () => {
     await plugin.setup({ payload: mocks.payload })
 
     expect(mocks.middleware).toBeUndefined()
+    expect(mocks.named).toEqual({})
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
     expect(mocks.state.value).toBeUndefined()
@@ -207,7 +222,7 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
-    expect(mocks.middleware?.({ fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
+    expect(mocks.middleware?.({ path: "/login", fullPath: "/login", meta: { auth: "guest" } })).toBe("/")
   })
 
   it("makes a refusal of authorize() Nuxt's fatal error, with the status and data of the server", async () => {
@@ -247,7 +262,7 @@ describe("Nuxt session and page guard", () => {
   it("does not read the session for an SSR page without a page guard or a session composable", async () => {
     await plugin.setup(mocks.app)
 
-    expect(await mocks.middleware?.({ fullPath: "/", meta: {} })).toBeUndefined()
+    expect(await mocks.middleware?.({ path: "/", fullPath: "/", meta: {} })).toBeUndefined()
     expect(await renderPage(0)).toBe("<main></main>")
     expect(mocks.requestFetch).not.toHaveBeenCalled()
     expect(mocks.state.value).toBeUndefined()
@@ -357,6 +372,112 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).toHaveBeenCalledWith(expect.objectContaining({ basePath: "/app/auth" }))
   })
 
+  it("guards the pages of access.pages with the named middleware that their route rules attach", async () => {
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+    const page = (fullPath: string, auth?: AuthPageMeta): Route => ({ path: fullPath.split("?")[0]!, fullPath, meta: auth === undefined ? {} : { auth } })
+
+    expect(Object.keys(mocks.named)).toEqual(["vitehub-auth-user", "vitehub-auth-guest"])
+    // The global guard reads only page meta, so a page of access.pages does not run the guard twice.
+    expect(mocks.middleware?.(page("/dashboard"))).toBeUndefined()
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard?tab=1"))).toEqual({ path: "/login", query: { redirect: "/dashboard?tab=1" } })
+    expect(mocks.named["vitehub-auth-guest"]?.(page("/login"))).toBeUndefined()
+    // definePageMeta({ auth }) wins over access.pages.
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard/public", false))).toBeUndefined()
+    expect(mocks.named["vitehub-auth-user"]?.(page("/dashboard/guest", "guest"))).toBeUndefined()
+    expect(mocks.middleware?.(page("/dashboard/guest", "guest"))).toBeUndefined()
+  })
+
+  it("shows a 401 instead of a sign-in page that a wide access.pages pattern guards", async () => {
+    mocks.event.req.headers.delete("cookie")
+    const login = {}
+    mocks.pages.set("/login", login)
+    await plugin.setup({ payload: mocks.payload })
+
+    // `'/**': 'user'` also covers the login page. A redirect to it would run the guard again on each request.
+    // Vue Router opens the login page for `/LOGIN` too, unless `sensitive` is set.
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/LOGIN", fullPath: "/LOGIN?redirect=/settings", meta: {}, matched: [login], params: {} })).toBeUndefined()
+    expect(mocks.showError).toHaveBeenCalledExactlyOnceWith({ statusCode: 401, statusMessage: "Signed out" })
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/settings", fullPath: "/settings", meta: {}, matched: [{}], params: {} })).toEqual({ path: "/login", query: { redirect: "/settings" } })
+  })
+
+  it("compares the sign-in page with the page of Vue Router, not the path", async () => {
+    mocks.event.req.headers.delete("cookie")
+    mocks.config = { public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/k", afterSignIn: "/" } } }
+    const secret = {}
+    mocks.pages.set("/k", {})
+    mocks.pages.set("/K", secret)
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/K", fullPath: "/K", meta: {}, matched: [secret], params: {} })).toEqual({ path: "/k", query: { redirect: "/K" } })
+    expect(mocks.showError).not.toHaveBeenCalled()
+  })
+
+  it("shows a 401 instead of a guarded sign-in page in the browser", async () => {
+    vi.stubGlobal("window", {})
+    mocks.getSession.mockResolvedValue({ data: null })
+    const login = {}
+    mocks.pages.set("/login", login)
+    await plugin.setup({ payload: mocks.payload })
+
+    await mocks.named["vitehub-auth-user"]?.({ path: "/login", fullPath: "/login", meta: {}, matched: [login], params: {} })
+    expect(mocks.showError).toHaveBeenCalledExactlyOnceWith({ statusCode: 401, statusMessage: "Signed out" })
+  })
+
+  it("does not redirect a signed-in user from the guest redirect page to itself", async () => {
+    const home = {}
+    mocks.pages.set("/", home)
+    await plugin.setup({ payload: mocks.payload })
+    mocks.state.value = session
+
+    expect(mocks.named["vitehub-auth-guest"]?.({ path: "/", fullPath: "/", meta: {}, matched: [home], params: {} })).toBeUndefined()
+  })
+
+  it("keeps a signed-in user on a guest redirect page whose params Vue Router gives in another form", async () => {
+    const welcome = {}
+    mocks.pages.set("/welcome/start", welcome)
+    // Resolving the path gives a repeatable param as an array; the named navigation gave a scalar, with the keys in another order.
+    mocks.params.set("/welcome/start", { step: ["start"], team: "a" })
+    mocks.config = { public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/welcome/start" } } }
+    await plugin.setup({ payload: mocks.payload })
+    mocks.state.value = session
+
+    expect(mocks.named["vitehub-auth-guest"]?.({ path: "/welcome/start", fullPath: "/welcome/start?tab=details", meta: {}, matched: [welcome], params: { team: "a", step: "start" } })).toBeUndefined()
+
+    // The named navigation gave an empty repeatable param that path resolution leaves out.
+    const optional = {}
+    mocks.pages.set("/welcome", optional)
+    mocks.config = { public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/welcome" } } }
+    await plugin.setup({ payload: mocks.payload })
+    expect(mocks.named["vitehub-auth-guest"]?.({ path: "/welcome", fullPath: "/welcome", meta: {}, matched: [optional], params: { step: [] } })).toBeUndefined()
+  })
+
+  it("redirects a signed-in user to the guest redirect page when the same page has other params", async () => {
+    // `/welcome/:step*` opened by name with `step: "start"`. A static `/welcome/start` page matches that path, and
+    // `/welcome` opens `/welcome/:step*` without `step`.
+    const welcome = {}
+    mocks.pages.set("/welcome", welcome)
+    mocks.pages.set("/welcome/start", {})
+    await plugin.setup({ payload: mocks.payload })
+    mocks.state.value = session
+
+    expect(mocks.middleware?.({ path: "/welcome/start", fullPath: "/welcome/start", meta: { auth: { only: "guest", redirectTo: "/welcome" } }, matched: [welcome], params: { step: "start" } })).toBe("/welcome")
+  })
+
+  it("sends a signed-in user away from a guest page of access.pages in the browser", async () => {
+    vi.stubGlobal("window", {})
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(await mocks.named["vitehub-auth-guest"]?.({ path: "/login", fullPath: "/login", meta: {} })).toBe("/")
+    expect(await mocks.named["vitehub-auth-user"]?.({ path: "/dashboard", fullPath: "/dashboard", meta: {} })).toBeUndefined()
+    const { loggedIn, user } = useUserSession()
+    expect(loggedIn.value).toBe(true)
+    mocks.getSession.mockResolvedValue({ data: null })
+    expect(await mocks.named["vitehub-auth-user"]?.({ path: "/dashboard", fullPath: "/dashboard", meta: {} })).toEqual({ path: "/login", query: { redirect: "/dashboard" } })
+    expect(loggedIn.value).toBe(false)
+    expect(user.value).toBeNull()
+  })
+
   it("uses the client of the composables, with the plugins of auth.client.ts, in the page guard", async () => {
     // A new page load: no Better Auth client exists yet.
     vi.resetModules()
@@ -423,9 +544,22 @@ describe("signOut() in Nuxt", () => {
     expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith("/goodbye", { external: false })
   })
 
+  it("rechecks an access.pages guard on sign-out even after an aborted navigation", async () => {
+    const route: Route = { path: "/dashboard", fullPath: "/dashboard?tab=settings", meta: {} }
+    await openInBrowser(route)
+    await mocks.named["vitehub-auth-user"]?.(route)
+    // Another middleware aborts navigation to a guest page, leaving the dashboard on screen.
+    await mocks.named["vitehub-auth-guest"]?.({ path: "/login", fullPath: "/login", meta: {} })
+    mocks.navigateTo.mockClear()
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/login", query: { redirect: "/dashboard?tab=settings" } })
+  })
+
   it.each([
-    ["a page without a guard", { fullPath: "/blog", meta: {} }],
-    ["a page for guests", { fullPath: "/login", meta: { auth: "guest" as const } }],
+    ["a page without a guard", { path: "/blog", fullPath: "/blog", meta: {} }],
+    ["a page for guests", { path: "/login", fullPath: "/login", meta: { auth: "guest" as const } }],
   ])("keeps the visitor on %s", async (_name, route: Route) => {
     await openInBrowser(route)
 
@@ -438,8 +572,8 @@ describe("signOut() in Nuxt", () => {
   it("follows the page on screen when another middleware stopped a navigation", async () => {
     await openInBrowser(userPage)
     // The page guard allowed `/admin`, then another middleware stopped the navigation.
-    await mocks.middleware?.({ fullPath: "/admin", meta: { auth: "user" } })
-    await mocks.middleware?.({ fullPath: "/blog", meta: {} })
+    await mocks.middleware?.({ path: "/admin", fullPath: "/admin", meta: { auth: "user" } })
+    await mocks.middleware?.({ path: "/blog", fullPath: "/blog", meta: {} })
     mocks.navigateTo.mockClear()
 
     await useUserSession(createAuthClient()).signOut()
@@ -456,7 +590,7 @@ describe("signOut() in Nuxt", () => {
   })
 
   it("follows the page's own redirectTo", async () => {
-    await openInBrowser({ fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })
+    await openInBrowser({ path: "/team", fullPath: "/team", meta: { auth: { only: "user", redirectTo: "/join" } } })
 
     await useUserSession(createAuthClient()).signOut()
 
@@ -489,7 +623,7 @@ describe("the page guard with access.signIn and access.afterSignIn of server/aut
     mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup({ payload: mocks.payload })
 
-    expect(await mocks.middleware?.({ fullPath: "/login", meta: { auth: "guest" } })).toBe("/dashboard")
+    expect(await mocks.middleware?.({ path: "/login", fullPath: "/login", meta: { auth: "guest" } })).toBe("/dashboard")
   })
 
   it("sends a signed-out visitor to the sign-in page", async () => {
@@ -506,8 +640,41 @@ describe("the page guard with access.signIn and access.afterSignIn of server/aut
     mocks.event.req.headers.delete("cookie")
     await plugin.setup({ payload: mocks.payload })
 
-    expect(mocks.middleware?.({ fullPath: "/private?tab=1", meta: { auth: "user" } })).toBe("/app/auth/sign-in?redirect=%2Fprivate%3Ftab%3D1")
+    expect(mocks.middleware?.({ path: "/private", fullPath: "/private?tab=1", meta: { auth: "user" } })).toBe("/app/auth/sign-in?redirect=%2Fprivate%3Ftab%3D1")
     expect(mocks.navigateTo).toHaveBeenCalledWith("/app/auth/sign-in?redirect=%2Fprivate%3Ftab%3D1", { external: true })
+  })
+
+  it("shows a 401 on the sign-in page of a wide access.pages pattern, without a redirect to itself", async () => {
+    await configure(undefined, "/", { signIn: "/sign-in", pages: { "/**": "user" } })
+    mocks.event.req.headers.delete("cookie")
+    const signIn = {}
+    mocks.pages.set("/sign-in", signIn)
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/sign-in", fullPath: "/sign-in?redirect=/settings", meta: {}, matched: [signIn], params: {} })).toBeUndefined()
+    expect(mocks.showError).toHaveBeenCalledExactlyOnceWith({ statusCode: 401, statusMessage: "Signed out" })
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/settings", fullPath: "/settings", meta: {}, matched: [{}], params: {} })).toEqual({ path: "/sign-in", query: { redirect: "/settings" } })
+  })
+
+  it("starts the provider sign-in from a page of access.pages, and shows a 401 there after sign-out", async () => {
+    await configure(undefined, "/", { signIn: { provider: "github" }, pages: { "/**": "user" } })
+    mocks.event.req.headers.delete("cookie")
+    await plugin.setup({ payload: mocks.payload })
+
+    expect(mocks.named["vitehub-auth-user"]?.({ path: "/dashboard", fullPath: "/dashboard", meta: {} })).toBe("/api/auth/sign-in?redirect=%2Fdashboard")
+
+    vi.stubGlobal("window", {})
+    const route: Route = { path: "/dashboard", fullPath: "/dashboard", meta: {} }
+    mocks.currentRoute.value = route
+    mocks.state.value = session
+    await plugin.setup({ payload: mocks.payload, runWithContext: run => run() })
+    await mocks.named["vitehub-auth-user"]?.(route)
+    mocks.navigateTo.mockClear()
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).not.toHaveBeenCalled()
+    expect(mocks.showError).toHaveBeenCalledExactlyOnceWith({ statusCode: 401, statusMessage: "Signed out" })
   })
 })
 

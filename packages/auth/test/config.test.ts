@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverAuthAbilities, discoverAuthDefinition, discoverAuthDefinitions } from "../src/discovery.ts"
 import { resolveAuthViteConfig } from "../src/config.ts"
+import { defineAuth } from "../src/definition.ts"
+import { checkBuiltAuthPages } from "../src/runtime/server.ts"
+import { resolveAuthOptions } from "../src/runtime-options.ts"
+import { writeNuxtAuthDefinition } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 
@@ -291,6 +295,81 @@ describe("resolveAuthViteConfig", () => {
 
     await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], signIn: { provider: 'github', scopes: ['read:org'] } },"])
     expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], signIn: { provider: true } })
+  })
+
+  it("resolves access.pages for the Nuxt page guard", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user', \"/dashboard/pricing\": false, '/login': `guest` } },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [], pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } })
+  })
+
+  it.each([
+    "pages: pageMap",
+    "pages: { ...pageMap }",
+    "pages: { [path]: 'user' }",
+    "pages: { '/dashboard/**': mode }",
+    "pages: { '/dashboard/**': 'admin' }",
+    "pages: { '/account/:id?': 'user' }",
+    // A spread or a computed key in `access` can hide `pages` from the build.
+    "...pageAccess",
+    "['pages']: { '/dashboard/**': 'user' }",
+  ])("rejects access.%s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth({ access: sharedAccess })",
+    "defineAuth({ access })",
+    "defineAuth({ access: makeAccess() })",
+    "defineAuth(() => ({ access: sharedAccess }))",
+  ])("stops the build when it cannot read access in %s", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { pages: { '/dashboard/**': 'user' } } } })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { access: sharedAccess }\n  return {} })",
+  ])("stops the build when a branch of %s can set access.pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth({ access: undefined })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { routes: ['/api/**'] } } })",
+  ])("builds %s without pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access.pages).toBeUndefined()
+  })
+
+  it.each([
+    "defineAuth(({ env }) => ({ secret: env.AUTH_SECRET }))",
+    "defineAuth(() => ({ access: { signIn: '/login', pages: { '/dashboard/**': 'user' } } as const }))",
+  ])("reads the pages of %s", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access.pages).toEqual(call.includes("pages") ? { "/dashboard/**": "user" } : undefined)
+  })
+
+  it("stops the server when the Definition has access.pages that the build did not read", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    // The server loads the generated Definition module at startup.
+    expect(await readFile(await writeNuxtAuthDefinition(rootDir, resolveAuthViteConfig(undefined, rootDir)!), "utf8")).toContain("checkBuiltAuthPages(definition, {})")
+
+    const sharedAccess = { pages: { "/dashboard/**": "user" } } as const
+    const invalid = expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    expect(() => checkBuiltAuthPages(defineAuth({ access: sharedAccess }), {})).toThrow(invalid)
+    const callback = defineAuth(() => ({ access: sharedAccess }))
+    checkBuiltAuthPages(callback, {})
+    expect(() => resolveAuthOptions(callback)).toThrow(invalid)
+    expect(() => checkBuiltAuthPages(defineAuth({ access: sharedAccess }), { "/dashboard/**": "user" })).not.toThrow()
   })
 
   it.each([

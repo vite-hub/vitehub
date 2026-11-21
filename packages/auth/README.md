@@ -513,7 +513,8 @@ const { data: sessions } = await useAsyncData("sessions", async () => {
 | `'user'` or `true` | Visitors with a session | `access.signIn` (default `/login`), with `?redirect=<the page>`. A provider opens `<basePath>/sign-in`. |
 | `'guest'` | Visitors without a session, such as on the login page | `access.afterSignIn` (default `/`) |
 | `{ only, redirectTo }` | `only` is `'user'` or `'guest'` | `redirectTo` |
-| `false` or unset | Everyone | |
+| `false` | Everyone | |
+| Not set | The mode of the most specific `access.pages` pattern, or everyone if no pattern matches | |
 
 ```ts
 // server/auth.ts
@@ -521,6 +522,17 @@ import { defineAuth } from "@vite-hub/auth"
 
 export default defineAuth({
   access: { signIn: "/sign-in", afterSignIn: "/app" },
+})
+```
+
+To guard pages from the Auth Definition, map route patterns to `'user'`, `'guest'`, or `false` in `access.pages`. The Nuxt module reads it at build time and adds the guard to the `appMiddleware` route rule of each pattern, so the server render and navigation in the browser send the visitor to the same page. The most specific pattern wins, `false` removes the guard of a wider pattern, and `definePageMeta({ auth })` of a page wins over all patterns. A key has static segments, `:name`, and a last `/**`. Optional, repeated, and regex params stop the build with `AUTH_PAGE_ROUTES_INVALID`, because Nuxt then orders patterns by position and not by how specific they are.
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
+export default defineAuth({
+  access: { pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } },
 })
 ```
 

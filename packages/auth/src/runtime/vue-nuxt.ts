@@ -10,7 +10,7 @@ import { resolveAuthMountPath } from "../application-path.ts"
 // download them. The plugin installs its hooks through the bridge, and the browser guard loads them on demand.
 import { setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler } from "../nuxt-bridge.ts"
 
-import type { AuthPageGuardConfig, AuthPageMeta } from "../nuxt-types.ts"
+import type { AuthPageGuardConfig, AuthPageMeta, AuthPageMode } from "../nuxt-types.ts"
 import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
@@ -20,6 +20,7 @@ type NuxtApp = {
 }
 type RouteLike = { fullPath: string, matched: readonly object[], params: Record<string, unknown>, meta: { auth?: AuthPageMeta } }
 type RouterLike = {
+  currentRoute: { value: RouteLike }
   resolve(path: string): { matched: readonly object[], params: Record<string, unknown> }
 }
 /** Vue Router gives the same params in other forms: `"a"` or `["a"]`, `[]` or `""` or nothing for an empty one, and any key order. */
@@ -156,9 +157,9 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     const config = runtimeConfig.public?.vitehubAuth
     const signInPage = config ? config.signInPage : "/login"
     const afterSignIn = (config || undefined)?.afterSignIn ?? "/"
+    const routeModes = new WeakMap<RouteLike, AuthPageMode>()
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
-    const guardOf = (to: RouteLike) => {
-      const meta = to.meta.auth
+    const guardOf = (to: RouteLike, meta = to.meta.auth) => {
       if (config === false || meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
@@ -188,7 +189,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         // Nuxt throws for a URL on another site without `external`.
         if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
         // The guard runs only when the route changes, so do its work for the page on screen.
-        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false, true)
+        const route = (useRouter() as RouterLike).currentRoute.value
+        return guardOf(route, route.meta.auth ?? routeModes.get(route))?.(false, true)
       }))
     }
     if (config === false) return
@@ -235,9 +237,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
     let navigations = 0
 
-    addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
-      const navigation = ++navigations
-      const decide = guardOf(to)
+    const guard = (to: RouteLike, meta: AuthPageMeta | undefined, navigation: number) => {
+      const decide = guardOf(to, meta)
       if (!decide) return
       const page = to.fullPath.split("#", 1)[0]
       // An error render can replace the response's Cache-Control, so the browser may have kept it.
@@ -270,7 +271,18 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         if (navigation !== navigations) return
         return inApp(() => decideAndSeed(value))
       })
-    }, { global: true })
+    }
+    // Nuxt runs this global middleware before the named ones of a route, so it counts each navigation once.
+    addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth, ++navigations), { global: true })
+    // `definePageMeta({ auth })` wins over the named guards that `access.pages` attaches.
+    for (const mode of ["user", "guest"] as const) {
+      addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => {
+        if (to.meta.auth !== undefined) return
+        // Keep the policy on this route, so an aborted navigation cannot replace the page's sign-out guard.
+        routeModes.set(to, mode)
+        return guard(to, mode, navigations)
+      })
+    }
   },
 })
 
