@@ -6,6 +6,7 @@ import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
 import UButton from "@nuxt/ui/components/Button.vue";
 import UCheckbox from "@nuxt/ui/components/Checkbox.vue";
+import UIcon from "@nuxt/ui/components/Icon.vue";
 import URadioGroup from "@nuxt/ui/components/RadioGroup.vue";
 import USlider from "@nuxt/ui/components/Slider.vue";
 import USplitter from "@nuxt/ui/components/Splitter.vue";
@@ -16,12 +17,13 @@ import { createApp, h, ref } from "vue";
 import type { VNode } from "vue";
 
 import { createViteHubUI } from "../../../src/config.ts";
-import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
+import { defineMotionEffect, forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
 import { textRows } from "./text.ts";
 import { togetherRows } from "./together.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
+const inverted = new URLSearchParams(location.search).has("inverted");
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
@@ -30,6 +32,18 @@ const todayThumb = "transition-transform duration-200 ease-out data-[state=unche
 const switchUI = today ? { thumb: todayThumb } : undefined;
 // The UTabs indicator transition of Nuxt UI's theme before the motion layer.
 const todayIndicator = "transition-[translate,width] duration-200 ease-out";
+
+if (new URLSearchParams(location.search).has("override")) {
+  const remove = defineMotionEffect({
+    name: "press",
+    selector: "[data-test=button]",
+    press(element) {
+      element.dataset.customPress = "true";
+    },
+  });
+  Object.assign(window, { removePressOverride: remove });
+}
+Object.assign(window, { forceReducedMotion });
 
 addCollection(lucide);
 
@@ -46,6 +60,8 @@ const saved = ref(false);
 const starred = ref(false);
 const pinned = ref(false);
 const cssSaved = ref(false);
+const inlineSaved = ref(false);
+const bold = ref(false);
 const view = ref("grid");
 const offOn = ref(false);
 const offChecked = ref(false);
@@ -91,6 +107,7 @@ customElements.define("motion-shadow-button", ShadowButton);
 // Drag a value: sliders and dividers. The plain ones follow the prototype: a slider whose thumb has the role, and a
 // panel edge that resizes a 120px to 220px panel.
 const volume = ref(40);
+const interval = ref([20, 80]);
 const sdkVolume = ref(40);
 const plainVolume = ref(40);
 const filesWidth = ref(150);
@@ -172,7 +189,7 @@ function dragRows(): VNode[] {
   const line = () => h("span", { class: "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--ui-border) group-hover:bg-(--ui-border-accented)" });
   return [
     row("USlider, ui-sdk slider, plain slider", [
-      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
+      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", inverted, "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
       h(SdkSlider, { "data-test": "sdk-slider", "class": "sdk-slider", "modelValue": sdkVolume.value, "onUpdate:modelValue": (value: number | number[]) => (sdkVolume.value = Number(value)) }, () => [
         h(SliderControl, { class: "sdk-slider-control" }, () => [
           h(SliderTrack, { class: "sdk-slider-track" }, () => [
@@ -182,6 +199,10 @@ function dragRows(): VNode[] {
         ]),
       ]),
       plainSlider(),
+      ...(inverted ? [
+        h(USlider, { "data-test": "interval", "class": "w-80", "aria-label": "Interval", "modelValue": interval.value }),
+        h("button", { "data-test": "set-interval", "onClick": () => (interval.value = [35, 65]) }, "Set interval"),
+      ] : []),
     ]),
     row("USplitter, a plain resize handle", [
       h("div", { class: "splitter-frame" }, [
@@ -237,6 +258,7 @@ const app = createApp({
     row("Plain elements by role", [
       h("button", { "class": "plain", "data-test": "plain-button" }, "button"),
       h("a", { "class": "plain", "href": "#a", "data-test": "plain-a" }, "a[href]"),
+      h("p", ["Read the ", h("a", { "href": "#inline", "data-test": "inline-a" }, "inline link"), "."]),
       h("details", [h("summary", { "class": "plain", "data-test": "plain-summary" }, "summary")]),
       ...plainRoles.map(role => h("div", { "class": "plain", role, "tabindex": 0, "data-test": `role-${role}` }, `role=${role}`)),
     ]),
@@ -269,6 +291,8 @@ const app = createApp({
       h(UButton, { "data-test": "pin", "variant": "ghost", "icon": "i-lucide-pin", "aria-label": "Pin", "aria-pressed": pinned.value, "class": buttonClass, "onClick": () => (pinned.value = !pinned.value) }),
       // An Iconify CSS icon, as `@nuxt/icon` renders one in CSS mode: a span that draws `--svg` as a mask.
       h("button", { "class": "plain", "data-test": "css-bookmark", "aria-label": "Save", "aria-pressed": String(cssSaved.value), "onClick": () => (cssSaved.value = !cssSaved.value) }, [h("span", { class: "iconify css-bookmark" })]),
+      h("button", { "class": "plain", "data-test": "inline-mask", "aria-label": "Save", "aria-pressed": String(inlineSaved.value), "onClick": () => (inlineSaved.value = !inlineSaved.value) }, [h(UIcon, { name: "i-lucide-bookmark", mode: "css" })]),
+      h(UButton, { "data-test": "bold", "icon": "i-lucide-bold", "aria-label": "Bold", "aria-pressed": bold.value, "onClick": () => (bold.value = !bold.value) }),
       // A segmented control: a choice of one of many, not a toggle. Its icons do not wobble.
       h("div", { class: "segments" }, ["grid", "list"].map(value => h(UButton, { "data-test": `view-${value}`, "variant": "ghost", "icon": value === "grid" ? "i-lucide-layout-grid" : "i-lucide-list", "aria-label": value, "aria-pressed": view.value === value, "onClick": () => (view.value = value) }))),
     ]),

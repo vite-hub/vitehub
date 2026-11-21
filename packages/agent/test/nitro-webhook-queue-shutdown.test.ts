@@ -119,7 +119,7 @@ export default defineAgent({
           }),
         },
       },
-      webhooks: { secretToken: false },
+      webhooks: { secret: false },
     }),
   },
   driver: {
@@ -236,7 +236,7 @@ finally {
     child.stderr!.on("data", chunk => (stderr += chunk))
     const exited = once(child, "exit")
     await requestWhenReady(`http://127.0.0.1:${port}/listeners`)
-    const webhook = await fetch(`http://127.0.0.1:${port}/api/_vitehub/agents/review/webhooks/github`, {
+    const webhook = await fetch(`http://127.0.0.1:${port}/_vitehub/agents/review/webhooks/github`, {
       body: "{}",
       headers: {
         "content-type": "application/json",

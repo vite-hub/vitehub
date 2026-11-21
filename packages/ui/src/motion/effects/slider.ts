@@ -1,3 +1,4 @@
+import { isMotionOff } from "../layer.ts";
 import type { MotionEffect } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { prefersReducedMotion } from "../reduced-motion.ts";
@@ -24,8 +25,10 @@ const stretchMax = 0.55;
 const svgNamespace = "http://www.w3.org/2000/svg";
 /** The value of a slider: `[role=slider]` (Nuxt UI, Reka, plain), or the range input inside a ui-sdk and kit thumb. */
 const valueSelector = "[role=slider], input[type=range]";
+const nativeThumb = "[data-slot=slider-thumb]";
 /** The filled part of the track: Nuxt UI and Reka, ui-sdk and kit. */
 const rangeSelector = "[data-slot=range], [data-slot=slider-indicator]";
+const trackSelector = "[data-slot=track], [data-slot=slider-track], :has(> [data-slot=range])";
 
 type Axis = "x" | "y";
 
@@ -52,6 +55,7 @@ interface ThumbMotion {
 }
 
 const motions = new WeakMap<HTMLElement, ThumbMotion>();
+const fills = new WeakMap<HTMLElement, { minSize: string; translate: string; scale: string; shift: number }>();
 
 /**
  * The element that people see as the thumb. A ui-sdk thumb holds a transparent range input that fills it, so its
@@ -60,8 +64,11 @@ const motions = new WeakMap<HTMLElement, ThumbMotion>();
 function thumbOf(element: HTMLElement): HTMLElement | undefined {
   if (!(element instanceof HTMLInputElement)) return element;
   const parent = element.parentElement;
-  if (!parent || getComputedStyle(element).position !== "absolute") return undefined;
-  return parent;
+  return parent?.matches(nativeThumb) ? parent : undefined;
+}
+
+function trackValues(track: HTMLElement): NodeListOf<HTMLElement> {
+  return track.querySelectorAll<HTMLElement>(`:scope > [role=slider], :scope > ${nativeThumb} > input[type=range]`);
 }
 
 function axisOf(value: HTMLElement): Axis {
@@ -106,6 +113,15 @@ function number(value: string | null): number {
   return Number.parseFloat(value ?? "");
 }
 
+function directionOf({ thumb, axis }: ThumbMotion): number {
+  const { style } = thumb;
+  const forward = axis === "x" ? style.left : style.top;
+  const backward = axis === "x" ? style.right : style.bottom;
+  if (forward && !backward) return 1;
+  if (backward && !forward) return -1;
+  return axis === "y" || getComputedStyle(thumb).direction === "rtl" ? -1 : 1;
+}
+
 /**
  * Where the thumb was before its first change, from the old and the new value. The thumb moves `travel` pixels from
  * its minimum to its maximum: the track less the thumb (Reka's default), or the full track (ui-sdk). The minimum is
@@ -119,10 +135,11 @@ function previousCenter(motion: ThumbMotion, value: HTMLElement, from: number, t
   if (!(maximum > minimum) || !Number.isFinite(from) || !Number.isFinite(to)) return undefined;
   const size = along(rectOf(motion.thumb, motion), motion.axis).size;
   const fraction = (to - minimum) / (maximum - minimum);
+  const signAtMidpoint = directionOf(motion);
   let best: { error: number; travel: number; sign: number } | undefined;
   for (const travel of [motion.length - size, motion.length]) {
-    for (const sign of [1, -1]) {
-      const predicted = sign > 0 ? (motion.length - travel) / 2 + fraction * travel : motion.length - (motion.length - travel) / 2 - fraction * travel;
+    for (const sign of [signAtMidpoint, -signAtMidpoint]) {
+      const predicted = motion.length / 2 + sign * (fraction - 0.5) * travel;
       const error = Math.abs(predicted - motion.layout);
       if (!best || error < best.error) best = { error, travel, sign };
     }
@@ -143,7 +160,7 @@ function start(thumb: HTMLElement, value: HTMLElement): ThumbMotion | undefined 
   const motion: ThumbMotion = {
     thumb,
     track,
-    range: track.querySelector<HTMLElement>(rangeSelector),
+    range: track.querySelector<HTMLElement>(":scope > [data-slot=range], :scope > [data-slot=slider-indicator]"),
     axis,
     layout: 0,
     length: 0,
@@ -169,33 +186,50 @@ function finish(motion: ThumbMotion): void {
   motion.position.stop();
   motion.tail.stop();
   writeMotionStyle(motion.thumb, { translate: motion.ownTranslate.raw || null, scale: null });
-  if (motion.range) writeMotionStyle(motion.range, { translate: null, scale: null });
+  drawRange(motion);
   motion.lane?.ownerSVGElement?.remove();
 }
 
-/** Stretches the filled range so that it ends under the thumb that people see, `shift` pixels from its layout. */
-function drawRange(motion: ThumbMotion, shift: number): void {
+/** Draws one fill from the displayed endpoints, even while both thumbs are moving. */
+function drawRange(motion: ThumbMotion): void {
   const { range, axis, track } = motion;
   if (!range) return;
-  if (Math.abs(shift) < 0.01) {
-    writeMotionStyle(range, { translate: null, scale: null });
+  const endpoints = [...trackValues(track)].flatMap(value => {
+    const thumb = thumbOf(value);
+    if (!thumb) return [];
+    const current = motions.get(thumb);
+    const box = along(rectOf(thumb, motion), axis);
+    return [{ center: box.start + box.size / 2, moving: !!current && Math.abs(current.position.value - current.layout) >= 0.01 }];
+  });
+  const minSize = axis === "x" ? "minWidth" : "minHeight";
+  let fill = fills.get(range);
+  if (!endpoints.some(endpoint => endpoint.moving)) {
+    if (fill) {
+      range.style[minSize] = fill.minSize;
+      writeMotionStyle(range, { translate: fill.translate, scale: fill.scale });
+      fills.delete(range);
+    }
     return;
   }
-  const size = axis === "x" ? range.offsetWidth : range.offsetHeight;
-  if (size < 1) return;
-  const rangeBox = along(rectOf(range, motion), axis);
-  const trackStart = along(rectOf(track, motion), axis).start;
-  // The range's layout box, without what this effect wrote on it last frame.
-  const middle = rangeBox.start + rangeBox.size / 2;
-  const start = middle - size / 2 - (axis === "x" ? Number.parseFloat(range.style.translate) || 0 : Number.parseFloat(split(range.style.translate).y) || 0);
+  if (!fill) {
+    fill = { minSize: range.style[minSize], scale: range.style.scale, translate: range.style.translate, shift: 0 };
+    fills.set(range, fill);
+    range.style[minSize] = "1px";
+  }
+  const size = Number.parseFloat(getComputedStyle(range)[axis === "x" ? "width" : "height"]);
+  if (!(size > 0)) return;
+  const box = along(rectOf(range, motion), axis);
+  const start = box.start + box.size / 2 - fill.shift - size / 2;
   const end = start + size;
-  const center = trackStart + motion.layout;
-  // The end of the range that is nearer to the thumb moves with it.
-  const moveEnd = Math.abs(center - end) <= Math.abs(center - start);
-  const from = moveEnd ? start : start + shift;
-  const to = Math.max(from + 0.01, moveEnd ? end + shift : end);
-  const scale = (to - from) / size;
-  const move = (from + to) / 2 - (start + end) / 2;
+  const centers = endpoints.map(endpoint => endpoint.center);
+  let from = Math.min(...centers);
+  let to = Math.max(...centers);
+  if (endpoints.length === 1) {
+    if (directionOf(motion) > 0) from = start;
+    else to = end;
+  }
+  const scale = Math.max(0, to - from) / size;
+  const move = fill.shift = (from + to) / 2 - (start + end) / 2;
   writeMotionStyle(range, {
     translate: axis === "x" ? `${move}px 0px` : `0px ${move}px`,
     scale: axis === "x" ? `${scale} 1` : `1 ${scale}`,
@@ -265,7 +299,7 @@ function draw(motion: ThumbMotion): void {
   const travel = (base * (1 + stretch)).toFixed(4);
   const cross = (base * (1 - stretch * 0.25)).toFixed(4);
   writeMotionStyle(thumb, { translate, scale: axis === "x" ? `${travel} ${cross}` : `${cross} ${travel}` });
-  drawRange(motion, shift);
+  drawRange(motion);
   drawTail(motion);
 }
 
@@ -305,15 +339,19 @@ function disabled(value: Element): boolean {
 export const slider: MotionEffect = {
   name: "slider",
   // The value, and the track or root around it, so that a press on the track holds the thumb too.
-  selector: `${valueSelector}, :has(> [role=slider], > * > [role=slider], > * > input[type=range], > * > * > input[type=range])`,
+  selector: `${valueSelector}, ${trackSelector}, [data-slot=slider-control]`,
   press(element, event) {
     if (!(event instanceof PointerEvent)) return;
-    const values = element.matches(valueSelector) ? [element] : [...element.querySelectorAll<HTMLElement>(valueSelector)];
+    const target = event.composedPath()[0];
+    if (!(target instanceof Element)) return;
+    const track = element.matches("[data-slot=slider-control]") ? element.querySelector<HTMLElement>("[data-slot=slider-track]") : element;
+    const values = element.matches(valueSelector) ? [element] :
+      track && (target === element || target === track || target.closest(rangeSelector)?.parentElement === track) ? trackValues(track) : [];
     let held: { thumb: HTMLElement; value: HTMLElement } | undefined;
     let nearest = Number.POSITIVE_INFINITY;
     for (const value of values) {
       const thumb = thumbOf(value);
-      if (!thumb || disabled(value)) continue;
+      if (!thumb || disabled(value) || isMotionOff(value)) continue;
       const rect = thumb.getBoundingClientRect();
       const distance = Math.hypot(rect.left + rect.width / 2 - event.clientX, rect.top + rect.height / 2 - event.clientY);
       if (distance < nearest) {

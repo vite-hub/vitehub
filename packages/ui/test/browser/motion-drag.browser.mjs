@@ -190,6 +190,130 @@ function bendOf(page) {
   })
 }
 
+test("an inverted thumb approaches the midpoint from its previous side", async () => {
+  const { context, page } = await open("?inverted")
+  const thumb = page.locator(sliders[0].thumb)
+  await thumb.focus()
+  const first = await thumb.evaluate(node => {
+    const start = node.getBoundingClientRect().left
+    return new Promise(resolve => {
+      new MutationObserver((_, observer) => {
+        observer.disconnect()
+        requestAnimationFrame(() => resolve({ start, next: node.getBoundingClientRect().left }))
+      }).observe(node, { attributeFilter: ["aria-valuenow"] })
+      node.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true }))
+    })
+  })
+  assert.equal(await thumb.getAttribute("aria-valuenow"), "50")
+  await settled(page, sliders[0])
+  const end = await thumb.evaluate(node => node.getBoundingClientRect().left)
+  assert.ok(first.next > end + 5 && first.next <= first.start + 1, `${first.start} → ${first.next} → ${end}`)
+  await context.close()
+})
+
+test("fill follows visible thumb endpoints at zero and on simultaneous updates", async () => {
+  const { context, page } = await open("?inverted")
+  for (const slider of sliders.slice(0, 2)) {
+    const frame = await page.locator(slider.value).evaluate((node, { root, thumb }) => {
+      node.focus()
+      node.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))
+      // A native range's default action is not run for a synthetic key.
+      if (node instanceof HTMLInputElement) {
+        node.value = "0"
+        node.dispatchEvent(new Event("input", { bubbles: true }))
+      }
+      return new Promise(resolve => requestAnimationFrame(() => {
+        const fill = document.querySelector(root).querySelector("[data-slot=range], [data-slot=slider-indicator]").getBoundingClientRect()
+        const box = document.querySelector(thumb).getBoundingClientRect()
+        resolve({ width: fill.width, error: Math.min(Math.abs(fill.left - box.x - box.width / 2), Math.abs(fill.right - box.x - box.width / 2)) })
+      }))
+    }, slider)
+    assert.ok(frame.width > 30 && frame.error < 2, `${slider.name}: ${JSON.stringify(frame)}`)
+  }
+  const errors = await page.evaluate(() => {
+    document.querySelector("[data-test=set-interval]").click()
+    return new Promise(resolve => requestAnimationFrame(() => {
+      const root = document.querySelector("[data-test=interval]")
+      const fill = root.querySelector("[data-slot=range]").getBoundingClientRect()
+      const centers = [...root.querySelectorAll("[role=slider]")].map(node => {
+        const box = node.getBoundingClientRect()
+        return box.x + box.width / 2
+      })
+      resolve([Math.abs(fill.left - centers[0]), Math.abs(fill.right - centers[1])])
+    }))
+  })
+  assert.ok(errors.every(error => error < 2), `fill endpoint errors: ${errors}`)
+  await context.close()
+})
+
+test("track discovery ignores sibling controls, opted-out thumbs, and native ranges", async () => {
+  const { context, page } = await open()
+  const scales = await page.evaluate(() => {
+    const root = document.querySelector("[data-test=slider]")
+    const thumb = root.querySelector("[role=slider]")
+    thumb.dataset.motion = "none"
+    const button = root.appendChild(document.createElement("button"))
+    const label = document.body.appendChild(document.createElement("label"))
+    label.innerHTML = '<input type="range" style="position:absolute">'
+    const press = (target, observed, pointerId) => {
+      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId }))
+      const scale = observed.style.scale
+      target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId }))
+      return scale
+    }
+    return [press(button, thumb, 1), press(root.querySelector("[data-slot=track]"), thumb, 2), press(label.firstElementChild, label, 3)]
+  })
+  assert.deepEqual(scales, ["", "", ""])
+  await context.close()
+})
+
+test("USplitter bends when Reka starts a drag outside the handle", async () => {
+  const { context, page } = await open()
+  const handle = page.locator("[data-test=splitter] [role=separator]")
+  const box = await boxInView(handle)
+  const x = box.x - 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  assert.equal(await handle.getAttribute("data-resize-handle-active"), "pointer")
+  await page.mouse.move(x + 150, y, { steps: 10 })
+  await page.waitForTimeout(100)
+  assert.ok(await bendOf(page) > 20)
+  await page.mouse.up()
+  await context.close()
+})
+
+test("live reduced motion clears held drag visuals without stopping the drag", async () => {
+  const { context, page } = await open()
+  const thumb = page.locator(sliders[0].thumb)
+  const box = await boxInView(thumb)
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  assert.notEqual(await thumb.evaluate(node => node.style.scale), "")
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.waitForFunction(selector => !document.querySelector(selector).style.scale, sliders[0].thumb, { timeout: 1000 })
+  await page.mouse.move(x + 50, y)
+  assert.ok(Number(await thumb.getAttribute("aria-valuenow")) > 40)
+  assert.equal(await thumb.evaluate(node => node.style.scale), "")
+  await page.mouse.up()
+
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  const handle = await boxInView(page.locator("[data-test=resize]"))
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle.x + 150, handle.y + handle.height / 2, { steps: 10 })
+  await page.waitForSelector("svg[data-motion=bend]")
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.waitForSelector("svg[data-motion=bend]", { state: "detached", timeout: 1000 })
+  await page.mouse.move(handle.x + 40, handle.y + handle.height / 2)
+  assert.equal(await bendOf(page), 0)
+  assert.ok((await page.locator("[data-test=files]").boundingBox()).width < 220)
+  await page.mouse.up()
+  await context.close()
+})
+
 describe("divider", () => {
   const handles = [
     // The Files panel of the USplitter has a maxSize of 40%, and the panels share the group less the 8px handle.

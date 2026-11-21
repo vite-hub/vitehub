@@ -170,7 +170,7 @@ async function captureEmailOutbox(): Promise<void> {
   }, provider: "resend" }) })
   const failing = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: {
     name: "resend",
-    send: () => ({ data: null, error: emailProviderError("resend", "AUTH", "Resend rejected the API key.") }),
+    send: () => [emailProviderError("resend", "AUTH", "Resend rejected the API key."), undefined],
   }, provider: "resend" }) })
   await capture.send({
     attachments: [{ content: "date,amount\n2026-09-01,42.00\n", contentType: "text/csv", filename: "usage-september.csv" }],
@@ -222,7 +222,7 @@ const scheduleRecords = [
       { label: "Manual", value: "Enabled" },
       { label: "File", value: "server/schedules/nightly-digest.ts" },
       { label: "Source", value: "schedule" },
-      { label: "Runs", value: "Use `vitehub schedule runs nightly-digest` to list runs that this runtime recorded." },
+      { label: "Runs", value: "Use `vitehub schedule runs list nightly-digest` to list runs that this runtime recorded." },
     ],
     id: "definition:nightly-digest",
     runnable: true,

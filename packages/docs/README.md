@@ -1,8 +1,8 @@
 # @vite-hub/docs
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fdocs&icon=npm)](https://www.npmjs.com/package/@vite-hub/docs)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs/docs-site)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/docs)](https://www.npmjs.com/package/@vite-hub/docs)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs/docs-site)
 
 `@vite-hub/docs` turns a folder of Markdown files into a documentation site. It is a Nuxt module. It gives you the docs shell, four page layouts, search, a Markdown copy of each page for agents, llms.txt, an MCP server, and an optional docs assistant. [vitehub.dev](https://vitehub.dev) runs on it.
 
@@ -25,6 +25,8 @@ export default defineNuxtConfig({
 ```
 
 The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you, so a new site does not add them to `modules`. An app that already lists `@nuxt/ui` keeps it before the docs module, as in [Add docs to an existing app](#add-docs-to-an-existing-app). Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
+
+The module turns off Nuxt's idle prefetch of lazy chunks in the whole app, such as the editor and the comark blocks. A page loads the chunks that it renders. A link loads its page and payload when the reader points at it or focuses it, unless the app sets `experimental.defaults.nuxtLink.prefetchOn`.
 
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
@@ -71,7 +73,7 @@ content/
 
 A page's URL is its path in the folder. With a `content/docs/` folder, the docs are at `/docs`. Without one, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section. Each folder under `content/docs/` is a section: one entry in the rail and its own sidebar. A site with three sections or fewer, or with no section icons, has no rail: the sidebar lists every section with its pages. Pages outside `content/docs/`, such as `about.md`, render as plain articles under the site header. `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
 
-The module reads the folder at build time. In development it watches the folder: a body edit shows on the next page load, and a new page, title, or order restarts the app.
+The module reads the folder at build time. In development it watches the folder. A body edit, a new or removed page, a title, or an order shows on the next page load without a restart, and the server code reloads once. The app restarts when adding or removing `content/docs/` changes the inferred base, or when a new page changes a route that the module adds at startup: the first page outside `/docs`, a page outside `/docs`, or any new page of an app with an `app.baseURL`, whose Markdown routes list each page. It also restarts for a new page when Nitro does not run in Vite (`experimental.nitroViteEnvironment: false`).
 
 ### Multiple sources and Markdown components
 
@@ -79,7 +81,26 @@ Read pages from more than one place with `sources`. It replaces `dir`. Each entr
 
 The module reads the `.md` and `.navigation.yml` files of every source through ViteHub Content when it builds. In development the server reads folders through Nitro server assets, and the module watches them. The build copies the pages of any other Source into `.nuxt/docs/sources/docs-<index>/` and serves that copy, so a `github()` Source shows its branch as it was at build time. A production build packs the Markdown and rewritten agent copies into one gzip module to stay below Cloudflare’s module limit. A `glob()` Source lists dot files only when its `include` names them, such as `**/.navigation.yml`, and reads only below the app root.
 
-`sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
+`sources` configures the site pages, search, Markdown resources, and the pages that the docs assistant reads.
+
+A page that the build generates, such as a list of the skills in a repository, is a `files()` Source. Its loader runs when the build reads the pages, so nothing writes the page into the content folder first:
+
+```ts
+import { readdir } from "node:fs/promises"
+import { files } from "vite-hub/source"
+
+async function skillCatalog() {
+  const skills = await readdir("../skills")
+  return ["---", "title: All skills", "---", ...skills.map(name => `- \`${name}\``)].join("\n")
+}
+
+export default defineNuxtConfig({
+  docs: {
+    base: "/",
+    sources: ["content", { source: files({ "catalog.md": skillCatalog }), mount: "/skills" }],
+  },
+})
+```
 
 ```ts
 import { github, glob } from "vite-hub/source"
@@ -190,7 +211,7 @@ Most changes are options in `nuxt.config.ts`:
 | Option | Default | Use |
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
-| `base` | `/docs`, or `/` without a `docs/` folder | URL prefix whose folders are sections. |
+| `base` | `/docs`, or `/` without a `docs/` folder in `dir` | URL prefix whose folders are sections. With `sources`, the default is always `/docs`. If all pages are outside the default base, setup warns with `DOCS_BASE_EMPTY`. Set `base: '/docs'` to keep them standalone without the warning. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
@@ -204,8 +225,8 @@ Most changes are options in `nuxt.config.ts`:
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `llms` | None | `{ details, sections }`. Text under the description of `/llms.txt`, and sections of links before the page sections. |
-| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
-| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DOCS_SEO_FAILED`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it, an indexed page without `og:title`, `og:type`, `og:image`, and `og:url`, a page over 2 MB of HTML, which Googlebot cuts, and links to a redirect page or to `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
+| `linkChecker` | On | `false` turns off the link checks. The build first runs `vitehub content check` on the Markdown of every page, also the pages it does not prerender, and stops with `DOCS_LINKS_BROKEN` on a link to a missing page, named by file and line. Then `nuxt-link-checker` fails the build on detected link errors in prerendered pages, such as links in the navigation and app pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
+| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` reports one hint for each kind of problem, such as `DOCS_SEO_TITLE_INVALID`, in the build output and in `.vitehub/hints.json`. `"error"` or `true` stops the build with `DOCS_SEO_FAILED`, and `false` turns it off. The audit checks the rendered title and description, including duplicates across indexed pages. When the rendered title or description has the same problem in `vitehub content check`, the audit includes the frontmatter file and line. It also checks sitemap URLs, `h1` and heading order, word count, inbound links, Open Graph tags, HTML over 2 MB, and links to redirects or `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -229,7 +250,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
-Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, `::correct` and `::incorrect`, `::code-tree`, `::page-list`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, or `layouts/default.vue` also replaces the package one. In an app with its own `app.vue`, the plain articles outside the sections use the `docs-article` layout, so the app's `default` layout stays on its own pages. A catch-all page replaces the docs page only at the docs prefix: `pages/[...slug].vue` for docs at `/`, and `pages/docs/[...slug].vue` for docs at `/docs`. One at another prefix, such as `pages/blog/[...slug].vue`, does not.
+Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, `::correct` and `::incorrect`, `::code-tree`, `::page-list`, `::mcp-install` with `:::mcp-client`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, or `layouts/default.vue` also replaces the package one. In an app with its own `app.vue`, the plain articles outside the sections use the `docs-article` layout, so the app's `default` layout stays on its own pages. A catch-all page replaces the docs page only at the docs prefix: `pages/[...slug].vue` for docs at `/`, and `pages/docs/[...slug].vue` for docs at `/docs`. One at another prefix, such as `pages/blog/[...slug].vue`, does not.
 
 A replacement docs layout or sidebar keeps the site header. Render `<DocsSidebars panel head />` to supply the sidebar controls and hide the desktop header. A replacement `DocsSidebars` can opt in with `data-docs-sidebar-head` on its root after it supplies the brand, badge tooltip, search, and `<DocsAsideFooter />`. The header owns one `DocsHeaderActions` instance and moves it into the mounted footer on wide screens.
 
@@ -264,6 +285,8 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 `::code-tree` shows its code blocks as a project: file tabs beside the open file, or above it in a narrow panel. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
 
 `::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. On a panel Overview it lists the pages of the panel. `section` lists another section, `group="Runtime errors"` lists one group, and `exclude="Start"` leaves groups out. `compact` shows one line for each page, without icons: use it for long lists, such as one page per error code, because a Markdown table of a thousand rows is more HTML than crawlers read. Put a plain Markdown list or table inside it: the site doesn't show it, and agents read it in the Markdown copy.
+
+`::mcp-install` connects a reader's agent to the site's MCP server at `/mcp`. Its Client tab shows each `:::mcp-client{label icon method}` as a logo, and the steps of the client that the reader picks. The pick is kept for the next visit. Write the steps as a numbered list. `install="cursor"` or `install="vscode"` adds a one-click install button, and `note` adds a footer line. The Prompt, MCP URL, and Command tabs come from the `mcp` option, so they always name the real server. Agents get every client's steps under its name in the Markdown copy.
 
 ### Comark plugins
 
@@ -376,7 +399,7 @@ export default defineNuxtConfig({
 
 ```ts
 // server/agents/docs.ts
-// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset, so a build bundles the pages for hosts without a file system.
+// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset.
 import { docsAssistant } from "@vite-hub/docs/assistant"
 import { defineAgent } from "vite-hub/agent"
 
@@ -405,9 +428,9 @@ The Agent and the Connection are app files on purpose. ViteHub discovers Agents 
 
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+The preset reads the site's pages from a read-only Workspace, answers in the `web` Chat Channel at `/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
 
-The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With `sources`, replace the default `pages` Source and add a glob for each folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
+The Workspace has every page of the site in its `pages` folder, at its URL path: `/docs/guide/setup` is `pages/docs/guide/setup.md`. It reads the same pages as the site, from `docs.dir` or `docs.sources`, for each question. In development a new page shows at once, and a Worker reads the pages that the docs build packed. The assistant reads the source Markdown, so frontmatter adapters change only the site metadata. To read other files, override the Source: `workspace: { sources: { pages: glob({ cwd, include: ["**/*.md"], keyCache: false }) } }` with `glob` from `@vite-hub/workspace`.
 
 Limits:
 
@@ -429,7 +452,7 @@ import cms from "vite-hub/cms"
 import { docsCollection } from "@vite-hub/docs"
 
 export default defineContent({
-  extends: [cms, { repo: "owner/name", publish: "pr", access: "roles" }],
+  extends: [cms, { repo: "owner/name", publish: "pr", roles: true }],
   collections: { docs: docsCollection() },
 })
 ```
@@ -441,7 +464,7 @@ export default defineContent({
 | Code | When | Fix |
 | --- | --- | --- |
 | `DOCS_CONTENT_INVALID` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
-| `DOCS_REDIRECTS_BROKEN` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
+| `DOCS_REDIRECTS_BROKEN` | A production build with the link checker on finds a redirect route rule into the docs that no page or server route answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
 | `DOCS_ASSISTANT_AGENTS_MISSING` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect

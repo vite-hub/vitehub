@@ -86,8 +86,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
     COMMENTS_R0022: {
-      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
-      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
+      why: "Another comment thread of this scope, or another reply in this thread, already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment or reply. Send the same requestId again only to retry the same one.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
@@ -106,6 +106,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    COMMENTS_DATABASE_TOKEN_IN_BUILD: {
+      why: "The `database` option of `comments()` has an `authToken` in its URL, so the token ends up in the build output.",
+      fix: "Put the URL with its token in a variable, and pass the variable: `comments({ database: \"env:COMMENTS_DATABASE_URL\" })`.",
+    },
     COMMENTS_GITHUB_CREDENTIALS_MISSING: {
       why: "Comments needs GitHub credentials to post to pull requests: VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_TOKEN.",
       fix: "Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` of a GitHub App that is installed on the repository, or set `VITEHUB_GITHUB_TOKEN`.",

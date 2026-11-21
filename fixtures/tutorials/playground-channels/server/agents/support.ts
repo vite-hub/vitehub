@@ -1,5 +1,5 @@
 import { defineAgent } from "vite-hub/agent"
-import { discord, slack, teams, telegram } from "vite-hub/agent/channels"
+import { discord, slack, teams, telegram } from "vite-hub/channels/adapters"
 
 export default defineAgent({
   runtime: false,

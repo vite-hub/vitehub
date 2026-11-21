@@ -23,9 +23,8 @@ export const failedConclusions: ReadonlySet<string> = failed;
 const stuckCheckMs = 30 * 60_000;
 /**
  * GitHub Actions keeps a job queued for up to 24 hours and runs it for up to 6, so only its check runs
- * past those limits are stuck. GitHub sets a queued run's `started_at` when it creates the run. On
- * 2026-11-07 vite-hub/vitehub jobs waited up to 3 hours for a runner, and a 30-minute limit let
- * passes push over 62 queued CI runs in 17 hours.
+ * past those limits are stuck. GitHub sets a queued run's `started_at` when it creates the run. A job
+ * can wait hours for a runner, and a shorter limit lets passes push over CI runs that are only queued.
  */
 const stuckQueuedCheckMs = 24 * 60 * 60_000;
 const stuckRunningCheckMs = 8 * 60 * 60_000;
@@ -189,8 +188,8 @@ export function checksStillRunning(s: Snapshot, now = Date.now(), policy?: Pick<
 
 /**
  * Required checks that never reported on a head whose checks all finished ten minutes ago. Waiting never
- * brings them: on 2026-11-01 the `ci` job was missing from the successful runs of vitehub #3161 and
- * #3162, and both waited overnight for "required checks pending".
+ * brings them: a required job can be missing from a run that succeeded, and the PR then waits for
+ * "required checks pending" forever.
  */
 export function missingRequiredChecks(s: Snapshot, evaluation: { state: GitHubRequiredCheckState; checks: { context: string; state: GitHubRequiredCheckState }[]; missing: string[] } | undefined, now = Date.now()): string[] {
   if (evaluation?.state !== "pending" || !evaluation.missing.length) return [];

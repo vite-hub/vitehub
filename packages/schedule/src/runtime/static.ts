@@ -5,9 +5,12 @@ import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
-import { isScheduleDue, latestCronMinute } from "./due.ts"
+import { cronWithWeekdayNames, isScheduleDue, latestCronMinute } from "./due.ts"
+
+export { cronWithWeekdayNames }
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -37,6 +40,8 @@ export interface ExecuteCloudflareStaticSchedulesOptions {
   registry: ScheduleDefinitionRegistry
   /** UTC cron that the host registered for each Schedule with a `timeZone`. */
   timeZoneCrons?: Readonly<Record<string, string>>
+  /** Generated Cloudflare trigger per Schedule name, separate from the standard cron passed to the handler. */
+  triggerCrons?: Readonly<Record<string, string>>
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
@@ -168,12 +173,40 @@ export function createStaticScheduleRun(
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
   return await runInRunScopes(() => runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil })),
+    async (waitUntil) => {
+      const run = createStaticScheduleRun({ ...options, waitUntil })
+      try {
+        return await options.definition.handler(run)
+      }
+      catch (error) {
+        await emitRunFailed({ event: "schedule.failed", schedule: run.scheduleId, runId: run.id, error: toRunFailedError(error), failedAt: new Date().toISOString() })
+        throw error
+      }
+    },
     options.waitUntil,
   ))
 }
 
+// A Cloudflare trigger carries the cron as written in wrangler.json, with weekday names. Cloudflare reads a weekday
+// number as 1-7 from Sunday, so a numeric trigger does not match the standard cron with the same text.
+function isHostCronTrigger(hostCron: string, trigger: string): boolean {
+  try {
+    return cronWithWeekdayNames(hostCron) === trigger
+  }
+  catch {
+    // A cron that does not parse matches no trigger.
+    return false
+  }
+}
+
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
+  return await matchStaticSchedules(options)
+}
+
+async function matchStaticSchedules(
+  options: ExecuteMatchingStaticSchedulesOptions,
+  matchesTrigger?: (name: string, hostCron: string, trigger: string, hasOverride: boolean) => boolean,
+): Promise<unknown[]> {
   if (typeof options.cron !== "string" || !options.cron.trim()) {
     throw createScheduleError("SCHEDULE_INVALID_CRON", {
       details: invalidScheduleValueDetails("cron", options.cron),
@@ -187,9 +220,10 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     if (!definition) continue
     const override = options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined
     const timeZoneCron = override === undefined && options.timeZoneCrons && Object.hasOwn(options.timeZoneCrons, name) ? options.timeZoneCrons[name] : undefined
-    if (normalizeCron(override ?? timeZoneCron ?? definition.cron) !== cron) continue
+    const hostCron = normalizeCron(override ?? timeZoneCron ?? definition.cron)
+    if (!(matchesTrigger ? matchesTrigger(name, hostCron, cron, override !== undefined) : hostCron === cron)) continue
     if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
-    runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
+    runs.push({ name, run: executeStaticSchedule({ cron: matchesTrigger ? hostCron : options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
@@ -211,13 +245,17 @@ export async function executeCloudflareStaticSchedules(
   const scheduled = readCloudflareScheduledEvent(event)
   const hostWaitUntil = options.waitUntil ?? readCloudflareWaitUntil(event)
   return await runWithCloudflareServerEnv(event, async (waitUntil) => {
-    return await executeMatchingStaticSchedules({
+    return await matchStaticSchedules({
       cron: scheduled.cron,
       cronOverrides: options.cronOverrides,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
       timeZoneCrons: options.timeZoneCrons,
       waitUntil,
+    }, (name, hostCron, trigger, hasOverride) => {
+      const registered = options.triggerCrons && Object.hasOwn(options.triggerCrons, name) ? options.triggerCrons[name] : undefined
+      if (registered !== undefined) return normalizeCron(registered) === trigger
+      return hasOverride ? hostCron === trigger : isHostCronTrigger(hostCron, trigger)
     })
   }, hostWaitUntil)
 }
@@ -298,7 +336,7 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

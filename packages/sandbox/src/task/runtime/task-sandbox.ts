@@ -2,13 +2,16 @@ import type { SandboxFiles, SandboxSession } from '../../index.ts'
 import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type SandboxTaskExecutionProvider = 'cloudflare' | 'vercel'
+/** `local` runs a Sandbox Task as a process on this machine, which only `vite dev` does. */
+export type SandboxTaskExecutionProvider = 'cloudflare' | 'vercel' | 'local'
 
 export interface TaskSandbox {
   readonly executionAuthority: ExecutionAuthority
   readonly id: string
   readonly files: SandboxFiles
   readonly provider: SandboxTaskExecutionProvider
+  /** The directory for the files of a run. Commands and file operations must see the same path. */
+  readonly tempDir: string
   /** The runner closes this Sandbox after the run, which removes its files with it. */
   readonly closesAfterRun: boolean
   close(): Promise<void>
@@ -33,6 +36,8 @@ export function createTaskSandbox(
     id: session.id,
     files: session.files,
     provider,
+    // A local session sees the host file system, so its run files stay inside the session directory.
+    tempDir: provider === 'local' ? `${session.cwd}/tmp` : '/tmp',
     closesAfterRun,
     async close() {
       await session.close()

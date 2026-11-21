@@ -1,6 +1,6 @@
 import { writeMotionStyle } from "../registry.ts";
 import { getMotionSlowFactor } from "../spring.ts";
-import { frameOf, glyphNode, motionSkipped, openFrame, reduced, setText } from "./frame.ts";
+import { frameOf, glyphMotionSkipped, glyphNode, openFrame, reduced, setText } from "./frame.ts";
 import type { GlyphFrame } from "./frame.ts";
 import { easeIn, easeOut, tween } from "./tween.ts";
 import type { Tween } from "./tween.ts";
@@ -78,6 +78,14 @@ function stopAll(morph: Morph): void {
   for (const letter of [...morph.letters, ...morph.leaving]) letter.fade?.stop();
 }
 
+export function discardMorph(element: HTMLElement): void {
+  const current = morphs.get(element);
+  if (!current) return;
+  stopAll(current);
+  morphs.delete(element);
+  current.frame.discard();
+}
+
 /**
  * Changes the text of `element` letter by letter, as rule 4 of docs/design/motion.md asks: the letters that the old and
  * new text share at the start stay, the other old letters blur out where they are, and the new letters type in one at
@@ -100,7 +108,7 @@ export function morphText(element: HTMLElement, text: string): void {
 export function morph(element: HTMLElement, text: string, from: string | undefined): void {
   let current = morphs.get(element);
   const before = current?.text ?? from ?? element.textContent ?? "";
-  if (motionSkipped(element) || (!current && before === text)) {
+  if ((!current && before === text) || glyphMotionSkipped(element)) {
     if (current) {
       stopAll(current);
       morphs.delete(element);

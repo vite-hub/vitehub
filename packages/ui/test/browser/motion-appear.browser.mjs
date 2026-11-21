@@ -89,6 +89,7 @@ async function sampleTooltips(page) {
           opacity: Number(style.opacity),
           translate: box.style.translate,
           scale: box.style.scale,
+          old: box.querySelector(":scope > span[aria-hidden=true]")?.textContent,
           label: [...box.children].filter(child => getComputedStyle(child).clipPath !== "inset(50%)").map(child => Number(getComputedStyle(child).opacity)),
         }
       }))
@@ -225,8 +226,57 @@ describe("tooltip", async () => {
     const lefts = frames.map(frame => frame.find(box => !box.ghost)?.left).filter(left => left !== undefined)
     const final = lefts.at(-1)
     assert.ok(lefts.filter(left => left > opened + 2 && left < final - 2).length >= 4, "the same box slides over several frames")
+    const outgoing = frames.flat().filter(box => box.old)
+    assert.ok(outgoing.length && outgoing.every(box => box.old === "Edit"), "the outgoing label comes from the previous trigger")
     await context.close()
   })
+
+  test("turning on reduced motion cancels queued tooltip entry stages and clears an active exit", async () => {
+    const { context, page } = await open()
+    await page.locator("[data-test=speed]").click()
+    await hover(page, "[data-test='tool-Share']")
+    const box = page.locator("[data-reka-popper-content-wrapper] > *")
+    await page.waitForFunction(() => !!document.querySelector("[data-reka-popper-content-wrapper] > *")?.style.scale)
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.waitForFunction(() => matchMedia("(prefers-reduced-motion: reduce)").matches)
+    const trace = await sampleTooltips(page)
+    await page.waitForTimeout(1100)
+    const frames = (await trace.stop()).flat()
+    assert.ok(frames.length && frames.every(frame => !frame.scale && !frame.translate && frame.label.every(opacity => opacity === 1)))
+
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await box.waitFor()
+    await page.keyboard.press("Escape")
+    const ghost = page.locator("[data-motion=none][aria-hidden=true]")
+    await ghost.waitFor()
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await ghost.waitFor({ state: "detached", timeout: 500 })
+    assert.equal(await ghost.count(), 0)
+    await context.close()
+  })
+
+  for (const reducedMotion of ["no-preference", "reduce"]) {
+    test(`the native ui-sdk tooltip has a visible inert exit under ${reducedMotion}`, async () => {
+      const { context, page } = await open("", { reducedMotion })
+      await page.locator("[data-test=speed]").click()
+      await hover(page, "[data-test=kit-trigger]")
+      const live = page.locator("[role=tooltip]:popover-open")
+      await live.waitFor()
+      await settled(page)
+      const trace = await sampleTooltips(page)
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
+      await page.keyboard.press("Escape")
+      await live.waitFor({ state: "hidden" })
+      await settled(page)
+      const frames = (await trace.stop()).flat()
+      const before = frames.find(box => !box.ghost && box.text === "Native tooltip")
+      const exit = frames.filter(box => box.ghost && box.text === "Native tooltip")
+      assert.ok(before && exit.length > 2 && exit.every(box => box.width > 0))
+      assert.ok(Math.abs(exit[0].left - before.left) < 3, "the exit begins at the live tooltip")
+      if (reducedMotion === "reduce") assert.ok(exit.some(box => box.opacity > 0 && box.opacity < 1))
+      await context.close()
+    })
+  }
 
   test("under reduced motion the tooltip only crossfades", async () => {
     const { context, page } = await open("", { reducedMotion: "reduce" })
@@ -323,8 +373,9 @@ describe("toast", async () => {
         frames.push([...document.querySelectorAll(`${selector}, [data-motion=none][aria-hidden=true]`)].filter(element => element.matches(selector) || element.matches("li")).map((element) => {
           element.dataset.sampleId ??= String(Math.random())
           const rect = element.getBoundingClientRect()
-          const [x = "0", y = "0"] = (element.style.translate === "none" ? "" : element.style.translate || "0px").split(" ")
-          return { id: element.dataset.sampleId, ghost: element.matches("[data-motion=none]"), x: Number.parseFloat(x) || 0, y: Number.parseFloat(y) || 0, top: rect.top, opacity: Number(getComputedStyle(element).opacity) }
+          const style = getComputedStyle(element)
+          const [x = "0", y = "0"] = style.translate.split(" ")
+          return { id: element.dataset.sampleId, ghost: element.matches("[data-motion=none]"), x: Number.parseFloat(x) || 0, y: Number.parseFloat(y) || 0, left: rect.left, top: rect.top, opacity: Number(style.opacity) }
         }))
         if (running) requestAnimationFrame(read)
       }
@@ -365,7 +416,7 @@ describe("toast", async () => {
   })
 
   test("a dismissed Console toast leaves past the right side, and the other one closes the gap", async () => {
-    const { context, page } = await open()
+    const { context, page } = await open("", { viewport: { width: 390, height: 900 } })
     await page.locator("[data-test=console-toast]").click()
     await page.locator("[data-test=console-toast]").click()
     await page.waitForFunction(() => document.querySelectorAll("[data-slot=toast]").length === 2)
@@ -394,6 +445,37 @@ describe("toast", async () => {
     assert.equal(await page.locator("[role=region] li").first().evaluate(element => getComputedStyle(element).animationName), "none")
     await context.close()
   })
+
+  for (const [button, selector] of [["console-toast", consoleToast], ["nuxt-toast", "[role=region] li"]]) {
+    test(`${button} follows a swipe during entry and exits from its release position`, async () => {
+      const { context, page } = await open()
+      await page.locator("[data-test=speed]").click()
+      const trace = await sampleToasts(page, selector)
+      await page.locator(`[data-test=${button}]`).click()
+      const element = page.locator(selector).first()
+      await element.waitFor()
+      await page.waitForFunction(selector => {
+        const element = document.querySelector(selector)
+        const rect = element?.getBoundingClientRect()
+        return element?.style.translate && rect?.top > 0 && rect.top + 15 < innerHeight
+      }, selector)
+      const start = await element.boundingBox()
+      const x = start.x + 20
+      const y = start.y + 10
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      await page.mouse.move(x + 110, y, { steps: 4 })
+      const dragged = await element.boundingBox()
+      assert.ok(dragged.x > start.x + 95, "the toast tracks the pointer")
+      await page.mouse.up()
+      await element.waitFor({ state: "detached" })
+      await toastsSettled(page)
+      const exit = (await trace.stop()).flat().filter(box => box.ghost)
+      assert.ok(exit.length > 2 && Math.abs(exit[0].left - dragged.x) < 20, "the exit begins where the pointer let go")
+      assert.ok(exit.at(-1).left > exit[0].left + 40, "the exit continues right")
+      await context.close()
+    })
+  }
 
   test("under reduced motion a toast crossfades in place", async () => {
     const { context, page } = await open("", { reducedMotion: "reduce" })

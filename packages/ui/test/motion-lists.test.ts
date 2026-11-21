@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ring, ringing } from "../src/motion/helpers/ring.ts";
 import { createHoldToDelete, type HoldToDeleteOptions } from "../src/motion/hold-to-delete.ts";
 import { createMotionList } from "../src/motion/list.ts";
 import { forceReducedMotion } from "../src/motion/reduced-motion.ts";
@@ -69,6 +70,20 @@ function list(count: number): { container: HTMLElement; items: HTMLElement[] } {
   document.body.append(container);
   return { container, items };
 }
+
+it("cleans up a running ring when reduced motion turns on", () => {
+  const button = document.createElement("button");
+  button.style.boxShadow = "0 0 1px black";
+  document.body.append(button);
+  const shadow = button.style.boxShadow;
+  ring(button);
+  tick(3);
+  expect(ringing(button)).toBe(true);
+  forceReducedMotion(true);
+  tick();
+  expect(ringing(button)).toBe(false);
+  expect(button.style.boxShadow).toBe(shadow);
+});
 
 describe("createMotionList", () => {
   it("starts a moved item where it was, then springs it to its new place and clears what it wrote", () => {

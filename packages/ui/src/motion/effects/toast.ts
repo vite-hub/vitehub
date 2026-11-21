@@ -55,16 +55,38 @@ function pastEdge(rect: { top: number; height: number }): number {
  * Where a toast that closes goes: past the side of the screen that the toaster sits at, so it does not cross the other
  * toasts, or past its top or bottom edge for a toaster in the middle.
  */
-function exitOf(rect: DOMRect): { axis: "x" | "y"; distance: number } {
+function exitOf(rect: DOMRect, direction?: string | null): { axis: "x" | "y"; distance: number } {
+  if (direction === "left") return { axis: "x", distance: -rect.right };
+  if (direction === "right") return { axis: "x", distance: innerWidth - rect.left };
+  if (direction === "up") return { axis: "y", distance: -rect.bottom };
+  if (direction === "down") return { axis: "y", distance: innerHeight - rect.top };
   const center = rect.left + rect.width / 2;
   if (Math.abs(center - innerWidth / 2) < innerWidth / 8) return { axis: "y", distance: pastEdge(rect) };
   return { axis: "x", distance: center > innerWidth / 2 ? innerWidth - rect.left : -rect.right };
 }
 
+function exitDirection(list: List, element: HTMLElement): string | null {
+  const align = list.region.getAttribute("data-align");
+  if (align === "center") return list.region.getAttribute("data-side") === "top" ? "up" : "down";
+  if (align === "start" || align === "end") {
+    return (align === "start") !== (getComputedStyle(list.region).direction === "rtl") ? "left" : "right";
+  }
+  return element.getAttribute("data-swipe-direction");
+}
+
+function swipeOffset(element: HTMLElement, axis: "x" | "y", released = false): number {
+  const reka = `--reka-toast-swipe-${released ? "end" : "move"}-${axis}`;
+  return Number.parseFloat(element.style.getPropertyValue(reka) || element.style.getPropertyValue(`--toast-swipe-${axis}`)) || 0;
+}
+
 function write(element: HTMLElement, x: Spring, y: Spring, fade?: Spring): void {
   const still = Math.abs(x.value) < 0.01 && Math.abs(y.value) < 0.01;
+  const offset = (value: number, axis: "x" | "y") => {
+    const motion = `${Math.round(value * 100) / 100}px`;
+    return `calc(${motion} + var(--reka-toast-swipe-move-${axis}, var(--toast-swipe-${axis}, 0px)))`;
+  };
   writeMotionStyle(element, {
-    translate: still && !x.active && !y.active ? null : `${Math.round(x.value * 100) / 100}px ${Math.round(y.value * 100) / 100}px`,
+    translate: still && !x.active && !y.active ? null : `${offset(x.value, "x")} ${offset(y.value, "y")}`,
     opacity: fade && (fade.active || fade.value < 1) ? String(fade.value) : null,
   });
 }
@@ -92,7 +114,12 @@ function relayout(list: List): void {
   for (const item of list.items.values()) {
     if (!item.element.isConnected) continue;
     const rect = item.element.getBoundingClientRect();
-    const rest = { left: rect.left - item.x.value, top: rect.top - item.y.value, width: rect.width, height: rect.height };
+    const rest = {
+      left: rect.left - item.x.value - swipeOffset(item.element, "x"),
+      top: rect.top - item.y.value - swipeOffset(item.element, "y"),
+      width: rect.width,
+      height: rect.height,
+    };
     const dx = item.rest.left - rest.left;
     const dy = item.rest.top - rest.top;
     item.rest = rest;
@@ -114,17 +141,24 @@ function watchLayout(list: List): void {
   list.frame = requestAnimationFrame(step);
 }
 
-/** A toast that left: it leaves past the side of the screen, unless a person swiped it away, and the others make room. */
+/** A toast leaves past the screen edge, and the others make room. */
 function leave(list: List, element: HTMLElement): void {
   const item = list.items.get(element);
   if (!item) return;
   list.items.delete(element);
   item.x.stop();
   item.y.stop();
-  const swiped = element.getAttribute("data-swipe") === "end" || (element.matches("[data-slot=toast]") && element.hasAttribute("data-swipe-direction"));
+  const direction = exitDirection(list, element);
+  const swipe = element.getAttribute("data-swipe") === "end" || (element.matches("[data-slot=toast]") && element.hasAttribute("data-swipe-direction"));
+  const swipeDirection = swipe ? element.getAttribute("data-swipe-direction") : null;
   const parent = list.region.parentNode;
-  if (!swiped && parent) {
-    const rect = new DOMRect(item.rest.left + item.x.value, item.rest.top + item.y.value, item.rest.width, item.rest.height);
+  if (parent) {
+    const rect = new DOMRect(
+      item.rest.left + item.x.value + (swipe ? swipeOffset(element, "x", true) : 0),
+      item.rest.top + item.y.value + (swipe ? swipeOffset(element, "y", true) : 0),
+      item.rest.width,
+      item.rest.height,
+    );
     const ghost = createGhost(element, parent, list.region.nextSibling);
     writeMotionStyle(ghost, { translate: null, opacity: null });
     pinGhost(ghost, rect);
@@ -136,7 +170,7 @@ function leave(list: List, element: HTMLElement): void {
       fade.to(0, { tween: crossfade });
     }
     else {
-      const { axis, distance: target } = exitOf(rect);
+      const { axis, distance: target } = exitOf(rect, swipeDirection ?? direction);
       const spring = createSpring(0, (value) => {
         const offset = `${Math.round(value * 100) / 100}px`;
         writeMotionStyle(ghost, { translate: axis === "x" ? `${offset} 0px` : `0px ${offset}` });

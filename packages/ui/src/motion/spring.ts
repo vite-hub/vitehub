@@ -1,4 +1,4 @@
-import { prefersReducedMotion } from "./reduced-motion.ts";
+import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 
 /** How stiff a spring is and how fast it loses its speed. */
 export interface SpringPreset {
@@ -43,6 +43,8 @@ export interface Spring {
 /** Called on each frame with the new value and its speed, and once more with the target when the spring settles. */
 export type SpringFrame = (value: number, velocity: number) => void;
 
+export type FrameStep = (seconds: number) => boolean | void;
+
 interface SpringState {
   value: number;
   velocity: number;
@@ -52,14 +54,10 @@ interface SpringState {
   frame: SpringFrame;
 }
 
-/**
- * Called on each frame with the motion time since the last frame, in seconds. It is at most 32ms, divided by the slow
- * factor, so ¼× also slows it. Return `false` to stop.
- */
-export type FrameStep = (seconds: number) => boolean | void;
-
-const live = new Set<SpringState>();
+const live = new Map<SpringState, number>();
 const steps = new Set<FrameStep>();
+let revision = 0;
+let watchingReducedMotion = false;
 let frameId = 0;
 let lastTime = 0;
 let slowFactor = 1;
@@ -76,12 +74,15 @@ export function getMotionSlowFactor(): number {
   return slowFactor;
 }
 
-// One frame of every live spring and every frame step. The time step is at most 32ms, so a tab that comes back does not throw a spring far
+// One frame of every live spring and frame step. The time step is at most 32ms, so a tab that comes back does not throw a spring far
 // past its target. Each step runs in 6 parts, as the prototype does, so stiff springs stay stable.
 function frame(time: number): void {
   const step = Math.min(0.032, lastTime ? (time - lastTime) / 1000 : 0.016) / slowFactor;
   lastTime = time;
-  for (const spring of live) {
+  const batch = Array.from(live);
+  const frameSteps = Array.from(steps);
+  for (const [spring, queued] of batch) {
+    if (live.get(spring) !== queued) continue;
     if (spring.tween) {
       const tween = spring.tween;
       tween.elapsed += step;
@@ -104,8 +105,8 @@ function frame(time: number): void {
     }
     spring.frame(spring.value, spring.velocity);
   }
-  for (const run of steps) {
-    if (run(step) === false) steps.delete(run);
+  for (const run of frameSteps) {
+    if (steps.has(run) && run(step) === false) steps.delete(run);
   }
   if (live.size || steps.size) frameId = requestAnimationFrame(frame);
   else {
@@ -122,25 +123,24 @@ function settle(spring: SpringState): void {
 }
 
 function start(spring: SpringState): void {
-  live.add(spring);
+  live.set(spring, ++revision);
   if (!frameId) frameId = requestAnimationFrame(frame);
 }
 
-/**
- * Runs `step` on each frame of the loop of the springs until it returns `false` or the returned function stops it. It
- * moves what is not a spring: a tween, the wave of a progress bar, the dots of a drop field, the fill of a hold.
- */
 export function onEachFrame(step: FrameStep): () => void {
-  steps.add(step);
+  const run: FrameStep = seconds => step(seconds);
+  steps.add(run);
   if (!frameId) frameId = requestAnimationFrame(frame);
   return () => {
-    steps.delete(step);
+    steps.delete(run);
   };
 }
 
-/** Settles every spring at its target at once. The motion layer calls it when reduced motion turns on. */
-export function settleSprings(): void {
-  for (const spring of live) {
+function settleMovement(reduced: boolean): void {
+  if (!reduced) return;
+  const batch = Array.from(live);
+  for (const [spring, queued] of batch) {
+    if (live.get(spring) !== queued || spring.tween) continue;
     settle(spring);
     spring.frame(spring.value, 0);
   }
@@ -168,6 +168,10 @@ export function createSpring(initial: number, onFrame: SpringFrame, preset: Spri
     to(target, options = {}) {
       if (options.preset) state.preset = options.preset;
       if (options.tween === undefined && prefersReducedMotion()) return spring.set(target);
+      if (options.tween === undefined && !watchingReducedMotion) {
+        watchingReducedMotion = true;
+        onReducedMotionChange(settleMovement);
+      }
       state.target = target;
       if (options.velocity !== undefined) state.velocity += options.velocity;
       state.tween = options.tween === undefined ? undefined : { from: state.value, elapsed: 0, duration: options.tween };

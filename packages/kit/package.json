@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The headless Vue parts that ui-sdk does not have, a Nuxt module that auto-imports them, and a plain CSS style family. Import every other part from @ui-sdk/vue.",
   "keywords": [
     "a11y",
@@ -54,13 +54,15 @@
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t @vite-hub/kit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run --cache -t @vite-hub/kit#build && vp test",
-    "test:styles": "node --test test/browser/styles.browser.mjs"
+    "test:styles": "node --test test/browser/styles.browser.mjs",
+    "build:registry": "node registry/build.ts"
   },
   "dependencies": {
     "@ui-sdk/core": "0.1.0-beta.5",
     "@ui-sdk/vue": "0.1.0-beta.5"
   },
   "devDependencies": {
+    "@cfworker/json-schema": "4.1.1",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@nuxt/kit": "4.6.2",
@@ -98,6 +100,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

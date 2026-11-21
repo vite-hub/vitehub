@@ -1,14 +1,15 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join, posix } from "node:path"
+import { join } from "node:path"
 
 import { findProperty, line, parseProgram, walk } from "@vite-hub/internal/ast"
 import { glob } from "tinyglobby"
 
-import { literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
+import { localLayerDirectories } from "../shared/layers.ts"
+import { literalValue, staticOptionsObject } from "../shared/nuxt-config.ts"
 import { moduleName } from "./config.ts"
 
-import type { Node, ObjectExpression } from "@babel/types"
+import type { ObjectExpression } from "@babel/types"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { FollowUp } from "../types.ts"
 
@@ -25,25 +26,9 @@ const hookMessages = new Map<string, string>(Object.entries({
 const scripts = "{ts,mts,js,mjs,cjs}"
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**"]
 
-/** The app root and the local layers: `layers/*` and relative `extends` paths. */
-function layerDirectories(cwd: string, config: NuxtConfigFile, layers: string[]): string[] {
-  const directories = new Set([".", ...layers])
-  const property = findProperty(config.root, "extends")
-  const value = property && unwrapExpression(property.value)
-  const entries: Array<Node | null> = value?.type === "ArrayExpression" ? value.elements : value ? [value] : []
-  for (const entry of entries) {
-    const node = entry?.type === "ArrayExpression" ? entry.elements[0] : entry
-    if (node?.type !== "StringLiteral" || !node.value.startsWith(".")) continue
-    const directory = posix.normalize(node.value)
-    if (!directory.startsWith("..") && existsSync(join(cwd, directory))) directories.add(directory)
-  }
-  return [...directories]
-}
-
 /** Finds NuxtHub database hooks in the app config, local modules, and local layers. */
 async function findHooks(cwd: string, config: NuxtConfigFile): Promise<FollowUp[]> {
-  const layers = await glob(["layers/*"], { cwd, onlyDirectories: true })
-  const patterns = layerDirectories(cwd, config, layers.map(layer => layer.replace(/\/$/, ""))).flatMap((directory) => {
+  const patterns = (await localLayerDirectories(cwd, config)).flatMap((directory) => {
     const base = directory === "." ? "" : `${directory}/`
     return [`${base}nuxt.config.${scripts}`, `${base}modules/**/*.${scripts}`]
   })

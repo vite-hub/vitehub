@@ -129,11 +129,11 @@ it('sends the welcome email', async () => {
 
 ::product-features
   :::product-feature-item{title="Pick a provider in one place" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-vite"}
-  Pick Resend or Cloudflare Email in your Vite config. Your routes stay the same.
+  Choose Resend or Cloudflare Email in your Vite config. Your routes stay the same.
   :::
 
   :::product-feature-item{title="Keys stay out of your code" icon="i-lucide-shield-check" to="/docs/email/get-started#provide-the-resend-secret"}
-  The server reads the API key from an environment variable when it sends.
+  The server reads your API key from an environment variable when it sends.
   :::
 
   :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#send-a-template"}

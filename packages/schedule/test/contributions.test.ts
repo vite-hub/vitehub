@@ -86,7 +86,7 @@ describe("collectScheduleContributions", () => {
       false,
     ], { ...context, serverDirs: ["/app/server"] })
 
-    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"] })
+    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"], plugins: expect.any(Array) })
     expect(contributions).toEqual([
       { ...collected("content/publish", "/app/.vitehub/content/publish.ts"), reason },
       collected("digest", "/abs/digest.ts", "digest/vite"),

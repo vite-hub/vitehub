@@ -15,7 +15,7 @@ import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { Diagnostic } from "nostics"
 import type { WorkflowProviderFailure } from "../errors.ts"
-import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowResultErrorCode, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowName, WorkflowPayload, WorkflowResultErrorCode, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartArguments, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
@@ -25,6 +25,8 @@ const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
   "WORKFLOW_PROVIDER_OPERATION_FAILED",
   "WORKFLOW_R0014",
   "WORKFLOW_RUN_ID_UNSUPPORTED",
+  "WORKFLOW_SIGNAL_NOT_WAITING",
+  "WORKFLOW_SIGNAL_TOKEN_INVALID",
   "WORKFLOW_START_DELAY_INVALID",
 ])
 
@@ -195,7 +197,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
       // SAFETY: Workflow definition registration establishes the handler's erased registry payload contract.
       handler: handler as WorkflowHandler,
       ...(createOptions?.internalAgentWorkflow ? { internalAgentWorkflow: true } : {}),
-      ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
+      ...(createOptions?.rootStep === undefined ? {} : { rootStep: createOptions.rootStep }),
     })
   }
 
@@ -208,7 +210,8 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     ),
     getRun: (id: string) => getWorkflowRun(name, id),
     async start(payload?: TPayload, options: WorkflowStartOptions = {}) {
-      const result = await startWorkflow<TPayload>(name, payload, await resolveWorkflowStartOptions(name, payload, createOptions, options))
+      const startOptions = await resolveWorkflowStartOptions(name, payload, createOptions, options)
+      const result = await toWorkflowResult(() => startWorkflowRun<TPayload>(name, payload, startOptions))
       // SAFETY: Typed createWorkflow overloads require a handler; handler-free handles expose unknown results.
       return result as Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>
     },
@@ -217,16 +220,20 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
 
 /**
  * Starts one durable run of a Workflow Definition and returns `[error, run]`. `run` has the id and the status.
+ * The name and the payload type come from `WorkflowRegistry`, which ViteHub writes to `.vitehub/workflow.d.ts`.
  * A provider failure, an unsupported option, or an invalid `delay` is `error`. Config errors, for example an unknown
  * Workflow name, throw.
  */
-export async function startWorkflow<TPayload = unknown>(
-  name: string,
-  payload?: TPayload,
-  options: WorkflowStartOptions = {},
-): Promise<Result<WorkflowRun<TPayload, unknown>, WorkflowResultErrorCode>> {
+export function startWorkflow<TArgs extends WorkflowStartCall>(
+  ...args: TArgs
+): Promise<Result<WorkflowRun<WorkflowPayload<TArgs[0]>, unknown>, WorkflowResultErrorCode>>
+export async function startWorkflow(name: string, payload?: unknown, options: WorkflowStartOptions = {}): Promise<Result<WorkflowRun, WorkflowResultErrorCode>> {
   return await toWorkflowResult(() => startWorkflowRun(name, payload, options))
 }
+
+type WorkflowStartCall = {
+  [TName in WorkflowName]: [name: TName, ...WorkflowStartArguments<WorkflowPayload<TName>>]
+}[WorkflowName]
 
 async function startWorkflowRun<TPayload>(
   name: string,
@@ -239,7 +246,7 @@ async function startWorkflowRun<TPayload>(
   const id = options.id || randomId("wrun")
   const startAt = resolveWorkflowStartAt(options.delay)
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.driver === "vercel" && definition.options?.native && options.id) {
+  if (config.driver === "vercel" && definition.native && options.id) {
     throw createWorkflowError({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
@@ -285,7 +292,7 @@ export async function cancelWorkflow(name: string, id: string): Promise<Result<W
   const definition = await loadRequiredWorkflowDefinition(name)
   const test = getViteHubTestMode()
   if (test) {
-    if (config.driver === "vercel" && !definition.options?.native) {
+    if (config.driver === "vercel" && !definition.native) {
       return [resultError(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "cancellation", provider: config.driver })), undefined]
     }
     return [undefined, getWorkflowTestRun(test, config.driver, name, id, true)]
@@ -298,8 +305,10 @@ export async function cancelWorkflow(name: string, id: string): Promise<Result<W
 }
 
 /**
- * Resumes a run that waits for a signal and returns `[error, signal]`. `token` is the opaque token that the provider
- * gave the waiting step. An empty token or a provider failure is `error`. Config errors throw.
+ * Resumes a run that waits for a signal and returns `[error, signal]`. `token` is `signal.token` from
+ * `context.createSignal()`, or the hook token of a native Vercel entry. `payload` is the value that `signal.wait()`
+ * returns: send a JSON value. An invalid token, a run that does not wait for the token, or a provider failure is
+ * `error`. Config errors throw.
  */
 export async function resumeWorkflow<TPayload = unknown>(token: string, payload: TPayload): Promise<Result<WorkflowSignalResult, WorkflowResultErrorCode>> {
   if (!token || typeof token !== "string") {
@@ -328,10 +337,6 @@ function deferWorkflowStart(name: string, start: () => Promise<unknown>): void {
  * Starts a run after the response, through `waitUntil`. It returns nothing: a failure goes to the log.
  * Call `startWorkflow()` when the caller needs the run ID or the start error.
  */
-export function deferWorkflow<TPayload = unknown>(
-  name: string,
-  payload?: TPayload,
-  options: WorkflowStartOptions = {},
-): void {
-  deferWorkflowStart(name, () => startWorkflowRun<TPayload>(name, payload, options, true))
+export function deferWorkflow(...[name, payload, options = {}]: WorkflowStartCall): void {
+  deferWorkflowStart(name, () => startWorkflowRun(name, payload, options, true))
 }

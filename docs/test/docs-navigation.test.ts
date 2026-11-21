@@ -5,7 +5,7 @@ import { docsPanelPages, docsSectionPanels } from "@vite-hub/docs/navigation";
 import { createDocsManifest } from "@vite-hub/docs/server";
 import { describe, expect, it } from "vitest";
 import config from "../nuxt.config";
-import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
+import { createDocsRedirectRouteRules, docsLegacyFragmentRedirects, docsPageRedirects } from "../modules/vitehub-docs/redirects";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const docsManifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
@@ -17,12 +17,12 @@ const serverPrimitiveSections = [
   "blob",
   "browser",
   "channels",
+  "choices",
   "cms",
   "comments",
   "connections",
   "content",
   "database",
-  "decisions",
   "device",
   "email",
   "env",
@@ -58,7 +58,7 @@ describe("docs product navigation", () => {
     const rail = docsRailGroups(docsManifest, categories, railExclude);
     expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
-      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
+      .toEqual(expect.arrayContaining(["console", "development", "frameworks-hosts", "guides"]));
     expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["reference", "compare"]));
     const railSectionIds = rail.flat().map(candidate => candidate.id);
@@ -71,7 +71,7 @@ describe("docs product navigation", () => {
     }
     // Every section has a known category, so the rail has one group per category that it keeps.
     expect(rail.map(group => group[0]?.category)).toEqual(categories.filter(category => !railExclude.includes(category)));
-    expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents", "presets"]);
     expect(rail.find(group => group[0]?.category === "UI")?.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
@@ -87,7 +87,7 @@ describe("docs product navigation", () => {
       .flatMap(group => group.sections.map(candidate => candidate.id))
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
-    expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents", "presets"]);
     expect(catalog.find(group => group.category === "UI")?.sections.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
@@ -159,7 +159,7 @@ describe("docs product navigation", () => {
   });
 
   it("groups every navigable page of a large section", () => {
-    for (const sectionId of ["agents", "development", "frameworks-hosts", "reference", "ui"]) {
+    for (const sectionId of ["agents", "cli", "console", "development", "frameworks-hosts", "reference", "runtime", "ui"]) {
       const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
@@ -217,6 +217,21 @@ describe("docs product navigation", () => {
 
   it("lists the trust pages outside the docs base", () => {
     expect(docsManifest.pages.map(page => page.path)).toEqual(expect.arrayContaining(["/", "/about", "/contact", "/privacy"]));
+  });
+
+  it("preserves the old Console bookmark for Site access without Auth", () => {
+    expect(docsPageRedirects["/docs/development/console"]).toBe("/docs/console");
+    expect(docsLegacyFragmentRedirects["/docs/console"]["site-access-without-auth"])
+      .toBe("/docs/console/site-access#site-access-without-auth");
+  });
+
+  it("preserves old Choices diagnostic and CLI bookmarks", () => {
+    const routeRules = createDocsRedirectRouteRules();
+    expect(routeRules["/docs/decisions/diagnostics"]?.redirect.to).toBe("/docs/choices/diagnostics");
+    expect(routeRules["/raw/docs/decisions/diagnostics.md"]?.redirect.to).toBe("/raw/docs/choices/diagnostics.md");
+    for (const path of ["/docs/cli", "/docs/cli/primitives"] as const) {
+      expect(docsLegacyFragmentRedirects[path]["run-a-decision"]).toBe("/docs/cli/primitives#run-choices");
+    }
   });
 
   it("redirects each removed page and its raw Markdown copy to a published page, with one rule for both slash forms", () => {

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 
-import { createExecutionBudget, isExecutionBudgetExceededError } from "../src/index.ts"
+import { createExecutionBudget, isExecutionBudgetExceededError } from "../src/internal/execution-budget.ts"
 
 it("throws RUNTIME_EXECUTION_BUDGET_EXCEEDED with the counter, the limit, and a fix", () => {
   const budget = createExecutionBudget({ maxToolCalls: 1 })
@@ -13,7 +13,7 @@ it("throws RUNTIME_EXECUTION_BUDGET_EXCEEDED with the counter, the limit, and a 
   expect(error).toMatchObject({
     code: "RUNTIME_EXECUTION_BUDGET_EXCEEDED",
     counter: "toolCalls",
-    docs: "https://vitehub.dev/docs/development/diagnostics/runtime_execution_budget_exceeded",
+    docs: "https://vitehub.dev/docs/runtime/diagnostics/runtime_execution_budget_exceeded",
     fix: expect.stringContaining("maxToolCalls"),
     limit: 1,
   })

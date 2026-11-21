@@ -216,7 +216,7 @@ export default defineAgent({
 ## Verify Channel delivery
 
 1. When the Capability is on a discovered Agent, start the Vite dev server.
-2. Run `vitehub agent info --agent <name> --json`. Check that `tools` has `name: "send_message"`, and `capabilities` has `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, `required`, and `reminder`.
+2. Run `vitehub agent get <name> --json`. Check that `tools` has `name: "send_message"`, and `capabilities` has `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, `required`, and `reminder`.
 3. Run the Agent with a test recipient. Check that the tool result has a `deliveryId` and the message arrives.
 4. With `required: true`, use a prompt that does not ask for a send. Check that the Invocation fails with `CHANNEL_DELIVERY_REQUIRED`.
 5. With `reminder`, run the same prompt. Check for one `agent.channel.delivery.reminder` Trace Event per reminder turn. When no send follows, `details.reminders` must match the turns that ran.

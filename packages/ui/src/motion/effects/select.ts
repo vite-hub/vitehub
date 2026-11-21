@@ -1,3 +1,4 @@
+import { isMotionOff } from "../opt-out.ts";
 import { prefersReducedMotion } from "../reduced-motion.ts";
 import type { MotionEffect, MotionStateAttribute } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
@@ -25,13 +26,16 @@ import type { Spring } from "../spring.ts";
 const groups: Record<string, string> = {
   tab: "[role=tablist]",
   radio: "[role=radiogroup]",
-  option: "[role=listbox]:not([aria-multiselectable=true])",
+  option: "[role=listbox]",
   menuitemradio: "[role=group], [role=menu]",
 };
 const optIn = "[data-motion-select]";
 const anyGroup = `[role=tablist], [role=radiogroup], [role=listbox], [role=group], [role=menu], ${optIn}`;
 // Any element in an opt-in group: an item that loses `data-state` no longer matches `[data-state]`.
-const itemSelector = `${Object.keys(groups).map(role => `[role=${role}]`).join(", ")}, ${optIn} *`;
+const byRole = Object.keys(groups).map(role => `[role=${role}]`).join(", ");
+const itemSelector = `${byRole}, ${optIn} *`;
+const selectionState = ["aria-selected", "aria-checked", "data-state", "data-checked"] as const;
+const indicatorItem = `${byRole}, [aria-selected], [aria-checked], [data-checked], ${["active", "inactive", "checked", "unchecked", "on", "off"].map(value => `[data-state=${value}]`).join(", ")}`;
 const ownIndicator = "[data-motion-indicator], [data-slot=indicator]";
 const groupIndicator = `${ownIndicator}, [data-slot$="-indicator"]`;
 
@@ -72,6 +76,7 @@ interface Flight {
 
 const flights = new WeakMap<HTMLElement, Flight>();
 const pending = new Map<HTMLElement, { from?: HTMLElement; to?: HTMLElement }>();
+const observedItems = new WeakSet<HTMLElement>();
 let frameId = 0;
 
 function isSelected(attribute: MotionStateAttribute, value: string | null): boolean {
@@ -82,9 +87,22 @@ function isSelected(attribute: MotionStateAttribute, value: string | null): bool
 }
 
 function groupOf(item: HTMLElement): HTMLElement | null {
+  const group = item.parentElement?.closest<HTMLElement>(anyGroup);
+  if (!group || group.matches('[role=listbox][aria-multiselectable=true]')) return null;
   const role = item.getAttribute("role");
-  const byRole = role && groups[role] ? item.parentElement?.closest<HTMLElement>(groups[role]) : null;
-  return byRole ?? item.parentElement?.closest<HTMLElement>(optIn) ?? null;
+  const selector = role ? groups[role] : undefined;
+  return group.matches(optIn) || (selector && group.matches(selector)) ? group : null;
+}
+
+function selected(item: HTMLElement): boolean {
+  return selectionState.some(attribute => isSelected(attribute, item.getAttribute(attribute)));
+}
+
+function indicatorOwner(group: HTMLElement, indicator: HTMLElement): HTMLElement | undefined {
+  for (let node: HTMLElement | null = indicator; node && node !== group; node = node.parentElement) {
+    if (observedItems.has(node) || node.matches(indicatorItem)) return node;
+  }
+  return undefined;
 }
 
 function frameOf(group: HTMLElement): Frame {
@@ -107,11 +125,11 @@ function boxOf(element: HTMLElement, frame: Frame): Box {
 
 /** The indicator of `item`: its own one, or the one of the group that is in no item. */
 function indicatorOf(group: HTMLElement, item: HTMLElement): HTMLElement | undefined {
-  const own = item.querySelector<HTMLElement>(ownIndicator);
-  if (own) return own;
+  for (const candidate of item.querySelectorAll<HTMLElement>(ownIndicator)) {
+    if (candidate.closest(anyGroup) === group && indicatorOwner(group, candidate) === item) return candidate;
+  }
   for (const candidate of group.querySelectorAll<HTMLElement>(groupIndicator)) {
-    const owner = candidate.parentElement?.closest(itemSelector);
-    if ((!owner || !group.contains(owner)) && candidate.closest(anyGroup) === group) return candidate;
+    if (candidate.closest(anyGroup) === group && !indicatorOwner(group, candidate)) return candidate;
   }
   return undefined;
 }
@@ -256,7 +274,8 @@ function fly(group: HTMLElement, element: HTMLElement, from: HTMLElement | undef
 // The look that a plain item gets when it is selected, which a copy carries. A CSS transition of it on the item would
 // show the look twice, so the effect finishes the transition.
 const sides = ["top", "right", "bottom", "left"] as const;
-const lookProperties = ["background-color", "box-shadow", ...sides.map(side => `border-${side}-color`)];
+const borderParts = ["width", "style", "color"] as const;
+const lookProperties = ["background-color", "box-shadow", ...sides.flatMap(side => borderParts.map(part => `border-${side}-${part}`))];
 
 function finishLook(element: HTMLElement): void {
   void getComputedStyle(element).backgroundColor;
@@ -284,7 +303,7 @@ function adoptSheet(node: Node): void {
   if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
 }
 
-const clear = /^transparent$|[,/]\s*0\)$/;
+const clear = /^transparent$|^rgba\((?:[^,]+,){3}\s*0(?:\.0+)?\)$|\/\s*0(?:\.0+)?%?\s*\)$/;
 
 /** A copy of the look that `to` has and `from` does not, behind the items, or nothing when they look the same. */
 function copyLook(group: HTMLElement, from: HTMLElement, to: HTMLElement): { element: HTMLElement; hidden: string[] } | undefined {
@@ -312,14 +331,18 @@ function copyLook(group: HTMLElement, from: HTMLElement, to: HTMLElement): { ele
     hidden.push("shadow");
   }
   for (const side of sides) {
-    const width = now.getPropertyValue(`border-${side}-width`);
-    const color = now.getPropertyValue(`border-${side}-color`);
-    style[`border-${side}-width`] = width;
-    style[`border-${side}-style`] = now.getPropertyValue(`border-${side}-style`);
-    style[`border-${side}-color`] = "transparent";
-    if (Number.parseFloat(width) > 0 && color !== was.getPropertyValue(`border-${side}-color`) && !clear.test(color)) {
-      style[`border-${side}-color`] = color;
-      hidden.push(`border-${side}`);
+    const border = `border-${side}`;
+    const width = now.getPropertyValue(`${border}-width`);
+    const color = now.getPropertyValue(`${border}-color`);
+    style[`${border}-width`] = width;
+    style[`${border}-style`] = now.getPropertyValue(`${border}-style`);
+    style[`${border}-color`] = "transparent";
+    if (Number.parseFloat(width) > 0 && !clear.test(color) && borderParts.some((part) => {
+      const property = `${border}-${part}`;
+      return now.getPropertyValue(property) !== was.getPropertyValue(property);
+    })) {
+      style[`${border}-color`] = color;
+      hidden.push(border);
     }
   }
   if (!hidden.length) return undefined;
@@ -350,11 +373,21 @@ function land(flight: Flight): void {
   flight.group.removeAttribute("data-motion-select-moving");
 }
 
+function cancelFlight(group: HTMLElement): void {
+  const flight = flights.get(group);
+  if (!flight) return;
+  flights.delete(group);
+  flight.ready = false;
+  for (const spring of [flight.x, flight.y, flight.width, flight.height]) spring.stop();
+  writeMotionStyle(flight.element, { translate: null, scale: null });
+  land(flight);
+}
+
 function move(group: HTMLElement, from: HTMLElement | undefined, to: HTMLElement): void {
   // Under reduced motion the indicator is already in its new place, and a copy is not needed.
-  if (prefersReducedMotion()) return;
+  if (prefersReducedMotion() || isMotionOff(to)) return cancelFlight(group);
   const indicator = indicatorOf(group, to);
-  if (indicator) return fly(group, indicator, from, to);
+  if (indicator) return isMotionOff(indicator) ? cancelFlight(group) : fly(group, indicator, from, to);
   // A copy that still flies turns toward the new item. Else a new copy leaves the old item.
   const previous = flights.get(group);
   const source = from ?? (moving(previous) ? previous?.copyOf : undefined);
@@ -375,7 +408,11 @@ function flush(): void {
   const batch = [...pending];
   pending.clear();
   for (const [group, { from, to }] of batch) {
-    if (to?.isConnected && group.isConnected) move(group, from?.isConnected ? from : undefined, to);
+    if (to?.isConnected && groupOf(to) === group && selected(to)) {
+      move(group, from?.isConnected && groupOf(from) === group ? from : undefined, to);
+    } else if (!group.isConnected || (flights.has(group) && ![...group.querySelectorAll<HTMLElement>(itemSelector)].some(item => selected(item) && groupOf(item) === group))) {
+      cancelFlight(group);
+    }
   }
 }
 
@@ -388,6 +425,7 @@ export const select: MotionEffect = {
     if (was === now) return;
     const group = groupOf(element);
     if (!group) return;
+    observedItems.add(element);
     const entry = pending.get(group) ?? {};
     if (now) entry.to = element;
     else entry.from = element;

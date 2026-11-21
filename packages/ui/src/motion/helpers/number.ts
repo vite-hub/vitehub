@@ -1,5 +1,5 @@
 import { writeMotionStyle } from "../registry.ts";
-import { frameOf, glyphNode, motionSkipped, openFrame, own, reduced, setText } from "./frame.ts";
+import { frameOf, glyphMotionSkipped, glyphNode, openFrame, own, reduced, setText } from "./frame.ts";
 import type { GlyphFrame } from "./frame.ts";
 import { cubicBezier, easeIn, easeOut, tween } from "./tween.ts";
 import type { Tween } from "./tween.ts";
@@ -113,7 +113,7 @@ export function rollNumber(element: HTMLElement, value: number, format: (value: 
   const before = roll?.text ?? element.textContent ?? "";
   const previous = roll?.value ?? values.get(element) ?? parseCount(before);
   values.set(element, value);
-  if (motionSkipped(element) || previous === undefined || (!roll && before === text)) {
+  if (previous === undefined || (!roll && before === text) || glyphMotionSkipped(element)) {
     if (roll) {
       for (const item of roll.columns) for (const g of [item.current, ...item.leaving]) g?.fade?.stop();
       rolls.delete(element);

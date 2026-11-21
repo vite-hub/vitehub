@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { basename, normalize } from "pathe"
 
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -188,12 +189,26 @@ export function resolveRuntimeBlobSecrets<TStore extends ResolvedBlobStoreConfig
   return (Object.keys(lazy).length ? { ...resolved, secretEnv: lazy } : resolved) as TStore
 }
 
+function namedFsBase(folder: string, store: string): string {
+  if (!/^[\w-]+(?:\.[\w-]+)*$/.test(store)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: `Blob store ${JSON.stringify(store)} cannot form a folder name.` })
+  }
+  const stem = normalize(folder).replace(/\/+$/, "")
+  const name = basename(stem)
+  if (!name || name === "." || name === ".." || /^[a-z]:$/i.test(stem) || /^\/\/[^/]+\/[^/]+$/.test(stem)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: "BLOB_FS_BASE must name a folder to derive a sibling folder for a named store." })
+  }
+  return `${stem}-${store}`
+}
+
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
+  store = "default",
 ): ResolvedFsBlobStoreConfig {
   const urlBaseUrl = trimmed(config.urlBaseUrl)
-  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE"), ...(urlBaseUrl ? { urlBaseUrl } : {}) }, { base: ".vitehub/data/blob", driver: "fs" as const })
+  const folder = readEnv(env, "BLOB_FS_BASE") ?? ".vitehub/data/blob"
+  return { base: trimmed(config.base) ?? (store === "default" ? folder : namedFsBase(folder, store)), driver: "fs", ...(urlBaseUrl ? { urlBaseUrl } : {}) }
 }
 
 const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>
@@ -334,12 +349,13 @@ function resolveExplicitStore(
   env: Record<string, string | undefined>,
   served: ResolvedBlobModuleOptions["serve"],
   path: string,
+  name = "default",
 ) {
   switch (store.driver) {
     case "cloudflare":
       return resolveCloudflareStore(store, env)
     case "fs":
-      return resolveFsStore(store, env)
+      return resolveFsStore(store, env, name)
     case "minio":
       return resolveMinioStore(store, env)
     case "netlify-blobs":
@@ -511,13 +527,14 @@ function readRemote(value: unknown, path: string): boolean | undefined {
 
 /**
  * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob or S3 store that env or the
- * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
- * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
- * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
+ * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store keeps a dev runner's R2
+ * binding, which is a local emulation, and uses `fs` on the Node runner without one, also with an explicit `driver`.
+ * Netlify Blobs keeps the local sandbox of `netlify dev`. Another explicit `driver` is
+ * used as configured. Builds ignore `remote`.
  */
 function applyDevelopmentMode(
   resolved: ResolvedBlobStoreConfig,
-  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined },
+  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined, store?: string },
 ): ResolvedBlobStoreConfig {
   const { remote: _remote, ...local } = resolved
   if (local.driver === "fs") {
@@ -528,9 +545,9 @@ function applyDevelopmentMode(
   }
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
+  if (local.driver === "cloudflare") return { ...local, localFallback: resolveFsStore({}, options.env, options.store) }
   if (!options.inferred) return local
   if (local.driver === "vercel" || local.driver === "s3") return resolveFsStore({}, options.env)
-  if (local.driver === "cloudflare") return { ...local, localFallback: resolveFsStore({}, options.env) }
   return local
 }
 
@@ -566,7 +583,7 @@ export function normalizeBlobOptions(
       Object.entries(options.stores).map(([name, store]) => {
         const path = `blob.stores.${name}.remote`
         const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
-        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`), { dev, env, inferred: false, path, remote })]
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`, name), { dev, env, inferred: false, path, remote, store: name })]
       }),
     )
     const defaultStore = resolvedStores.default

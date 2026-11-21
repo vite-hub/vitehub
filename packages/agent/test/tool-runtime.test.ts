@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createExecutionBudget } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
 import { executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolExecutionBudget, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"

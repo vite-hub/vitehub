@@ -43,7 +43,6 @@ export default defineNuxtConfig({
     agent: true,
     console: false,
     schedule: true,
-    workflow: false,
     kv: {
       driver: 'deno-kv',
     },
@@ -65,7 +64,6 @@ export default defineConfig({
       agent: true,
       console: false,
       schedule: true,
-      workflow: false,
       kv: {
         driver: 'deno-kv',
       },
@@ -88,7 +86,6 @@ export default defineConfig({
       agent: true,
       console: false,
       schedule: true,
-      workflow: false,
       kv: {
         driver: 'deno-kv',
       },
@@ -99,7 +96,7 @@ export default defineConfig({
 :::
 ::
 
-The generated Nitro server imports your Agent Definitions and mounts the webhook route pattern and the standard `/api/_vitehub/agents/[agent]/chat` dispatcher.
+The generated Nitro server imports your Agent Definitions and mounts the webhook route pattern and the standard `/_vitehub/agents/[agent]/chat` dispatcher.
 With Schedules, the build writes `.output/main.ts`. It registers the cron output, then starts the server. To run your own code first, add a `main.ts` to the project root. The build bundles it into `.output/main.ts` in place of the generated file. It must import both files:
 
 ```ts [main.ts]
@@ -133,7 +130,7 @@ HOST=0.0.0.0 PORT=8000 NITRO_HOST=0.0.0.0 NITRO_PORT=8000 deno run --unstable-cr
 For one `support` Agent with the default chat route, the generated route accepts this request. The Agent must attach a route-enabled `webChat()` Channel. The dispatcher cannot reach Agents without one.
 
 ```bash [Terminal]
-curl -X POST http://127.0.0.1:8000/api/_vitehub/agents/support/chat \
+curl -X POST http://127.0.0.1:8000/_vitehub/agents/support/chat \
   -H 'content-type: application/json' \
   -d '{"id":"local","messages":[{"id":"user-1","role":"user","parts":[{"type":"text","text":"ping"}]}]}'
 ```

@@ -1,5 +1,14 @@
 const svgNamespace = "http://www.w3.org/2000/svg";
-const shapeSelector = "path, line, polyline, polygon, circle, ellipse, rect";
+const geometry = new Map([
+  ["path", ["d"]],
+  ["line", ["x1", "y1", "x2", "y2"]],
+  ["polyline", ["points"]],
+  ["polygon", ["points"]],
+  ["circle", ["cx", "cy", "r"]],
+  ["ellipse", ["cx", "cy", "rx", "ry"]],
+  ["rect", ["x", "y", "width", "height", "rx", "ry"]],
+]);
+const shapeSelector = [...geometry.keys()].join(", ");
 
 /**
  * The shapes of one icon, which an effect changes for a while and then puts back: a check that draws its stroke, a
@@ -16,7 +25,7 @@ export interface IconShape {
   /** Puts back every attribute that `set` changed, byte for byte, and the mask of a CSS icon. */
   restore(): void;
   /** Runs `read` while the shapes are in the page, so `getTotalLength()` and `getBBox()` work. */
-  measure<T>(read: () => T): T;
+  measure<T>(read: (shapes: SVGGeometryElement[]) => T): T;
 }
 
 /** The icons inside an element: inline `<svg>` elements, and Iconify CSS icons. */
@@ -71,36 +80,63 @@ export function iconShape(icon: HTMLElement | SVGSVGElement): IconShape | undefi
   if (icon instanceof SVGSVGElement) {
     const { set, putBack, shapes } = editor([...icon.querySelectorAll<SVGGeometryElement>(shapeSelector)]);
     if (!shapes.length) return;
-    return { shapes, set, commit() {}, restore: putBack, measure: read => read() };
+    return { shapes, set, commit() {}, restore: putBack, measure: read => read(shapes) };
   }
   const source = cssIconSource(icon);
   if (!source) return;
   const svg = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
   if (!(svg instanceof SVGSVGElement)) return;
-  const { set, putBack, shapes } = editor([...svg.querySelectorAll<SVGGeometryElement>(shapeSelector)]);
-  if (!shapes.length) return;
-  const write = () => icon.style.setProperty("--svg", `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`);
+  if (svg.matches("[style], [class], [transform]")) return;
+  const copies: SVGGeometryElement[] = [];
+  const originals: SVGGeometryElement[] = [];
+  for (const child of svg.children) {
+    const attributes = geometry.get(child.localName);
+    if (!attributes || !(child instanceof SVGGeometryElement) || child.childElementCount || child.matches("[style], [class], [transform]")) return;
+    const copy = document.createElementNS(svgNamespace, child.localName);
+    if (!(copy instanceof SVGGeometryElement)) return;
+    for (const name of attributes) {
+      const value = child.getAttribute(name);
+      if (value !== null) copy.setAttribute(name, value);
+    }
+    copies.push(copy);
+    originals.push(child);
+  }
+  if (!copies.length) return;
+  const { set, putBack, shapes } = editor(originals);
+  const readMask = () => ({ value: icon.style.getPropertyValue("--svg"), priority: icon.style.getPropertyPriority("--svg") });
+  const original = readMask();
+  let written: ReturnType<typeof readMask> | undefined;
+  const matchesMask = (expected: ReturnType<typeof readMask>) => {
+    const current = readMask();
+    return expected.value === current.value && expected.priority === current.priority;
+  };
   return {
     shapes,
     set,
-    commit: write,
+    commit() {
+      if (!matchesMask(written ?? original)) return;
+      icon.style.setProperty("--svg", `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`, original.priority);
+      written = readMask();
+    },
     restore() {
       putBack();
-      icon.style.removeProperty("--svg");
+      if (written && matchesMask(written)) {
+        const { value, priority } = original;
+        if (value) icon.style.setProperty("--svg", value, priority);
+        else icon.style.removeProperty("--svg");
+      }
+      written = undefined;
     },
     measure(read) {
-      // The copy is not in the page, so it has no geometry. A hidden SVG in the page lends it one for the read.
       const host = document.createElementNS(svgNamespace, "svg");
       host.setAttribute("aria-hidden", "true");
       host.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;visibility:hidden";
-      const children = [...svg.childNodes];
-      host.append(...children);
+      host.append(...copies);
       document.body.append(host);
       try {
-        return read();
+        return read(copies);
       }
       finally {
-        svg.append(...children);
         host.remove();
       }
     },

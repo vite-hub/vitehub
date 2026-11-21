@@ -208,7 +208,7 @@ export const CopyButton = defineComponent({
         icon: copied.value ? icons.value.copyCheck : props.icon ?? icons.value.copy,
         // The layer's label effect morphs the label of the button letter by letter.
         label: props.label && copied.value ? props.copiedLabel : props.label,
-        disabled: loading.value || undefined,
+        disabled: loading.value || attrs.disabled,
         size: props.size,
         variant: props.variant,
         onClick: (event: MouseEvent) => {

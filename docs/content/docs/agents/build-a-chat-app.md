@@ -17,7 +17,7 @@ You start with an offline Driver, the part of the Agent that makes a fixed reply
 
 The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) has the app, a sample environment, and tests. It follows the finished app of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat) with the [ViteHub chat components](/docs/ui/blocks/chat-app).
 
-You need Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
+You need Node.js 24.15 or newer on 24.x, or 26 or newer, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
 
 ::warning
 Provider calls can cost money. Check model prices and set a provider budget before you use model mode.
@@ -74,14 +74,14 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "typescript": "6.0.3",
     "vue-tsc": "3.3.12"
   },
-  "engines": { "node": "^22.22.0 || ^24.11.0 || >=26.0.0" }
+  "engines": { "node": "^24.15.0 || >=26.0.0" }
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 - The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
-- `workflow: false` runs each short reply (an Invocation) inside the request.
+- Each short reply (an Invocation) runs inline by default.
 - Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
 - `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
 - `buildDir: ".nuxt"` keeps generated TypeScript in the project.
@@ -93,7 +93,6 @@ export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: ["@nuxt/ui", [viteHub, {
     agent: true,
-    workflow: false,
     console: false,
   }]],
   css: ["~/assets/main.css"],

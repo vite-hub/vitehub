@@ -19,6 +19,8 @@ export default defineNuxtConfig({
     workspace: false,
     console: true,
     publicUrl: "https://vitehub.dev",
+    // Runnable tutorials and the playground boot a WebContainer (modules/tutorials).
+    webContainer: { routes: ["/learn/**", "/playground"] },
   },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
@@ -52,7 +54,7 @@ export default defineNuxtConfig({
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
-    mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
+    mcp: { name: "vitehub", guide: "/docs/console/mcp" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",

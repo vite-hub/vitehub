@@ -1,19 +1,22 @@
 import { createRuntimePackageResolver } from "./runtime-package-resolution.ts"
 import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
-import { builtinModules, createRequire } from "node:module"
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { builtinModules, createRequire, findPackageJSON } from "node:module"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { resolveImports, type PathConditionsMap } from "resolve-pkg-maps"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
 
 import type { ViteAlias } from "./bundle-options.ts"
-import { bundleEsmEntry } from "./esbuild.ts"
+import { bundleEsmEntry } from "./rolldown.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { copyRuntimePackageFiles } from "./runtime-package-files.ts"
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 import { invariant, invariantError } from "../invariant.ts"
+import { isPlainObject } from "../object.ts"
 import { denoDeployRunnerSource } from "./deno-deploy-runner.injected.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
@@ -510,54 +513,49 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
   return output.join("")
 }
 
-function packageImportPlugin(): Plugin {
-  const resolvingPackageImport = "vitehubResolvingPackageImport"
-  return {
-    name: "vitehub-package-imports",
-    setup(build) {
-      build.onResolve({ filter: /^#/ }, async (args) => {
-        if (args.pluginData?.[resolvingPackageImport]) return
-        const result = await build.resolve(args.path, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          pluginData: { ...args.pluginData, [resolvingPackageImport]: true },
-          resolveDir: args.resolveDir,
-          with: args.with,
-        })
-        const pluginData = Object.assign({}, result.pluginData)
-        Reflect.deleteProperty(pluginData, resolvingPackageImport)
-        return { ...result, pluginData }
-      })
-    },
-  }
-}
-
 function runtimePackageResolutionPlugin(
   rootDir: string,
   aliases: ViteAlias[] | undefined,
+  conditions: string[] | undefined,
   packageJsonPaths: Map<string, string>,
   packages: Map<string, RuntimePackage>,
-): Plugin {
+): Rolldown.Plugin {
   return {
     name: "vitehub-deno-runtime-packages",
-    setup(build) {
-      build.onResolve({ filter: /.*/ }, async (args) => {
-        const name = packageNameFromSpecifier(args.path)
-        if (!name || aliases?.some((alias) => {
-          if (!(alias.find instanceof RegExp)) return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
-          alias.find.lastIndex = 0
-          const matches = alias.find.test(args.path)
-          alias.find.lastIndex = 0
-          return matches
-        })) return
-        const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
-        const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
-        const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
-        const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
-        if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
-        addRuntimePackage(packages, { name, optional: args.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
-      })
+    async resolveId(source, importer, extra) {
+      if (aliases?.some((alias) => {
+        if (!(alias.find instanceof RegExp)) return source === alias.find || source.startsWith(`${alias.find}/`)
+        alias.find.lastIndex = 0
+        const matches = alias.find.test(source)
+        alias.find.lastIndex = 0
+        return matches
+      })) return
+      if (source.startsWith("#") && importer && isAbsolute(importer)) {
+        const packageJsonPath = findPackageJSON(".", pathToFileURL(importer))
+        if (!packageJsonPath || basename(packageJsonPath) !== "package.json") return
+        const manifest: unknown = JSON.parse(await readFile(packageJsonPath, "utf8"))
+        if (!isPlainObject(manifest) || !isPlainObject(manifest.imports)) return
+        let target: string | undefined
+        try {
+          const kind = extra.kind === "require-call" ? "require" : "import"
+          // SAFETY: Package imports are parsed from JSON and the resolver checks each selected target's shape.
+          target = resolveImports(manifest.imports as PathConditionsMap, source, [kind, ...(conditions ?? [])])[0]
+        }
+        catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return
+          throw error
+        }
+        if (!target || (!packageNameFromSpecifier(target) && !/^(npm|jsr):/.test(target))) return
+        return this.resolve(target, importer, { custom: extra.custom, kind: extra.kind, skipSelf: false })
+      }
+      const name = packageNameFromSpecifier(source)
+      if (!name) return
+      const fromDir = importer && isAbsolute(importer) ? dirname(importer) : rootDir
+      const resolver = createRequire(importer && isAbsolute(importer) ? importer : join(fromDir, "package.json"))
+      const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+      const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
+      if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+      addRuntimePackage(packages, { name, optional: extra.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
     },
   }
 }
@@ -791,11 +789,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   copied.add(packageKey)
   if (resolve(packageDir) !== resolve(targetDir)) {
     await rm(targetDir, { force: true, recursive: true })
-    await cp(packageDir, targetDir, {
-      dereference: true,
-      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
-      recursive: true,
-    })
+    await copyRuntimePackageFiles(packageDir, targetDir)
   }
   staged.add(stagedKey)
   stagedTargets.add(targetDir)
@@ -1094,7 +1088,7 @@ async function finalizeStagedDenoDeploymentOutput(
       platform: "neutral",
       preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
-      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+      plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
@@ -1123,7 +1117,7 @@ async function finalizeStagedDenoDeploymentOutput(
           platform: "neutral",
           preserveSymlinks: options.preserveSymlinks,
           mainFields: options.mainFields,
-          plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+          plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, options.conditions, resolvedPackageJsonPaths, runtimePackages)],
           rootDir: options.rootDir,
           workingDir: options.rootDir,
         })

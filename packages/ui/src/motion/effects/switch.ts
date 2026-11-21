@@ -75,7 +75,7 @@ function restOf(state: Knob, on: boolean, trackWidth: number): Rest {
 
 function draw(element: HTMLElement, state: Knob): void {
   const { knob, now } = state;
-  if (!state.position.active && !state.size.active && !state.press.active && !state.wobble.active && state.wobbleTimer === undefined) {
+  if (!state.position.active && !state.size.active && !state.press.active && !state.press.target && !state.wobble.active && state.wobbleTimer === undefined) {
     writeMotionStyle(knob, { translate: null, scale: null });
     return;
   }

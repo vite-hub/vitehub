@@ -1,9 +1,9 @@
 # @vite-hub/shell
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Shell" src="https://comark-ui.onmax.me/badge.svg?label=Shell&amp;value=controlled+runtime">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Shell" src="https://img.shields.io/static/v1?label=Shell&amp;message=controlled+runtime&amp;color=blue">
 </p>
 
 `@vite-hub/shell` gives server code structured command analysis and execution with explicit filesystem, network, process, and timeout boundaries.

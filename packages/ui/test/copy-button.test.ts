@@ -30,7 +30,7 @@ function useClipboard(writeText: (text: string) => Promise<void>) {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 }
 
-function mountButton(props: InstanceType<typeof CopyButton>["$props"], plugins: ReturnType<typeof createViteHubUI>[] = []) {
+function mountButton(props: InstanceType<typeof CopyButton>["$props"] & { disabled?: boolean }, plugins: ReturnType<typeof createViteHubUI>[] = []) {
   return mount(() => h(CopyButton, props), { attachTo: document.body, global: { components: { UButton: ButtonStub }, plugins } });
 }
 
@@ -42,6 +42,15 @@ afterEach(() => {
 });
 
 describe("CopyButton", () => {
+  it("keeps an explicit disabled attribute while idle", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    useClipboard(writeText);
+    const button = mountButton({ value: "text", disabled: true }).get<HTMLButtonElement>("button").element;
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("is an icon-only ghost button named Copy, with the theme copy icon", () => {
     const wrapper = mountButton({ value: "pnpm test" });
     const button = wrapper.get("[data-slot=copy-button]");
