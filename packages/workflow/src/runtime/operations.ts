@@ -32,6 +32,8 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKFLOW_RUN_AMBIGUOUS: 400,
   WORKFLOW_RUN_UNKNOWN: 400,
   WORKFLOW_RUNS_UNAVAILABLE: 409,
+  WORKFLOW_SIGNAL_NOT_WAITING: 409,
+  WORKFLOW_SIGNAL_TOKEN_INVALID: 400,
 }
 
 /** Gives an operation error the status of its code and the redacted message that the CLI and the Console report. */

@@ -1,7 +1,9 @@
 import { describe, it } from "vitest"
 
-import { createChannel, defineChannel, stripe, useChannel, webhook } from "../src/index.ts"
-import type { ChannelMessage, ChannelSendOptions, StripeEvent } from "../src/index.ts"
+import { stripe, webhook } from "../src/adapters.ts"
+import type { StripeEvent } from "../src/adapters.ts"
+import { createChannel, defineChannel, useChannel } from "../src/index.ts"
+import type { ChannelMessage, ChannelSendOptions } from "../src/index.ts"
 
 declare global {
   interface ViteHubChannelDefinitionModules {

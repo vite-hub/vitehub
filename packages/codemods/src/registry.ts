@@ -4,6 +4,7 @@ import { authAccessors } from "./auth-accessors/index.ts"
 import { authSignIn } from "./auth-sign-in/index.ts"
 import { channels } from "./channels/index.ts"
 import { choicesPackage } from "./choices-package/index.ts"
+import { cliAgentTree } from "./cli-agent-tree/index.ts"
 import { cliGetList } from "./cli-get-list/index.ts"
 import { cliUrlFlag } from "./cli-url-flag/index.ts"
 import { cliYesFlag } from "./cli-yes-flag/index.ts"
@@ -70,6 +71,7 @@ export const codemods: readonly Codemod[] = [
   cmsRoles,
   choicesPackage,
   cliGetList,
+  cliAgentTree,
 ]
 
 /**
@@ -106,4 +108,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   cmsRoles,
   choicesPackage,
   cliGetList,
+  cliAgentTree,
 ]
