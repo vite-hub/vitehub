@@ -212,6 +212,8 @@ app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", 
 | `arrowLeft` | Nuxt UI | `i-lucide-arrow-left` | Back button of `CommentThread` |
 | `arrowUp` | Nuxt UI | `i-lucide-arrow-up` | Send button of `PromptInput` and `CommentComposer` |
 | `check` | Nuxt UI | `i-lucide-check` | Resolve button of `CommentThread` |
+| `chevronLeft` | Nuxt UI | `i-lucide-chevron-left` | Previous picture of a comment's image preview |
+| `chevronRight` | Nuxt UI | `i-lucide-chevron-right` | Next picture of a comment's image preview |
 | `close` | Nuxt UI | `i-lucide-x` | Close button of `CommentThread` and image previews, remove button of attachments |
 | `copy` | Nuxt UI | `i-lucide-copy` | `CopyButton` before a copy |
 | `copyCheck` | Nuxt UI | `i-lucide-check` | `CopyButton` after a copy |

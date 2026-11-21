@@ -1,12 +1,13 @@
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
-import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
+import { claimMotionLayer, defineOwnEffect, handOffMotionEffects, listMotionEffects, motionEffectRegistrations, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionRoot, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
 export type { MotionRoot } from "./registry.ts";
 
 const optOut = "[data-motion=\"none\"]";
-const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver; watchers: Map<MotionEffect, () => void> }>();
+const roots = new Map<MotionRoot, { installs: number; watchers: Map<MotionEffect, () => void> }>();
+let observer: MutationObserver | undefined;
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
@@ -75,11 +76,10 @@ function find(path: EventTarget[], selector: string): HTMLElement | undefined {
 
 function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: EventTarget[]): void {
   end(id);
-  if (prefersReducedMotion()) return;
   const claimed = eventPresses(event);
   const started: Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }> = [];
-  for (const effect of listMotionEffects()) {
-    if (!effect.press) continue;
+  for (const { effect, isReduced } of motionEffectRegistrations()) {
+    if (!effect.press || isReduced()) continue;
     const element = find(path, effect.selector);
     // A key presses only the control that has focus, not a control around it.
     if (!element || (id === "key" && element !== path[0])) continue;
@@ -178,17 +178,10 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
   }
 }
 
-function ownsMutation(root: MotionRoot, target: Node): boolean {
-  for (let node: Node | null = target; node; node = node.parentNode) {
-    if (node === root) return true;
-    if (node instanceof Element && roots.has(node)) return false;
-  }
-  return false;
-}
-
-function onMutations(root: MotionRoot, batch: MutationRecord[]): void {
-  const records = roots.size === 1 ? batch : batch.filter(record => ownsMutation(root, record.target));
+function onMutations(batch: MutationRecord[]): void {
+  const records = [...new Set(batch)];
   const effects = listMotionEffects();
+  const dispatched = new Map<HTMLElement, Map<MotionStateAttribute, Set<string | null>>>();
   collectContent(records, effects);
   for (const record of records) {
     if (record.type === "characterData") continue;
@@ -198,6 +191,12 @@ function onMutations(root: MotionRoot, batch: MutationRecord[]): void {
       const attribute = record.attributeName as MotionStateAttribute;
       const value = element.getAttribute(attribute);
       if (value === record.oldValue) continue;
+      let attributes = dispatched.get(element);
+      if (!attributes) dispatched.set(element, attributes = new Map());
+      let oldValues = attributes.get(attribute);
+      if (!oldValues) attributes.set(attribute, oldValues = new Set());
+      if (oldValues.has(record.oldValue)) continue;
+      oldValues.add(record.oldValue);
       for (const effect of effects) {
         if (effect.state && matches(element, effect.selector) && !isMotionOff(element)) {
           effect.state(element, { attribute, oldValue: record.oldValue, value });
@@ -220,7 +219,6 @@ function onMutations(root: MotionRoot, batch: MutationRecord[]): void {
 
 // The observer watches added elements only when an effect has an `enter` or a `content` hook, and text only for `content`.
 function observe(root: MotionRoot, observer: MutationObserver): void {
-  observer.disconnect();
   const content = listMotionEffects().some(effect => effect.content);
   observer.observe(root, {
     attributes: true,
@@ -264,12 +262,6 @@ function startDocument(): void {
     onReducedMotionChange((reduced) => {
       if (reduced) settleSprings();
     }),
-    onMotionEffectsChange(() => {
-      for (const [root, { observer, watchers }] of roots) {
-        observe(root, observer);
-        syncWatchers(root, watchers);
-      }
-    }),
   ];
 }
 
@@ -293,20 +285,48 @@ export interface InstallMotionOptions {
  * It is safe to call more than once. Returns a function that stops this install. The layer stops when every install
  * has stopped. On the server it does nothing. `installMotion(root?)` of `@vite-hub/ui/motion` is this function with
  * every built-in effect.
+ *
+ * When another copy of the module installed first, this install and these effects go to that copy, the shared layer,
+ * so an element that both copies cover moves once.
  */
 export function installMotion(root: MotionRoot, options: InstallMotionOptions): () => void {
   if (typeof document === "undefined") return () => {};
+  const shared = otherMotionLayer();
+  if (shared) {
+    // The effects that the app defined on this copy before it installed, such as one that replaces a built-in effect.
+    handOffMotionEffects(shared);
+    return shared.install(root, options.effects, prefersReducedMotion);
+  }
+  claimMotionLayer(sharedLayer);
+  return installOwn(root, options.effects);
+}
+
+const sharedLayer = {
+  define: defineOwnEffect,
+  install: installOwn,
+};
+
+function installOwn(root: MotionRoot, effects: readonly MotionEffect[], isReduced = prefersReducedMotion): () => void {
   // An effect that an app defined with the same name, to replace a built-in one, stays.
   const defined = new Set(listMotionEffects().map(effect => effect.name));
-  for (const effect of options.effects) if (!defined.has(effect.name)) defineMotionEffect(effect);
-  if (!roots.size) startDocument();
+  for (const effect of effects) if (!defined.has(effect.name)) defineOwnEffect(effect, isReduced);
+  if (!observer) {
+    startDocument();
+    const active = new MutationObserver((records, source) => onMutations(records.concat(source.takeRecords())));
+    observer = active;
+    stopWatching.push(onMotionEffectsChange(() => {
+      for (const [root, { watchers }] of roots) {
+        observe(root, active);
+        syncWatchers(root, watchers);
+      }
+    }));
+  }
   const entry = roots.get(root);
   if (entry) entry.installs++;
   else {
-    const observer = new MutationObserver(records => onMutations(root, records));
     const watchers = new Map<MotionEffect, () => void>();
     observe(root, observer);
-    roots.set(root, { installs: 1, observer, watchers });
+    roots.set(root, { installs: 1, watchers });
     syncWatchers(root, watchers);
   }
   let stopped = false;
@@ -315,10 +335,21 @@ export function installMotion(root: MotionRoot, options: InstallMotionOptions): 
     stopped = true;
     const current = roots.get(root);
     if (!current || --current.installs > 0) return;
-    current.observer.disconnect();
     roots.delete(root);
+    const active = observer!;
+    const pending = active.takeRecords();
+    active.disconnect();
     for (const stop of current.watchers.values()) stop();
-    if (roots.size) return;
+    if (roots.size) {
+      for (const root of roots.keys()) observe(root, active);
+      if (pending.length) queueMicrotask(() => {
+        if (observer !== active) return;
+        const remaining = [...roots.keys()];
+        onMutations(pending.filter(record => remaining.some(root => root.contains(record.target))));
+      });
+      return;
+    }
+    observer = undefined;
     for (const stop of stopWatching) stop();
     stopWatching = [];
   };

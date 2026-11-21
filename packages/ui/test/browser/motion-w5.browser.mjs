@@ -208,7 +208,7 @@ describe("installs", () => {
       const host = document.querySelector("#host")
       host.attachShadow({ mode: "open" }).innerHTML = `<slot></slot><button id="shadow">Shadow</button>`
       window.pressed = []
-      // Each copy counts the presses that it starts, with an effect of its own.
+      // Both copies register the same named press effect.
       for (const name of ["MotionApp", "MotionPill"]) {
         window[name].defineMotionEffect({ name: "count-press", selector: "button", press: (element) => { window.pressed.push(`${name}:${element.id}`); return { release() {} } } })
       }
@@ -286,7 +286,8 @@ describe("installs", () => {
       window.MotionPill.installMotion(document.querySelector("#host"), { effects: [] })
       return window.pressAll()
     })
-    assert.deepEqual(pressed, ["MotionApp:page", "MotionApp:light", "MotionApp:shadow"])
+    // The pill hands its effect to the app, replacing the app's effect of the same name.
+    assert.deepEqual(pressed, ["MotionPill:page", "MotionPill:light", "MotionPill:shadow"])
     await context.close()
   })
 
@@ -308,7 +309,7 @@ describe("installs", () => {
         await Promise.resolve()
         return { pressed: window.pressed, animating: Boolean(chevron.style.rotate) }
       }, pressFirst)
-      assert.deepEqual(result, { pressed: [pressFirst ? "MotionPill:light" : "MotionApp:light"], animating: true })
+      assert.deepEqual(result, { pressed: [pressFirst ? "MotionApp:light" : "MotionPill:light"], animating: true })
       await context.close()
     })
   }

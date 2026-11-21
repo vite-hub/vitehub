@@ -80,7 +80,7 @@ Each part continues from where it is when its value changes again in the middle 
 
 ## Without Vue
 
-`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `shake(element)` for a box that refuses an action, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `vite-hub/ui/motion` do the same on any element.
+`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `shake(element)` for a box that refuses an action, `travel(element, { from, to })` for a thing that moves to a new place, such as a picture that opens larger, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `vite-hub/ui/motion` do the same on any element.
 
 ## Accessibility
 
