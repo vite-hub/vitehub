@@ -231,7 +231,7 @@ pnpm vitehub database migrate
 pnpm vitehub database up
 ```
 
-`database up` converts each migrations folder of Drizzle Kit 0.x, with `meta/_journal.json`, to one folder per migration, as Drizzle Kit 1.0 writes them. `database generate` and `database migrate` refuse a 0.x folder with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
+`database up` converts complete Drizzle Kit 0.x folders and folders of hand-written SQLite or D1 `.sql` files to one folder per migration. For hand-written files, it replays the SQL on a temporary database to record the schema. `database generate` and `database migrate` refuse the old layouts with `DATABASE_MIGRATIONS_OLD_LAYOUT`, except that D1 HTTP can migrate flat SQL directly.
 
 `database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
 
@@ -543,7 +543,15 @@ RUN                                          STATUS     SCHEDULED AT            
 srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
 ```
 
-`list`, `start`, and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
+`list` shows every Schedule of the server: each Static Schedule Definition with its cron, then the Schedules that code started. An app with only cron Schedules lists them without a KV store:
+
+```txt [Output]
+SCHEDULE       CRON
+morning-brief  0 9 * * 1-5 (Europe/Copenhagen)
+pr-upkeep      */15 * * * *
+```
+
+`start` and `cancel` work on the Schedules that code starts with [`startSchedule()`](/docs/schedule/server-api#start-a-schedule-from-code). The Definition has no `cron`. `start` takes `--at` for one run, or `--cron` and `--time-zone` for a repeating one. To pass a payload, give the whole input as JSON with `--input`.
 
 ```bash [Terminal]
 pnpm vitehub schedule start reminder --at 2026-11-08T09:00:00Z

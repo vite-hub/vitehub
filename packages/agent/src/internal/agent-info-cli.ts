@@ -1,14 +1,12 @@
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
-import { formatRuntimeDiagnosticError, isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
-
-import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
+import { formatRuntimeDiagnosticError, isExecutionAuthority, isRuntimeDiagnostic, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
+import { isCompatibleAgentDevServerRoot, readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -31,32 +29,6 @@ interface ParsedInfoArgs {
   help: boolean
   json: boolean
   url: string
-}
-
-export function isCompatibleAgentDevServerRoot(rootDir: string, serverRoot: string): boolean {
-  const nestedPath = relative(resolve(rootDir), resolve(serverRoot))
-  return nestedPath === "" || (nestedPath !== ".." && !nestedPath.startsWith(`..${sep}`) && !isAbsolute(nestedPath))
-}
-
-/**
- * Reads the private Agent Dev Loop token for the server at `endpoint`. The discovery `GET` returns the server root and
- * the token server ID, and the CLI reads the token file locally. Returns no header when the server publishes no token
- * scope or its root is outside `rootDir`. The endpoint then rejects the request.
- */
-export async function readAgentDevLoopTokenHeaders(endpoint: string, rootDir: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<Record<string, string>> {
-  const response = await fetchImpl(endpoint, {
-    headers: { accept: "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue },
-    ...(signal ? { signal } : {}),
-  })
-  if (!response.ok) {
-    await response.body?.cancel()
-    return {}
-  }
-  const discovery: unknown = await response.json().catch(() => undefined)
-  if (!isRuntimeRecord(discovery) || typeof discovery.root !== "string" || typeof discovery.workspaceDevTokenServerId !== "string") return {}
-  if (!isCompatibleAgentDevServerRoot(rootDir, discovery.root)) return {}
-  const token = await readWorkspaceDevToken(discovery.root, { serverId: discovery.workspaceDevTokenServerId })
-  return token ? { [workspaceDevTokenHeader]: token } : {}
 }
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
@@ -155,6 +127,7 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   if (driver.kind === "provider") return driver.provider?.provider ? `Provider Agent Driver (${driver.provider.provider})` : "Provider Agent Driver"
   if (driver.kind === "run") return "Custom-run Agent Driver"
   if (driver.kind === "ask") return "Ask Agent Driver"
+  if (driver.kind === "external") return "External Agent Driver (runs outside the app)"
   return "Unknown Agent Driver"
 }
 
@@ -299,6 +272,10 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
   catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
       context.stderr.write(`Agent inspection request timed out after ${timeout}ms.\n`)
+      return 1
+    }
+    if (isRuntimeDiagnostic(error) && error.code === "AGENT_DEV_LOOP_FAILED") {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
       return 1
     }
     context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)

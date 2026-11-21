@@ -168,7 +168,7 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule runs get` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
-| `vitehub schedule list` | Available | Schedule Package | List the Schedules that code started with `startSchedule()`. |
+| `vitehub schedule list` | Available | Schedule Package | List the Static Schedule Definitions with their cron, and the Schedules that code started with `startSchedule()`. |
 | `vitehub schedule start` | Available | Schedule Package | Start a Schedule Definition without `cron`, once with `--at` or on `--cron`. |
 | `vitehub schedule cancel` | Available | Schedule Package | Cancel a started Schedule. |
 | `vitehub i18n export` | Available | i18n Package | Write the messages and translations of one locale as a PO file. |

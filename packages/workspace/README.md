@@ -196,7 +196,7 @@ await workspace.history.usage()
 Commits publish the complete desired file set with an atomic head comparison.
 Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
 from the new revision; earlier versions retain their bytes. Read mode exposes
-`head`, `list`, `refs`, `open`, and `usage`. Stores without retained history
+`head`, `list`, `refs`, `open`, `diff`, and `usage`. Stores without retained history
 throw `WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
 
 History has named refs. Calls without `ref` use `main`. Each ref has its own head
@@ -212,6 +212,24 @@ await workspace.history.commit({
 })
 await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head }]
 ```
+
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
+before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
 
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a

@@ -134,7 +134,7 @@ const [, started] = await listSchedules({ name: "reminder" });
 await cancelSchedule(standUp!.id);
 ```
 
-The functions return `[error, data]`. The Schedules are stored in KV, so they survive restarts and deploys. When a Definition has no `cron`, the build adds the Schedule `vitehub/started-schedules` with the cron `* * * * *`: Cloudflare wakes it with a Cron Trigger, and the Process Runtime wakes it on Node. Each wake runs the started Schedules that are due. Started Schedules need KV, and on Node the Process Runtime. `vitehub schedule list`, `start`, and `cancel` and the Console Schedules page show and change them. Read the [server API](https://vitehub.dev/docs/schedule/server-api#start-a-schedule-from-code) for the delivery rules.
+The functions return `[error, data]`. The Schedules are stored in KV, so they survive restarts and deploys. When a Definition has no `cron`, the build adds the Schedule `vitehub/started-schedules` with the cron `* * * * *`: Cloudflare wakes it with a Cron Trigger, and the Process Runtime wakes it on Node. Each wake runs the started Schedules that are due. Started Schedules need KV, and on Node the Process Runtime. `vitehub schedule start` and `cancel` and the Console Schedules page show and change them. `vitehub schedule list` lists them after the Static Schedule Definitions, and works without KV when no Definition can be started. Read the [server API](https://vitehub.dev/docs/schedule/server-api#start-a-schedule-from-code) for the delivery rules.
 
 ## Understand time zones
 

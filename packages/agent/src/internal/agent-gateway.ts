@@ -40,7 +40,8 @@ export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | 
   }
 }
 
-function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute): ResolvedAgentDriverGateway {
+/** The provider environment and launch arguments that send Codex to a gateway route. */
+export function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute): ResolvedAgentDriverGateway {
   const environment: Record<string, string> = { [codexApiKeyEnvironment]: apiKey }
   const headerEnvironment: Record<string, string> = {}
   if (auth === "x-api-key") headerEnvironment["x-api-key"] = codexApiKeyEnvironment

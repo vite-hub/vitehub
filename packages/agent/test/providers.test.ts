@@ -156,11 +156,17 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const agentWithColocatedInstructions = agent => agent",
     "export const inheritAgentLayerOptions = agent => agent",
     "export const markDiscoveredAgentName = () => {}",
+    "export const markDiscoveredWorkspaceAgentDefinitionRegistered = () => {}",
     "export const withDiscoveredAgentName = agent => agent",
+    "export const withDeclaredAgentWorkspace = agent => agent",
     "export const resetPublicUrlAgentNames = () => {}",
     "export const workspaceAgentOwnsWorkspaceDefinition = () => false",
     "export const workspaceDefinitionFromOptions = () => undefined",
     "export const setAgentWorkspaceDefinitions = () => {}",
+    "export const setAgentHostCapabilities = () => {}",
+    "export const installHostedWorkspaceRuntime = () => {}",
+    "export const installHostedVercelBlobWorkspaceRuntime = () => {}",
+    "export const resolveAgentInspectionMetadata = () => undefined",
     "export const agentGeneratedRuntimeError = (_code, message) => new Error(message)",
     "export const createAgentWebhookRequest = () => { throw new Error('Unexpected webhook request') }",
     "export const createChannelChatRouteHandler = () => { throw new Error('Unexpected chat handler') }",
@@ -173,7 +179,7 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const setAgentWorkflowCapabilityLoaders = () => {}",
     "export const setAgentHostCapabilities = () => {}",
   ].join("\n"), "utf8")
-  return (["index", "server/internal", "server/workspace"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
+  return (["index", "server/internal", "server/workspace", "internal/workspace/internal/runtime/hosted", "internal/workspace/internal/runtime/hosted-vercel-blob"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
 
 function createTestChatAdapter(
@@ -1027,7 +1033,7 @@ describe("agent Vite plugin", () => {
       const registry = await transform("export default {}\n", `/virtual/.vitehub/${registryPath}`)
 
       expect(registry).toContain(`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`)
-      expect(registry).toContain(`import { setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
+      expect(registry).toContain(`import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, setAgentChannelDeliveryWorkflowStateResolver } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
       expect(registry).toContain('const viteHubChatStateOptions = {"url":"libsql://state.example.test"}')
       expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: viteHubChatStateResolver }))")
       if (!registry) throw new Error("Expected a libSQL workflow registry")
@@ -1251,7 +1257,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
       await runProviderOutputHooks(plugin)
@@ -1343,7 +1349,7 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
@@ -1418,7 +1424,7 @@ describe("agent Vite plugin", () => {
         build: { outDir: "dist/client" },
         command: "build",
         plugins: [],
-        resolve: { alias: agentProviderOutputAliases() },
+        resolve: { alias: await stubNetlifyAgentRuntime(root) },
         root,
       })
 
@@ -2279,7 +2285,7 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      const netlifyPlugin = hubAgent()
+      const netlifyPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
       if (typeof netlifyPlugin.configResolved === "function") {
         await netlifyPlugin.configResolved.call(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -2301,14 +2307,12 @@ describe("agent Vite plugin", () => {
           } as never,
         )
       }
-      if (typeof netlifyPlugin.closeBundle !== "function" && netlifyPlugin.closeBundle?.handler) {
-        if (typeof netlifyPlugin.buildEnd === "function") await netlifyPlugin.buildEnd.call({} as never)
-        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        await netlifyPlugin.closeBundle.handler.call({} as never)
-      }
+      await runProviderOutputHooks(netlifyPlugin)
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(netlifyFunction).toContain("@vite-hub/database/runtime/registry")
+      const netlifyBundle = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
+      expect(netlifyBundle).toContain("api.resend.com")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2885,9 +2889,45 @@ export default defineAgent({
       )
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
+      // Nitro's miniflare dev runner runs this route in workerd, which cannot open the default file.
+      expect(webhookRoute).toContain(`import { opensLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
+      expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: Boolean(runtimeUrl) })")
+      expect(webhookRoute).toContain("const viteHubChatStateResolver = () => viteHubChatStateOpens() ? chatStateFromLibsql() : undefined")
+      expect(webhookRoute).toContain("  if (!viteHubChatStateOpens()) return async () => undefined")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("warns when a Vercel or Netlify build has no Agent State URL", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const build = async (host: string, env: string | undefined) => {
+      vi.stubEnv("VITEHUB_AGENT_STATE_URL", env)
+      const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${host}-state-warning-`))
+      const warn = vi.fn()
+      try {
+        await mkdir(join(root, "server", "agents"), { recursive: true })
+        await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+        const plugin = hubAgent()
+        if (typeof plugin.configResolved === "function") {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          await plugin.configResolved.call({} as never, { command: "build", logger: { info: vi.fn(), warn }, vitehub: { host }, root } as never)
+        }
+        return warn.mock.calls.map(call => String(call[0])).filter(message => message.includes("VITEHUB_AGENT_STATE_URL"))
+      }
+      finally {
+        vi.unstubAllEnvs()
+        await rm(root, { force: true, recursive: true })
+      }
+    }
+
+    expect(await build("vercel", undefined)).toEqual([expect.stringContaining("VITEHUB_AGENT_STATE_URL is not visible to this Vercel build")])
+    const netlify = await build("netlify", "")
+    expect(netlify).toEqual([expect.stringContaining("If the deployed function also lacks it, Agent State fails with AGENT_R0893")])
+    expect(netlify[0]).toContain("Functions scope for the target deploy context")
+    expect(await build("vercel", "libsql://state.example.turso.io")).toEqual([])
+    // A Node server reads its variables when it starts, not when it builds.
+    expect(await build("node", undefined)).toEqual([])
   })
 
   it("requires durable automatic state on deployed Vercel output", async () => {
@@ -3009,6 +3049,8 @@ export default defineAgent({
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
         expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number)")
         expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
+        // A file: URL that the app set throws in workerd instead of running without State.
+        expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
         expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')

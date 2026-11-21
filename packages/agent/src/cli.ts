@@ -13,7 +13,8 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
-import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { agentDevLoopDiscoveryFetch, isCompatibleAgentDevServerRoot } from "./internal/agent-dev-loop-cli.ts"
+import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
@@ -769,7 +770,7 @@ async function readDiscovery(
 ): Promise<AgentDevTarget | undefined> {
   const server = await discoverViteHubDevServer<Partial<AgentDevLoopDiscoveryResponse>>({
     endpoint: agentDevEndpoint,
-    fetch: fetchImpl,
+    fetch: agentDevLoopDiscoveryFetch(fetchImpl, context.rootDir),
     isCompatibleRoot: isCompatibleAgentDevServerRoot,
     rootDir: context.rootDir,
     serverUrl: parsed.url,
