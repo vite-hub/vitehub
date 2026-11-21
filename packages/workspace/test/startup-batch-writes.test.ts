@@ -1,3 +1,4 @@
+import { ok } from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -156,6 +157,7 @@ it("preserves ignored files and does not claim ignored directories", async () =>
     files: [{ path: "ignored.md", content: "replace" }, { path: "ignored-dir/new.md", content: "new" }],
     materialize: "startup",
   }) } }, store)
+  ok(store.setMeta)
   const setMeta = store.setMeta.bind(store)
   let failed = false
   vi.spyOn(store, "setMeta").mockImplementation(async (key, value) => {
