@@ -40,7 +40,7 @@ pnpm vitehub inspect output --json
 
 `--json` includes the parsed content of each JSON file. The CLI redacts values under secret keys such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with credentials. See [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
 
-`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, the Vercel Blob store, and the Durable Object and Container that run Sandbox Tasks on Cloudflare. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
+`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, Cloudflare Workflows, the cron trigger of each Schedule on Cloudflare, the Vercel Blob store, the Durable Object that keeps Agent state on Cloudflare, and the Durable Object and Container that run Sandbox Tasks on Cloudflare. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
 
 ```bash [Terminal]
 pnpm vitehub inspect resources
@@ -65,10 +65,12 @@ cloudflare	cloudflare-r2-bucket	default
 | `env` | An env variable set the id. `env` names the variable. |
 | `provision-state` | `vitehub provision run` recorded the id in `.vitehub/provision.json`. |
 | `provider-output` | Only the generated Wrangler config of the last build names the id. |
-| `name` | The host binds the resource by its name and needs no id, as for R2 buckets and Cloudflare Queues. |
-| none | No id is known yet. Run `vitehub provision run` or set the id. |
+| `name` | The host binds the resource by its name and needs no id, as for R2 buckets, Cloudflare Queues, and Cloudflare Workflows. |
+| none | No id is known yet. Run `vitehub provision run` or set the id. A cron trigger has no id. |
 
 For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. A configured `token` that overrides the environment is reported as `config`, without a store id or token value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
+
+A Workflow or Schedule that the standalone Provider Output runs has `standalone: true` in `--json`. Its binding or cron trigger is in the Wrangler config of the standalone Worker, not in Nitro's.
 
 `inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with the method, the path, the owner, and the handler file. The owner is the ViteHub area of a generated handler, such as `blob` or `queue`, the package of a package file, or `app`. Routes in `server/routes` and `server/api` are not listed. Like `inspect output`, it loads the configuration that a production build uses.
 

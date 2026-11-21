@@ -112,6 +112,8 @@ Keep `host: 'cloudflare'` in development too. With the Vite configurations above
 
 In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
 
+workerd does not get the variables of your shell. It reads the Wrangler `vars` and the `.dev.vars` or `.env` files. ViteHub adds each `VITEHUB_*` shell variable, such as `VITEHUB_AGENT_STATE_URL`, to the Wrangler `vars` in development, so the server reads it in `process.env` and `env`. If Nitro selects an environment defined in inline Wrangler config, ViteHub adds the values to that environment's `vars`. A value in `.dev.vars` or `.env` wins. Put other variables in those files.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment

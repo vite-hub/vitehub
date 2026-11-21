@@ -1,5 +1,5 @@
 import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
-import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
+import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"

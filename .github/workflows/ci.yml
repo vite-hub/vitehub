@@ -1079,6 +1079,9 @@ jobs:
       - name: Install, run, and remove an OS timer from a moved home folder
         if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
         run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
+      - name: Install, run, and remove an OS timer under a folder with %PATH% in its name
+        if: ${{ matrix.scope == 'user' && runner.os == 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --percent-home
 
   # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
   # partial rerun.
