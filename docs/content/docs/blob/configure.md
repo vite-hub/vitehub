@@ -599,7 +599,7 @@ ViteHub uses the same folder rule for the Node development fallback of a `cloudf
 
 When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
-Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
+Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. For several instances, use an object store. On the Node host, with `VITEHUB_INSTANCES` above 1, a server with an `fs` store fails at boot with `RUNTIME_R0017`.
 
 ### Cloudflare R2
 

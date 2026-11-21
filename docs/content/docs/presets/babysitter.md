@@ -418,7 +418,7 @@ The host leaves its own `babysitter` check out of every CI and merge decision, s
 
 ## Deploy
 
-Deploy the long-running Babysitter with the Node host on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on Cloudflare, Vercel, Netlify, and Deno, and with `AGENT_B0023` without SQL Agent State.
+Deploy the long-running Babysitter with the Node host on a host with a persistent disk, Git, and the provider CLI. The build fails with `AGENT_B0022` on the Cloudflare, Vercel, and Netlify hosts and with `agent.runtime: 'deno'`, and with `AGENT_B0023` without SQL Agent State. A config check fails first: `agent.runtime: 'deno'` on the Deno host fails with `VITE_HUB_R0087`, and otherwise the default Invocation journal fails with `VITE_HUB_R0132` on the Netlify host or with `agent.runtime: 'deno'`.
 
 It starts with the server. A development server starts it only with `VITEHUB_AGENT_PROCESS_HOSTS=1`, so it does not repair real pull requests by accident.
 
