@@ -123,6 +123,54 @@ describe("createMotionList", () => {
     expect(items[1]!.style.translate).toBe("");
   });
 
+  it("can read the places right after play(), for a change that it sees only after it happened, such as a resize", () => {
+    const { container, items } = list(2);
+    const motion = createMotionList(container);
+    motion.measure();
+    place(items[1]!, { x: 0, y: 80 });
+    motion.play();
+    // Measured while the item still shows at its old place: the list keeps the place without its motion.
+    motion.measure();
+    tick(5);
+    const [, before] = translateOf(items[1]!);
+    place(items[1]!, { x: 0, y: 120 });
+    motion.play();
+    const [, after] = translateOf(items[1]!);
+    expect(80 + before).toBeCloseTo(120 + after, 1);
+    framesUntilIdle();
+    expect(items[1]!.style.translate).toBe("");
+  });
+
+  it("with movesOnly, shows a new item at once and lets a removed item go at once", () => {
+    const { container, items } = list(2);
+    const motion = createMotionList(container, { movesOnly: true });
+    motion.measure();
+    const added = document.createElement("li");
+    place(added, { x: 0, y: 0 });
+    container.prepend(added);
+    place(items[0]!, { x: 0, y: 40 });
+    items[1]!.remove();
+    motion.play();
+    expect(added.style.opacity).toBe("");
+    expect(added.style.scale).toBe("");
+    expect(container.querySelector("[data-motion-ghost]")).toBeNull();
+    expect(translateOf(items[0]!)).toEqual([0, -40]);
+    framesUntilIdle();
+  });
+
+  it("grows an item that had no layout box when it was measured, such as one that was hidden", () => {
+    const { container, items } = list(2);
+    const motion = createMotionList(container);
+    place(items[1]!, { x: 0, y: 0, width: 0, height: 0 });
+    motion.measure();
+    place(items[1]!, { x: 0, y: 40 });
+    motion.play();
+    // It does not fly in from the corner of the screen.
+    expect(items[1]!.style.translate).toBe("");
+    expect(items[1]!.style.scale).toBe("0.9000");
+    framesUntilIdle();
+  });
+
   it("grows a new item in its slot, and from its origin when it has one", () => {
     const { container, items } = list(1);
     const motion = createMotionList(container);

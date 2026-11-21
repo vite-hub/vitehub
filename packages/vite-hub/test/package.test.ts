@@ -116,7 +116,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/docs/runnable",
   // Pages read these as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
   "@vite-hub/ui/comment-marks.css",
-  "@vite-hub/ui/icon-swap.css",
   "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
