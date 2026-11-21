@@ -6,6 +6,7 @@
      at desktop and mobile viewport sizes. This needs native browser layout, not happy-dom. -->
 <pre id="result">Running…</pre>
 <script type="module">
+  import { forceReducedMotion } from "@vite-hub/ui/motion/core"
   import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
   import { createViteHubPageWindow } from "../src/runtime/page-tools-window.ts"
 
@@ -162,11 +163,18 @@
       document.cookie = "vitehub-tools=1; Path=/"
       await loadViteHubPageTools({ load: async () => ({ default(context) {
         exit = context.exit
-        context.bar.append(Object.assign(document.createElement("button"), { textContent: "Content" }))
+        context.bar.append(Object.assign(document.createElement("button"), { id: "resize-content", textContent: "Content" }))
       } }) })
       const pill = document.querySelector("vitehub-pill")
       const toolbar = pill.shadowRoot.querySelector("div")
       const mark = pill.shadowRoot.querySelector("button.mark")
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
+      const content = pill.querySelector("#resize-content")
+      content.textContent = "Content grows during a resize"
+      const resizeDeadline = performance.now() + 1000
+      while (!toolbar.style.clipPath.startsWith("inset(") && performance.now() < resizeDeadline) await new Promise(requestAnimationFrame)
+      assert(toolbar.style.clipPath.startsWith("inset("), `${edge}: the segment starts a resize`)
       const size = [toolbar.offsetWidth, toolbar.offsetHeight].join("x")
       for (const collapsed of [true, false]) {
         mark.click()
@@ -175,13 +183,20 @@
         assert([toolbar.offsetWidth, toolbar.offsetHeight].join("x") === size, `${edge} collapsed=${collapsed}: the bar keeps its size`)
         // The fold is a spring of the motion layer: it draws the clip inline until it rests on the stylesheet's shape.
         assert(toolbar.style.clipPath.startsWith("polygon("), `${edge} collapsed=${collapsed}: the fold runs`)
-        while (toolbar.style.clipPath) await new Promise(requestAnimationFrame)
+        while (toolbar.style.clipPath) {
+          assert(toolbar.style.clipPath.startsWith("polygon("), `${edge}: resize does not take the clip back from the fold`)
+          await new Promise(requestAnimationFrame)
+        }
         if (collapsed) {
           const box = toolbar.getBoundingClientRect()
           const center = mark.getBoundingClientRect()
           assert(Math.abs(center.x + center.width / 2 - box.x - box.width / 2) < 1 && Math.abs(center.y + center.height / 2 - box.y - box.height / 2) < 1, `${edge}: the mark is on the hexagon`)
         }
       }
+      forceReducedMotion(true)
+      mark.click()
+      assert(pill.hasAttribute("collapsed") && !toolbar.style.clipPath && !pill.style.translate, `${edge}: reduced motion snaps the fold in the click`)
+      forceReducedMotion(undefined)
       cases++
       await stop()
     }
@@ -190,6 +205,7 @@
     result.textContent = `FAIL: ${error.stack}`
     throw error
   } finally {
+    forceReducedMotion(undefined)
     toolWindow?.destroy()
     await stop()
     window.fetch = originalFetch

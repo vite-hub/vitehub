@@ -11,8 +11,8 @@
  *   firmer (45%), `data-status="resolved"` makes it dashed and grey, and `data-draft="true"` is the area being drawn or
  *   written on: 2px comment blue with a fill. Its `comment-mark-handle` children, with `data-corner="top-left"` and the
  *   other three corners, are round handles.
- * - `data-leaving="true"` on a pin or an area: it hides at once, and the motion layer of `@vite-hub/ui/motion` folds a
- *   copy of it away, as a removed item of a list. The page removes it after `commentLeaveMs` of `vite-hub/ui/headless`.
+ * - `data-leaving="true"` on a pin or an area fades it out. If the motion layer is installed, it folds a copy away
+ *   instead. The page removes the mark after `commentLeaveMs` of `vite-hub/ui/headless`.
  * A pin squashes when it is pressed, with the press of the motion layer. Its zoom and its active size are a `transform`,
  * so the press adds to them.
  * The page places a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`.
@@ -192,9 +192,26 @@
   pointer-events: none;
 }
 
+:is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"]:not([data-motion-leave-managed]) {
+  animation: vh-comment-mark-fade 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+[data-slot="comment-mark-pin"][data-motion-leave-managed] {
+  transition: none;
+}
+
+@keyframes vh-comment-mark-fade {
+  to { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :is([data-slot="comment-mark-pin"], [data-slot="comment-pin"], [data-slot="comment-mark-area"], [data-slot="comment-layer-area"]) {
     transition: none;
+  }
+
+  :is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"]:not([data-motion-leave-managed]) {
+    animation: none;
+    opacity: 0;
   }
 }
 

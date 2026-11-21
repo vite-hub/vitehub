@@ -45,7 +45,10 @@ writeFileSync(join(root, "index.html"), `<!doctype html>
 <script type="module">
   import * as a from "./a/motion.ts"
   import * as b from "./b/motion.ts"
+  import * as first from "./a/motion-core.ts"
+  import * as second from "./b/motion-core.ts"
   window.copies = { a, b }
+  window.coreCopies = { first, second }
   window.ready = true
 </script>
 `)
@@ -112,9 +115,8 @@ describe("copies of the motion layer", () => {
 
   test("the shared layer tracks each root until its last install stops", async () => {
     const { context, page } = await open()
-    const events = await page.evaluate(async () => {
-      const first = await import("./a/motion-core.ts")
-      const second = await import("./b/motion-core.ts")
+    const events = await page.evaluate(() => {
+      const { first, second } = window.coreCopies
       const tabs = document.querySelector("#tabs")
       const events = []
       const stopDocument = first.installMotion(document, { effects: [] })

@@ -6,7 +6,7 @@
  * This file runs only in the browser. It imports only the shared button styles and the motion layer of
  * `@vite-hub/ui/motion/core` with the one effect that it runs, the press, so it bundles on its own and stays small.
  */
-import { createMotionList, createSpring, getMotionSlowFactor, installMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
+import { createMotionList, createSpring, getMotionSlowFactor, installMotion, prefersReducedMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
 
 import { viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
@@ -256,7 +256,7 @@ function restScale(element: Element | null): number {
  * moves to its new place on two more springs, from where it was, so the collapsed shape lands on the edge. `onRest`
  * runs when nothing moves.
  */
-function createPillFold(pill: HTMLElement, toolbar: HTMLElement, mark: HTMLElement, onRest: () => void): PillFold {
+function createPillFold(pill: HTMLElement, toolbar: HTMLElement, mark: HTMLElement, onStart: () => void, onRest: () => void): PillFold {
   const collapsedPoints = () => pill.getAttribute("fold") === "mark" ? markBoxPoints : hexagonPoints
   const icon = () => mark.querySelector("svg")
   // 0 is the bar, 1 the collapsed shape. The mark's place and its icon's size when collapsed are read at each change.
@@ -304,6 +304,7 @@ function createPillFold(pill: HTMLElement, toolbar: HTMLElement, mark: HTMLEleme
       return holding || folded.active || x.active || y.active
     },
     move(change, wait = 0) {
+      onStart()
       const done = new Promise<void>(resolve => resting.push(resolve))
       const before = place()
       const was = pill.hasAttribute("collapsed")
@@ -327,7 +328,7 @@ function createPillFold(pill: HTMLElement, toolbar: HTMLElement, mark: HTMLEleme
         y.to(0, { preset: springs.snappy })
         folded.to(collapsed ? 1 : 0, { preset: springs.snappy })
       }
-      if (wait > 0) waiting = setTimeout(start, wait * getMotionSlowFactor())
+      if (wait > 0 && !prefersReducedMotion()) waiting = setTimeout(start, wait * getMotionSlowFactor())
       else start()
       return done
     },
@@ -469,7 +470,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     const rest = velocity === 0 && value === 0
     writeMotionStyle(toolbar, { "clip-path": rest ? null : `inset(${[grown.top, grown.right, grown.bottom, grown.left].map(side => `${(side * value).toFixed(2)}px`).join(" ")} round 12px)` })
   }, springs.snappy)
-  const fold = createPillFold(pill, toolbar, mark, () => parts.measure())
+  const fold = createPillFold(pill, toolbar, mark, () => glass.stop(), () => parts.measure())
   folds.set(pill, fold)
   // The motion layer moves the pill and what it holds: the host covers the segments and the tabs, also the shadow roots
   // in them. The shadow root has its own install, because an observer does not see into it. The page around the pill
@@ -505,6 +506,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   signal.addEventListener("abort", () => {
     pill.remove()
     resized.disconnect()
+    glass.stop()
     parts.destroy()
     for (const stop of stopMotion) stop()
   }, { once: true })

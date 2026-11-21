@@ -369,7 +369,7 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
 | `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
 | `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px grey line, 22% of the ink, with no fill. Active is a firmer grey line (45%), resolved is dashed and grey, and a draft is 2px comment blue with a fill. |
 | `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
-| A pin or an area | `data-leaving="true"` | It shrinks and fades in 130ms (`commentLeaveMs`). Remove it after that. With reduced motion, it has no animation and is hidden at once. |
+| A pin or an area | `data-leaving="true"` | With CSS alone, it fades in 130ms (`commentLeaveMs`) or hides at once under reduced motion. If the motion layer is installed, the leave effect plays the exit on a copy. Remove the original after `commentLeaveMs`. |
 
 Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
 

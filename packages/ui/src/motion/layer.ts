@@ -12,8 +12,15 @@ let observer: MutationObserver | undefined;
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
 // A page can load more than one copy of this module, such as the app's and the one in the bundle of the page pill. The
-// copy that starts a press marks the event with this key, so the press of another copy does not squash it again.
-const pressedBy = Symbol.for("vite-hub.motion.pressed");
+// copy that starts an effect marks that effect and element, so other effects can still read the same press.
+const pressedBy = Symbol.for("vite-hub.motion.effect-presses");
+const eventPresses = (event: Event): Map<Element, Set<string>> => {
+  const claimed = Reflect.get(event, pressedBy) as Map<Element, Set<string>> | undefined;
+  if (claimed) return claimed;
+  const effects = new Map<Element, Set<string>>();
+  Reflect.set(event, pressedBy, effects);
+  return effects;
+};
 
 /** True when the element or one of its ancestors, also across shadow roots, has `data-motion="none"`. */
 export function isMotionOff(element: Element): boolean {
@@ -69,15 +76,19 @@ function find(path: EventTarget[], selector: string): HTMLElement | undefined {
 
 function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: EventTarget[]): void {
   end(id);
-  if (Reflect.get(event, pressedBy)) return;
+  const claimed = eventPresses(event);
   const started: Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }> = [];
   for (const { effect, isReduced } of motionEffectRegistrations()) {
     if (!effect.press || isReduced()) continue;
     const element = find(path, effect.selector);
     // A key presses only the control that has focus, not a control around it.
     if (!element || (id === "key" && element !== path[0])) continue;
+    const previous = claimed.get(element);
+    if (previous?.has(effect.name)) continue;
     const press = effect.press(element, event);
     if (!press) continue;
+    if (previous) previous.add(effect.name);
+    else claimed.set(element, new Set([effect.name]));
     const item: { element: HTMLElement; press: MotionPress; leave?: () => void } = { element, press };
     // A drag goes on outside the element, as a slider thumb or a resize handle stays behind the pointer at its limit.
     if (id !== "key" && !press.move) {
@@ -87,7 +98,6 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
     started.push(item);
   }
   if (!started.length) return;
-  Reflect.set(event, pressedBy, true);
   presses.set(id, started);
   if (started.some(item => item.press.move)) document.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
 }
@@ -170,6 +180,7 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
 
 function onMutations(records: MutationRecord[]): void {
   const effects = listMotionEffects();
+  const dispatched = new Map<HTMLElement, Map<MotionStateAttribute, Set<string | null>>>();
   collectContent(records, effects);
   for (const record of records) {
     if (record.type === "characterData") continue;
@@ -179,6 +190,12 @@ function onMutations(records: MutationRecord[]): void {
       const attribute = record.attributeName as MotionStateAttribute;
       const value = element.getAttribute(attribute);
       if (value === record.oldValue) continue;
+      let attributes = dispatched.get(element);
+      if (!attributes) dispatched.set(element, attributes = new Map());
+      let oldValues = attributes.get(attribute);
+      if (!oldValues) attributes.set(attribute, oldValues = new Set());
+      if (oldValues.has(record.oldValue)) continue;
+      oldValues.add(record.oldValue);
       for (const effect of effects) {
         if (effect.state && matches(element, effect.selector) && !isMotionOff(element)) {
           effect.state(element, { attribute, oldValue: record.oldValue, value });

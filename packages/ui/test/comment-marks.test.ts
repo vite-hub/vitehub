@@ -29,9 +29,9 @@ describe("@vite-hub/ui/comment-marks.css", () => {
     expect(marks).toContain("--vh-comment-pin-size: var(--vh-ui-comment-pin-size, 28px);");
   });
 
-  it("leaves the pop-out of a mark to the motion layer, and adds its zoom with a transform", () => {
-    // The leave effect of @vite-hub/ui/motion folds a copy of a leaving mark away, so the stylesheet has no animation.
-    expect(marks).not.toMatch(/@keyframes|animation:/);
+  it("fades standalone marks and leaves the pop-out to the motion layer", () => {
+    expect(marks).toContain(':not([data-motion-leave-managed])');
+    expect(marks).toMatch(/@keyframes vh-comment-mark-fade \{\s*to \{ opacity: 0; \}/);
     expect(marks).toMatch(/\[data-leaving="true"\] > \* \{\s*pointer-events: none;/);
     // The press of the motion layer writes `scale`, so the zoom and the larger active pin are a `transform`.
     expect(marks).toContain("transform: scale(var(--vh-comment-zoom, 1));");
