@@ -31,7 +31,7 @@ export async function undoConsolePageChange(input: { change: string, id: string 
   const record = await invocations.get(input.id)
   if (!record) throw consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }))
   const change = invocationPageChanges(record.observations).pageChanges.find(item => item.id === input.change)
-  if (!change) throw actionError(404, `This Invocation has no page change ${JSON.stringify(input.change)}. Read the change ids with \`vitehub agent invocations show ${input.id}\`.`)
+  if (!change) throw actionError(404, `This Invocation has no page change ${JSON.stringify(input.change)}. Read the change ids with \`vitehub agent invocations get ${input.id}\`.`)
   const { agentRealtime } = await import("@vite-hub/realtime/agent")
   if (!agentRealtime.available()) throw actionError(409, "This app has no Realtime, so it cannot reach the page.")
   const [error, answer] = await agentRealtime.request("agent-pages", change.page, { method: "undo", input: { change: change.id } }, { timeout: 30_000, user: change.user === "anonymous" ? null : change.user })

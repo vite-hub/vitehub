@@ -4,7 +4,9 @@ import { Socket } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { agentDiagnostics } from "../src/agent-diagnostics.ts"
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
+import { agentRunError } from "../src/run-errors.ts"
 import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
 
 describe("Agent Invocation Stream", () => {
@@ -318,6 +320,27 @@ describe("Agent Invocation Stream", () => {
       { code: "INTERNAL", error: "Agent Invocation Stream failed.", type: "error" },
       { type: "done" },
     ])
+  })
+
+  it("shows AI emulator diagnostics with their code, also inside a runAgent() error", async () => {
+    const failures = [
+      [agentDiagnostics.AGENT_MODELS_EMULATE_IN_PRODUCTION(), "AGENT_MODELS_EMULATE_IN_PRODUCTION", "VITEHUB_MODELS=emulate is set in a production build"],
+      [agentDiagnostics.AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED({ provider: "openai.responses" }), "AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED", "provider \"openai.responses\""],
+      [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_ASK_UNSUPPORTED(), false), "AGENT_MODELS_EMULATE_ASK_UNSUPPORTED", "asks Jev questions"],
+      [agentDiagnostics.AGENT_MODELS_INVALID({ value: "sk-private" }), "AGENT_MODELS_INVALID", "must be \"emulate\" or unset"],
+      [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED(), false), "AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED", "uses the Claude Code Driver"],
+      [agentRunError(agentDiagnostics.AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED({ tools: 1 }), false), "AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED", "has 1 Capability tool"],
+      [agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED(), "AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED", "runs in a Sandbox"],
+    ] as const
+
+    for (const [failure, code, text] of failures) {
+      const response = createAgentInvocationStreamResponse(async () => { throw failure })
+      const events = []
+      for await (const event of readAgentInvocationStream(response.body!)) events.push(event)
+      expect(events).toEqual([{ code, error: expect.stringContaining(text), type: "error" }, { type: "done" }])
+      expect((events[0] as { error: string }).error).toMatch(new RegExp(`^${code}: `))
+      expect(JSON.stringify(events)).not.toContain("sk-private")
+    }
   })
 
   it("preserves allowlisted stream details without requiring capability metadata", async () => {

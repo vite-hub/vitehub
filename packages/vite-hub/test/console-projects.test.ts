@@ -174,6 +174,15 @@ describe("project.get probe", () => {
     expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, comments: { open: 3 }, name: "Shop", status: "connected" })
   })
 
+  it.each([
+    { section: "comments", comments: {} },
+    { section: "logs", comments: undefined },
+  ])("uses the $section section to check Comments availability when there is no count", async ({ section, comments }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { sections: [section] }, linked: true, status: 200 })))
+    const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
+    expect((await checkConsoleAccountProject("p-1")).comments).toEqual(comments)
+  })
+
   it("reads the open comments of a project, and drops a count that is not a whole number", async () => {
     const counted = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open: 4 } } }) })
     expect(counted).toMatchObject({ kind: "ready", info: { comments: { open: 4 } } })

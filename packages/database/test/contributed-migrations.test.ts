@@ -61,9 +61,9 @@ describe("contributed migrations", () => {
     await writeFile(join(middle, "migration.sql"), "CREATE INDEX users_id ON users(id);")
     await writeFile(join(rebuild, "migration.sql"), "CREATE TABLE __new_users (id integer NOT NULL);\n--> statement-breakpoint\nINSERT INTO __new_users (id) SELECT id FROM users;\n--> statement-breakpoint\nDROP TABLE users;\n--> statement-breakpoint\nALTER TABLE __new_users RENAME TO users;")
     const entries = readMigrations(migrationsDir)
-    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries).dataLoss).toEqual([])
+    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries, "sqlite").dataLoss).toEqual([])
     await writeFile(join(middle, "migration.sql"), "ALTER TABLE users ADD COLUMN secret text;")
-    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries).dataLoss.length).toBeGreaterThan(0)
+    expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries, "sqlite").dataLoss.length).toBeGreaterThan(0)
   })
 
   it("reads the foreign keys that reference a rebuilt table from the previous snapshot", async () => {
@@ -78,7 +78,7 @@ describe("contributed migrations", () => {
     const rebuild = join(migrationsDir, "20990101000001_rebuild")
     await mkdir(rebuild)
     await writeFile(join(rebuild, "migration.sql"), "CREATE TABLE __new_organization (id text PRIMARY KEY);\n--> statement-breakpoint\nINSERT INTO __new_organization (id) SELECT id FROM organization;\n--> statement-breakpoint\nDROP TABLE organization;\n--> statement-breakpoint\nALTER TABLE __new_organization RENAME TO organization;")
-    expect(readPendingMigration(migrationsDir, "20990101000001_rebuild", readMigrations(migrationsDir)).dataLoss).toEqual([expect.objectContaining({
+    expect(readPendingMigration(migrationsDir, "20990101000001_rebuild", readMigrations(migrationsDir), "sqlite").dataLoss).toEqual([expect.objectContaining({
       reason: "rebuilds table \"organization\", and dropping the old table deletes the rows of \"member\".\"organization_id\" (ON DELETE CASCADE)",
       tables: ["member"],
     })])

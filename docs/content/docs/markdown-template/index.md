@@ -199,6 +199,8 @@ The new Comark syntax breaks old templates in direct render calls, imported file
 
 `else-if` takes the same props as `if`. `else` takes none. Close every branch with `::`, then close the outer `if`. ViteHub does not translate old syntax. The render function and its `{ data }` option did not change.
 
+A binding with an unrecognized root, such as `{{ name }}` or `:href="url"` on a link, fails with `MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA`. Use `data.` to read template data. At build time, Email reports `MARKDOWN_TEMPLATE_BINDING_IN_CODE` as the cause when it finds a binding in inline code or a code block, including the old `{{ name }}` form. The Markdown Template renderer itself keeps such bindings as text.
+
 A binding that fills a whole link destination, such as `[Open]({{ data.url }})`, fails with `MARKDOWN_TEMPLATE_R0033`. Comark does not parse that form as a link and would output the brackets as text.
 
 ## Render options

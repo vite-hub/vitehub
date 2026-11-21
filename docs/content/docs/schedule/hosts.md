@@ -47,13 +47,13 @@ Provider Wake output requires a static five-field cron string compatible with ge
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report
-pnpm vitehub schedule runs daily-report --limit 5 --json
-pnpm vitehub schedule attempts <runId>
+pnpm vitehub schedule runs list daily-report --limit 5 --json
+pnpm vitehub schedule runs get <runId>
 ```
 
 The commands use the same run store and registry as the server. Read [CLI](/docs/cli/primitives#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on. Each Schedule that code started has its own row with its id, time or cron, and payload. `vitehub schedule list`, `start`, and `cancel` read and change the same Schedules.
+The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on. Each Schedule that code started has its own row with its id, time or cron, and payload. `vitehub schedule list` lists the Definitions with their cron and the started Schedules, and `start` and `cancel` change the started Schedules.
 
 The CLI and the Console hide credentials in URLs, bearer tokens, and secret assignments in error messages.
 

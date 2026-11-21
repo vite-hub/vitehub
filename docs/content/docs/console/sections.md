@@ -70,8 +70,8 @@ An app with [`connections`](/docs/connections) has a **Connections** section. It
 ## Read the project
 
 ```bash [Terminal]
-pnpm vitehub project info
-pnpm vitehub project info --url https://app.example.com
+pnpm vitehub project get
+pnpm vitehub project get --url https://app.example.com
 ```
 
 ```json [Output]
@@ -96,4 +96,4 @@ pnpm vitehub project info --url https://app.example.com
 
 `comments` is `{ open }`, the number of open threads among the 500 newest threads in the Comments section. The count is omitted if the caller cannot open the section or the app cannot read its threads. The Console shows the count on the **Comment** button on Home and on the **Comments** card in the app Overview.
 
-The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.
+The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project get` and MCP clients do not get it.

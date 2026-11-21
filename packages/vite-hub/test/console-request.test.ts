@@ -397,7 +397,7 @@ describe("Console requests", () => {
     const base = "/_vitehub/api/sections?page-tools-app"
     await loadConsoleNavigation(base)
     await loadConsoleNavigation(base)
-    const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
+    const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/tools"))
     expect(sessions).toEqual([])
   })
 
@@ -448,7 +448,7 @@ describe("Console requests", () => {
     const base = `/_vitehub/api/sections?page-session-test${mount}`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
-    expect(fetch.mock.calls.map(([url]) => url)).not.toContainEqual(`${mount}/_vitehub/page/session`)
+    expect(fetch.mock.calls.map(([url]) => url)).not.toContainEqual(`${mount}/_vitehub/page/tools`)
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

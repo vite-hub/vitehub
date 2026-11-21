@@ -11,6 +11,7 @@ import { probeImage } from "./probe.ts"
 import { selectImageTransformer } from "./transformers.ts"
 import { isMediaCropName, isMediaFocalPoint, parseAspectRatio, resolveImageGeometry } from "./variant.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
@@ -341,7 +342,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       await writeRecord(record)
     }
     catch (error) {
-      console.error("[vitehub/blob] Media record write failed", error)
+      logFailure({ field: "blob", fields: { op: "media-record-write", store, driver: driver.name }, message: "Blob media record write failed", error }, () => console.error("[vitehub/blob] Media record write failed", error))
     }
     return record
   }

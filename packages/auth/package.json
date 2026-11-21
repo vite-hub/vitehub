@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/auth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Better Auth-powered authentication primitives and Vite integration for ViteHub.",
   "keywords": [
     "auth",
@@ -172,6 +172,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "bun-types": "^1.4.3",
+    "evlog": "2.33.1",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",

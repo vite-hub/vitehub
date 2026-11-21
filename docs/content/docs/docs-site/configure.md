@@ -200,11 +200,31 @@ export default defineNuxtConfig({
 ```
 
 - `mount` is the URL path of the pages. It defaults to `/`.
+- With `sources`, `base` defaults to `/docs`. If you move from `dir` without a `docs/` folder, set `base: '/'`, as above, to keep the same sections. If all your pages are outside the default base, setup warns with [`DOCS_BASE_EMPTY`](/docs/docs-site/diagnostics/docs_base_empty). Set `base: '/docs'` to keep those pages standalone without the warning.
 - `exclude` leaves out files by glob, relative to the source.
 - `frontmatter(data, { file, path, markdown })` changes the fields of a page before the schema checks them, such as a generated title. It does not change the file.
 - `sections` sets `.navigation.yml` fields by section id.
 - The module reads the `.md` and `.navigation.yml` files of each source when it builds. A `glob()` Source lists dot files only when its `include` names them, as above, and reads only below the app root. A folder can be anywhere, and the module watches it in development.
 - The server reads a folder as it is. The build copies the pages of other Sources into the server, so a `github()` Source shows its branch as it was at build time.
+
+A page that the build generates, such as a list of the skills in a repository, is a `files()` Source. Its loader runs when the build reads the pages, so nothing writes the page into the content folder first:
+
+```ts [nuxt.config.ts]
+import { readdir } from 'node:fs/promises'
+import { files } from 'vite-hub/source'
+
+async function skillCatalog() {
+  const skills = await readdir('../skills')
+  return ['---', 'title: All skills', '---', ...skills.map(name => `- \`${name}\``)].join('\n')
+}
+
+export default defineNuxtConfig({
+  docs: {
+    base: '/',
+    sources: ['content', { source: files({ 'catalog.md': skillCatalog }), mount: '/skills' }],
+  },
+})
+```
 
 ## Layouts
 

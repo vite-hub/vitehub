@@ -11,6 +11,9 @@ const root = import.meta.dirname
 // directory as public assets. `overlay.js` holds Vue, the comment parts of `@vite-hub/ui`, and their styles. The
 // Realtime client of presence, with Yjs, is a hashed chunk next to it that only sites with presence load.
 export default defineConfig({
+  // Nitro serves the overlay below the app base, such as `/portal/_vitehub/comments/assets/`. A relative base makes
+  // Vite resolve the chunks it preloads against `import.meta.url` of the overlay, not against the site root.
+  base: "./",
   configFile: false,
   define: {
     __VUE_OPTIONS_API__: "false",

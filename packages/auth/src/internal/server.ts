@@ -19,7 +19,7 @@ import { readSetCookies } from "../set-cookie.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
 import { createAuthAccessRouteMatcher } from "../runtime/server.ts"
 import { checkAbility } from "../ability-check.ts"
-import { runWithAuthEvent } from "../event-plugin.ts"
+import { runWithAuthEvent, setAuthOutcome, setAuthResponseOutcome } from "../request-log.ts"
 import { AbilityError } from "../ability-error.ts"
 import {
   authForRequest,
@@ -64,6 +64,7 @@ import { isJwsToken, mcpOAuthResources } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
+export { findVerifiedAuthUserId } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
 export { AbilityError } from "../ability-error.ts"
 export type { AbilityErrorData } from "../ability-error.ts"
@@ -286,8 +287,12 @@ export function handleAuthRequest(
   const address = eventClientAddress(event)
   const resolved = resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) })
   const auth = requestProvider(definition, resolved)
-  return runWithAuthEvent(event, () => handleSignInRoute(auth, resolved.options, request, address)
-    ?? auth.handler(setRequestClientAddress(toRequest(request), address)))
+  return runWithAuthEvent(event, async () => {
+    const response = await (handleSignInRoute(auth, resolved.options, request, address)
+      ?? auth.handler(setRequestClientAddress(toRequest(request), address)))
+    await setAuthResponseOutcome(event, response)
+    return response
+  })
 }
 
 /**
@@ -618,8 +623,15 @@ type AuthCheck =
   | { authorization: CoreAuthorization, response?: undefined }
   | { authorization?: undefined, response: Response }
 
-function reject(response: Response): AuthCheck {
+/** A refused check. The refusal goes on the request's wide event as `auth`. */
+function reject(input: AuthRequestInput, response: Response): AuthCheck {
+  logRefusal(input, response)
   return { response }
+}
+
+function logRefusal(input: AuthRequestInput, response: Response): void {
+  const code = refusalCodes.get(response)
+  setAuthOutcome(input, { outcome: "refused", status: response.status, ...(code ? { code } : {}) })
 }
 
 
@@ -847,9 +859,9 @@ async function checkAuthRequest(
   signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
   const { auth, event, options, refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
-  if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
+  if (providerRefusal) return reject(input, createProviderRefusalResponse(providerRefusal))
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
-  if (isRuntimeResponse(identity)) return reject(identity)
+  if (isRuntimeResponse(identity)) return reject(input, identity)
   if (identity || session) {
     const authorization = checkedAuthorization(request, identity ? {} : session!.session, identity ?? session!.user)
     if (routeIndexes === undefined) return { authorization }
@@ -859,29 +871,29 @@ async function checkAuthRequest(
     for (const [index, route] of routes.entries()) {
       const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
-        return reject(createForbiddenResponse(request))
+        return reject(input, createForbiddenResponse(request))
       }
       if (!authorize) continue
       const rejection = await runAccessAuthorize(authorize, { ...authorization, event })
-      if (rejection.response) return reject(rejection.response)
+      if (rejection.response) return reject(input, rejection.response)
     }
     return { authorization }
   }
 
   if (!wantsHtml(request)) {
-    return reject(createRefusalResponse("SIGNED_OUT"))
+    return reject(input, createRefusalResponse("SIGNED_OUT"))
   }
 
   if (!redirectToSignIn) {
-    return reject(createRefusalResponse("SIGNED_OUT"))
+    return reject(input, createRefusalResponse("SIGNED_OUT"))
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
+    return reject(input, createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
   const signIn = providerSignIn(options)
-  return reject(signIn
+  return reject(input, signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs }, eventClientAddress(event))
     : createRefusalResponse("SIGNED_OUT"))
 }
@@ -892,13 +904,13 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
-  if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
-  if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
+  if (providerRefusal) return reject(input, createProviderRefusalResponse(providerRefusal))
+  if (!session) return reject(input, createRefusalResponse("SIGNED_OUT"))
   const authorization = checkedAuthorization(request, session.session, session.user)
   if (authorize === true) return { authorization }
   const context = { ...authorization, event: authRequestEvent(input) } as GuardContext<TInput & ViteHubContext>
   const rejection = await runAccessAuthorize<typeof context>(authorize, context)
-  return rejection.response ? reject(rejection.response) : { authorization }
+  return rejection.response ? reject(input, rejection.response) : { authorization }
 }
 
 /**
@@ -929,7 +941,11 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
   }
   return async (input) => {
     const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
-    if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
+    if (providerRefusal) {
+      const response = createProviderRefusalResponse(providerRefusal)
+      logRefusal(input, response)
+      return sendSessionCookies(input, response)
+    }
     const authorization: CoreAuthorization | AuthAnonymousAuthorization = session
       ? checkedAuthorization(request, session.session, session.user)
       : Object.freeze({ request, session: null, user: null })
@@ -938,7 +954,10 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     type Event = TInput & ViteHubContext
     const context = { ...authorization, event: authRequestEvent(input) } as GuardContext<Event> | AnonymousAccessAuthorizationContext<Event>
     const rejection = await runAccessAuthorize<typeof context>(authorize, context, deny)
-    if (rejection.response) return sendSessionCookies(input, rejection.response)
+    if (rejection.response) {
+      logRefusal(input, rejection.response)
+      return sendSessionCookies(input, rejection.response)
+    }
     return sendSessionCookies(input, await handler(input, authorization as AuthAuthorization | AuthAnonymousAuthorization))
   }
 }

@@ -72,7 +72,7 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, but only an `http:` or `https:` page. Better Auth's `callbackURL` option sets the page after that. With `disableRedirect: true`, `signOut()` returns that page in `data.url` and opens `redirectTo`.
 
-To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, it also adds `onSignOut(() => clearSync())`.
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, it also adds `onSignOut(() => clearSync({ keepWrites: true }))`.
 
 ```ts [src/main.ts] fragment
 import { onSignOut } from 'vite-hub/auth/vue'
@@ -346,6 +346,20 @@ The generated access middleware checks each request that an access route matches
 
 The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
 
+Other generated ViteHub routes check access on every request, even without an app rule. These are Realtime and Comments, Blob signed links, Connections, MCP with `auth: true` and its `publicRoute`, the Content GitHub webhook, and the page tools session. Each runs a required `authorize` policy, an explicit `access` rule, a required access token, or a signature check. The access routes still apply to them, so an app rule such as an admin check stays in force. Routes that can run without a check stay unmarked: `/_vitehub/browser-errors`, Forms, Sync, Blob serve routes, and Agent webhooks. Middleware of your own that guards the whole app can skip the marked routes and the Console with `checksOwnAccess(event)`:
+
+```ts [server/middleware/members-only.ts]
+import { checksOwnAccess } from 'vite-hub/auth'
+import { defineHandler } from 'h3'
+
+export default defineHandler((event) => {
+  if (checksOwnAccess(event)) return
+  // Check the session of every other request here.
+})
+```
+
+The check reads the route that Nitro matched, so an app route file on the same path gets `false`.
+
 ### Make every route private
 
 With `routes: ['/**']`, the access middleware guards every path. List the paths that a signed-out visitor can open in `access.public`. A request to a public path skips all access routes and their `authorize` callbacks.
@@ -404,6 +418,27 @@ export default defineAuth({
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
 - Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.
+
+## See auth outcomes on each request
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Auth puts the outcome of a request on the request's wide event, in an `auth` field. A failed OAuth sign-in shows its reason here, also when the browser only gets a redirect:
+
+```json
+{ "path": "/api/auth/callback/github", "status": 302, "auth": { "path": "/callback/:id", "provider": "github", "outcome": "failure", "status": 302, "code": "state_mismatch" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `outcome` | `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, `refused` for a refusal of an Auth guard, such as `requireAuth()`. |
+| `path` | The Better Auth endpoint, such as `/sign-in/email`. It is not set when Better Auth refused the request before an endpoint ran, such as for its rate limit, or for a guard. |
+| `provider` | The OAuth provider of a callback or a social sign-in. |
+| `status` | The HTTP status of a failure or a refusal. |
+| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
+| `userId` | The user of a completed sign-in or sign-up. |
+
+Better Auth's warnings and errors also go on the event, with `[Better Auth]` before the message. Auth keeps your `logger` option: your `logger.log`, or Better Auth's console output, still gets every message.
+
+The event never holds an email address, a password, a token, or the query of a URL. Only the message of a Better Auth log line goes on the event, not its other values, because they can hold a provider response. Auth event log failures (`AUTH_EVENT_WRITE_FAILED`, `AUTH_EVENT_CALLBACK_FAILED`) also go on the event, or to the server console without evlog. Without evlog, Auth sets nothing.
 
 ## Typed user fields
 

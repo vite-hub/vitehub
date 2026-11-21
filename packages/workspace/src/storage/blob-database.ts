@@ -2,9 +2,9 @@ import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { ViteHubError } from "@vite-hub/runtime"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
-import { workspaceError } from "../core/errors.ts"
+import { workspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
-import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, readHistoryDeleteRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -14,12 +14,17 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
+import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryDeleteRefOptions, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
 
 const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
 type RevisionRow = typeof revisions.$inferSelect
 
 type HistoryDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
+
+function activeObject(workspace: string, digest: string | ReturnType<typeof sql>) {
+  return sql`${objects.workspace} = ${workspace} and ${objects.size} >= 0
+    and ${objects.digest} >= ${digest} and ${objects.digest} < ${digest} || '.'`
+}
 
 export interface BlobDatabaseWorkspaceStoreOptions {
   blob: BlobStorage
@@ -135,6 +140,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       }
       return revision
     }),
+    deleteRef: async options => await this.#mutate(async () => await this.#deleteRef(readHistoryDeleteRef(options))),
   }
 
   async #key() {
@@ -308,7 +314,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         const normalized = normalizeHistoryPath(path)
         const file = Object.hasOwn(row.entries, normalized) ? row.entries[normalized] : undefined
         if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
-        const [error, body] = await this.options.blob.get(`${workspace}/sha256/${file.digest}`)
+        const [object] = await this.#db.select({ key: objects.digest }).from(objects).where(activeObject(workspace, file.digest)).limit(1)
+        if (!object) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
+        const [error, body] = await this.options.blob.get(`${workspace}/sha256/${object.key}`)
         if (error) throw error
         if (!body) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
         const bytes = new Uint8Array(await body.arrayBuffer())
@@ -371,70 +379,140 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       entries: sorted,
     }
     const id = await sha256(manifest)
-    const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
-    await this.#db.insert(objects).select(sql`
-      select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
-      from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
-      where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-    `).onConflictDoNothing()
-    await this.#assertActive()
-    const upload = async ([digest, bytes]: [string, Uint8Array]) => {
-      const key = `${workspace}/sha256/${digest}`
+    const digests = JSON.stringify([...contents.keys()])
+    const register = async () => {
+      const registry = [...contents].map(([digest, bytes]) => ({ digest, key: `${digest}-${crypto.randomUUID()}`, size: bytes.byteLength }))
+      await this.#db.insert(objects).select(sql`
+        select ${workspaces.workspace}, json_extract(object.value, '$.key'), json_extract(object.value, '$.size')
+        from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
+        where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+          and not exists (select 1 from ${objects} where ${activeObject(workspace, sql`json_extract(object.value, '$.digest')`)})
+      `).onConflictDoNothing()
+      await this.#assertActive()
+      return await this.#db.values<[digest: string, key: string]>(sql`
+        select needed.value, ${objects.digest}
+        from json_each(${digests}) as needed join ${objects} on ${activeObject(workspace, sql`needed.value`)}
+      `)
+    }
+    const upload = async ([digest, generation]: [string, string]) => {
+      const key = `${workspace}/sha256/${generation}`
       const [headError, object] = await this.options.blob.head(key)
       if (headError && headError.code !== "BLOB_NOT_FOUND") throw headError
       if (!object) {
-        const [uploadError] = await this.options.blob.put(key, bytes, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        const [uploadError] = await this.options.blob.put(key, contents.get(digest)!, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        const [active] = await this.#db.select({ key: objects.digest }).from(objects).where(and(eq(objects.workspace, workspace), eq(objects.digest, generation), sql`${objects.size} >= 0`)).limit(1)
+        if (!active || await this.#isDeleted()) {
+          await this.#removeObject(key)
+          await this.#assertActive()
+          return
+        }
         if (uploadError) {
           // Another committer may have uploaded the same immutable bytes first.
           const [concurrentError, concurrentObject] = await this.options.blob.head(key)
           if (concurrentError || !concurrentObject) throw uploadError
         }
       }
-      if (await this.#isDeleted()) {
-        await this.#removeObject(key)
-        this.#deleted()
+    }
+    const uploadAll = async (uploads: [string, string][]) => {
+      for (let offset = 0; offset < uploads.length; offset += 8) {
+        const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
+        for (const result of results) if (result.status === "rejected") throw result.reason
       }
     }
-    const uploads = [...contents]
-    for (let offset = 0; offset < uploads.length; offset += 8) {
-      const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
-      for (const result of results) if (result.status === "rejected") throw result.reason
-    }
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
-    // Check the other refs in the same statement that advances this ref, including absent refs.
-    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
-    // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-    const [, , changed] = await this.#db.batch([
-      this.#db.insert(refs).select(sql`
-        select ${workspaces.workspace}, ${ref}, null, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.#db.insert(revisions).select(sql`
-        select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
-          ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
-          ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
-        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-      `).onConflictDoNothing(),
-      this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
-        eq(refs.workspace, workspace),
-        eq(refs.ref, ref),
-        sql`${refs.head} is ${options.ifHead}`,
-        ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
-          ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
-          : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
-        this.#active(workspace),
-      )).returning({ head: refs.head }),
-      this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
-    ])
-    if (!changed.length) {
+    for (let attempt = 0; ; attempt++) {
+      const uploads = await register()
+      await uploadAll(uploads)
+      // Check the exact generations whose bytes this writer verified, not just their content digests.
+      const objectsReady = sql`${uploads.length === contents.size} and not exists (
+        select 1 from json_each(${JSON.stringify(uploads.map(([, key]) => key))}) as verified
+        where not exists (
+          select 1 from ${objects}
+          where ${objects.workspace} = ${workspace} and ${objects.digest} = verified.value and ${objects.size} >= 0
+        )
+      )`
+      // All supported Database drivers execute batch atomically. No interactive transaction is needed.
+      const [, , changed] = await this.#db.batch([
+        this.#db.insert(refs).select(sql`
+          select ${workspaces.workspace}, ${ref}, null, 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0 and ${objectsReady}
+        `).onConflictDoNothing(),
+        this.#db.insert(revisions).select(sql`
+          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
+            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
+            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0 and ${objectsReady}
+        `).onConflictDoNothing(),
+        this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
+          eq(refs.workspace, workspace),
+          eq(refs.ref, ref),
+          sql`${refs.head} is ${options.ifHead}`,
+          // Check the other refs in the same statement that advances this ref, including absent refs.
+          ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
+            ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
+            : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
+          objectsReady,
+          this.#active(workspace),
+        )).returning({ head: refs.head }),
+        this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
+      ])
+      if (changed.length) break
       if (await this.#isDeleted()) this.#deleted()
       for (const [name, expected] of expectedHeads) {
         const actual = (await this.#ref(workspace, name))?.head ?? null
         if (actual !== expected) throw this.#conflict(name, expected, actual)
       }
-      rejectHistoryHead(options, this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null))
+      const actual = (await this.#ref(workspace, ref))?.head ?? null
+      if (actual !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
+      // A `deleteRef()` removed bytes that this commit reuses. Wait until it finishes, then register and upload them again.
+      if (attempt === 4) throw workspaceConflict("[vitehub] History objects of this commit are being deleted by history.deleteRef(). Retry the commit.", { details: { workspace: this.options.workspace, ref } })
+      await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt))
     }
     return publicRevision({ ...row, committed: true })
+  }
+
+  async #deleteRef({ ref, ifHead }: WorkspaceHistoryDeleteRefOptions): Promise<boolean> {
+    const workspace = await this.#key()
+    await this.#assertActive()
+    const current = await this.#ref(workspace, ref)
+    const head = current?.head ?? null
+    if (ifHead !== undefined && head !== ifHead) throw this.#conflict(ref, ifHead, head)
+    if (!current) {
+      await this.#removeUnusedObjects(workspace)
+      return false
+    }
+    const sameHead = sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} is ${head})`
+    const [, , removed] = await this.#db.batch([
+      this.#db.update(objects).set({ size: -1 }).where(and(
+        eq(objects.workspace, workspace),
+        sql`${objects.size} >= 0`,
+        sameHead,
+        sql`substr(${objects.digest}, 1, 64) in (
+          select json_extract(file.value, '$.digest')
+          from ${revisions}, json_each(${revisions.entries}) as file
+          where ${revisions.workspace} = ${workspace} and ${revisions.ref} = ${ref}
+        )`,
+        sql`substr(${objects.digest}, 1, 64) not in (
+          select json_extract(file.value, '$.digest')
+          from ${revisions}, json_each(${revisions.entries}) as file
+          where ${revisions.workspace} = ${workspace} and ${revisions.ref} <> ${ref} and ${revisions.committed} = 1
+        )`,
+      )),
+      this.#db.delete(revisions).where(and(eq(revisions.workspace, workspace), eq(revisions.ref, ref), sameHead)),
+      this.#db.delete(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${head}`)).returning({ ref: refs.ref }),
+    ])
+    if (!removed.length) throw this.#conflict(ref, head, (await this.#ref(workspace, ref))?.head ?? null)
+    await this.#removeUnusedObjects(workspace)
+    return true
+  }
+
+  async #removeUnusedObjects(workspace: string) {
+    const marked = await this.#db.select({ key: objects.digest }).from(objects).where(and(eq(objects.workspace, workspace), sql`${objects.size} < 0`))
+    for (let offset = 0; offset < marked.length; offset += 8) {
+      const batch = marked.slice(offset, offset + 8)
+      await Promise.all(batch.map(({ key }) => this.#removeObject(`${workspace}/sha256/${key}`)))
+      await this.#db.delete(objects).where(and(eq(objects.workspace, workspace), inArray(objects.digest, batch.map(({ key }) => key)), sql`${objects.size} < 0`))
+    }
   }
 
   #conflict(ref: string, expected: string | null, actual: string | null) {

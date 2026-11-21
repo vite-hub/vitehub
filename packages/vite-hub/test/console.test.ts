@@ -185,7 +185,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       expect(config.nitro.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
@@ -329,7 +329,7 @@ describe("Agent invocation console", () => {
         `${mount}/_vitehub/rpc`,
         `${mount}/_vitehub`,
         `${mount}/_vitehub/**`,
-        `${mount}/_vitehub/page/session`,
+        `${mount}/_vitehub/page/tools`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
@@ -363,7 +363,7 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/rpc",
         "/portal/_vitehub",
         "/portal/_vitehub/**",
-        "/portal/_vitehub/page/session",
+        "/portal/_vitehub/page/tools",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
@@ -419,7 +419,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
       expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
-      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"] : ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**", "/portal/_vitehub/page/session"])
+      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"] : ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**", "/portal/_vitehub/page/tools"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -458,7 +458,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -520,7 +520,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/**", "/_vitehub/page/session"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/**", "/_vitehub/page/tools"])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -701,7 +701,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -748,7 +748,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues","site"])`)
@@ -794,7 +794,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -874,7 +874,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -1109,8 +1109,8 @@ describe("Agent invocation console", () => {
         // The way in from a page: it sends the browser to the Console, which signs it in with Site access.
         expect.objectContaining({ route: "/_vitehub", meta: { vitehubAuthAccess: "handler" } }),
         expect.objectContaining({ route: "/_vitehub/**", meta: { vitehubAuthAccess: "handler" } }),
-        // The page tools session of the Console link. It reads no Console data.
-        { handler: expect.stringMatching(/server\/page-session\.js$/), route: "/_vitehub/page/session" },
+        // The page tools session of the Console link. It reads no Console data and runs the access check of each tool.
+        { handler: expect.stringMatching(/server\/page-tools-route\.js$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/page/tools" },
       ])
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
@@ -1425,11 +1425,13 @@ describe("Agent invocation console", () => {
       ], { invoke: true, projectRoot: root })
       const response = { headers: new Headers() }
       const segment = encodeAgentRouteParam(name)
+      const tasks: Promise<unknown>[] = []
       const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
         body: ({ invokerProfileId: "support", prompt: " Test this Agent " }),
         url: `http://localhost/_vitehub/api/agents/${segment}/invocations?agentRoute=encoded`,
         res: response,
+        waitUntil: task => { tasks.push(task) },
       }))
 
       expect(invocation).toMatchObject({
@@ -1438,11 +1440,11 @@ describe("Agent invocation console", () => {
         url: expect.stringMatching(new RegExp(`^/agents/${segment}/invocations/`)),
       })
       expect(Reflect.get(response, "status")).toBe(202)
-      await vi.waitFor(async () => {
-        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
-          agentName: name,
-          status: "completed",
-        })
+      expect(tasks.length).toBeGreaterThan(0)
+      await Promise.all(tasks)
+      await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({
+        agentName: name,
+        status: "completed",
       })
     }
     finally {
@@ -1461,15 +1463,17 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
+      const tasks: Promise<unknown>[] = []
       const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
         body: ({ prompt: "Review" }),
         url: `http://localhost/_vitehub/api/agents/${segment}/invocations`,
+        waitUntil: task => { tasks.push(task) },
       }))
       expect(invocation.agent).toBe(name)
-      await vi.waitFor(async () => {
-        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
-      })
+      expect(tasks.length).toBeGreaterThan(0)
+      await Promise.all(tasks)
+      await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
     }
     finally {
       await rm(root, { force: true, recursive: true })

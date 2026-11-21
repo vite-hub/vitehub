@@ -116,6 +116,7 @@ export function defineConsoleOperation<Input, Output>(definition: Omit<Operation
 }
 
 const agentsList = defineConsoleOperation({
+  cli: { command: "list", namespace: "agent" },
   description: "List the Agents of the app.",
   input: v.strictObject({}),
   kind: "read",
@@ -125,7 +126,7 @@ const agentsList = defineConsoleOperation({
 })
 
 const agentsInvoke = defineConsoleOperation({
-  cli: { positional: ["agent"] },
+  cli: { command: "invoke", namespace: "agent", positional: ["agent"] },
   description: "Start an Agent Invocation with a prompt.",
   input: v.strictObject({
     agent: v.pipe(text, v.minLength(1)),
@@ -298,7 +299,8 @@ const databasesTables = defineConsoleOperation({
 })
 
 const definitionsList = defineConsoleOperation({
-  cli: { positional: ["section"] },
+  // `vitehub inspect definitions` lists the Definitions in the terminal.
+  cli: false,
   description: "Read the definitions of one Console section.",
   input: v.strictObject({ section: text }),
   kind: "read",
@@ -355,7 +357,8 @@ const envGet = defineConsoleOperation({
 })
 
 const invocationsList = defineConsoleOperation({
-  cli: { namespace: "invocations" },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "List Agent Invocations, newest first.",
   input: v.strictObject({ agent: optionalText, capability: optionalText, cursor: optionalText, id: v.optional(v.array(text)), limit: optionalCount, triggeredBy: optionalText }),
   kind: "read",
@@ -365,7 +368,8 @@ const invocationsList = defineConsoleOperation({
 })
 
 const invocationsGet = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Read one Agent Invocation with its observations.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)), observationCount: optionalCount, observationCursor: optionalText }),
   kind: "read",
@@ -375,7 +379,8 @@ const invocationsGet = defineConsoleOperation({
 })
 
 const invocationsCancel = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Ask a running Agent Invocation to stop.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "write",
@@ -385,7 +390,8 @@ const invocationsCancel = defineConsoleOperation({
 })
 
 const invocationsUndo = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Ask the person's open page to put back one change an Agent made there. The page restores it only while the field still shows the Agent's value.",
   input: v.strictObject({ change: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)) }),
   kind: "write",
@@ -395,7 +401,8 @@ const invocationsUndo = defineConsoleOperation({
 })
 
 const invocationsDelete = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Delete one finished Agent Invocation.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "destructive",
@@ -405,7 +412,8 @@ const invocationsDelete = defineConsoleOperation({
 })
 
 const invocationsCapabilities = defineConsoleOperation({
-  cli: { namespace: "invocations" },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "List the capabilities of an Agent Invocation setup.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
@@ -415,7 +423,8 @@ const invocationsCapabilities = defineConsoleOperation({
 })
 
 const invocationsWorkspace = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Read the Workspace files and history of one Agent Invocation.",
   input: v.strictObject({ cursor: optionalText, history: v.optional(v.boolean()), id: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
   kind: "read",
@@ -477,7 +486,7 @@ const mediaUpload = defineConsoleOperation({
 })
 
 const projectGet = defineConsoleOperation({
-  cli: { command: "info", namespace: "project" },
+  cli: { command: "get", namespace: "project" },
   description: "Read the project: its name, the vite-hub version, the time and Git commit of its production build, its open Comments threads, and the sections and operations that this access may use.",
   input: v.strictObject({}),
   kind: "read",
@@ -525,7 +534,8 @@ const skillsInspect = defineConsoleOperation({
 })
 
 const statusGet = defineConsoleOperation({
-  cli: { command: "status", namespace: "agents" },
+  // `vitehub agent get <name>` reads it with --url.
+  cli: false,
   description: "Read the status of an Agent: its setup and what it can do.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",

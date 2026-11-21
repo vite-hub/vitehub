@@ -10,6 +10,19 @@ import { listWorkspacePackageInfos } from "../packages/internal/src/workspace-in
 import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot, toRepoPath, walkFiles } from "./utils/repo"
 
 describe("public package export contracts", () => {
+  it("limits Content's Tiptap peers to the editor and Realtime exports", () => {
+    const tiptapPeers = Object.keys(readPackageManifest("content").peerDependencies || {})
+      .filter(peer => peer.startsWith("@tiptap/"))
+
+    expect(tiptapPeers.length).toBeGreaterThan(0)
+    for (const contract of publicPackageExportContracts.filter(entry => entry.packageName === "@vite-hub/content")) {
+      const usesEditor = contract.subpath === "./editor" || contract.subpath === "./realtime"
+      const expected = usesEditor ? tiptapPeers.toSorted() : []
+      expect(contract.optionalRuntimePeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+      expect(contract.optionalDeclarationPeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+    }
+  })
+
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
     for (const specifier of ["@vite-hub/auth/mcp", "vite-hub/auth/mcp"]) {
       const contract = publicPackageExportContracts.find(entry => entry.specifier === specifier)
@@ -270,7 +283,7 @@ describe("public package export contracts", () => {
   })
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
-    const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
+    const source = readFileSync(join(packageDir("realtime"), "src/internal/server.ts"), "utf8")
     expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry, options: RealtimeHandlerOptions = \{\}\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
