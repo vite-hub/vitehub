@@ -108,6 +108,10 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 
 On a preview, `forge: { provider: "github" }` posts each thread to the pull request that the build previews: one summary comment that lists every thread, then one comment per comment, with the page, the element, the components, and the browser. Resolving a thread hides its comment. It posts with the GitHub App of `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY`, or as each person: people who signed in with GitHub post as themselves, and `token(author)` returns the token for any other sign-in. Each thread's `forge` field says whether it posted.
 
+## Failures in logs
+
+A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module registered, Comments logs it with `comments: { hook, step?, thread, code }`: a failed `onComment` on the wide event of the request, the others as their own evlog events. Without evlog, they go to the console. See [Limits and errors](https://vitehub.dev/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs).
+
 ## Deployment and security boundaries
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.

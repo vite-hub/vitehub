@@ -44,6 +44,7 @@ import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
+import { evlogBridgeVitePlugin } from "./evlog-bridge-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
@@ -1669,6 +1670,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (logs) plugins.push(logsVitePlugin(logs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  plugins.push(evlogBridgeVitePlugin())
   const security = resolveSecurityPolicy(options.security)
   if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(options, security))
   if (options.health) {

@@ -352,6 +352,10 @@ blob: {
 }
 ```
 
+## Failures in logs
+
+A failed cache read or write, derived file cleanup, media record write, or `fs` hash or metadata write does not fail the operation. With the evlog Nitro module registered, Blob logs it with `blob: { op, store, driver, code }`: on the wide event of a `serve()` request, else as its own evlog event, once per process for each `fs` op. Events never hold the error message or a pathname. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/blob/limits-and-errors#see-cache-failures-in-logs).
+
 ## CLI
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `delete <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.

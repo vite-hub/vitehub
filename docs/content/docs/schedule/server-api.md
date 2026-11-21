@@ -166,6 +166,27 @@ process.once('SIGTERM', () => void controller.close())
 
 Call `controller.close()` on shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 
+## See Schedule runs in logs
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each Schedule handler run inside Nitro gets its own evlog event. Standalone provider output runs outside Nitro and does not send these events. Standalone is the default for Vercel and Deno cron wakes and can also be selected on Cloudflare and Netlify.
+
+A run has no request, so it has no request fields:
+
+```json
+{ "level": "info", "action": "schedule", "message": "Schedule run succeeded", "schedule": { "name": "digest", "source": "static", "scheduledAt": "2026-11-17T08:00:00.000Z", "ms": 412, "outcome": "success" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | The Schedule Definition. |
+| `id` | The id of a started Schedule. |
+| `runId`, `attempt` | The run and its attempt number, when the runtime records runs. |
+| `source` | `static` for a cron run, `started` for a started Schedule, `manual` for `runSchedule()`. |
+| `scheduledAt`, `ms` | The time of the occurrence, and how long the handler ran. |
+| `outcome` | `success`, or `failure` with level `error` and the error in the event's `error` field. |
+
+A Schedule with the cron `* * * * *` makes 1,440 `info` events a day. To keep fewer, sample them with evlog's `sampling: { rates: { info: 10 } }`. evlog keeps every `error`. The tick that runs started Schedules each minute gets no event. A failure of the runtime itself, such as a lost lease store, is an event with `schedule: { op: "runtime" }`, or `{ op: "started", name, id }` for a started Schedule that could not run. A started Schedule that fails at each tick logs once, until the cause changes. When the handler finishes but the run store fails, the run event says `success` and a second event says `{ op: "record-run" }`. Without evlog, Schedule logs failures to the server console as before, and successful runs only in the run history.
+
 ## Read Schedule Runs
 
 `getScheduleRunStore()` returns the installed store.
