@@ -154,7 +154,7 @@ Each Invocation runs in a new temporary folder, deleted at the end. To give Clau
 While the dev server runs, inspect the Definition and send a prompt from another terminal:
 
 ```bash [Terminal]
-pnpm vitehub agent get --agent coder --url http://localhost:3000
+pnpm vitehub agent get coder --dev --url http://localhost:3000
 pnpm vitehub agent dev --agent coder --url http://localhost:3000 -p "Which tools can you use?"
 ```
 

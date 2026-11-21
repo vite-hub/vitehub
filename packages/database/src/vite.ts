@@ -8,7 +8,7 @@ import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, markViteConfigPlugin, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
@@ -26,6 +26,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -328,6 +329,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
+  let contributedTablesChecked: Promise<void> | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   // `vite dev` writes the generated schemas in the background. The Database virtual modules wait for them.
   let generatedArtifacts: Promise<unknown> = Promise.resolve()
@@ -578,8 +580,12 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         }
       },
     },
-    config(config) {
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+    config: {
+      order: "pre",
+      handler(config, env) {
+        markViteConfigPlugin(env, DB_VITE_PLUGIN_NAME)
+        serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      },
     },
     async configResolved(config) {
       resolved = config
@@ -649,6 +655,12 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       }
       resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
+      // Each environment of the build starts once, and the migrations are the same for all of them. Under Nuxt, the
+      // module checks this in `nitro:config`.
+      if (resolved?.command === "build" && runtimeConfig && !(database && "nuxtHostResource" in database)) {
+        contributedTablesChecked ??= assertContributedTablesGenerated(runtimeConfig, { alias: viteStringAliases(resolved.resolve?.alias) })
+        return contributedTablesChecked
+      }
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return

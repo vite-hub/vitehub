@@ -6,6 +6,8 @@
   - `WRANGLER_OUTPUT_FILE_PATH` gets one JSON object per line: `{ type: "deploy", version_id, targets }` or `{ type: "version-upload", version_id, preview_url }`.
 - Wrangler 4.157.0 (the workspace install), recorded on 2026-11-13: `wrangler-d1-migrations-apply.txt`, for the `database.migrateOnDeploy` steps.
   - Without a terminal or with `CI` set, Wrangler skips the confirmation and applies. A failed migration exits with an error and keeps the migrations before it.
+- Wrangler 4.160.1 (the workspace install), recorded on 2026-11-20: `wrangler-d1-execute.txt`, for the migrations table check of a deploy without `database.migrateOnDeploy`.
+  - `--json` prints one `{ results, success, meta }` for each statement and sets the log level to errors only. `--json` also skips the confirmation. Wrangler names applied migrations by file name, `*.sql` in `migrations_dir` relative to the config file (`getD1MigrationFiles` in Wrangler's source). `wrangler deploy` does not compare them with the migrations table.
 - Vercel CLI 65.11.0: `vercel-deploy.txt`, `vercel-env-add.txt`, `vercel-env-ls.txt` (restored from before #4069).
   - `deploy --json` prints `{ id, url, productionUrl }`, or `{ status, deployment }` without a terminal.
   - `env add` reads the value from stdin. ViteHub reads `envs[].key` and `envs[].target` from the last JSON object of `env ls --json`. The help says that output includes readable values, so its stdout never goes into an error. Not checked against a live account.

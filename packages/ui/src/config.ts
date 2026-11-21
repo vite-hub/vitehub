@@ -1,6 +1,7 @@
 import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "vue";
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
+import { installMotion } from "./motion/layer.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 
@@ -58,6 +59,11 @@ export interface ViteHubUIOptions {
   components?: ViteHubUIComponents;
   /** Icons by name, such as `vitehubTheme.icons` from `@vite-hub/ui/theme`. A ref or a getter keeps them reactive. */
   icons?: MaybeRefOrGetter<ViteHubUIIconOptions | undefined>;
+  /**
+   * The motion layer of `@vite-hub/ui/motion`: press, toggle, select, drag, and appear motion by role. It starts in the
+   * browser and stops when the app unmounts. `false` leaves it off. Default: `true`.
+   */
+  motion?: boolean;
 }
 
 export interface ResolvedViteHubUIDefaults {
@@ -124,6 +130,7 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       if (options.components) app.provide(uiComponentsKey, options.components);
       if (options.icons) app.provide(iconsKey, options.icons);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
+      if (options.motion !== false && typeof document !== "undefined") app.onUnmount(installMotion());
     },
   };
 }

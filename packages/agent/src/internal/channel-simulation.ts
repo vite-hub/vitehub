@@ -6,7 +6,8 @@ export const channelSimulationEnv = "VITEHUB_CHANNELS"
 /** The one user of a simulated Channel. A simulated Channel is a direct message between this user and the Agent. */
 export const simulatedChatUserId = "learner"
 
-const simulatedKinds: ReadonlySet<string> = new Set(["discord", "slack", "teams", "telegram"])
+/** The built-in chat Channels that run on the simulated chat. */
+export const simulatedChannelKinds: ReadonlySet<string> = new Set(["discord", "slack", "teams", "telegram"])
 const simulatedAdapters = new WeakSet<object>()
 
 /** Whether the adapter is a simulated chat adapter, which has no provider connection such as a Discord Gateway. */
@@ -20,7 +21,7 @@ export function isSimulatedChatAdapter(adapter: object): boolean {
  */
 export function isChannelSimulated(kind: string): boolean {
   const env = globalThis.process?.env
-  return simulatedKinds.has(kind) && env?.[channelSimulationEnv] === "simulate" && env.NODE_ENV !== "production"
+  return simulatedChannelKinds.has(kind) && env?.[channelSimulationEnv] === "simulate" && env.NODE_ENV !== "production"
 }
 
 /**

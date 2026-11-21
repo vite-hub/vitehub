@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, and `cli-get-list`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -608,3 +608,29 @@ The codemod updates simple shell invocations. It skips scripts and steps with co
 -    "check:env": "vitehub env status --url https://app.example.com"
 +    "check:env": "vitehub env list --json --url https://app.example.com"
 ```
+
+## cli-agent-tree
+
+`cli-agent-tree` moves the Agent commands of the `vitehub` calls in `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files under `vitehub agent`:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub agents list`, `vitehub agents invoke <agent>` | `vitehub agent list`, `vitehub agent invoke <agent>` |
+| `vitehub agents status --agent <name>`, `vitehub agent get --agent <name>` | `vitehub agent get <name>` |
+| `vitehub invocations list\|get\|cancel\|undo\|delete\|capabilities\|workspace` | `vitehub agent invocations …` |
+| `vitehub conversations export` | `vitehub agent conversations export` |
+
+```diff [package.json]
+-    "agent:status": "vitehub agents status --agent support --url https://app.example.com"
++    "agent:status": "vitehub agent get support --url https://app.example.com"
+```
+
+The codemod leaves old Console deletes untouched. Migrate them by hand to `vitehub agent invocations delete <id> --url <app>` and pass the same app. Without `--url`, this command deletes from the journal file. Add `--yes` to confirm in a script.
+
+Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
+
+Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` alone for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.
