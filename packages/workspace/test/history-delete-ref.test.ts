@@ -13,11 +13,18 @@ import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createFakeGitHub } from "./fake-github.ts"
+import { blobError } from "../../blob/src/errors.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 
 const cleanup: Array<() => Promise<void> | void> = []
 const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
+
+function deferred() {
+  let resolve = () => {}
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 afterEach(async () => {
   resetWorkspaceRegistry()
@@ -103,54 +110,119 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     expect(await (await writer.history.open(revision.id)).readFile("rsvp.ts")).toBe("export default {}")
   })
 
-  it("frees the bytes that a failed commit on another ref also had", async () => {
+  it.each(["main", "run-42"] as const)("reclaims uncommitted bytes when a commit on %s loses a head race", async (ref) => {
     const { blob, database } = await historyDatabase()
-    const writer = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
-    const base = await writer.history.commit({ ifHead: null, files: { "app.vue": { path: "app.vue", content: "<NuxtPage />" } } })
-    await writer.history.commit({ ref: "run-42", ifHead: null, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })
-
-    // The commit on `main` checks its head, then another process moves `main` while it uploads.
-    let interrupt: (() => Promise<void>) | undefined = async () => {
-      await createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" }).history.commit({ ifHead: base.id, files: { "app.vue": { path: "app.vue", content: "<NuxtPage /> v2" } } })
-    }
-    const racing = new Proxy(blob, {
-      get(target, key) {
-        if (key !== "head") return Reflect.get(target, key)
-        return async (pathname: string) => {
-          const run = interrupt
-          interrupt = undefined
-          await run?.()
-          return await target.head(pathname)
-        }
-      },
+    const store = () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const writer = store()
+    const files = (content: string) => ({ "file.txt": { path: "file.txt", content } })
+    const main = await writer.history.commit({ ifHead: null, files: files("main") })
+    const run = await writer.history.commit({ ref: "run-42", ifHead: null, files: files("run") })
+    const onMain = ref === "main"
+    const ifHead = onMain ? main.id : run.id
+    const head = blob.head.bind(blob)
+    const advance = vi.spyOn(blob, "head").mockImplementationOnce(async (key) => {
+      await store().history.commit({ ref, ifHead, files: files("winner") })
+      return await head(key)
     })
-    const loser = createBlobDatabaseWorkspaceStore({ blob: racing, database, workspace: "meetups" })
-    await expect(loser.history.commit({ ifHead: base.id, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
-    expect(interrupt).toBeUndefined()
-    expect(await objectCount(blob)).toBe(3)
+
+    await expect(writer.history.commit({ ref, ifHead, files: files(onMain ? "run" : "loser") })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    advance.mockRestore()
+    expect(await objectCount(blob)).toBe(onMain ? 3 : 4)
 
     expect(await writer.history.deleteRef!({ ref: "run-42" })).toBe(true)
-    // `main` keeps its two versions of `app.vue`. No revision has the bytes of `rsvp.ts`.
-    expect(await objectCount(blob)).toBe(2)
-    expect(await database.values(sql.raw("select count(*) from workspace_history_revisions where committed = 0"))).toEqual([[0]])
+    expect(await objectCount(blob)).toBe(onMain ? 2 : 1)
+    expect(await (await writer.history.open(main.id)).readFile("file.txt")).toBe("main")
+    const survivingHead = await writer.history.head()
+    expect(await (await writer.history.open(survivingHead!.id)).readFile("file.txt")).toBe(onMain ? "winner" : "main")
   })
 
-  it("frees bytes that an uncommitted revision row from an earlier version still lists", async () => {
+  it("does not publish against another writer's registration before its upload", async () => {
     const { blob, database } = await historyDatabase()
-    const writer = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
-    const base = await writer.history.commit({ ifHead: null, files: { "app.vue": { path: "app.vue", content: "<NuxtPage />" } } })
-    const run = await writer.history.commit({ ref: "run-42", ifHead: null, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })
-    // Earlier versions inserted the revision row before they moved the ref, and kept it when the ref did not move.
-    await database.run(sql`
-      insert into workspace_history_revisions (workspace, id, ref, parent_id, sequence, created_at, message, metadata, files, bytes, entries, committed)
-      select workspace, 'lost-candidate', 'main', ${base.id}, 2, created_at, null, null, files, bytes, entries, 0
-      from workspace_history_revisions where id = ${run.id}
-    `)
-    expect(await objectCount(blob)).toBe(2)
+    const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    await store().history.commit({ ref: "old", ifHead: null, files })
 
-    expect(await writer.history.deleteRef!({ ref: "run-42" })).toBe(true)
+    const enteredHead = deferred()
+    const resumeHead = deferred()
+    const primary = Object.create(blob) as BlobStorage
+    primary.head = vi.fn(blob.head.bind(blob)).mockImplementationOnce(async key => {
+      const result = await blob.head(key)
+      enteredHead.resolve()
+      await resumeHead.promise
+      return result
+    })
+    const commit = store(primary).history.commit({ ref: "primary", ifHead: null, files })
+    await enteredHead.promise
+    await store().history.deleteRef!({ ref: "old" })
+
+    const enteredPut = deferred()
+    const resumePut = deferred()
+    const secondary = Object.create(blob) as BlobStorage
+    secondary.put = vi.fn(blob.put.bind(blob)).mockImplementationOnce(async (...args) => {
+      enteredPut.resolve()
+      await resumePut.promise
+      return await blob.put(...args)
+    })
+    const other = store(secondary).history.commit({ ref: "secondary", ifHead: null, files })
+    await enteredPut.promise
+    resumeHead.resolve()
+    try {
+      const result = await commit
+      expect(await (await store().history.open(result.id)).readFile("run.ts")).toBe("results")
+    }
+    finally {
+      resumePut.resolve()
+      await other
+    }
+  })
+
+  it("does not let a stalled cleanup delete replacement bytes after a retry", async () => {
+    const { blob, database } = await historyDatabase()
+    const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    await store().history.commit({ ref: "old", ifHead: null, files })
+    const entered = deferred()
+    const resume = deferred()
+    const deleteBlob = blob.delete.bind(blob)
+    vi.spyOn(blob, "delete").mockImplementationOnce(async (...args) => {
+      entered.resolve()
+      await resume.promise
+      return await deleteBlob(...args)
+    })
+    const cleanup = store().history.deleteRef!({ ref: "old" })
+    await entered.promise
+    try {
+      expect(await store().history.deleteRef!({ ref: "old" })).toBe(false)
+      const result = await store().history.commit({ ref: "new", ifHead: null, files })
+      resume.resolve()
+      expect(await cleanup).toBe(true)
+      expect(await (await store().history.open(result.id)).readFile("run.ts")).toBe("results")
+    }
+    finally {
+      resume.resolve()
+      await cleanup
+    }
+  })
+
+  it("retries catalog and Blob cleanup across failures without losing the candidates", async () => {
+    const { blob, database } = await historyDatabase()
+    const store = () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const files = { "run.ts": { path: "run.ts", content: "results" } }
+    const run = await store().history.commit({ ref: "old", ifHead: null, files })
+    await database.run(sql`create trigger fail_mark before update on workspace_history_objects begin select raise(abort, 'injected catalog failure'); end`)
+    try {
+      await expect(store().history.deleteRef!({ ref: "old" })).rejects.toThrow()
+      expect((await store().history.head({ ref: "old" }))?.id).toBe(run.id)
+    }
+    finally {
+      await database.run(sql`drop trigger fail_mark`)
+    }
+    vi.spyOn(blob, "delete").mockResolvedValueOnce([blobError("BLOB_OPERATION_FAILED", "delete", "test"), undefined])
+    await expect(store().history.deleteRef!({ ref: "old" })).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
+    await expect(store().history.head({ ref: "old" })).resolves.toBeNull()
     expect(await objectCount(blob)).toBe(1)
-    expect(await (await writer.history.open(base.id)).readFile("app.vue")).toBe("<NuxtPage />")
+    expect(await store().history.deleteRef!({ ref: "old" })).toBe(false)
+    expect(await objectCount(blob)).toBe(0)
   })
 })
 
@@ -178,7 +250,23 @@ describe("history.deleteRef() on the GitHub Store", () => {
     expect(fake.head("run-42")).toBe(run)
     expect(await workspace.history.deleteRef({ ref: "run-42", ifHead: run })).toBe(true)
     expect(fake.head("run-42")).toBeUndefined()
+    expect(await (await workspace.history.open(run)).readFile("rsvp.ts")).toBe("export default {}")
     expect((await workspace.history.refs()).map(ref => ref.name)).toEqual(["main"])
     expect(await workspace.history.deleteRef({ ref: "run-42" })).toBe(false)
+  })
+
+  it.each([
+    { branch: "main", refs: { published: "main" }, ref: "published" },
+    { branch: "working-tree", refs: undefined, ref: "working-tree" },
+  ])("keeps the working branch $branch when deleting $ref", async ({ branch, refs, ref }) => {
+    fake.state.defaultBranch = "trunk"
+    fake.commit("trunk", { "README.md": "Repository default" })
+    const head = fake.commit(branch, { "app.vue": "<NuxtPage />" })
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token", root: "", branch, ...(refs ? { refs } : {}) }, "meetups")
+    const workspace = useWorkspaceFiles("meetups", { mode: "write", definition: { name: "meetups", store } })
+
+    await expect(workspace.history.deleteRef({ ref })).rejects.toMatchObject({ code: "WORKSPACE_DEFAULT_REF_DELETE" })
+    expect(fake.head(branch)).toBe(head)
+    expect(fake.writes()).toHaveLength(0)
   })
 })

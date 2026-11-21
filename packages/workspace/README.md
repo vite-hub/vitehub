@@ -214,7 +214,8 @@ await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head
 ```
 
 `history.diff({ from, to })` lists the files that were added, modified, or removed
-between two revisions, also on different refs:
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
 
 ```ts fragment
 const [published, saved] = await Promise.all([
@@ -227,17 +228,37 @@ if (saved) {
 }
 ```
 
-`history.deleteRef({ ref, ifHead? })` deletes a ref, its revisions, and the file bytes
-that no other ref has. It returns `false` when the ref does not exist, and it cannot
-delete `main`:
+Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
+before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
+
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+`history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
+does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
+working ref:
 
 ```ts fragment
 const head = await workspace.history.head({ ref: runId })
 await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 ```
 
-Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
-before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
+Blob + Database checks `ifHead` atomically with ref deletion and also removes the
+ref's revisions and bytes that no other revision uses. GitHub only deletes the
+branch, so commits and bytes may still be readable by SHA. Its `ifHead` check
+happens before a separate, unconditional delete request.
 
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
@@ -246,7 +267,7 @@ Workspace your package does not define. In a history commit, each hook gets
 that the commit changes. A hook can check all paths at once, and read the intent of
 the caller from the metadata, as Content reads `lease: "override"`.
 
-File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>-<generation>` Blob keys. Existing digest-only keys remain readable.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
 history object.
 Identical bytes share one object within a workspace. Database stores immutable
@@ -259,7 +280,7 @@ which commit to `main`. Only committed history is durable; keep drafts on a ref.
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
 objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
-one ref and the objects that no other revision uses. A failed commit keeps no revision.
+one ref and the objects that no other revision uses.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
@@ -271,8 +292,8 @@ runtime of the dev server, or of a deployed app with `--url`, and never write:
 vitehub workspace history content            # revisions on every ref, newest first
 vitehub workspace history content --ref draft
 vitehub workspace refs content                # each ref and its head revision
-vitehub workspace show content draft          # one revision and its files
-vitehub workspace show content draft posts/hello.md
+vitehub workspace get content draft          # one revision and its files
+vitehub workspace get content draft posts/hello.md
 ```
 
 Add `--json` for machine-readable output. A Store without retained history
@@ -526,7 +547,7 @@ GitHub-backed Stores also expose the retained history reader. Repository branche
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
 includes the commit author and a `url` that opens the commit on GitHub. Revision file
 views read the configured Workspace root from the commit tree and fetch file bytes from
-that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
+that commit. The `vitehub workspace history`, `refs`, and `get` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
 

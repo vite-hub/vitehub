@@ -19,10 +19,13 @@ const controller = await installProcessScheduleRuntime({
   registry: {
     tick: async () => ({
       cron: "* * * * *",
-      async handler({ scheduledAt }) {
+      async handler({ runId, scheduledAt }) {
         const at = scheduledAt.toISOString()
         const [{ count }] = await sql`select count(*)::int as count from runs where scheduled_at = ${at}`
-        await sql`insert into runs (scheduled_at, pid, event) values (${at}, ${process.pid}, 'start')`
+        await sql`insert into runs (scheduled_at, pid, event, lease_expires_at)
+          values (${at}, ${process.pid}, 'start', (
+            select expires_at from vitehub_leases where "key" = ${`vitehub:schedule/schedule/${runId}`}
+          ))`
         // The first process that runs this occurrence stops in the middle of the run, as a crash would.
         if (at === CRASH_AT && count === 0) process.kill(process.pid, "SIGKILL")
         await new Promise(resolve => setTimeout(resolve, 150))

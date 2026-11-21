@@ -34,7 +34,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         target: `Workspace "${workspace}" has no ref or revision "${id}". Run \`vitehub workspace refs ${workspace}\` to list refs.`,
         workspace: `Unknown Workspace: ${workspace}.`,
       })[problem],
-      fix: "Check the Workspace name, the ref or revision, and the path. `vitehub workspace refs <workspace>` lists the refs, and `vitehub workspace show <workspace> <ref>` lists the files. When a base revision is gone, pull again without it.",
+      fix: "Check the Workspace name, the ref or revision, and the path. `vitehub workspace refs <workspace>` lists the refs, and `vitehub workspace get <workspace> <ref>` lists the files. When a base revision is gone, pull again without it.",
     },
 
     // Checkout errors. `vitehub pull`, `push`, `resolve`, `status`, and the Git hooks print them with the code and the fix.
@@ -122,8 +122,8 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     // History errors. `history.deleteRef()` throws them before it changes the Store.
     WORKSPACE_DEFAULT_REF_DELETE: {
-      why: "`history.deleteRef()` cannot delete the ref `main`. The working tree of the Workspace follows it.",
-      fix: "Delete another ref, such as the ref of one run. To remove files from `main`, commit without them. To remove the whole Workspace history, call `delete()` on the Blob + Database Store.",
+      why: "`history.deleteRef()` cannot delete `main` or the ref that the Workspace working tree follows.",
+      fix: "Delete another ref, such as the ref of one run. To remove files from the working ref, commit without them. To remove the whole Workspace history, call `delete()` on the Blob + Database Store.",
     },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {

@@ -33,15 +33,14 @@ const revisions = sqliteTable("workspace_history_revisions", {
   files: integer("files").notNull(),
   bytes: integer("bytes").notNull(),
   entries: text("entries", { mode: "json" }).$type<Record<string, HistoryManifestFile>>().notNull(),
-  // A commit adds its row only when it moves the ref head. Earlier versions also kept the rows of losing commits, with
-  // false here. Readers skip them.
+  // False until the ref head moves to this revision. Losing candidates stay false.
   committed: integer("committed", { mode: "boolean" }).notNull().default(false),
 }, table => [
   primaryKey({ columns: [table.workspace, table.id] }),
   index("workspace_history_timeline").on(table.workspace, table.ref, table.committed, table.sequence),
 ])
 
-// Register before upload so deletion can find objects from failed publications.
+// Catalog keys are the legacy bare digest or `${digest}-${generation}`. A negative size queues that key for deletion.
 const objects = sqliteTable("workspace_history_objects", {
   workspace: text("workspace").notNull(),
   digest: text("digest").notNull(),

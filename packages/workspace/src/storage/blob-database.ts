@@ -21,6 +21,11 @@ type RevisionRow = typeof revisions.$inferSelect
 
 type HistoryDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
 
+function activeObject(workspace: string, digest: string | ReturnType<typeof sql>) {
+  return sql`${objects.workspace} = ${workspace} and ${objects.size} >= 0
+    and ${objects.digest} >= ${digest} and ${objects.digest} < ${digest} || '.'`
+}
+
 export interface BlobDatabaseWorkspaceStoreOptions {
   blob: BlobStorage
   /**
@@ -309,7 +314,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         const normalized = normalizeHistoryPath(path)
         const file = Object.hasOwn(row.entries, normalized) ? row.entries[normalized] : undefined
         if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
-        const [error, body] = await this.options.blob.get(`${workspace}/sha256/${file.digest}`)
+        const [object] = await this.#db.select({ key: objects.digest }).from(objects).where(activeObject(workspace, file.digest)).limit(1)
+        if (!object) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
+        const [error, body] = await this.options.blob.get(`${workspace}/sha256/${object.key}`)
         if (error) throw error
         if (!body) throw workspaceError(`[vitehub] Retained history object is missing: ${file.digest}.`)
         const bytes = new Uint8Array(await body.arrayBuffer())
@@ -372,58 +379,69 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       entries: sorted,
     }
     const id = await sha256(manifest)
-    const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
-    const digests = JSON.stringify(registry.map(object => object.digest))
+    const digests = JSON.stringify([...contents.keys()])
     const register = async () => {
+      const registry = [...contents].map(([digest, bytes]) => ({ digest, key: `${digest}-${crypto.randomUUID()}`, size: bytes.byteLength }))
       await this.#db.insert(objects).select(sql`
-        select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
+        select ${workspaces.workspace}, json_extract(object.value, '$.key'), json_extract(object.value, '$.size')
         from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
         where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+          and not exists (select 1 from ${objects} where ${activeObject(workspace, sql`json_extract(object.value, '$.digest')`)})
       `).onConflictDoNothing()
       await this.#assertActive()
+      return await this.#db.values<[digest: string, key: string]>(sql`
+        select needed.value, ${objects.digest}
+        from json_each(${digests}) as needed join ${objects} on ${activeObject(workspace, sql`needed.value`)}
+      `)
     }
-    const upload = async ([digest, bytes]: [string, Uint8Array]) => {
-      const key = `${workspace}/sha256/${digest}`
+    const upload = async ([digest, generation]: [string, string]) => {
+      const key = `${workspace}/sha256/${generation}`
       const [headError, object] = await this.options.blob.head(key)
       if (headError && headError.code !== "BLOB_NOT_FOUND") throw headError
       if (!object) {
-        const [uploadError] = await this.options.blob.put(key, bytes, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        const [uploadError] = await this.options.blob.put(key, contents.get(digest)!, { addRandomSuffix: false, contentType: "application/octet-stream" })
+        const [active] = await this.#db.select({ key: objects.digest }).from(objects).where(and(eq(objects.workspace, workspace), eq(objects.digest, generation), sql`${objects.size} >= 0`)).limit(1)
+        if (!active || await this.#isDeleted()) {
+          await this.#removeObject(key)
+          await this.#assertActive()
+          return
+        }
         if (uploadError) {
           // Another committer may have uploaded the same immutable bytes first.
           const [concurrentError, concurrentObject] = await this.options.blob.head(key)
           if (concurrentError || !concurrentObject) throw uploadError
         }
       }
-      if (await this.#isDeleted()) {
-        await this.#removeObject(key)
-        this.#deleted()
-      }
     }
-    const uploadAll = async () => {
-      const uploads = [...contents]
+    const uploadAll = async (uploads: [string, string][]) => {
       for (let offset = 0; offset < uploads.length; offset += 8) {
         const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
         for (const result of results) if (result.status === "rejected") throw result.reason
       }
     }
-    // An object that `deleteRef()` removes, or is removing (size -1), cannot back this commit. The ref only moves when
-    // each object of the commit is still registered, so its bytes were uploaded after the removal.
-    const missingObjects = sql`exists (
-      select 1 from json_each(${digests}) as needed
-      where not exists (
-        select 1 from ${objects}
-        where ${objects.workspace} = ${workspace} and ${objects.digest} = needed.value and ${objects.size} >= 0
-      )
-    )`
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
     for (let attempt = 0; ; attempt++) {
-      await register()
-      await uploadAll()
+      const uploads = await register()
+      await uploadAll(uploads)
+      // Check the exact generations whose bytes this writer verified, not just their content digests.
+      const objectsReady = sql`${uploads.length === contents.size} and not exists (
+        select 1 from json_each(${JSON.stringify(uploads.map(([, key]) => key))}) as verified
+        where not exists (
+          select 1 from ${objects}
+          where ${objects.workspace} = ${workspace} and ${objects.digest} = verified.value and ${objects.size} >= 0
+        )
+      )`
       // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-      const [, changed] = await this.#db.batch([
+      const [, , changed] = await this.#db.batch([
         this.#db.insert(refs).select(sql`
           select ${workspaces.workspace}, ${ref}, null, 0
-          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0 and ${objectsReady}
+        `).onConflictDoNothing(),
+        this.#db.insert(revisions).select(sql`
+          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
+            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
+            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
+          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0 and ${objectsReady}
         `).onConflictDoNothing(),
         this.#db.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
           eq(refs.workspace, workspace),
@@ -433,18 +451,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
             ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
             : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
-          sql`not ${missingObjects}`,
+          objectsReady,
           this.#active(workspace),
         )).returning({ head: refs.head }),
-        // Only a commit that moved the ref adds its revision. A revision row of a commit that lost would keep its objects
-        // in use, so `deleteRef()` could not delete them.
-        this.#db.insert(revisions).select(sql`
-          select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
-            ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
-            ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 1
-          from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
-            and exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})
-        `).onConflictDoUpdate({ target: [revisions.workspace, revisions.id], set: { committed: true } }),
+        this.#db.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
       ])
       if (changed.length) break
       if (await this.#isDeleted()) this.#deleted()
@@ -453,8 +463,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         if (actual !== expected) throw this.#conflict(name, expected, actual)
       }
       const actual = (await this.#ref(workspace, ref))?.head ?? null
-      const [[missing] = [0]] = await this.#db.values<[number]>(sql`select ${missingObjects}`)
-      if (actual !== options.ifHead || !missing) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
+      if (actual !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
       // A `deleteRef()` removed bytes that this commit reuses. Wait until it finishes, then register and upload them again.
       if (attempt === 4) throw workspaceConflict("[vitehub] History objects of this commit are being deleted by history.deleteRef(). Retry the commit.", { details: { workspace: this.options.workspace, ref } })
       await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt))
@@ -469,48 +478,41 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const head = current?.head ?? null
     if (ifHead !== undefined && head !== ifHead) throw this.#conflict(ref, ifHead, head)
     if (!current) {
-      await this.#removeUnusedObjects(workspace, [])
+      await this.#removeUnusedObjects(workspace)
       return false
     }
-    // The objects of every revision on the ref, also of the rows that earlier versions kept for commits that lost.
-    const digests = (await this.#db.values<[string]>(sql`
-      select distinct json_extract(file.value, '$.digest')
-      from ${revisions}, json_each(${revisions.entries}) as file
-      where ${revisions.workspace} = ${workspace} and ${revisions.ref} = ${ref}
-    `)).map(([digest]) => digest)
     const sameHead = sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} is ${head})`
-    const [, removed] = await this.#db.batch([
+    const [, , removed] = await this.#db.batch([
+      this.#db.update(objects).set({ size: -1 }).where(and(
+        eq(objects.workspace, workspace),
+        sql`${objects.size} >= 0`,
+        sameHead,
+        sql`substr(${objects.digest}, 1, 64) in (
+          select json_extract(file.value, '$.digest')
+          from ${revisions}, json_each(${revisions.entries}) as file
+          where ${revisions.workspace} = ${workspace} and ${revisions.ref} = ${ref}
+        )`,
+        sql`substr(${objects.digest}, 1, 64) not in (
+          select json_extract(file.value, '$.digest')
+          from ${revisions}, json_each(${revisions.entries}) as file
+          where ${revisions.workspace} = ${workspace} and ${revisions.ref} <> ${ref} and ${revisions.committed} = 1
+        )`,
+      )),
       this.#db.delete(revisions).where(and(eq(revisions.workspace, workspace), eq(revisions.ref, ref), sameHead)),
       this.#db.delete(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${head}`)).returning({ ref: refs.ref }),
     ])
     if (!removed.length) throw this.#conflict(ref, head, (await this.#ref(workspace, ref))?.head ?? null)
-    await this.#removeUnusedObjects(workspace, digests)
+    await this.#removeUnusedObjects(workspace)
     return true
   }
 
-  /**
-   * Delete the objects among `digests` that no revision uses, and the objects that an earlier call marked but did not
-   * finish. The statement that checks an object is unused also marks it: its size becomes minus the time of the mark.
-   * A commit does not move its ref while one of its objects is marked or missing, so it uploads the bytes again after
-   * the object is gone. A mark older than ten minutes belongs to a call that stopped, and the next call takes it over.
-   */
-  async #removeUnusedObjects(workspace: string, digests: string[]) {
-    const mark = -Date.now()
-    const marked = await this.#db.update(objects).set({ size: mark }).where(and(
-      eq(objects.workspace, workspace),
-      sql`(${objects.digest} in (select value from json_each(${JSON.stringify(digests)})) and ${objects.size} >= 0
-        or ${objects.size} < 0 and ${objects.size} > ${mark + 10 * 60_000})`,
-      // Earlier versions kept the revision row of a commit that lost, with `committed` false. It does not keep an object.
-      sql`not exists (
-        select 1 from ${revisions}, json_each(${revisions.entries}) as file
-        where ${revisions.workspace} = ${workspace} and ${revisions.committed} = 1 and json_extract(file.value, '$.digest') = ${objects.digest}
-      )`,
-    )).returning({ digest: objects.digest })
-    if (!marked.length) return
+  async #removeUnusedObjects(workspace: string) {
+    const marked = await this.#db.select({ key: objects.digest }).from(objects).where(and(eq(objects.workspace, workspace), sql`${objects.size} < 0`))
     for (let offset = 0; offset < marked.length; offset += 8) {
-      await Promise.all(marked.slice(offset, offset + 8).map(({ digest }) => this.#removeObject(`${workspace}/sha256/${digest}`)))
+      const batch = marked.slice(offset, offset + 8)
+      await Promise.all(batch.map(({ key }) => this.#removeObject(`${workspace}/sha256/${key}`)))
+      await this.#db.delete(objects).where(and(eq(objects.workspace, workspace), inArray(objects.digest, batch.map(({ key }) => key)), sql`${objects.size} < 0`))
     }
-    await this.#db.delete(objects).where(and(eq(objects.workspace, workspace), eq(objects.size, mark)))
   }
 
   #conflict(ref: string, expected: string | null, actual: string | null) {
