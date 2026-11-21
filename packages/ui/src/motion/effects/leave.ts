@@ -18,6 +18,7 @@ function stop(element: HTMLElement): void {
   leaving.delete(element);
   entry.spring.stop();
   entry.ghost.remove();
+  element.removeAttribute("data-motion-leave-managed");
   writeMotionStyle(element, { opacity: null });
 }
 
@@ -35,6 +36,7 @@ export const leave: MotionEffect = {
     if (attribute !== "data-leaving") return;
     stop(element);
     if (value !== "true" || !element.parentNode) return;
+    element.setAttribute("data-motion-leave-managed", "");
     const rect = element.getBoundingClientRect();
     const ghost = createGhost(element, element.parentNode, element.nextSibling);
     // A mark that the page places itself, with `absolute` or `fixed`, stays where it is. Any other leaves the flow.

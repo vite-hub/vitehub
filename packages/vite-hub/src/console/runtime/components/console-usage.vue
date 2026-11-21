@@ -819,7 +819,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
         <aside class="usage-filters" aria-label="Usage filters">
           <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search sessions" size="sm" variant="ghost" class="w-full" :ui="{ base: 'text-base sm:text-sm' }" />
           <section aria-labelledby="usage-filter-agents">
-            <h2 id="usage-filter-agents"><span>Agents</span><small v-if="agentRows.length">{{ agentRows.length }}</small></h2>
+            <h2 id="usage-filter-agents"><span>Agents</span><small v-if="!keptSummary && agentRows.length">{{ agentRows.length }}</small></h2>
             <ul>
               <li>
                 <button type="button" :aria-pressed="selectedAgent === 'all'" @click="selectedAgent = 'all'">
@@ -830,7 +830,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <li v-for="row in agentRows" :key="row.agent">
                 <button type="button" :aria-pressed="selectedAgent === `agent:${row.agent}`" @click="selectedAgent = `agent:${row.agent}`">
                   <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name" :title="row.agent">{{ row.agent }}</span>
-                  <span class="usage-filters__count">{{ row.count }}</span>
+                  <span class="usage-filters__count">{{ keptSummary ? "" : row.count }}</span>
                 </button>
               </li>
             </ul>

@@ -744,17 +744,21 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(() => state.counts.value.open, () => tick.value++)
       // Each cursor moves to its next place with the list mover of the motion layer. It reads the places after each
       // render, for the next one.
-      let cursorList: MotionList | undefined
+      let cursorList: { element: HTMLElement; motion: MotionList } | undefined
       const moveCursors = () => {
         const element = cursorLayer.value
+        if (cursorList && cursorList.element !== element) {
+          cursorList.motion.destroy()
+          cursorList = undefined
+        }
         if (!element) return
-        if (cursorList) cursorList.play()
-        else cursorList = createMotionList(element)
-        cursorList.measure()
+        if (cursorList) cursorList.motion.play()
+        else cursorList = { element, motion: createMotionList(element) }
+        cursorList.motion.measure()
       }
       onMounted(moveCursors)
       onUpdated(moveCursors)
-      onBeforeUnmount(() => cursorList?.destroy())
+      onBeforeUnmount(() => cursorList?.motion.destroy())
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"

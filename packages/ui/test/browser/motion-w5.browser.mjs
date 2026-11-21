@@ -77,6 +77,25 @@ describe("disclosure", () => {
 })
 
 describe("leave", () => {
+  test("standalone comment marks fade without JavaScript and hide at once with reduced motion", async () => {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    await page.setContent(`<button data-slot="comment-mark-pin"></button><div data-slot="comment-mark-area"></div>`)
+    await page.addStyleTag({ path: fileURLToPath(new URL("../../comment-marks.css", import.meta.url)) })
+    const marks = page.locator("[data-slot]")
+    await marks.evaluateAll(elements => elements.forEach(element => element.dataset.leaving = "true"))
+    assert.deepEqual(await marks.evaluateAll(elements => elements.map(element => Boolean(element.getAnimations().length))), [true, true])
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-slot]")].every(element => getComputedStyle(element).opacity === "0"))
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    const reduced = await marks.evaluateAll(elements => elements.map(element => {
+      delete element.dataset.leaving
+      const visible = getComputedStyle(element).opacity
+      element.dataset.leaving = "true"
+      return [visible, getComputedStyle(element).opacity, element.getAnimations().length]
+    }))
+    assert.deepEqual(reduced, [["1", "0", 0], ["1", "0", 0]])
+    await context.close()
+  })
   test("a mark with data-leaving hides, and a copy of it folds away in its place", async () => {
     const { context, errors, page } = await open()
     const before = await page.locator("[data-test=mark]").boundingBox()
@@ -104,6 +123,28 @@ describe("leave", () => {
 })
 
 describe("appear", () => {
+  test("removing the draft wrapper releases its appearance and document listeners", async () => {
+    const { context, page } = await open()
+    await page.evaluate(() => window.openBubble())
+    await page.waitForFunction(() => document.querySelector("[data-test=bubble]")?.style.clipPath)
+    const result = await page.evaluate(async () => {
+      const bubble = document.querySelector("[data-test=bubble]")
+      const spot = bubble.parentElement
+      let reads = 0
+      const measure = bubble.getBoundingClientRect.bind(bubble)
+      bubble.getBoundingClientRect = () => { reads++; return measure() }
+      const removed = []
+      const remove = document.removeEventListener.bind(document)
+      document.removeEventListener = (name, ...args) => { removed.push(name); remove(name, ...args) }
+      spot.remove()
+      await Promise.resolve()
+      document.body.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }))
+      await new Promise(requestAnimationFrame)
+      return { reads, removed, clip: bubble.style.clipPath, ghost: Boolean(spot.querySelector("[data-motion=none]")) }
+    })
+    assert.deepEqual(result, { reads: 0, removed: ["pointerover", "focusin"], clip: "", ghost: false })
+    await context.close()
+  })
   test("an element with data-motion-appear comes out of its trigger, narrow, and widens to its place", async () => {
     const { context, errors, page } = await open()
     const pin = await page.locator("[data-test=pin]").boundingBox()
@@ -151,7 +192,7 @@ describe("installs", () => {
     const result = await build({
       configFile: false,
       logLevel: "silent",
-      build: { write: false, minify: false, lib: { entry: fileURLToPath(new URL("../../src/motion.ts", import.meta.url)), formats: ["iife"], name } },
+      build: { write: false, minify: false, lib: { entry: fileURLToPath(new URL("../../src/motion-core.ts", import.meta.url)), formats: ["iife"], name } },
     })
     return result[0].output[0].code
   }
@@ -169,7 +210,7 @@ describe("installs", () => {
       window.pressed = []
       // Each copy counts the presses that it starts, with an effect of its own.
       for (const name of ["MotionApp", "MotionPill"]) {
-        window[name].defineMotionEffect({ name: `count-${name}`, selector: "button", press: (element) => { window.pressed.push(`${name}:${element.id}`); return { release() {} } } })
+        window[name].defineMotionEffect({ name: "count-press", selector: "button", press: (element) => { window.pressed.push(`${name}:${element.id}`); return { release() {} } } })
       }
       window.press = (element) => {
         element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true, isPrimary: true, pointerId: 1, button: 0, buttons: 1 }))
@@ -188,7 +229,7 @@ describe("installs", () => {
   test("a surface that installs only its shadow root does not move the page around it", async () => {
     const { context, page } = await openCopies()
     const pressed = await page.evaluate(() => {
-      window.MotionPill.installMotion(document.querySelector("#host").shadowRoot)
+      window.MotionPill.installMotion(document.querySelector("#host").shadowRoot, { effects: [] })
       return window.pressAll()
     })
     assert.deepEqual(pressed, ["MotionPill:shadow"])
@@ -198,7 +239,7 @@ describe("installs", () => {
   test("an installed element covers its children and the shadow roots in it", async () => {
     const { context, page } = await openCopies()
     const pressed = await page.evaluate(() => {
-      window.MotionPill.installMotion(document.querySelector("#host"))
+      window.MotionPill.installMotion(document.querySelector("#host"), { effects: [] })
       return window.pressAll()
     })
     assert.deepEqual(pressed, ["MotionPill:light", "MotionPill:shadow"])
@@ -241,13 +282,36 @@ describe("installs", () => {
   test("two copies that cover the same element press it once", async () => {
     const { context, page } = await openCopies()
     const pressed = await page.evaluate(() => {
-      window.MotionApp.installMotion()
-      window.MotionPill.installMotion(document.querySelector("#host"))
+      window.MotionApp.installMotion(document, { effects: [] })
+      window.MotionPill.installMotion(document.querySelector("#host"), { effects: [] })
       return window.pressAll()
     })
     assert.deepEqual(pressed, ["MotionApp:page", "MotionApp:light", "MotionApp:shadow"])
     await context.close()
   })
+
+  for (const pressFirst of [true, false]) {
+    test(`overlapping installs run distinct press hooks (press-only first: ${pressFirst})`, async () => {
+      const { context, page } = await openCopies()
+      const result = await page.evaluate(async (first) => {
+        const host = document.querySelector("#host")
+        const trigger = document.querySelector("#light")
+        trigger.setAttribute("aria-expanded", "false")
+        trigger.innerHTML = `<span data-motion-chevron>Chevron</span>`
+        const chevron = trigger.firstElementChild
+        document.head.append(Object.assign(document.createElement("style"), { textContent: "[aria-expanded=true] > [data-motion-chevron] { rotate: 90deg }" }))
+        const pressOnly = () => window.MotionPill.installMotion(host, { effects: [window.MotionPill.pressEffect] })
+        const full = () => window.MotionApp.installMotion(document, { effects: window.MotionApp.motionEffects })
+        for (const install of first ? [pressOnly, full] : [full, pressOnly]) install()
+        window.press(trigger)
+        trigger.setAttribute("aria-expanded", "true")
+        await Promise.resolve()
+        return { pressed: window.pressed, animating: Boolean(chevron.style.rotate) }
+      }, pressFirst)
+      assert.deepEqual(result, { pressed: [pressFirst ? "MotionPill:light" : "MotionApp:light"], animating: true })
+      await context.close()
+    })
+  }
 })
 
 describe("shake", () => {

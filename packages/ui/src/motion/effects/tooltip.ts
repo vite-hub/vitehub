@@ -411,7 +411,7 @@ function leave(element: HTMLElement, tip: Tip): void {
   if (!box) return;
   // Copy the box as it is now, with its motion, before the live one clears it.
   const parent = tip.root.parentNode ?? tip.parent;
-  const ghostRoot = parent ? createGhost(tip.root, parent, tip.root.isConnected ? tip.root.nextSibling : tip.next) : undefined;
+  const ghostRoot = parent?.isConnected ? createGhost(tip.root, parent, tip.root.isConnected ? tip.root.nextSibling : tip.next) : undefined;
   const now = { x: box.x, y: box.y, width: box.width, label: box.label, fade: box.fade };
   const values = Object.fromEntries(Object.entries(now).map(([name, spring]) => [name, [spring.value, spring.velocity]])) as Record<keyof typeof now, [number, number]>;
   const oldLabel = box.old?.spring.value;
@@ -458,6 +458,28 @@ function whenPlaced(element: HTMLElement, tip: Tip, callback: () => void, frames
   });
 }
 
+function watchRemoval(element: HTMLElement, tip: Tip): () => void {
+  const observe = () => {
+    observer.disconnect();
+    let node: Node | null = element;
+    while (node) {
+      const parent: Node | null = node.parentNode;
+      if (parent) observer.observe(parent, { childList: true });
+      node = parent ?? (node instanceof ShadowRoot ? node.host : null);
+    }
+  };
+  const observer = new MutationObserver(() => {
+    if (!element.isConnected) leave(element, tip);
+    else {
+      tip.parent = tip.root.parentNode;
+      tip.next = tip.root.nextSibling;
+      observe();
+    }
+  });
+  observe();
+  return () => observer.disconnect();
+}
+
 function open(element: HTMLElement): void {
   let tip = tips.get(element);
   if (tip?.open) return;
@@ -471,15 +493,7 @@ function open(element: HTMLElement): void {
   watchMoves();
   // Hidden until it is placed, so its first frame is already behind its trigger.
   writeMotionStyle(element, { opacity: "0" });
-  // Reka removes a closed tooltip without changing its state first, so the effect also watches its parent.
-  if (root.parentNode) {
-    const current = tip;
-    const observer = new MutationObserver(() => {
-      if (!root.isConnected) leave(element, current);
-    });
-    observer.observe(root.parentNode, { childList: true });
-    tip.stopWatch = () => observer.disconnect();
-  }
+  tip.stopWatch = watchRemoval(element, tip);
   const current = tip;
   whenPlaced(element, tip, () => start(element, current));
 }
@@ -533,6 +547,8 @@ function watchMoves(): void {
 }
 function stopWatchingMoves(): void {
   watching = false;
+  cancelAnimationFrame(checking);
+  checking = 0;
   document.removeEventListener("pointerover", onMove, { capture: true });
   document.removeEventListener("focusin", onMove, { capture: true });
 }

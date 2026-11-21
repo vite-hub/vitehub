@@ -318,11 +318,14 @@ describe("Console Usage URL state", () => {
   it("keeps the headline while another period loads, so its digits roll from the old totals", async () => {
     route.query = { metric: "sessions" }
     const nextPeriod = deferred<ReturnType<typeof summary>>()
-    responses.push(summary({ sessionCount: 1_204 }), nextPeriod.promise)
+    const agent = (invocations: number) => ({ agent: "bot", ...totals({ invocations }) })
+    responses.push(summary({ sessionCount: 1_204, agents: [agent(12)] }), nextPeriod.promise)
     const { app, root } = await mount()
     try {
       const value = root.querySelector(".usage-headline__value")
+      const agentCount = () => root.querySelector('[title="bot"] + .usage-filters__count')?.textContent
       expect(value?.textContent).toBe("1,204")
+      expect(agentCount()).toBe("12")
       route.query = { ...route.query, window: "7d" }
       await vi.waitFor(() => expect(requests.at(-1)).toEqual({ window: "7d" }))
       await nextTick()
@@ -330,9 +333,11 @@ describe("Console Usage URL state", () => {
       expect(value?.textContent).toBe("1,204")
       expect(root.querySelector(".usage-page__caption")?.textContent).toContain("Previous results · 30 days")
       expect(root.querySelector("#usage-ranked-heading")).toBeNull()
-      nextPeriod.resolve(summary({ sessionCount: 1_342 }))
+      expect(agentCount()).toBe("")
+      nextPeriod.resolve(summary({ sessionCount: 1_342, agents: [agent(4)] }))
       // The digits roll: the element holds the rolling glyphs and names the new total for screen readers.
       await vi.waitFor(() => expect(value?.querySelector("[data-motion-copy]")?.textContent).toBe("1,342"))
+      expect(agentCount()).toBe("4")
       expect(value?.querySelector("[data-motion-glyphs]")).not.toBeNull()
       expect(root.querySelector(".usage-headline__value")).toBe(value)
       expect(root.querySelector(".usage-page__caption")?.textContent).toContain("7 days")
