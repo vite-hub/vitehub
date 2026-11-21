@@ -192,7 +192,7 @@ Most changes are options in `nuxt.config.ts`:
 | Option | Default | Use |
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
-| `base` | `/docs`, or `/` without a `docs/` folder | URL prefix whose folders are sections. |
+| `base` | `/docs`, or `/` without a `docs/` folder in `dir` | URL prefix whose folders are sections. With `sources`, the default is always `/docs`. If all pages are outside the default base, setup warns with `DOCS_BASE_EMPTY`. Set `base: '/docs'` to keep them standalone without the warning. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
