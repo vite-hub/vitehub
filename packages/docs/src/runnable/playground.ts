@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { invariantError } from "@vite-hub/internal/invariant"
+
 import { readTree, resolveManifest } from "./build.ts"
 import { dependencyKey } from "./steps.ts"
 
@@ -52,7 +54,7 @@ export function snapshotSources(tutorials: RunnableTutorialSource[], examples: P
     ...tutorials,
     ...own.map((template) => {
       const example = examples.find(source => source.id === template.id)
-      if (!example) throw new Error(`No playground example with the id ${template.id}.`)
+      if (!example) throw invariantError(`a playground template comes from an example (${template.id})`)
       return { slug: template.snapshotOf, page: "/playground", fixture: example.fixture }
     }),
   ]

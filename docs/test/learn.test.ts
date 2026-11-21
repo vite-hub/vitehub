@@ -1,9 +1,10 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { buildLearnCatalog, filterQuickstarts, learnMeta } from "../app/utils/learn-catalog";
-import { readLearnFacts } from "../../packages/docs/src/runnable/learn";
+import { tutorialPageFacts } from "../../packages/docs/src/runnable/learn";
 import { runnableTutorials } from "../runnable";
 import { createDocsRedirectRouteRules } from "../modules/vitehub-docs/redirects";
 
@@ -48,9 +49,14 @@ describe("Learn", () => {
   });
 
   it("reads facts for every runnable tutorial from the docs content", async () => {
-    const facts = await readLearnFacts(resolve(docsRoot, "content"));
-    for (const tutorial of runnableTutorials) expect(facts[tutorial.page]?.steps, tutorial.page).toBeGreaterThan(0);
-    expect(facts["/docs/kv/get-started"]).toBeDefined();
+    // The docs module reads these facts from each `layout: tutorial` page of the manifest.
+    const facts = async (page: string) => {
+      const markdown = await readFile(resolve(docsRoot, `content${page}.md`), "utf8");
+      expect(markdown, page).toMatch(/^layout:\s*tutorial\s*$/m);
+      return tutorialPageFacts(markdown);
+    };
+    for (const tutorial of runnableTutorials) expect((await facts(tutorial.page)).steps, tutorial.page).toBeGreaterThan(0);
+    expect((await facts("/docs/kv/get-started")).minutes).toBeGreaterThan(0);
   });
 
   it("sends the old Blog and Guides paths to Learn", () => {

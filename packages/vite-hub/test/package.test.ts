@@ -112,6 +112,8 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
+  // The docs module and the site's own lesson pages import it. Apps reach it through `#build` types, not a facade.
+  "@vite-hub/docs/runnable",
   // Pages read these as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
   "@vite-hub/ui/comment-marks.css",
   "@vite-hub/ui/icon-swap.css",

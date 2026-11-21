@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -204,7 +205,10 @@ describe("runnable tutorials", () => {
   const repoRoot = resolve(docsRoot, "..");
   const build = async (index: number) => buildRunnableTutorial({
     source: runnableTutorials[index]!,
-    contentDir: resolve(docsRoot, "content"),
+    readPage: (path) => {
+      const file = resolve(docsRoot, `content${path}.md`);
+      return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+    },
     fixturesDir: fixturesRoot,
     versions: await readWorkspaceVersions(repoRoot),
     start: "/docs/getting-started/installation",

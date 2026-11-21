@@ -195,8 +195,8 @@ export interface DocsModuleOptions {
   /**
    * Lessons and playground examples that run in the reader's browser, in a WebContainer. Each one runs an app from the
    * fixtures folder. The build writes `#build/runnable-tutorials.mjs`, `#build/playground-templates.mjs`,
-   * `#build/learn-facts.mjs`, and a `node_modules` snapshot of each app at `/_tutorials/snapshots/`. Lessons read their
-   * pages from `dir`.
+   * `#build/learn-facts.mjs`, and a `node_modules` snapshot of each app at `/_tutorials/snapshots/` under the app base.
+   * Each lesson names its page by URL, so the page can come from `dir` or from `sources`.
    */
   runnable?: DocsRunnableOptions
 }
@@ -444,7 +444,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
     addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
-    if (options.runnable) await setupDocsRunnable(options.runnable, { nuxt, contentDir })
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
@@ -494,6 +493,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
     const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
     const readPage = (page: DocsPage): string => sourcePages.get(`${page.source}/${page.file}`) ?? readFileSync(pageFile(page), "utf8")
+    if (options.runnable) {
+      // Lessons read their pages by URL, from `dir` or `sources`, so a lesson can live in any Content Source.
+      await setupDocsRunnable(options.runnable, {
+        nuxt,
+        content: {
+          pages: () => docsManifestPages(manifest),
+          read: (path) => {
+            const page = docsManifestPages(manifest).find(page => page.path === normalizeDocsPath(path))
+            return page && readPage(page)
+          },
+        },
+      })
+    }
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the

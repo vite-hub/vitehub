@@ -1,6 +1,8 @@
-import { readFile, readdir } from "node:fs/promises"
-import { join, relative, resolve } from "node:path"
+import { glob, readFile, readdir } from "node:fs/promises"
+import { join, matchesGlob, relative, resolve } from "node:path"
 import { parse } from "yaml"
+
+import { docsErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { RunnableTutorialData, TutorialFiles } from "./steps.ts"
 
@@ -8,7 +10,7 @@ import type { RunnableTutorialData, TutorialFiles } from "./steps.ts"
 export interface RunnableTutorialSource {
   /** The id of the lesson and of its snapshot, such as `first-agent`. */
   slug: string
-  /** The docs page, such as `/docs/getting-started/first-agent`. Its file is `<content folder>/<page>.md`. */
+  /** The URL of the docs page, such as `/docs/getting-started/first-agent`. */
   page: string
   /** The folder of the app after the last step, in the fixtures folder. */
   fixture: string
@@ -76,7 +78,7 @@ export function parseTutorialSteps(markdown: string): { title: string, labels: s
   markdown = frameworkView(markdown, "Vite")
   for (const match of markdown.matchAll(/^::tutorial-step\{([^}]*)\}\n([\s\S]*?)^::$/gm)) {
     const title = /title="([^"]*)"/.exec(match[1]!)?.[1]
-    if (!title) throw new Error(`A ::tutorial-step block has no title: ::tutorial-step{${match[1]}}`)
+    if (!title) throw docsErrorDiagnostics.DOCS_RUNNABLE_TITLE_MISSING({ block: `::tutorial-step{${match[1]}}` })
     steps.push({ title, labels: codeBlockLabels(match[2]!).filter(isTutorialFileLabel) })
   }
   return steps
@@ -117,31 +119,22 @@ async function readPnpmWorkspace(root: string): Promise<Record<string, unknown>>
   return workspace && typeof workspace === "object" ? workspace as Record<string, unknown> : {}
 }
 
-/** Expands one `packages` pattern of `pnpm-workspace.yaml`. A `*` matches one folder name. `**` and `!` patterns match nothing. */
-async function expandPattern(root: string, pattern: string): Promise<string[]> {
-  if (pattern.startsWith("!") || pattern.includes("**")) return []
-  let dirs = [root]
-  for (const segment of pattern.replace(/\/+$/, "").split("/")) {
-    const next: string[] = []
-    for (const dir of dirs) {
-      if (segment !== "*") {
-        next.push(join(dir, segment))
-        continue
-      }
-      const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) if (entry.isDirectory() && entry.name !== "node_modules") next.push(join(dir, entry.name))
-    }
-    dirs = next
-  }
-  return dirs
-}
+const isNodeModules = (path: string) => path.split(/[\\/]/).includes("node_modules")
 
-/** The folders of the packages that `pnpm-workspace.yaml` lists, sorted. */
+/**
+ * The folders of the workspace packages, sorted, as pnpm finds them: the root and each folder with a `package.json`
+ * that a `packages` pattern of `pnpm-workspace.yaml` matches and no `!` pattern excludes.
+ */
 export async function workspacePackageDirs(root: string): Promise<string[]> {
   const { packages } = await readPnpmWorkspace(root)
-  const patterns = Array.isArray(packages) ? packages.filter((pattern): pattern is string => typeof pattern === "string") : []
+  const patterns = Array.isArray(packages) ? packages.filter((pattern): pattern is string => typeof pattern === "string").map(pattern => pattern.replace(/\/+$/, "")) : []
+  const excluded = patterns.filter(pattern => pattern.startsWith("!")).map(pattern => pattern.slice(1))
+  const included = patterns.filter(pattern => !pattern.startsWith("!")).map(pattern => `${pattern}/package.json`)
   const dirs = new Set<string>()
-  for (const pattern of patterns) for (const dir of await expandPattern(root, pattern)) dirs.add(dir)
+  for await (const file of glob(["package.json", ...included], { cwd: root, exclude: isNodeModules })) {
+    const dir = file.replaceAll("\\", "/").replace(/\/?package\.json$/, "")
+    if (!excluded.some(pattern => matchesGlob(dir, pattern))) dirs.add(resolve(root, dir))
+  }
   return [...dirs].sort()
 }
 
@@ -162,30 +155,44 @@ export async function readWorkspaceVersions(root: string): Promise<WorkspaceVers
   return { catalogs, packages }
 }
 
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(item => typeof item === "string")
+
 /**
  * Rewrites `catalog:` and `workspace:` specifiers to npm versions, so `npm install` works outside the pnpm workspace.
  * A workspace package resolves to the published range of its current version.
  */
-export function resolveManifest(source: string, versions: WorkspaceVersions): string {
-  const manifest = JSON.parse(source)
-  for (const field of ["dependencies", "devDependencies"] as const) {
-    const dependencies: Record<string, string> | undefined = manifest[field]
-    if (!dependencies) continue
-    for (const [name, specifier] of Object.entries(dependencies)) {
-      if (specifier.startsWith("catalog:")) {
-        const catalog = specifier.slice("catalog:".length) || "default"
-        const version = versions.catalogs[catalog]?.[name]
-        if (!version) throw new Error(`No version of ${name} in the pnpm catalog "${catalog}". Set \`docs.runnable.pnpmWorkspace\` to the folder of pnpm-workspace.yaml.`)
-        dependencies[name] = version
-      }
-      else if (specifier.startsWith("workspace:")) {
-        const version = versions.packages[name]
-        if (!version) throw new Error(`No workspace package named ${name}. Set \`docs.runnable.pnpmWorkspace\` to the folder of pnpm-workspace.yaml.`)
-        dependencies[name] = `^${version}`
-      }
+export function resolveDependencies(dependencies: Record<string, string>, versions: WorkspaceVersions): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  for (const [name, specifier] of Object.entries(dependencies)) {
+    if (specifier.startsWith("catalog:")) {
+      const catalog = specifier.slice("catalog:".length) || "default"
+      const version = versions.catalogs[catalog]?.[name]
+      if (!version) throw docsErrorDiagnostics.DOCS_RUNNABLE_CATALOG_VERSION_MISSING({ catalog, name })
+      resolved[name] = version
+    }
+    else if (specifier.startsWith("workspace:")) {
+      const version = versions.packages[name]
+      if (!version) throw docsErrorDiagnostics.DOCS_RUNNABLE_WORKSPACE_PACKAGE_MISSING({ name })
+      resolved[name] = `^${version}`
+    }
+    else {
+      resolved[name] = specifier
     }
   }
-  return `${JSON.stringify(manifest, null, 2)}\n`
+  return resolved
+}
+
+/** A `package.json` with the `dependencies` and `devDependencies` of `resolveDependencies()`. Other JSON stays as it is. */
+export function resolveManifest(source: string, versions: WorkspaceVersions): string {
+  const manifest: unknown = JSON.parse(source)
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return source
+  const resolved: Record<string, unknown> = { ...manifest }
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const dependencies = resolved[field]
+    if (isStringRecord(dependencies)) resolved[field] = resolveDependencies(dependencies, versions)
+  }
+  return `${JSON.stringify(resolved, null, 2)}\n`
 }
 
 /**
@@ -197,28 +204,33 @@ export function resolveManifest(source: string, versions: WorkspaceVersions): st
  */
 export async function buildRunnableTutorial(input: {
   source: RunnableTutorialSource
-  contentDir: string
+  /** The Markdown of the docs page at a URL, or nothing when the site has no page there. */
+  readPage: (path: string) => string | undefined
   fixturesDir: string
   versions: WorkspaceVersions
   /** A docs page, such as `/docs/getting-started/installation`, whose code blocks are the files before step 1. */
   start?: string
 }): Promise<RunnableTutorialData> {
-  const { source, contentDir, fixturesDir, versions } = input
-  const readPage = async (page: string) => (await readFile(resolve(contentDir, `${page.replace(/^\//, "")}.md`), "utf8")).replaceAll("\r\n", "\n")
-  const lesson = await readPage(source.page)
-  const start = input.start ? await readPage(input.start) : ""
+  const { source, fixturesDir, versions } = input
+  const readPage = (page: string) => {
+    const markdown = input.readPage(page)
+    if (markdown === undefined) throw docsErrorDiagnostics.DOCS_RUNNABLE_PAGE_MISSING({ page })
+    return markdown.replaceAll("\r\n", "\n")
+  }
+  const lesson = readPage(source.page)
+  const start = input.start ? readPage(input.start) : ""
   const fixture = await readTree(resolve(fixturesDir, source.fixture))
   if (fixture["package.json"]) fixture["package.json"] = resolveManifest(fixture["package.json"], versions)
 
   const parsed = parseTutorialSteps(lesson)
-  if (parsed.length === 0) throw new Error(`${source.page} has no ::tutorial-step blocks.`)
+  if (parsed.length === 0) throw docsErrorDiagnostics.DOCS_RUNNABLE_STEPS_MISSING({ page: source.page })
 
   const files: TutorialFiles = { ...fixture }
   const steps = parsed.map(({ title, labels }) => {
     const stepFiles: TutorialFiles = {}
     for (const label of labels) {
       const contents = fixture[label]
-      if (contents === undefined) throw new Error(`${source.page} shows ${label}, but the fixture ${source.fixture} has no such file.`)
+      if (contents === undefined) throw docsErrorDiagnostics.DOCS_RUNNABLE_FIXTURE_FILE_MISSING({ fixture: source.fixture, label, page: source.page })
       stepFiles[label] = contents
     }
     return { title, files: stepFiles }

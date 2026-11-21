@@ -48,7 +48,7 @@ describe("playground examples", () => {
   })
 
   it("rejects a template without an example", () => {
-    expect(() => snapshotSources(lessons, examples, [{ id: "missing", snapshotOf: "playground-missing" }])).toThrow("No playground example with the id missing.")
+    expect(() => snapshotSources(lessons, examples, [{ id: "missing", snapshotOf: "playground-missing" }])).toThrow("a playground template comes from an example (missing)")
   })
 
   it("compares installs by dependencies only", () => {

@@ -4,13 +4,13 @@ import { resolve } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { readTutorialSnapshots, sortPackedManifest, tutorialLockfile, tutorialSnapshotInputs } from "../src/runnable/snapshots.ts"
+import { devServerInDevDependencies, readManifest, readTutorialSnapshots, sortPackedManifest, tutorialLockfile, tutorialSnapshotInputs } from "../src/runnable/snapshots.ts"
 
 let dir: string
 beforeEach(async () => { dir = await mkdtemp(resolve(tmpdir(), "runnable-snapshots-")) })
 afterEach(() => rm(dir, { recursive: true, force: true }))
 
-const tutorials = { "first-agent": { parts: ["/_tutorials/snapshots/first-agent.abc.0.bin"], sha256: "abc" } }
+const tutorials = { "first-agent": { parts: ["first-agent.abc.0.bin"], sha256: "abc" } }
 
 describe("reading tutorial snapshots", () => {
   it("disables cached snapshots and their public assets when explicitly requested", async () => {
@@ -88,6 +88,29 @@ describe("tutorial snapshot inputs", () => {
     await writeFile(resolve(dir, "pnpm-lock.yaml"), "lockfileVersion: '10.0'\n")
     await writeFile(resolve(dir, "packages/vite-hub/package.json"), "{\"changed\":true}\n")
     expect(await inputs(versions, false)).toBe(before)
+  })
+})
+
+describe("fixture manifests", () => {
+  it("reads the fields of a package.json that a snapshot uses, and nothing from invalid JSON", () => {
+    const manifest = readManifest(JSON.stringify({
+      name: "kv",
+      scripts: { dev: "vite" },
+      dependencies: { "vite-hub": "workspace:*", "broken": 1 },
+      peerDependencies: { vue: "^3.5.0", h3: "^2.0.0" },
+      peerDependenciesMeta: { h3: { optional: true } },
+    }))
+    expect(manifest).toMatchObject({ name: "kv", private: false, dependencies: { "vite-hub": "workspace:*" }, devDependencies: {}, peerDependencies: { vue: "^3.5.0", h3: "^2.0.0" } })
+    expect([...manifest.optionalPeers]).toEqual(["h3"])
+    expect(readManifest("not json")).toMatchObject({ name: undefined, dependencies: {} })
+    expect(readManifest("[]")).toMatchObject({ name: undefined, dependencies: {} })
+  })
+
+  it("finds a dev server that only devDependencies install", () => {
+    // The snapshot installs `dependencies`, so the dev server must be one of them.
+    expect(devServerInDevDependencies(readManifest(JSON.stringify({ scripts: { dev: "vite --host" }, devDependencies: { vite: "^8.0.0" } })))).toBe("vite")
+    expect(devServerInDevDependencies(readManifest(JSON.stringify({ scripts: { dev: "vite" }, dependencies: { vite: "^8.0.0" } })))).toBeUndefined()
+    expect(devServerInDevDependencies(readManifest(JSON.stringify({ dependencies: { vite: "^8.0.0" } })))).toBeUndefined()
   })
 })
 

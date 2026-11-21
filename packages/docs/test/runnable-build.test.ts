@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
@@ -48,7 +49,16 @@ async function app() {
 }
 
 const source = { slug: "hello", page: "/docs/lesson", fixture: "hello" }
-const build = (start?: string) => buildRunnableTutorial({ source, contentDir: resolve(dir, "content"), fixturesDir: resolve(dir, "fixtures"), versions: noWorkspaceVersions, start })
+/** Reads a page by URL, as the docs module does: `/docs/lesson` is `docs/lesson.md` or `docs/lesson/index.md`. */
+function readPage(path: string): string | undefined {
+  for (const file of [`content${path}.md`, `content${path}/index.md`]) {
+    try {
+      return readFileSync(resolve(dir, file), "utf8")
+    }
+    catch {}
+  }
+}
+const build = (start?: string) => buildRunnableTutorial({ source, readPage, fixturesDir: resolve(dir, "fixtures"), versions: noWorkspaceVersions, start })
 
 describe("runnable lessons", () => {
   it("builds the steps of a lesson from its page and its fixture, outside a pnpm workspace", async () => {
@@ -79,6 +89,25 @@ describe("runnable lessons", () => {
     expect(await build("/docs/start")).toEqual(lf)
   })
 
+  it("reads a lesson page that is the index of its folder", async () => {
+    await app()
+    await rm(resolve(dir, "content/docs/lesson.md"))
+    await write("content/docs/lesson/index.md", lesson)
+    expect((await build()).steps).toHaveLength(2)
+  })
+
+  it("reads lesson pages from any source of the docs site", async () => {
+    await app()
+    const pages: Record<string, string> = { "/guide/lesson": lesson }
+    const tutorial = await buildRunnableTutorial({ source: { ...source, page: "/guide/lesson" }, readPage: path => pages[path], fixturesDir: resolve(dir, "fixtures"), versions: noWorkspaceVersions })
+    expect(tutorial.steps).toHaveLength(2)
+  })
+
+  it("names the page when the site has no page at its URL", async () => {
+    await app()
+    await expect(build("/docs/missing")).rejects.toThrow("docs.runnable names the page /docs/missing, but the docs site has no page at that URL.")
+  })
+
   it("names the fixture when the lesson shows a file that the fixture lacks", async () => {
     await app()
     await rm(resolve(dir, "fixtures/hello/vite.config.ts"))
@@ -88,7 +117,7 @@ describe("runnable lessons", () => {
   it("rejects a page without steps", async () => {
     await app()
     await write("content/docs/lesson.md", "---\ntitle: Empty\n---\n")
-    await expect(build()).rejects.toThrow("/docs/lesson has no ::tutorial-step blocks.")
+    await expect(build()).rejects.toThrow("/docs/lesson has no ::tutorial-step blocks, so docs.runnable cannot build its lesson.")
   })
 
   it("reads the Vite tab of framework tabs", () => {
@@ -112,8 +141,10 @@ describe("pnpm workspace versions", () => {
     await write("pnpm-workspace.yaml", [
       "packages:",
       "  - \"packages/*\"",
-      "  - \"docs\"",
+      "  - \"integrations/**\"",
+      "  - \"docs/\"",
       "  - \"!packages/private\"",
+      "  - \"!integrations/**/test\"",
       "catalog:",
       "  zod: 4.6.5",
       "catalogs:",
@@ -123,16 +154,23 @@ describe("pnpm workspace versions", () => {
     await write("packages/kv/package.json", JSON.stringify({ name: "@vite-hub/kv", version: "0.4.0" }))
     await write("packages/vite-hub/package.json", JSON.stringify({ name: "vite-hub", version: "0.1.0" }))
     await write("packages/notes/README.md", "no manifest\n")
+    await write("packages/private/package.json", JSON.stringify({ name: "private", version: "9.9.9" }))
+    await write("integrations/nuxt/app/package.json", JSON.stringify({ name: "@vite-hub/nuxt-app", version: "0.2.0" }))
+    await write("integrations/nuxt/test/package.json", JSON.stringify({ name: "nuxt-test", version: "0.0.1" }))
     await write("docs/package.json", JSON.stringify({ name: "docs", private: true }))
     await write("packages/node_modules/.keep", "")
+    await write("packages/kv/node_modules/dep/package.json", JSON.stringify({ name: "dep", version: "1.0.0" }))
+    await write("package.json", JSON.stringify({ name: "root", version: "1.2.3" }))
   }
 
-  it("lists the package folders of pnpm-workspace.yaml", async () => {
+  it("lists the package folders of pnpm-workspace.yaml as pnpm does", async () => {
     await workspace()
+    // The root is a package, `**` matches nested folders, a folder without package.json and `!` matches are not packages.
     expect(await workspacePackageDirs(dir)).toEqual([
+      dir,
       resolve(dir, "docs"),
+      resolve(dir, "integrations/nuxt/app"),
       resolve(dir, "packages/kv"),
-      resolve(dir, "packages/notes"),
       resolve(dir, "packages/vite-hub"),
     ])
   })
@@ -142,14 +180,14 @@ describe("pnpm workspace versions", () => {
     const versions = await readWorkspaceVersions(dir)
     expect(versions).toEqual({
       catalogs: { default: { zod: "4.6.5" }, ui: { vue: "3.6.0" } },
-      packages: { "@vite-hub/kv": "0.4.0", "vite-hub": "0.1.0" },
+      packages: { "root": "1.2.3", "@vite-hub/kv": "0.4.0", "@vite-hub/nuxt-app": "0.2.0", "vite-hub": "0.1.0" },
     })
     const manifest = JSON.stringify({ dependencies: { "vite-hub": "workspace:*", "zod": "catalog:", "vue": "catalog:ui", "h3": "^2.0.0" } })
     expect(JSON.parse(resolveManifest(manifest, versions)).dependencies).toEqual({ "vite-hub": "^0.1.0", "zod": "4.6.5", "vue": "3.6.0", "h3": "^2.0.0" })
   })
 
   it("names the option when a fixture needs a pnpm workspace", () => {
-    expect(() => resolveManifest(JSON.stringify({ dependencies: { zod: "catalog:" } }), noWorkspaceVersions)).toThrow("docs.runnable.pnpmWorkspace")
-    expect(() => resolveManifest(JSON.stringify({ dependencies: { "vite-hub": "workspace:*" } }), noWorkspaceVersions)).toThrow("docs.runnable.pnpmWorkspace")
+    expect(() => resolveManifest(JSON.stringify({ dependencies: { zod: "catalog:" } }), noWorkspaceVersions)).toThrow(expect.objectContaining({ code: "DOCS_RUNNABLE_CATALOG_VERSION_MISSING", fix: expect.stringContaining("docs.runnable.pnpmWorkspace") }))
+    expect(() => resolveManifest(JSON.stringify({ devDependencies: { "vite-hub": "workspace:*" } }), noWorkspaceVersions)).toThrow(expect.objectContaining({ code: "DOCS_RUNNABLE_WORKSPACE_PACKAGE_MISSING", fix: expect.stringContaining("docs.runnable.pnpmWorkspace") }))
   })
 })
