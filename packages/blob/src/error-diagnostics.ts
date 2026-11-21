@@ -109,6 +109,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ maxFiles }: { maxFiles: number }) => `\`maxFiles\` of \`handleUpload()\` is ${maxFiles}. It must be a positive integer.`,
       fix: "Pass `maxFiles` as a whole number of 1 or more, such as `blob.handleUpload(event, { maxFiles: 5 })`, or omit it to accept any number of files.",
     },
+    // Config errors
     BLOB_UNKNOWN_STORE_OPTION: {
       why: ({ driver, key, path }: { drivers: readonly string[], driver?: string, key: string, path: string }) => driver
         ? `\`${path}.${key}\` is not an option of the \`${driver}\` Blob driver.`
