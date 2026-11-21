@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineChoices } from "../src/index.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 describe("defineChoices types", () => {
   it("types selections from the declared options", async () => {

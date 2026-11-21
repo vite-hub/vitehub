@@ -86,5 +86,9 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
         : `[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`,
       fix: "Retry the ask, because the Jev service sent an incomplete answer. If it repeats, update the `advocaat` package and check the Jev service status.",
     },
+    GATEWAYS_TESTING_ANSWER_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+      fix: "Pass `answers.choice()` a choice question and one of its labels, `answers.score()` a score question and a level from 0, and a probability from 0 to 1.",
+    },
   },
 })

@@ -115,6 +115,23 @@ if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
 
+### Test without a key
+
+`scriptedAsk(script)` from `@vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. `answers.choice()`, `answers.score()`, `answers.chance()`, and `answers.first()` build answers that pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from '@vite-hub/gateways'
+import { answers, scriptedAsk } from '@vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+```
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option. `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` returns a rejected key or a failing provider instead.
+
 ## Presets
 
 | Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |

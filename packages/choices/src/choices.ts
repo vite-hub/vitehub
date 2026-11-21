@@ -2,6 +2,7 @@ import { ask, askWithModel } from "@vite-hub/gateways"
 import { getPublicAiGatewayDiagnostic } from "@vite-hub/gateways/internal"
 
 import { choicesDiagnostics } from "./diagnostics.ts"
+import { attachPlanRequest } from "./plan-request.ts"
 
 import type { AiGatewayAsk, AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
 import type {
@@ -272,7 +273,9 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
     if (trimmed.length > limits.text) return [fail("DECISIONS_R0003", `The text has ${trimmed.length} characters. The limit is ${limits.text}.`)]
     const loaded = await loadGroups(base, limits, request?.context)
     if ("error" in loaded) return [loaded.error]
-    return [undefined, { groups: loaded.groups, plan: buildPlan(trimmed, loaded.groups, hints), text: trimmed }]
+    const plan = buildPlan(trimmed, loaded.groups, hints)
+    attachPlanRequest(plan.state, { context: request?.context, keys: loaded.groups.map(group => group.key) })
+    return [undefined, { groups: loaded.groups, plan, text: trimmed }]
   }
 
   return {

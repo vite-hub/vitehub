@@ -30,58 +30,11 @@ pnpm add -D @vitejs/plugin-vue
 ::tutorial-step{title="Declare your options"}
 ## Declare your options
 
-Create `server/utils/word-gateway.ts`. A gateway is the object that asks the model. This one asks no model. It looks for words in the text, so you can see the flow with no API key. Read it once, then leave it alone.
-
-```ts [server/utils/word-gateway.ts]
-import type { AiGatewayAsk } from "vite-hub/gateways"
-
-type Plan = { groups: { label: string, options: { label: string }[] }[], query: string }
-
-function answer(choice: string, labels: string[], probability: number) {
-  const others = Number(((1 - probability) / Math.max(1, labels.length - 1)).toFixed(2))
-  return {
-    choice,
-    confidence: probability,
-    probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? probability : others])),
-    type: "choice" as const,
-  }
-}
-
-// An offline stand-in for a decision model. It reads the text word by word:
-// an option is included when the text names it, and excluded when "except", "not", or "without" comes before it.
-// It needs no key. Use it to learn the flow, not to ship.
-export const wordGateway: { ask: AiGatewayAsk } = {
-  ask: async (state, questions) => {
-    const { groups, query } = state as Plan
-    const text = query.toLowerCase()
-    const answers: Record<string, unknown> = { supported: { chance: 0.95, type: "chance" } }
-
-    groups.forEach((group, g) => {
-      const labels = group.options.map(option => option.label)
-      if (`g${g}` in questions) {
-        const named = labels.find(label => text.includes(label.toLowerCase())) ?? "(none)"
-        answers[`g${g}`] = answer(named, [...labels, "(none)"], 0.8)
-        return
-      }
-      group.options.forEach((option, o) => {
-        const label = option.label.toLowerCase()
-        const excluded = new RegExp(`(except|not|without)\\s+(\\w+\\s+)?${label}`).test(text)
-        const choice = !text.includes(label) ? "none" : excluded ? "exclude" : "include"
-        answers[`g${g}_o${o}`] = answer(choice, ["include", "exclude", "none"], 0.9)
-      })
-    })
-
-    // SAFETY: The answers follow the question keys that defineChoices() builds.
-    return [undefined, answers as never]
-  },
-}
-```
-
-Now write your own part. Create `server/utils/forecast-choices.ts`. It lists what the person can choose:
+Create `server/utils/forecast-choices.ts`. It lists what the person can choose:
 
 ```ts [server/utils/forecast-choices.ts]
 import { defineChoices, toOptions } from "vite-hub/choices"
-import { wordGateway } from "./word-gateway"
+import { wordGateway } from "vite-hub/choices/testing"
 
 // Your data. In a real app it comes from a database.
 const suppliers = [
@@ -92,7 +45,7 @@ const suppliers = [
 
 export const forecast = defineChoices({
   name: "forecast", // a label for logs. It connects nothing.
-  gateway: wordGateway,
+  gateway: wordGateway(), // asks no model, so you need no API key
   groups: {
     supplier: {
       label: "Supplier",
@@ -107,6 +60,7 @@ export const forecast = defineChoices({
 })
 ```
 
+- A **gateway** is the object that asks the model. `wordGateway()` asks no model. It looks for the option names in the text, so you can see the flow with no API key.
 - A **group** is one decision, such as "which supplier". An **option** is one thing that the person can pick.
 - `toOptions()` turns your data into options. This is the first of two bridges: code that connects your app to Choices.
 - The `supplier` group takes any number of options. The `chart` group takes at most one.
@@ -317,12 +271,12 @@ The list shows plain Vue state. Replace it with your own filter bar, and the sam
 The word gateway knows only exact names. A real decision model also reads codes, short names, and typos. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes in your code. `typesafe()` sends the questions through `advocaat`, the TypeSafe client, so install it with `pnpm add advocaat`. Without it, `resolve()` returns an error.
 
 ```diff
--import { wordGateway } from "./word-gateway"
+-import { wordGateway } from "vite-hub/choices/testing"
 +import { typesafe } from "vite-hub/gateways"
 ```
 
 ```diff
--  gateway: wordGateway,
+-  gateway: wordGateway(), // asks no model, so you need no API key
 +  gateway: typesafe(), // reads TYPESAFE_API_KEY on the server
 ```
 
@@ -333,7 +287,7 @@ export TYPESAFE_API_KEY=your-key
 pnpm dev
 ```
 
-You can now delete `server/utils/word-gateway.ts`. The route and the page do not change, because they use only `resolve()` and the selection.
+The route and the page do not change, because they use only `resolve()` and the selection.
 
 ::
 

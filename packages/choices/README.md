@@ -121,6 +121,19 @@ A newer request cancels the older one through `signal`, and the older result nev
 
 `thresholds.option` (0.5) decides one option. `thresholds.supported` (0.6) decides whether the text can be expressed at all. A decision model answers from the options you gave it. It cannot compare numbers or invent a value.
 
+## Test
+
+`@vite-hub/choices/testing` has two gateways that need no key. `selectionGateway(selection)` answers with the selection that you give, by group key and option value, and the answers go through the same checks as a model answer:
+
+```ts fragment
+import { selectionGateway, unsupported } from '@vite-hub/choices/testing'
+
+const choices = defineChoices({ gateway: selectionGateway<typeof groups>({ supplier: { include: ['S2'] }, chart: 'bar' }), groups })
+await choices.resolve('anything') // [undefined, { supplier: { include: ['S2'], exclude: [] }, chart: { value: 'bar', ... } }]
+```
+
+Pass a function, `(text, context) => selection`, to answer from the request. Return `unsupported` for `DECISIONS_R0004`, and throw for `DECISIONS_R0005`. `wordGateway()` answers by word match, for examples and local dev without a key. For a failing provider, pass `scriptedAsk()` from `@vite-hub/gateways/testing`.
+
 ## Inspect
 
 `choices.inspect(text)` returns the state and the questions that `resolve()` would send. Nothing leaves your server.

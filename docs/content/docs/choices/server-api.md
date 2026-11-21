@@ -130,3 +130,35 @@ pnpm vitehub choices run server/utils/forecast-choices.ts "nord parts" --inspect
 ```
 
 `run` prints the selection as JSON. Read [Run Choices](/docs/cli/primitives#run-choices) for `--export` and `--context`.
+
+## Test without a model
+
+`vite-hub/choices/testing` has two gateways that need no key. Pass one as the `gateway` of `defineChoices()`.
+
+`selectionGateway(selection)` answers with the selection that you give, by group key and option value. The answers go through the same checks as a model answer, so `resolve()` returns what your code would get:
+
+```ts [forecast.test.ts]
+import { defineChoices } from 'vite-hub/choices'
+import { selectionGateway, unsupported } from 'vite-hub/choices/testing'
+
+const groups = {
+  chart: { label: 'Chart', multiple: false, options: [{ label: 'Line', value: 'line' }, { label: 'Bar', value: 'bar' }] },
+  supplier: { label: 'Supplier', options: [{ label: 'Vak Supply', value: 'S1' }, { label: 'Nord Parts', value: 'S2' }] },
+} as const
+
+const forecast = defineChoices({
+  gateway: selectionGateway<typeof groups>({ chart: 'bar', supplier: { include: ['S2'], exclude: ['S1'] } }),
+  groups,
+})
+const [, selection] = await forecast.resolve('bar chart for nord parts except vak supply')
+selection?.supplier.include // ['S2']
+
+// DECISIONS_R0004: the options cannot express the text.
+await defineChoices({ gateway: selectionGateway(unsupported), groups }).resolve('price above 100')
+```
+
+A group that you leave out selects nothing. Pass a function, `(text, context) => selection`, to answer from the text and the request `context`. Return `unsupported` for [`DECISIONS_R0004`](/docs/choices/limits-and-errors#decisions_r0004), and throw for [`DECISIONS_R0005`](/docs/choices/limits-and-errors#decisions_r0005). A group key or option value that the groups do not have also returns `DECISIONS_R0005`, with `DECISIONS_TESTING_SELECTION_INVALID` as its `cause`.
+
+`wordGateway()` answers by word match: it includes an option that the text names and excludes one after "except", "not", or "without". [Get started](/docs/choices/get-started) uses it. It is not a model, so use it to try the flow, not to ship.
+
+For a failing gateway, pass `scriptedAsk()` from `vite-hub/gateways/testing` with `{ error: 'GATEWAYS_R0008' }`. `resolve()` returns `DECISIONS_R0005` with the gateway's public reason. See [Test without a key](/docs/gateways/server-api#test-without-a-key).
