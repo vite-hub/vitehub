@@ -1,13 +1,12 @@
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
-import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
+import type { MotionContentChange, MotionEffect, MotionPress, MotionRoot, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
-/** What an install covers: the document, a shadow root, or an element and everything in it, such as the host of a bar. */
-export type MotionRoot = Document | ShadowRoot | Element;
+export type { MotionRoot } from "./registry.ts";
 
 const optOut = "[data-motion=\"none\"]";
-const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
+const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver; watchers: Map<MotionEffect, () => void> }>();
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
@@ -168,7 +167,16 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
   }
 }
 
-function onMutations(records: MutationRecord[]): void {
+function ownsMutation(root: MotionRoot, target: Node): boolean {
+  for (let node: Node | null = target; node; node = node.parentNode) {
+    if (node === root) return true;
+    if (node instanceof Element && roots.has(node)) return false;
+  }
+  return false;
+}
+
+function onMutations(root: MotionRoot, batch: MutationRecord[]): void {
+  const records = roots.size === 1 ? batch : batch.filter(record => ownsMutation(root, record.target));
   const effects = listMotionEffects();
   collectContent(records, effects);
   for (const record of records) {
@@ -214,6 +222,18 @@ function observe(root: MotionRoot, observer: MutationObserver): void {
   });
 }
 
+function syncWatchers(root: MotionRoot, watchers: Map<MotionEffect, () => void>): void {
+  const effects = listMotionEffects();
+  for (const [effect, stop] of watchers) {
+    if (effects.includes(effect)) continue;
+    stop();
+    watchers.delete(effect);
+  }
+  for (const effect of effects) {
+    if (effect.watch && !watchers.has(effect)) watchers.set(effect, effect.watch(root));
+  }
+}
+
 function startDocument(): void {
   const options = { capture: true, passive: true };
   document.addEventListener("pointerdown", onPointerDown, options);
@@ -234,7 +254,10 @@ function startDocument(): void {
       if (reduced) settleSprings();
     }),
     onMotionEffectsChange(() => {
-      for (const [root, { observer }] of roots) observe(root, observer);
+      for (const [root, { observer, watchers }] of roots) {
+        observe(root, observer);
+        syncWatchers(root, watchers);
+      }
     }),
   ];
 }
@@ -269,9 +292,11 @@ export function installMotion(root: MotionRoot, options: InstallMotionOptions): 
   const entry = roots.get(root);
   if (entry) entry.installs++;
   else {
-    const observer = new MutationObserver(onMutations);
+    const observer = new MutationObserver(records => onMutations(root, records));
+    const watchers = new Map<MotionEffect, () => void>();
     observe(root, observer);
-    roots.set(root, { installs: 1, observer });
+    roots.set(root, { installs: 1, observer, watchers });
+    syncWatchers(root, watchers);
   }
   let stopped = false;
   return () => {
@@ -281,6 +306,7 @@ export function installMotion(root: MotionRoot, options: InstallMotionOptions): 
     if (!current || --current.installs > 0) return;
     current.observer.disconnect();
     roots.delete(root);
+    for (const stop of current.watchers.values()) stop();
     if (roots.size) return;
     for (const stop of stopWatching) stop();
     stopWatching = [];

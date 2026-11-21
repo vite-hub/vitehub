@@ -199,6 +199,20 @@ describe("label morph", () => {
     assert.equal(await page.locator("[data-test=morph-vue]").textContent(), "Copied")
     await context.close()
   })
+
+  test("a responsive MorphText updates to plain text while hidden", async () => {
+    const { context, page } = await open({ viewport: { width: 480, height: 1400 } })
+    const selector = "[data-test=morph-vue] > [data-slot=morph-text]"
+    await page.addStyleTag({ content: `@media (max-width: 639px) { ${selector} { display: none } }` })
+    const label = page.locator(selector)
+    assert.equal(await label.isVisible(), false)
+    await page.locator("[data-test=label-toggle]").click()
+    assert.deepEqual(await label.evaluate(element => [...element.childNodes].map(node => [node.nodeType, node.textContent])), [[3, "Copied"]])
+    await page.setViewportSize({ width: 900, height: 1400 })
+    await label.waitFor({ state: "visible" })
+    assert.equal(await label.textContent(), "Copied")
+    await context.close()
+  })
 })
 
 describe("icon swap", () => {

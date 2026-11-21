@@ -63,6 +63,17 @@ const angle = (element) => {
 const width = element => ({ width: element.getBoundingClientRect().width, page: element.nextElementSibling.getBoundingClientRect().width, written: element.style.width })
 
 describe("disclosure", () => {
+  test("closing from code stops a chevron that is still opening", async () => {
+    const { context, page } = await open()
+    await page.evaluate(() => window.setSlow(4))
+    const chevron = page.locator("[data-test=details-chevron]")
+    await page.click("[data-test=summary]")
+    assert.ok((await chevron.evaluate(angle)).written)
+    await page.evaluate(() => { document.querySelector("#details").open = false })
+    assert.deepEqual(await chevron.evaluate(angle), { visual: 0, written: "" })
+    await context.close()
+  })
+
   for (const { name, trigger, chevron, end } of [
     { name: "a <details> chevron that `rotate` turns", trigger: "[data-test=summary]", chevron: "[data-test=details-chevron]", end: 90 },
     { name: "an aria-expanded chevron that `transform` turns", trigger: "[data-test=expand]", chevron: "[data-test=expand-chevron]", end: 180 },
@@ -253,6 +264,29 @@ describe("disclosure on the docs site", () => {
     await context.close()
   })
 
+  test("successive programmatic changes snap to the CSS angle without a press", async () => {
+    const { context, page } = await open()
+    for (const [selector, property, angles] of [["#native", "open", [0, -90]], ["#expanded", "aria-expanded", [180, 0]]]) {
+      const trace = await sampleChevron(page, selector)
+      for (const [index, open] of [true, false].entries()) {
+        await page.locator(selector).evaluate(async (element, { property, open }) => {
+          if (property === "open") element.open = open
+          else element.setAttribute(property, String(open))
+          await new Promise(requestAnimationFrame)
+        }, { property, open })
+        const frame = await page.locator(`${selector} .chev`).evaluate((icon) => {
+          const style = getComputedStyle(icon)
+          const matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform)
+          const rotate = style.rotate === "none" ? 0 : Number.parseFloat(style.rotate)
+          return [Math.atan2(matrix.b, matrix.a) * 180 / Math.PI + rotate, icon.style.rotate]
+        })
+        assert.deepEqual(frame, [angles[index], ""])
+      }
+      assert.ok((await trace.stop()).every(frame => !frame.written))
+    }
+    await context.close()
+  })
+
   test("a second click in the middle of the turn reverses from where the chevron is, with no jump", async () => {
     const { context, page } = await open()
     await page.evaluate(() => window.setMotionSlowFactor(4))
@@ -270,7 +304,7 @@ describe("disclosure on the docs site", () => {
 
   test("under reduced motion the chevron is at its new angle at once", async () => {
     const { context, page } = await open()
-    // A first open and close with motion, so the layer knows both angles.
+    // Earlier presses must not animate a new change under reduced motion.
     await toggle(page, "#native")
     await toggle(page, "#native")
     await page.evaluate(() => window.forceReducedMotion(true))
@@ -287,6 +321,10 @@ describe("disclosure on the docs site", () => {
     assert.equal(off.at(-1).angle, 0)
     assert.deepEqual(between(off, -90, 0), [], "no motion inside data-motion=none")
     assert.ok(off.every(frame => !frame.written))
+    await page.locator("#native .chev").evaluate(icon => icon.setAttribute("data-motion", "none"))
+    const iconOff = await toggle(page, "#native")
+    assert.equal(iconOff.at(-1).angle, 0)
+    assert.ok(iconOff.every(frame => !frame.written), "a press on the summary leaves its opted-out icon alone")
     const own = await toggle(page, "#own")
     assert.equal(own.at(-1).angle, 0)
     assert.ok(own.every(frame => !frame.written), "the layer leaves a chevron with its own transition alone")
@@ -295,6 +333,39 @@ describe("disclosure on the docs site", () => {
 })
 
 describe("panel", () => {
+  test("measuring grouped details panels does not change their open state", async () => {
+    const { context, page } = await open()
+    await page.evaluate(() => {
+      document.querySelector("#app").insertAdjacentHTML("beforeend", `
+        <style>.group-panel { width: 120px } .group-panel[open] { width: 220px }</style>
+        <details class="group-panel" data-motion-panel name="panel-group" open><summary>First panel</summary></details>
+        <details class="group-panel" data-motion-panel name="panel-group"><summary>Second panel</summary></details>
+      `)
+      window.openChanges = []
+      new MutationObserver(records => window.openChanges.push(...records.map(record => record.target.textContent)))
+        .observe(document.querySelector("#app"), { subtree: true, attributes: true, attributeFilter: ["open"] })
+    })
+    await page.getByText("Second panel", { exact: true }).click()
+    assert.deepEqual(await page.locator(".group-panel").evaluateAll(panels => panels.map(panel => panel.open)), [false, true])
+    assert.deepEqual((await page.evaluate(() => window.openChanges)).sort(), ["First panel", "Second panel"])
+    await context.close()
+  })
+
+  test("closing before the first frame cancels the opening spring", async () => {
+    const { context, page } = await open()
+    const widths = await page.evaluate(async () => {
+      const panel = document.querySelector("#panel")
+      panel.toggleAttribute("data-open", true)
+      await Promise.resolve()
+      const beforeClose = panel.style.width
+      panel.toggleAttribute("data-open", false)
+      const afterClose = await new Promise(resolve => requestAnimationFrame(() => resolve(panel.style.width)))
+      return { beforeClose, afterClose }
+    })
+    assert.deepEqual(widths, { beforeClose: "52px", afterClose: "" })
+    await context.close()
+  })
+
   test("a panel that opens follows a spring to its new width, and the page beside it makes room", async () => {
     const { context, errors, page } = await open()
     await page.evaluate(() => window.setSlow(4))
