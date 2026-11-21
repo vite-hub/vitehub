@@ -310,10 +310,8 @@ describe("runnable tutorials", () => {
   });
 
   it("isolates only the tutorial pages and the playground", async () => {
-    const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
-    expect(module).toContain(`"/learn": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/learn/**": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/playground": { headers: { ...webContainerHeaders } }`);
-    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(3);
+    const config = await readFile(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    expect(config).toContain(`webContainer: { routes: ["/learn/**", "/playground"] }`);
+    expect(await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8")).not.toContain("webContainerHeaders");
   });
 });

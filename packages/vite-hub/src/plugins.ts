@@ -100,6 +100,7 @@ import type { RateLimitOptions } from "@vite-hub/rate-limit"
 import type { RealtimeOptions } from "@vite-hub/realtime"
 import type { SandboxTaskOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleOptions } from "@vite-hub/schedule/vite"
+import type { WebContainerOptions } from "@vite-hub/web-container/vite"
 import type { WorkflowOptions } from "@vite-hub/workflow"
 import type { WorkspaceOptions } from "@vite-hub/workspace"
 import type { I18nOptions } from "@vite-hub/i18n"
@@ -134,6 +135,7 @@ export type { RateLimitOptions } from "@vite-hub/rate-limit"
 export type { RealtimeOptions } from "@vite-hub/realtime"
 export type { SandboxTaskOptions } from "@vite-hub/sandbox/task/vite"
 export type { ScheduleOptions } from "@vite-hub/schedule/vite"
+export type { WebContainerOptions } from "@vite-hub/web-container/vite"
 export type { WorkflowOptions } from "@vite-hub/workflow"
 export type { WorkspaceOptions } from "@vite-hub/workspace"
 
@@ -556,6 +558,13 @@ export interface ViteHubOptions {
    * to a larger request body. It adds no Content Security Policy.
    */
   security?: SecurityOptions
+  /**
+   * Pages that boot a WebContainer, such as `{ routes: ["/playground/**"] }`. They send the cross-origin isolation
+   * headers in `vite dev`, `vite preview`, and built output. In Nuxt, a link into or out of these pages loads a new
+   * document, because the headers come with the document. `/playground` matches that path only. `/playground/**`
+   * matches it and every path below it. Other pages keep their headers. Needs `@vite-hub/web-container`.
+   */
+  webContainer?: WebContainerOptions
   agent?: boolean | AgentOptions
   /** `false` turns Auth off. `server/auth.ts` turns it on, and `defineAuth()` in that file holds every Auth option. */
   auth?: boolean
@@ -1611,6 +1620,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
+    ["webContainer", options.webContainer],
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
@@ -1722,6 +1732,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
+  if (options.webContainer) plugins.push(requireOptionalOwner(ownerModules.webContainerVite, "webContainer").webContainerVitePlugin(options.webContainer))
   plugins.push(staleChunkReloadVitePlugin())
 
   const runtimeCapabilityImports = {

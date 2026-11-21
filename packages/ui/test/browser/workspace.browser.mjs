@@ -9,7 +9,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import nuxtUi from "@nuxt/ui/vite"
 import vue from "@vitejs/plugin-vue"
-import { hubWebContainer } from "@vite-hub/web-container/vite"
+import { webContainerVitePlugin } from "@vite-hub/web-container/vite"
 import { chromium } from "playwright-core"
 import { createServer } from "vite"
 
@@ -37,7 +37,7 @@ test("boots the workspace shell with a real WebContainer, edits a file, and show
     configFile: false,
     logLevel: "warn",
     // The tab strip and the fields are Nuxt UI components, so the page builds with Nuxt UI like an app does.
-    plugins: [vue(), nuxtUi({ dts: false }), hubWebContainer({ routes: ["/**"] })],
+    plugins: [vue(), nuxtUi({ dts: false }), webContainerVitePlugin({ routes: ["/**"] })],
     resolve: {
       alias: [
         { find: "@vite-hub/ui/styles.css", replacement: join(dist, "styles.css") },
