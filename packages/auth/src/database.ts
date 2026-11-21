@@ -20,7 +20,7 @@ export type { AuthAppDatabase } from "./types.ts"
  * tables of the Database, before the adapter opens it.
  */
 function assertAuthDatabaseSchema(options: BetterAuthOptions, schema: Readonly<Record<string, unknown>>, database: string): void {
-  const fix = "Call the plugin in `server/auth.ts` and write `additionalFields` inline there, so that the Auth Vite plugin adds the columns. Then run `vitehub database generate` and apply the migration"
+  const fix = "Call the plugin in `server/auth.ts`, or in a file that it imports with a relative path, and write `additionalFields` inline in `server/auth.ts`, so that the Auth Vite plugin adds the columns. Then run `vitehub database generate` and apply the migration"
   for (const [model, table] of Object.entries(getAuthTables(options))) {
     const drizzleTable = Object.hasOwn(schema, model) ? schema[model] : undefined
     if (!isTable(drizzleTable)) throw authDatabaseSchemaError(`the ${JSON.stringify(database)} Database has no \`${model}\` table. ${fix}`)

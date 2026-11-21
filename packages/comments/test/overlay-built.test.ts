@@ -6,17 +6,17 @@ import { describe, expect, it } from "vitest"
 import { commentRoom } from "../src/page.ts"
 
 describe("built Comments overlay", () => {
-  it.each(["", "/portal", "/nested/portal"])("uses only the authorized page room and its own chunks below the asset's app base %s", async (base) => {
+  it.each(["", "/portal", "/nested/portal"])("preloads its chunks and uses only the authorized page room below the asset's app base %s", async (base) => {
     // Native ESM evaluation preserves import.meta.url without rewriting the prebuilt overlay.
     const { stdout } = await promisify(execFile)(process.execPath, [
       "--experimental-vm-modules",
       fileURLToPath(new URL("./fixtures/overlay-built.mjs", import.meta.url)),
       base,
     ])
-    const { sockets, preloads }: { sockets: string[], preloads: string[] } = JSON.parse(stdout)
-    // The chunks load from the overlay's own folder, not from the page or the site root.
+    const { preloads, sockets }: { preloads: string[], sockets: string[] } = JSON.parse(stdout)
+    // The overlay preloads its chunks from its own directory, not from the site root.
     expect(preloads.length).toBeGreaterThan(0)
-    for (const preload of preloads) expect(preload).toMatch(new RegExp(`^https://site\\.test${base}/_vitehub/comments/assets/[^/]+\\.js$`))
+    for (const preload of preloads) expect(preload).toMatch(new RegExp(`^https://site\\.test${base}/_vitehub/comments/assets/[\\w-]+\\.js$`))
     expect(sockets).toHaveLength(1)
     const socket = new URL(sockets[0]!)
     expect(socket.searchParams.get("clientId")).toMatch(/^\d+$/)
