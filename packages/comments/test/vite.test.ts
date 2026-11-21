@@ -348,7 +348,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
     ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
     ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
-    ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
+    ['export const comments = defineComments({ ...{ database: "wrong" }, ["database"]: `content` } as const)', "content"],
     ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
     ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
   ])("reads only the effective exported Database option: %s", async (source, database) => {
@@ -383,6 +383,10 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     ["export const comments = defineComments({ send: process.env.SEND === \"1\" })", true],
     ["export const comments = defineComments({ send: false })", false],
     ["export const comments = defineComments({ send: undefined })", false],
+    ["const options = { send: true }; export const comments = defineComments(options)", true],
+    ["const options = { send: true }; export const comments = defineComments({ ...options })", true],
+    ["export default defineComments({ send: false }); export const comments = defineComments({ send: true })", true],
+    ["const other = defineComments({ send: true }); export default other; export const comments = defineComments()", false],
     ["const helper = { send: true }; export const comments = defineComments()", false],
   ])("turns Send on from `send` of the exported definition: %s", async (source, send) => {
     const root = await project({ "server/comments.ts": source })

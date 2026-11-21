@@ -23,7 +23,10 @@
   --ui-success: #34d399;
   display: inline-flex;
   align-items: center;
+  box-sizing: border-box;
   gap: 4px;
+  max-inline-size: calc(100% - 32px);
+  overflow-x: auto;
   padding: 4px;
   border: 1px solid rgb(255 255 255 / 12%);
   border-radius: 12px;
@@ -36,6 +39,7 @@
 
 .app-pill-track {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 2px;
   border-radius: 10px;

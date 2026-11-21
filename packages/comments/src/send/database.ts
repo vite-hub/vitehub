@@ -1,7 +1,8 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { sql } from "drizzle-orm"
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 /** Where a send is: delivered, read by the agent, answered, or not delivered. */
-export type CommentSendState = "sent" | "working" | "done" | "failed"
+export type CommentSendState = "pending" | "sent" | "working" | "done" | "failed"
 
 /**
  * One row for each send: the member, the threads it carried with the last message of each, and the read token. `threads`
@@ -17,7 +18,7 @@ export const commentSends = sqliteTable("vitehub_comment_sends", {
   threads: text("threads").notNull(),
   /** The idempotency key of the delivery: a hash of the member, the threads, and their last messages. */
   key: text("key").notNull(),
-  state: text("state", { enum: ["sent", "working", "done", "failed"] }).notNull(),
+  state: text("state", { enum: ["pending", "sent", "working", "done", "failed"] }).notNull(),
   /** The id of the Webhooks delivery. */
   delivery: text("delivery"),
   /** The member endpoint that the send went to. Later sends to the same endpoint keep its `thread`. */
@@ -33,6 +34,7 @@ export const commentSends = sqliteTable("vitehub_comment_sends", {
 }, table => [
   index("vitehub_comment_sends_member").on(table.member, table.createdAt),
   index("vitehub_comment_sends_subject").on(table.subjectKind, table.subjectId, table.createdAt),
+  uniqueIndex("vitehub_comment_sends_live_key").on(table.key).where(sql`${table.state} <> 'failed'`),
 ])
 
 /** The tables of Send, for a Database contribution. Comments adds them only when `defineComments({ send })` is on. */
@@ -43,4 +45,5 @@ export const commentSendsTables: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS `vitehub_comment_sends` (`id` text PRIMARY KEY NOT NULL, `member` text NOT NULL, `subject_kind` text NOT NULL, `subject_id` text NOT NULL, `page` text NOT NULL, `threads` text NOT NULL, `key` text NOT NULL, `state` text NOT NULL, `delivery` text, `endpoint` text, `thread` text, `error` text, `sender` text NOT NULL, `token_hash` text, `token_expires_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
   "CREATE INDEX IF NOT EXISTS `vitehub_comment_sends_member` ON `vitehub_comment_sends` (`member`,`created_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_comment_sends_subject` ON `vitehub_comment_sends` (`subject_kind`,`subject_id`,`created_at`)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_comment_sends_live_key` ON `vitehub_comment_sends` (`key`) WHERE `state` <> 'failed'",
 ]

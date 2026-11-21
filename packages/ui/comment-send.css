@@ -145,6 +145,28 @@
   font-weight: 500;
 }
 
+@media (max-width: 600px) {
+  [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"]) {
+    flex-shrink: 1;
+    max-inline-size: calc(100vw - 64px);
+  }
+
+  [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"]) [data-slot="comment-send-content"],
+  [data-slot="comment-send-status"]:has([data-slot="comment-send-message"]) {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+  }
+
+  [data-slot="comment-send-message"] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  [data-slot="comment-send-message"] > [data-wide] {
+    display: none;
+  }
+}
+
 [data-slot="comment-send"] .vh-comment-send-icon {
   flex: none;
   height: 14px;

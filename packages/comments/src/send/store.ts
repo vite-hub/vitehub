@@ -17,7 +17,7 @@ export interface SentThread {
 
 /** The sends of one member, or of one subject, in the Database of Comments. */
 export interface CommentSendStore {
-  insertSend: (row: SendRow) => Promise<void>
+  insertSend: (row: SendRow) => Promise<boolean>
   send: (id: string) => Promise<SendRow | undefined>
   /** The latest send of a member with this key, among `states`. */
   sendByKey: (member: string, key: string, states: readonly CommentSendState[]) => Promise<SendRow | undefined>
@@ -67,7 +67,8 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
   const sends = commentSends
   return {
     insertSend: run(async (row) => {
-      await db.insert(sends).values(row)
+      const inserted = await db.insert(sends).values(row).onConflictDoNothing().returning({ id: sends.id })
+      return inserted.length > 0
     }),
     send: run(async (id) => {
       const [row] = await db.select().from(sends).where(eq(sends.id, id)).limit(1)
@@ -78,7 +79,7 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
       return row
     }),
     subjectSends: run(async (subject, limit) => db.select().from(sends)
-      .where(and(eq(sends.subjectKind, subject.kind), eq(sends.subjectId, subject.id), inArray(sends.state, ["sent", "working", "done"])))
+      .where(and(eq(sends.subjectKind, subject.kind), eq(sends.subjectId, subject.id), inArray(sends.state, ["pending", "sent", "working", "done"])))
       .orderBy(desc(sends.createdAt))
       .limit(limit)),
     latestSend: run(async (member, subject, states) => {

@@ -30,6 +30,7 @@ export async function createSendApi() {
   const control = { fail: false, delay: 0, deliveries: 0 }
   const webhooks: CommentSendWebhooks = {
     ...realWebhooks,
+    getMemberDeliveryState: async () => undefined,
     sendToMemberEndpoint: async () => {
       await new Promise(resolve => setTimeout(resolve, control.delay))
       control.deliveries++

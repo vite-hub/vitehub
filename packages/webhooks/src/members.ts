@@ -1,10 +1,10 @@
 import { webhooksErrors } from "./errors.ts"
-import { sealEndpoint, unsealEndpoint } from "./sealing.ts"
+import { memberBodyLabel, sealedMemberBodyPrefix, sealEndpoint, sealWebhooksText, unsealEndpoint } from "./sealing.ts"
 import { checkWebhookUrl, outsideHosts } from "./url-guard.ts"
-import { createDeliveryId, deliverMemberClaim, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
+import { createDeliveryId, deliverMemberClaim, inspectDelivery, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { ListWebhookDeliveriesOptions, MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDelivery } from "./database.ts"
+import type { ListWebhookDeliveriesOptions, MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDelivery, WebhookDeliveryState } from "./database.ts"
 import type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode } from "./errors.ts"
 
 /** The hosts that a member endpoint URL may use when `createMemberEndpoint()` gets no `hosts`: the T3 Code relay. */
@@ -63,6 +63,10 @@ export interface SendToMemberEndpointOptions {
    * host gets `WEBHOOKS_URL_REFUSED` and no delivery, so narrowing the list also stops endpoints that it allowed before.
    */
   hosts?: readonly string[]
+  /** Seal the body at rest and omit it from delivery inspection. */
+  sealBody?: boolean
+  /** A preallocated unique delivery ID, for correlating a durable record before sending. */
+  deliveryId?: string
 }
 
 /**
@@ -276,8 +280,14 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
       if (outside) return [webhooksErrors.WEBHOOKS_URL_REFUSED({ reason: outside }), undefined]
       target = opened
     }
+    const webhook = `${memberWebhookPrefix}${endpoint.id}`
+    if (options.sealBody) {
+      const [error, sealed] = await sealWebhooksText(memberBodyLabel(webhook, options.event), json)
+      if (error) return [error, undefined]
+      json = JSON.stringify(`${sealedMemberBodyPrefix}${sealed}`)
+    }
     const now = Date.now()
-    const recorded = await store.recordOnce({ id: createDeliveryId(), webhook: `${memberWebhookPrefix}${endpoint.id}`, key: options.key, event: options.event, body: json, dueAt: now, now })
+    const recorded = await store.recordOnce({ id: options.deliveryId ?? createDeliveryId(), webhook, key: options.key, event: options.event, body: json, dueAt: now, now })
     const done = target ? "sent" : "inbox"
     if (!recorded.created) return [undefined, { id: recorded.id, status: recorded.state === "sent" ? done : "pending" }]
     // `0` claims only a pending delivery, never one that another server is sending.
@@ -308,6 +318,7 @@ async function selectEndpoint(endpoints: ReturnType<typeof requireMemberEndpoint
  * `[error, { endpoint, deliveries }]`, or `null` when the member has no endpoint. An agent that pairs as an inbox reads
  * its sends here: pass its `endpointId` for an exact lookup with no fallback, and the last delivery as `before` for
  * the next page. An empty `address` prefers the unaddressed endpoint. Check that the caller acts as `owner` first.
+ * Sealed bodies are omitted, as in the delivery log.
  *
  * ```ts
  * import { listMemberDeliveries } from "@vite-hub/webhooks"
@@ -321,9 +332,15 @@ export async function listMemberDeliveries(owner: string, options: { address?: s
     const endpoint = await selectEndpoint(endpoints, owner, options)
     if (!endpoint) return [undefined, null]
     const deliveries = await store.list({ webhook: `${memberWebhookPrefix}${endpoint.id}`, limit: options.limit, before: options.before })
-    return [undefined, { endpoint: toMemberEndpoint(endpoint), deliveries }]
+    return [undefined, { endpoint: toMemberEndpoint(endpoint), deliveries: deliveries.map(inspectDelivery) }]
   }
   catch (error) {
     return [storeError(error), undefined]
   }
+}
+
+/** Reads only the state of a known member delivery, never its body. */
+export async function getMemberDeliveryState(id: string): Promise<WebhookDeliveryState | undefined> {
+  const row = await requireMemberEndpoints().store.get(id)
+  return row?.webhook.startsWith(memberWebhookPrefix) ? row.state : undefined
 }

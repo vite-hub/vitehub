@@ -56,11 +56,11 @@ curl -sS -X POST https://joyandmaxi.com/_vitehub/comments/send/pair \
 
 A code that is too old answers `410` with `"reason": "expired"`, a used code `409` with `"used"`, and a URL that is not safe `422` with `"refused"`. A post over plain `http` answers `403` with `"insecure"` and refuses the code, because anyone on the way could read it. Then press **Copy again** in the pill for a new code.
 
-For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Code" }` or `"Codex"` in place of `url`. Your site then posts nothing, and the agent reads the send with the `comments_get_send` MCP tool.
+For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Code" }` or `"Codex"` in place of `url`. Your site then posts nothing, and the agent reads the send with the `comments_get_send` MCP tool. To answer an ask, it calls `comments_reply` with the thread ID and the send ID in `send`.
 
 ## Send
 
-After the pairing, **Send N** sends at once. The pill shows **Sending**, **Sent**, then **Working** until the agent answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When the delivery fails, it shows **Not delivered** and **Retry**.
+After the pairing, **Send N** sends at once. The pill shows **Sending** while Webhooks is attempting delivery, **Sent** once it succeeds, then **Working** until the agent answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When delivery fails, the comments stay available to send again.
 
 **N** counts the open threads on the page that you may read, whose last message is not an agent's, and that have a message newer than their last send. Threads of other people count too. A thread that was sent and has no new message does not count.
 
