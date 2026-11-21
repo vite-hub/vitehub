@@ -3,6 +3,8 @@ import { defineComponent, h, nextTick, onBeforeUnmount, onBeforeUpdate, onMounte
 import { announce, prepareAnnouncer } from "../internal/announce.ts";
 import { agentLogos } from "../internal/agent-logos.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { motionSkipped } from "../motion/helpers/frame.ts";
+import { createSpring } from "../motion/spring.ts";
 import { useCopy } from "./copy-button.ts";
 
 const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -88,10 +90,25 @@ export const CommentSend = defineComponent({
     });
     onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
-    // The segment grows and shrinks with a short ease-out. When the pressed button goes, the focus would fall to the
+    // The segment grows and shrinks with the shared width spring. When the pressed button goes, the focus would fall to the
     // page, so it moves to the next button of the segment, unless the person moved it somewhere else meanwhile.
     let before = 0;
     let focused = false;
+    const clearWidth = (element: HTMLElement) => {
+      element.style.removeProperty("width");
+      element.style.removeProperty("overflow");
+      element.style.removeProperty("box-sizing");
+    };
+    const renderWidth = (value: number) => {
+      const element = root.value;
+      if (!element) return;
+      if (!width.active) return clearWidth(element);
+      element.style.boxSizing = "border-box";
+      element.style.overflow = "hidden";
+      element.style.width = `${value}px`;
+    };
+    const width = createSpring(0, renderWidth);
+    onBeforeUnmount(() => width.stop());
     const activeElement = () => (root.value?.getRootNode() as Document | ShadowRoot | undefined)?.activeElement ?? null;
     onBeforeUpdate(() => {
       before = root.value?.offsetWidth ?? 0;
@@ -101,10 +118,14 @@ export const CommentSend = defineComponent({
     onUpdated(() => {
       const element = root.value;
       if (!element) return;
+      clearWidth(element);
       const after = element.offsetWidth;
-      if (before && after && before !== after && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        element.animate([{ width: `${before}px`, overflow: "hidden" }, { width: `${after}px`, overflow: "hidden" }], { duration: 200, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+      if (before && after && before !== after && !motionSkipped(element)) {
+        if (!width.active) width.set(before);
+        width.to(after);
+        if (width.active) renderWidth(width.value);
       }
+      else width.stop();
       const active = activeElement();
       if (!focused || (active && active !== element.ownerDocument.body && !element.contains(active))) return void (focused = false);
       if (active && element.contains(active)) return;

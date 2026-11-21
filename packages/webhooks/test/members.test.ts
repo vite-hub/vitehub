@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { verifyWebhook } from "@vite-hub/env"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../src/database.ts"
-import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
+import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries } from "../src/runtime.ts"
 
 import type { Client } from "@libsql/client"

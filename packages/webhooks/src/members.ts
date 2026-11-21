@@ -151,7 +151,7 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
     if (urlProblem) return invalid(urlProblem)
     const [refused, url] = await checkWebhookUrl(options.url, { hosts: options.hosts ?? memberEndpointHosts })
     if (refused) return [refused, undefined]
-    const [keyError, sealed] = await sealEndpoint(endpoint, { url: url.href, secret: options.secret })
+    const [keyError, sealed] = await sealEndpoint(endpoint, { url: url.href, secret: options.secret }, developmentKey)
     if (keyError) return [keyError, undefined]
     endpoint.host = url.host
     endpoint.sealed = sealed
