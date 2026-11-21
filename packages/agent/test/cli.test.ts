@@ -55,7 +55,7 @@ describe("agent CLI", () => {
         description: "Agent development workflows.",
         features: [
           expect.objectContaining({ name: "eval" }),
-          expect.objectContaining({ name: "info" }),
+          expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
         ],
@@ -78,7 +78,7 @@ describe("agent CLI", () => {
       namespaces: [{
         description: "Agent development workflows.",
         features: [
-          expect.objectContaining({ name: "info" }),
+          expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
         ],
@@ -1886,7 +1886,7 @@ describe("agent CLI", () => {
       observations: [{ name: "agent.completed", sequence: 1, timestamp, type: "lifecycle" }],
     } }))
 
-    const exitCode = await runAgentInvocationsCli(["show", "invocation-1", "--url", "https://app.example.com"], {
+    const exitCode = await runAgentInvocationsCli(["get", "invocation-1", "--url", "https://app.example.com"], {
       env: { ...devServerEnv },
       stderr: stream(),
       stdout,

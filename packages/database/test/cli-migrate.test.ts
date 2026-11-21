@@ -85,7 +85,7 @@ async function createProject() {
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
 
-  async function run(feature: "generate" | "migrate" | "up", args: string[] = [], env: NodeJS.ProcessEnv = process.env, spawn: typeof realSpawn = realSpawn) {
+  async function run(feature: "generate" | "migrate" | "reset" | "up", args: string[] = [], env: NodeJS.ProcessEnv = process.env, spawn: typeof realSpawn = realSpawn) {
     const stdout = { write: vi.fn() }
     const stderr = { write: vi.fn() }
     const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)!
@@ -237,6 +237,217 @@ describe("vitehub database up", () => {
     expect(refused.stderr).toContain("`vitehub database up` needs drizzle-kit 1.0, and")
     expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.5`")
     await expect(readdir(project.database.migrationsDir)).resolves.toContain("meta")
+  })
+
+  /** A folder of hand-written Wrangler migrations, as `wrangler d1 migrations create` names them. */
+  async function writeWranglerFolder(migrationsDir: string) {
+    await mkdir(migrationsDir, { recursive: true })
+    // Wrangler runs each file as one script. The trigger body has its own semicolon.
+    await writeFile(join(migrationsDir, "0000_init.sql"), [
+      "-- Notes and their history.",
+      "CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `title` text); CREATE TABLE `note_events` (`note_id` integer);",
+      "CREATE TRIGGER `notes_insert` AFTER INSERT ON `notes` BEGIN INSERT INTO `note_events` (`note_id`) VALUES (NEW.`id`); END;",
+      "",
+    ].join("\n"))
+    await writeFile(join(migrationsDir, "0001_add_body.sql"), "ALTER TABLE `notes` ADD `body` text;\n")
+    await writeFile(join(migrationsDir, "0002_add_tags.sql"), "ALTER TABLE `notes` ADD `tags` text;\n")
+  }
+
+  it("converts a folder of hand-written Wrangler SQL files, which migrate refuses before, and keeps their Wrangler names", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    project.database.cloudflare = { binding: "DB", migrationsDir }
+    await writeWranglerFolder(migrationsDir)
+    await writeFile(join(project.rootDir, "schema.ts"), `${notesSchema(["title", "body", "tags"])}export const noteEvents = sqliteTable('note_events', { noteId: integer('note_id') })\n`)
+
+    // Drizzle Kit 1.0 skips flat files, so a local database would start without tables.
+    const refused = await project.run("migrate")
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("DATABASE_MIGRATIONS_OLD_LAYOUT")
+    expect(refused.stderr).toContain("Run `vitehub database up` once")
+
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": converted 3 SQL files in migrations to migration folders. Commit the new folders.")
+    const tags = await migrationTags(migrationsDir)
+    expect(tags).toEqual([expect.stringMatching(/^\d{14}_0000_init$/), expect.stringMatching(/^\d{14}_0001_add_body$/), expect.stringMatching(/^\d{14}_0002_add_tags$/)])
+    await expect(readFile(join(migrationsDir, tags[1]!, "migration.sql"), "utf8")).resolves.toBe("ALTER TABLE `notes` ADD `body` text;\n")
+    // Wrangler applied these files under their names, so D1 keeps them.
+    expect(listD1Migrations(migrationsDir).map(file => file.name)).toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
+    expect(JSON.parse(await readFile(join(migrationsDir, d1MigrationNamesFile), "utf8"))).toEqual(Object.fromEntries(tags.map(tag => [tag, `${tag.slice(15)}.sql`])))
+    const staged = join(project.rootDir, "wrangler")
+    await copyD1MigrationFiles(migrationsDir, staged)
+    const wrangler = createClient({ url: ":memory:" })
+    try {
+      await wrangler.executeMultiple(await readFile(join(staged, "0000_init.sql"), "utf8"))
+      await wrangler.execute("INSERT INTO notes (id) VALUES (1)")
+      await expect(wrangler.execute("SELECT note_id FROM note_events")).resolves.toMatchObject({ rows: [{ note_id: 1 }] })
+    }
+    finally {
+      wrangler.close()
+    }
+
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body", "tags"])
+    // Drizzle runs every statement of a file, not only the first one.
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.execute("INSERT INTO notes (id, title) VALUES (1, 'Hello')")
+      await expect(client.execute("SELECT note_id FROM note_events")).resolves.toMatchObject({ rows: [{ note_id: 1 }] })
+    }
+    finally {
+      client.close()
+    }
+    // The newest folder has the snapshot of the replayed SQL, so Drizzle Kit has no migration to write.
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+  }, 120_000)
+
+  it("keeps Definition changes pending after converting flat SQL", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await mkdir(migrationsDir)
+    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
+    await writeFile(join(project.rootDir, "schema.ts"), notesSchema(["body"]))
+
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
+    await nextSecond()
+    await expect(project.run("generate", ["--name", "add_body"])).resolves.toMatchObject({ exitCode: 0 })
+    const tags = await migrationTags(migrationsDir)
+    expect(tags).toHaveLength(2)
+    await expect(readFile(join(migrationsDir, tags[1]!, "migration.sql"), "utf8")).resolves.toMatch(/ALTER TABLE .*notes.* ADD .*body/i)
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.columns()).resolves.toEqual(["id", "body"])
+  }, 120_000)
+
+  it("converts SQL-only history with an empty Definition", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await mkdir(migrationsDir)
+    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
+    await writeFile(join(project.rootDir, "schema.ts"), "export const schema = {}\n")
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.columns()).resolves.toEqual(["id"])
+  }, 120_000)
+
+  it("leaves a hand-written Postgres function unchanged", async () => {
+    const project = await createProject()
+    project.database.dialect = "postgresql"
+    const migrationsDir = project.database.migrationsDir
+    const sql = "CREATE FUNCTION f() RETURNS integer LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"
+    await mkdir(migrationsDir)
+    await writeFile(join(migrationsDir, "0000_init.sql"), sql)
+    const converted = await project.run("up")
+    expect(converted.exitCode).toBe(1)
+    expect(converted.stderr).toContain("Only SQLite and D1 support conversion of hand-written SQL")
+    await expect(readdir(migrationsDir)).resolves.toEqual(["0000_init.sql"])
+    await expect(readFile(join(migrationsDir, "0000_init.sql"), "utf8")).resolves.toBe(sql)
+  })
+
+  it("converts hand-written SQL files next to an incomplete Drizzle Kit 0.x journal, and keeps what Wrangler applied", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await writeWranglerFolder(migrationsDir)
+    // Drizzle Kit wrote one migration and its first snapshot. The other files were written by hand.
+    await mkdir(join(migrationsDir, "meta"))
+    await writeFile(join(migrationsDir, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "sqlite", entries: [{ idx: 0, version: "6", when: 1794258506219, tag: "0001_add_body", breakpoints: true }] }))
+    await cp(join(drizzleKit0xFixture, "meta/0000_snapshot.json"), join(migrationsDir, "meta/0000_snapshot.json"))
+    await project.writeSchema(["title", "body", "tags"])
+    // `wrangler d1 migrations apply --local` applied the first two files.
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.executeMultiple([
+        await readFile(join(migrationsDir, "0000_init.sql"), "utf8"),
+        await readFile(join(migrationsDir, "0001_add_body.sql"), "utf8"),
+        "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+        "INSERT INTO d1_migrations (name) VALUES ('0000_init.sql'), ('0001_add_body.sql');",
+      ].join("\n"))
+    }
+    finally {
+      client.close()
+    }
+
+    // `drizzle-kit up` fails here with "No snapshot was found", because the journal names a snapshot that does not exist.
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(migrationsDir)
+    expect(tags).toHaveLength(3)
+    await expect(readdir(migrationsDir)).resolves.toEqual(tags)
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain(`1 pending migration.\n  Applied before, as d1_migrations lists: ${tags[0]}, ${tags[1]}\n`)
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body", "tags"])
+  }, 120_000)
+
+  it("leaves the folder as it was when Drizzle Kit cannot read the Definitions", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await writeWranglerFolder(migrationsDir)
+    await writeFile(join(project.rootDir, "schema.ts"), "export const notes = (\n")
+
+    const failed = await project.run("up")
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
+    expect(failed.stderr).toContain("Drizzle Kit could not read the current Database Definitions")
+    await expect(readdir(migrationsDir)).resolves.toEqual(["0000_init.sql", "0001_add_body.sql", "0002_add_tags.sql"])
+  }, 120_000)
+
+  it.each([1_000, 3_000])("preserves a Drizzle 0.x ledger with journal entries %i ms apart", async (gap) => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    const journal = join(migrationsDir, "meta", "_journal.json")
+    const first = 1_700_000_000_000
+    const init = "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);"
+    const addBody = "ALTER TABLE notes ADD body text;"
+    const files = ["0000_init.sql", "0001_add_title.sql", "0002_add_body.sql"]
+    await mkdir(dirname(journal), { recursive: true })
+    await writeFile(join(migrationsDir, files[0]!), init)
+    await writeFile(join(migrationsDir, files[1]!), "ALTER TABLE notes ADD title text;")
+    await writeFile(join(migrationsDir, files[2]!), addBody)
+    await writeFile(journal, JSON.stringify({ entries: [{ tag: "0000_init", when: first }, { tag: "0002_add_body", when: first + gap }] }))
+    await writeFile(join(project.rootDir, "schema.ts"), notesSchema(["title", "body"]))
+
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.executeMultiple(`${init} ${addBody} CREATE TABLE __drizzle_migrations (id integer PRIMARY KEY, hash text NOT NULL, created_at numeric);`)
+      for (const [sql, when] of [[init, first], [addBody, first + gap]] as const) {
+        await client.execute({ sql: "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)", args: [createHash("sha256").update(sql).digest("hex"), when] })
+      }
+      const converted = await project.run("up")
+      if (gap === 1_000) {
+        expect(converted.exitCode).toBe(1)
+        expect(converted.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
+        expect(converted.stderr).toContain("without changing its recorded timestamp")
+        await expect(readdir(migrationsDir)).resolves.toEqual([...files, "meta"])
+        await expect(project.columns()).resolves.toEqual(["id", "body"])
+      }
+      else {
+        expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+        const dryRun = await project.run("migrate", ["--dry-run"])
+        expect(dryRun.exitCode).toBe(0)
+        expect(dryRun.stdout).toContain("1 pending migration.")
+        expect(dryRun.stdout).toContain("0001_add_title")
+        await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
+        await expect(project.columns()).resolves.toEqual(["id", "body", "title"])
+      }
+    }
+    finally {
+      client.close()
+    }
+  }, 120_000)
+
+  it("stops migrate on start and test mode at a folder of Wrangler SQL files", async () => {
+    const project = await createProject()
+    await writeWranglerFolder(project.database.migrationsDir)
+    const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
+
+    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], registryImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({ code: "DATABASE_MIGRATIONS_OLD_LAYOUT" }))
+    const client = createTestDatabaseClient(project.rootDir, "migrations")
+    await expect(client.execute("SELECT 1")).rejects.toMatchObject({ code: "DATABASE_MIGRATIONS_OLD_LAYOUT" })
   })
 
   it("stops migrate on start and test mode at a Drizzle Kit 0.x folder", async () => {
@@ -716,7 +927,7 @@ async function createFakeD1(rootDir: string, setup?: string) {
       return Response.json({ result: [{ results, success: true }], success: true })
     }
     try {
-      await client.executeMultiple(`BEGIN;\n${sql}\nCOMMIT;`)
+      await client.executeMultiple(`BEGIN;\n${sql}\n;\nCOMMIT;`)
     }
     catch (error) {
       await client.execute("ROLLBACK").catch(() => {})
@@ -744,6 +955,20 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     return { ...project, migrate: (args: string[] = [], env: NodeJS.ProcessEnv = d1Env) => project.run("migrate", args, env) }
   }
 
+  it("resets a D1 HTTP database with flat SQL migrations", async () => {
+    const project = await handwrittenD1Project({ "0000_init.sql": "CREATE TABLE notes (id INTEGER PRIMARY KEY);" })
+    const d1 = await createFakeD1(project.rootDir, "CREATE TABLE notes (id INTEGER PRIMARY KEY); INSERT INTO notes VALUES (1);")
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      await expect(project.run("reset", ["--remote", "--yes"], d1Env)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(d1.rows("SELECT id FROM notes")).resolves.toEqual([])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_init.sql"]])
+    }
+    finally {
+      d1.client.close()
+    }
+  })
+
   it.each(["literal", "environment"])("checks and applies migrations at the configured %s proxy target", async (mode) => {
     const project = await handwrittenD1Project({
       "0000_init.sql": "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT);",
@@ -765,7 +990,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       expect(dryRun.stdout).not.toContain("0000_init")
       await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"]])
 
-      await expect(project.migrate([], env)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(project.migrate(["--allow-data-loss"], env)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
       await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
       await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY rowid")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
       for (const [requestedUrl, init] of d1.fetch.mock.calls) {

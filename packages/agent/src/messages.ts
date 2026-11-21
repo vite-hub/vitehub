@@ -236,7 +236,7 @@ export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
   return changed ? memoized : messages
 }
 
-export async function materializeMessageAttachmentData(messages: Message[]): Promise<Message[]> {
+export async function materializeMessageAttachmentData(messages: Message[], optionalImage?: (message: Message) => boolean): Promise<Message[]> {
   let changed = false
   const materialized = await Promise.all(messages.map(async (message) => {
     let messageChanged = false
@@ -250,13 +250,18 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
       messageChanged = true
       const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...resolved } = part
       if (!hasFetchData && !hasData) return resolved
-      const data = await resolveAttachmentData(part)
-      if (hasFetchData && data === undefined) {
-        throw messageDiagnostics.AGENT_R0646({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
+      try {
+        const data = await resolveAttachmentData(part)
+        if (hasFetchData && data === undefined) {
+          throw messageDiagnostics.AGENT_R0646({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
+        }
+        return { ...resolved, data }
+      } catch (error) {
+        if (part.type === "image" && optionalImage?.(message)) return undefined
+        throw error
       }
-      return { ...resolved, data }
     }))
-    return messageChanged ? { ...message, parts } : message
+    return messageChanged ? { ...message, parts: parts.filter(part => part !== undefined) } : message
   }))
   return changed ? materialized : messages
 }

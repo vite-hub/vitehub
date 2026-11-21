@@ -1,6 +1,6 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
-import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 

@@ -102,7 +102,7 @@ Inspect the outbox with the [CLI](/docs/cli/primitives#inspect-the-email-develop
 
 ```bash [Terminal]
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html > message.html
+pnpm vitehub email outbox get outbox-1 --html > message.html
 pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 

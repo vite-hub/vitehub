@@ -10,13 +10,13 @@ Import `useForge()` from `vite-hub/forge`. It re-exports `@vite-hub/forge`.
 
 | Call | Returns |
 | --- | --- |
-| `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
+| `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. `userAgent` defaults to `vitehub` on every host. On Cloudflare Workers, the `forges` library sends no `User-Agent` of its own, and GitHub refuses a request without one. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
 | `forge.token({ repository, installation, refresh, minLifetime, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `installation`, such as `installation.id` of a webhook delivery, else for the owner of `repository` (see [Installations](/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. |
 | `forge.provider({ repository, installation, refresh, minLifetime, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
 | `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
 
-`baseUrl` is the API base for GitHub Enterprise Server, or the instance root for GitLab and Forgejo. A cancelled call rejects with the abort reason.
+`baseUrl` is the API base for GitHub Enterprise Server, or the instance root for GitLab, Forgejo, and Gitea. A cancelled call rejects with the abort reason.
 
 ## Call the API as the App
 
@@ -71,9 +71,9 @@ export async function botLogin() {
 }
 ```
 
-## Use GitLab or Forgejo
+## Use GitLab, Forgejo, or Gitea
 
-Pass `forge`. The provider type follows it:
+Pass `forge`: `'gitlab'`, `'forgejo'`, or `'gitea'`. The provider type follows it:
 
 ```ts [server/utils/gitlab.ts]
 import { useForge } from 'vite-hub/forge'

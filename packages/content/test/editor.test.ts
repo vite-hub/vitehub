@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises"
 
 import { getSchema } from "@tiptap/core"
-import { createRealtimeYDoc, readRealtimeYDoc } from "@vite-hub/realtime/server"
+import { createRealtimeYDoc, readRealtimeYDoc } from "@vite-hub/realtime/internal/server"
 import { describe, expect, it } from "vitest"
 
 import { contentRealtimeEditor } from "../src/editor.ts"
