@@ -640,7 +640,7 @@ export interface GitHubPullRequestTriggerEvent {
    * For `"server"`, the trigger name and the `id` of the send, such as `"upkeep:wake-1"`.
    */
   deliveryId?: string
-  /** For `"server"`, the GitHub App from `app.identity`, or an empty `login` without it. */
+  /** For `"server"`, the identity paired with the token or resolved from `app.identity`, or an empty `login`. */
   actor: { login: string, id?: number, type?: string, association?: string }
   /** The comment or review body, or the `body` of a server send. */
   body?: string
@@ -3651,7 +3651,7 @@ async function githubPullRequestTriggerEvent<TRuntimeConfig extends AgentRuntime
   if (!head?.sha) {
     // Comment deliveries do not include the head commit.
     try {
-      const read = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+      const { pullRequest: read } = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
       if (isRecord(read.head)) head = read.head
     }
     catch (error) {
@@ -3762,13 +3762,13 @@ async function readGitHubPullRequest<TRuntimeConfig extends AgentRuntimeConfig>(
   repository: string,
   number: number,
   installationId?: number,
-): Promise<Record<string, unknown>> {
+): Promise<{ pullRequest: Record<string, unknown>, access: GitHubAppAccess | undefined }> {
   const appOptions = app ? githubAppOptions(app) || {} : {}
-  const token = await githubPullRequestMetadataToken(app, context, installationId, repository)
+  const access = await githubPullRequestAccess(app, context, installationId, repository)
   const { forgeProvider } = await loadForge()
-  const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+  const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token: access?.token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
   const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository, number })
-  return isRecord(read.raw) ? read.raw : {}
+  return { pullRequest: isRecord(read.raw) ? read.raw : {}, access }
 }
 
 /** The webhook payload shape of a pull request read, so the run context and the trigger event read it as from a delivery. */
@@ -3838,14 +3838,15 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
     async invoke(context, value): Promise<AgentTriggerInvokeResult> {
       const send = githubPullRequestTriggerSend(name, value)
       const { number } = send.pullRequest
-      const pullRequest = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
+      const { pullRequest, access } = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
       if (pullRequest.state === "closed") return closed()
       // Webhook deliveries name the repository as GitHub spells it. The send uses the same spelling, so both share
       // the pull request's queue slot and branch events.
       const base = isRecord(pullRequest.base) && isRecord(pullRequest.base.repo) ? pullRequest.base.repo : undefined
       const repository = maybeString(base?.full_name) ?? send.pullRequest.repository
       const appOptions = app ? githubAppOptions(app) : undefined
-      const login = appOptions?.identity?.login ?? ""
+      const identity = access && "identity" in access ? access.identity : await resolveGithubAppOption(appOptions?.identity, context)
+      const login = identity?.login ?? ""
       const [owner = "", repo = ""] = repository.split("/")
       const command: GitHubPullRequestCommand = {
         action: "server",
@@ -3908,7 +3909,7 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
         const branch = options.reconcile ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, maybeNumber(accepted.input.context?.[githubServerSendAcceptedAtKey])) : {}
         if (branch.closed) return settle(closed())
         if (branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel") return settle(options.ignored?.("head_moved") || ignored("head_moved"))
-        const pullRequest = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+        const { pullRequest } = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
         if (pullRequest.state === "closed") return settle(closed())
         const triggerInput = await runGitHubPullRequestTrigger(context, { [name]: trigger }, { ...command, trigger: name }, async () => githubPullRequestServerEvent(command, pullRequest))
         if (isResponse(triggerInput)) return settle(triggerInput)
