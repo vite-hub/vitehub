@@ -77,7 +77,7 @@ const fail = (status: number, code: string, message: string): ConsoleRpcResult =
 const ok = (value: unknown): ConsoleRpcResult => ({ ok: true, value: structuredClone(value) })
 
 function find(input: Record<string, unknown>): CommentThread | undefined {
-  return threads.find(thread => thread.id === input.threadId || thread.id === input.id)
+  return threads.find(thread => thread.id === input.threadId)
 }
 
 function mentionsOf(input: Record<string, unknown>): string[] {

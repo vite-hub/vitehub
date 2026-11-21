@@ -13,12 +13,12 @@ All operations belong to the Console section `comments`. Run them from the Conso
 | Operation | Kind | Input | Result |
 | --- | --- | --- | --- |
 | `comments.list` | read | `{ subject?, subjectKind?, page?, status?, mine?, mentions?, revision?, limit?, before? }` | `CommentThread[]`, newest first. |
-| `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null` when it is missing or you may not read it. |
+| `comments.get` | read | `{ threadId }` or `{ scope, n }` | The thread, or `null` when it is missing or you may not read it. |
 | `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision?, requestId? }` | The new thread. A retry by the same author with the same `requestId` and subject returns the first thread. Another author or subject with that key gets `409` `COMMENTS_R0022`. |
 | `comments.reply` | write | `{ threadId, body, mentions?, attachments?, requestId? }` | The thread. A retry by the same author with the same `requestId` in the thread returns it with the first message. Another author with that key gets `409` `COMMENTS_R0022`. |
 | `comments.edit` | write | `{ threadId, messageId, body, mentions? }` | The thread. Author only. |
 | `comments.delete` | destructive | `{ threadId, messageId? }` | The thread, or `null` when it is gone. |
-| `comments.resolve` | write | `{ threadId }` | The thread. |
+| `comments.resolve` | write | `{ threadId, reply? }`, or `{ threads: [{ threadId, reply? }] }` for up to 50 threads | The thread, or the threads in the order you sent them. See [Resolve what you handled](#resolve-what-you-handled). |
 | `comments.reopen` | write | `{ threadId }` | The thread. |
 | `comments.users` | read | `{ query, limit?, threadId?, subject? }` | Up to 10 `{ id, name, image }` to mention. A `query` under 2 characters gives `[]`. Needs the `write` right. |
 | `comments.upload` | write | `{ name, type, data, subject? }`, `data` in Base64 | `{ key, name, type, size }`. Not an MCP tool. |
@@ -28,6 +28,21 @@ All operations belong to the Console section `comments`. Run them from the Conso
 See [Attach files](/docs/comments/configure#attach-files). The overlay API serves the same actions over [HTTP routes](/docs/comments/server-api#http-routes).
 
 A `page` subject id is an app path: one leading `/`, no second `/` or `\`, no whitespace, `?`, or `#`, and at most 500 characters.
+
+### Resolve what you handled
+
+An open thread stays on its page in the overlay, and a resolved one leaves it. So when you or an agent makes the change that a thread asks for, resolve the thread with a `reply` that says what changed, such as the commit or a link:
+
+```json [comments.resolve input]
+{
+  "threads": [
+    { "threadId": "thread_123", "reply": "Fixed the price in 4f9c2e1." },
+    { "threadId": "thread_124", "reply": "Moved the button, see #512." }
+  ]
+}
+```
+
+One call resolves all the threads, so an MCP client asks you to approve it once. The operation checks every thread before it changes one, so a missing or refused thread changes nothing. The same `reply` on a retry adds no second message. A reply needs the `write` right as well as `resolve`. When an agent resolves through MCP, the thread keeps the agent as `resolvedActor` next to the person in `resolvedBy`.
 
 ### Paging
 

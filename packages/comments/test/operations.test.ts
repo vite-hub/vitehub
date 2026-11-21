@@ -668,3 +668,72 @@ it("gives authorize the user that identify builds for the request, not the Conso
   expect(await runOperation(registry, "comments.list", {}, { ...agent, surface: "agent" })).toEqual({ ok: true, value: [] })
   expect(seen.at(-1)).toBeNull()
 })
+
+describe("comments.resolve", () => {
+  function agentCall(name: string, value: unknown) {
+    return runOperation(registry, name, value, {
+      access: { mode: "auth", sections: "all" },
+      actor: { id: "claude", label: "Claude" },
+      surface: "mcp",
+      user: member,
+      waitUntil: task => { pending.push(task) },
+    })
+  }
+
+  it("resolves one thread with a reply that says what changed, and keeps one reply on a retry", async () => {
+    const store = setup(defineComments({ authorize: () => true }))
+    const thread = await create()
+    const request = { reply: "Fixed in 4f9c2e1.", threadId: thread.id }
+    const first = await agentCall("comments.resolve", request)
+    expect(first).toMatchObject({ ok: true, value: { id: thread.id, resolvedActor: { id: "claude", name: "Claude" }, resolvedBy: { id: member.id }, status: "resolved" } })
+    expect(await agentCall("comments.resolve", request)).toMatchObject({ ok: true, value: { status: "resolved" } })
+    const stored = await store.getById(thread.id)
+    expect(stored?.messages.map(message => message.body)).toEqual(["Review this page.", "Fixed in 4f9c2e1."])
+    expect(stored?.messages[1]?.actor).toEqual({ id: "claude", name: "Claude" })
+  })
+
+  it("resolves several threads in one call, each with its own reply", async () => {
+    const store = setup(defineComments({ authorize: () => true }))
+    const [a, b, c] = [await create(), await create(), await create()]
+    const result = await call("comments.resolve", { threads: [{ reply: "Done in #12.", threadId: a.id }, { threadId: b.id }] })
+    expect(result).toMatchObject({ ok: true, value: [{ id: a.id, status: "resolved" }, { id: b.id, status: "resolved" }] })
+    expect((await store.getById(a.id))?.messages.at(-1)?.body).toBe("Done in #12.")
+    expect((await store.getById(b.id))?.messages).toHaveLength(1)
+    expect((await store.getById(c.id))?.status).toBe("open")
+  })
+
+  it("changes no thread when one thread of the call is missing or refused", async () => {
+    const store = setup(defineComments({ authorize: ({ action, thread }) => action !== "resolve" || thread?.messages[0]?.body !== "locked" }))
+    const open = await create()
+    const locked = await create(member, { ...input, body: "locked" })
+    expect(await call("comments.resolve", { threads: [{ reply: "Done.", threadId: open.id }, { threadId: "missing" }] })).toMatchObject({ ok: false, status: 404 })
+    expect(await call("comments.resolve", { threads: [{ reply: "Done.", threadId: open.id }, { threadId: locked.id }] })).toMatchObject({ ok: false, status: 403 })
+    expect(await store.getById(open.id)).toMatchObject({ messages: [{ body: "Review this page." }], status: "open" })
+  })
+
+  it("takes either threadId or threads, and keeps each reply in its entry", async () => {
+    setup(defineComments({ authorize: () => true }))
+    const thread = await create()
+    for (const value of [{}, { threadId: thread.id, threads: [{ threadId: thread.id }] }, { reply: "Done.", threads: [{ threadId: thread.id }] }, { threads: [] }]) {
+      expect(await call("comments.resolve", value)).toMatchObject({ ok: false, status: 400 })
+    }
+  })
+
+  it("tells the agent to resolve the open threads that it handles", async () => {
+    setup(defineComments({ authorize: () => true }))
+    await create()
+    expect(await call("comments.threads", {})).toMatchObject({ ok: true, value: { next: expect.stringContaining("comments.resolve") } })
+    const resolved = await call("comments.threads", { status: "resolved" })
+    expect(resolved).toMatchObject({ ok: true, value: { threads: [] } })
+    expect(resolved.ok && resolved.value).not.toHaveProperty("next")
+  })
+
+  it("gets a thread by its threadId, as the other operations name it", async () => {
+    setup(defineComments({ authorize: () => true }))
+    const thread = await create()
+    expect(await call("comments.get", { threadId: thread.id })).toMatchObject({ ok: true, value: { id: thread.id } })
+    // The error names the fields, so an agent that sent `id` sees `threadId` in the same answer.
+    expect(await call("comments.get", { id: thread.id })).toMatchObject({ message: expect.stringContaining("comments.get takes { threadId } or { n, scope }."), ok: false, status: 400 })
+    expect(await call("comments.resolve", {})).toMatchObject({ message: expect.stringContaining("comments.resolve takes { reply?, threadId?, threads? }."), ok: false })
+  })
+})

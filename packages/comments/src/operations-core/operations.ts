@@ -90,6 +90,23 @@ const attachments = v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1),
 const metadata = v.optional(v.record(v.string(), v.union([v.string(), v.number(), v.boolean(), v.null()])))
 const revision = v.pipe(v.number(), v.integer(), v.minValue(0))
 const threadId = v.strictObject({ threadId: id })
+/** Threads that one `comments.resolve` call resolves at most. */
+const maximumResolvedThreads = 50
+const resolveReply = v.pipe(v.string(), v.minLength(1), v.maxLength(maximumCommentBodyLength), v.description("What changed, such as the commit or a link. It is added to the thread as a reply."))
+const resolveInput = v.pipe(
+  v.strictObject({
+    reply: v.optional(resolveReply),
+    threadId: v.optional(id),
+    threads: v.optional(v.pipe(v.array(v.strictObject({ reply: v.optional(resolveReply), threadId: id })), v.minLength(1), v.maxLength(maximumResolvedThreads))),
+  }),
+  v.check(input => (input.threadId === undefined) !== (input.threads === undefined), "Pass threadId for one thread, or threads for several threads, not both."),
+  v.check(input => input.reply === undefined || input.threadId !== undefined, "With threads, put each reply in its entry, as { threadId, reply }."),
+)
+
+async function digest(value: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))
+  return Array.from(bytes.subarray(0, 16), byte => byte.toString(16).padStart(2, "0")).join("")
+}
 
 function actorOf(actor: OperationContext["actor"]): CommentActor | undefined {
   return actor ? { id: actor.id, ...(actor.label ? { name: actor.label } : {}) } : undefined
@@ -236,7 +253,7 @@ const listInput = v.strictObject({
   subject: v.optional(subject),
   subjectKind: v.optional(subjectKind),
 })
-const getInput = v.union([v.strictObject({ id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })])
+const getInput = v.union([v.strictObject({ threadId: id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })])
 const createInput = v.strictObject({ anchor, attachments, body: text, mentions, metadata, requestId: v.optional(requestIdSchema), revision: v.optional(revision), subject })
 const replyInput = v.strictObject({ attachments, body: text, mentions, requestId: v.optional(requestIdSchema), threadId: id })
 const editInput = v.strictObject({ body: text, mentions, messageId: id, threadId: id })
@@ -304,7 +321,7 @@ export const commentActions = {
   },
 
   async get(input: CommentGetInput, who: CommentsCaller): Promise<CommentThread | null> {
-    const found = "id" in input ? await who.runtime.store.getById(input.id) : await who.runtime.store.getByNumber(input.scope, input.n)
+    const found = "threadId" in input ? await who.runtime.store.getById(input.threadId) : await who.runtime.store.getByNumber(input.scope, input.n)
     if (!found || !await permitted(who, "read", { thread: found })) return null
     return (await withForge(who, [found]))[0]!
   },
@@ -380,9 +397,37 @@ export const commentActions = {
   async setStatus(input: CommentStatusInput, who: CommentsCaller, status: "open" | "resolved"): Promise<CommentThread> {
     const found = await load(who, input.threadId)
     await allow(who, "resolve", { thread: found })
-    const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now())
+    const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now(), status === "resolved" ? who.actor : undefined)
     who.runtime.forge?.changed(found.id)
     return next
+  },
+
+  /**
+   * Resolve threads that the caller handled, each with an optional reply that says what changed. Every thread is
+   * checked before any of them changes, so a missing thread or a refused one changes nothing.
+   */
+  async resolveThreads(input: readonly { threadId: string, reply?: string }[], who: CommentsCaller): Promise<CommentThread[]> {
+    const found = await Promise.all(input.map(async (entry) => {
+      const thread = await load(who, entry.threadId)
+      await allow(who, "resolve", { thread })
+      if (entry.reply !== undefined) await allow(who, "write", { thread })
+      return thread
+    }))
+    const resolved: CommentThread[] = []
+    for (const [index, entry] of input.entries()) {
+      let thread = found[index]!
+      if (entry.reply !== undefined) {
+        // The same reply on a retry keeps one message.
+        const requestId = `resolve:${await digest(entry.reply)}`
+        thread = (await commentActions.reply({ body: entry.reply, requestId, threadId: thread.id }, who, { allowResolved: true })).thread
+      }
+      if (thread.status !== "resolved") {
+        thread = await who.runtime.store.setStatus(thread.id, "resolved", author(who), Date.now(), who.actor)
+        who.runtime.forge?.changed(thread.id)
+      }
+      resolved.push(thread)
+    }
+    return resolved
   },
 
   /** `minimum`: the shortest query that gets suggestions. The operations ask for two characters. */
@@ -423,11 +468,14 @@ const list = defineOperation({
   section: "comments",
 })
 
+/** What an Agent does after it handles a thread, in the answer of `comments.threads`. */
+const resolveNext = "After you make the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed, such as the commit or a link. Resolve every thread that you handled in one call: { threads: [{ threadId, reply }] }. Open threads stay on the page."
+
 /** Threads that one search reads from the store at a time. */
 const searchBatch = maximumLimit
 
 const threads = defineOperation({
-  description: "ViteHub Comments: threads people left with the Comments toolbar on the app's pages, newest activity first. Each has the page, what the comment points at, the time, the first comment, and the Vue components. `hidden` counts the threads that `authorize` hid from you. Read one with comments.get. After you change the code, reply with comments.reply and resolve it with comments.resolve.",
+  description: "ViteHub Comments: threads people left with the Comments toolbar on the app's pages, newest activity first. Each has the page, what the comment points at, the time, the first comment, and the Vue components. `hidden` counts the threads that `authorize` hid from you. Read one with comments.get { threadId }. When you have made the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed: the person expects it, and open threads stay on their page.",
   input: threadsInput,
   kind: "read",
   name: "comments.threads",
@@ -452,7 +500,9 @@ const threads = defineOperation({
       before = cursorOf(listed.threads.at(-1)!)
     }
     const note = hiddenThreadsNote(hidden, { authorize: Boolean(who.runtime.definition.authorize), identify: Boolean(who.runtime.identify), user: who.user !== null, console: who.console === true })
-    return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}) }
+    // Agents read this list right before they work on the threads, so it says how a thread ends.
+    const next = status === "open" && found.length ? resolveNext : undefined
+    return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}), ...(next ? { next } : {}) }
   },
   // After `run`, so TypeScript infers the output from `run` before it types `format`.
   mcp: {
@@ -463,7 +513,7 @@ const threads = defineOperation({
 })
 
 const get = defineOperation({
-  description: "Read one comment thread by id, or by number inside its scope: its page, the element and Vue components with their source files, the browser and build, and every comment. A thread that does not exist or that you may not read is null.",
+  description: "Read one comment thread by { threadId }, or by { scope, n }, its number inside its scope: its page, the element and Vue components with their source files, the browser and build, and every comment. A thread that does not exist or that you may not read is null.",
   input: getInput,
   kind: "read",
   name: "comments.get",
@@ -485,7 +535,7 @@ const create = defineOperation({
 })
 
 const reply = defineOperation({
-  description: "Add a message to a comment thread, for example to say what you changed. A resolved thread stays resolved. Send the same `requestId` again to retry: you get the first message, not a second one.",
+  description: "Add a message to a comment thread, such as a question to the person. To say what you changed and close the thread, use comments.resolve with reply. A resolved thread stays resolved. Send the same `requestId` again to retry: you get the first message, not a second one.",
   input: replyInput,
   kind: "write",
   name: "comments.reply",
@@ -513,17 +563,31 @@ const remove = defineOperation({
   section: "comments",
 })
 
-function statusOperation(name: "comments.reopen" | "comments.resolve", status: "open" | "resolved", description: string, title: string): AnyOperation {
-  return defineOperation({
-    description,
-    input: threadId,
-    kind: "write",
-    mcp: { format: (thread: CommentThread) => `Thread ${thread.id} is ${thread.status}.`, title },
-    name,
-    run: async (input, context): Promise<CommentThread> => commentActions.setStatus(input, await caller(context), status),
-    section: "comments",
-  })
-}
+const resolve = defineOperation({
+  description: "Resolve the comment threads that you handled, each with a reply that says what changed, such as the commit or a link. This is the last step of every thread that you act on, and the person who commented expects it: resolved threads leave their page, open ones stay on it. Pass { threadId, reply } for one thread, or { threads: [{ threadId, reply }] } to resolve every thread that you handled in one call. A thread that you did not change stays open.",
+  input: resolveInput,
+  kind: "write",
+  name: "comments.resolve",
+  run: async (input, context): Promise<CommentThread | CommentThread[]> => {
+    const who = await caller(context)
+    if (input.threads) return commentActions.resolveThreads(input.threads, who)
+    // SAFETY: The schema accepts threadId when threads is missing.
+    const [thread] = await commentActions.resolveThreads([{ threadId: input.threadId!, ...(input.reply === undefined ? {} : { reply: input.reply }) }], who)
+    return thread!
+  },
+  mcp: { format: output => [output].flat().map(thread => `Thread ${thread.id} is ${thread.status}.`).join("\n"), title: "Resolve comment threads" },
+  section: "comments",
+})
+
+const reopen = defineOperation({
+  description: "Open a resolved comment thread again.",
+  input: threadId,
+  kind: "write",
+  name: "comments.reopen",
+  run: async (input, context): Promise<CommentThread> => commentActions.setStatus(input, await caller(context), "open"),
+  mcp: { format: thread => `Thread ${thread.id} is ${thread.status}.`, title: "Reopen a comment thread" },
+  section: "comments",
+})
 
 const users = defineOperation({
   description: "Find people to mention by name. Needs at least two characters, and the right to write.",
@@ -611,8 +675,8 @@ export const commentsOperations: readonly AnyOperation[] = [
   reply,
   edit,
   remove,
-  statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved, after the change it asks for is done. Resolved threads leave the page.", "Resolve a comment thread"),
-  statusOperation("comments.reopen", "open", "Open a resolved comment thread again.", "Reopen a comment thread"),
+  resolve,
+  reopen,
   users,
   upload,
   attachment,

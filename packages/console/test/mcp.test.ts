@@ -142,7 +142,7 @@ beforeAll(async () => {
     const mcp = verified.caller.via === "console" && verified.caller.surface === "mcp"
     const confirmed = verified.caller.via === "console" && verified.caller.confirmed === true
     const readOnly = verified.caller.via === "console" && verified.caller.readOnly === true
-    if (operation === "project.get") return answer({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.del", "content.save"], protocol: 1, sections: ["kv", "content"], vitehub: "0.0.1" } })
+    if (operation === "project.get") return answer({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.del", "content.save"], protocol: 1, sections: ["kv", "content"], vitehub: "0.0.1", ...(mcp && !olderApp ? { reference: operationReference } : {}) } })
     if (readOnly && operation !== "kv.list") return answer({ code: "CONSOLE_ACCESS_DENIED", message: `${operation} is a write operation, and this caller may only read.`, ok: false, status: 403 })
     if (mcp && operation === "documents.action") return answer({ code: "CONSOLE_ACCESS_DENIED", message: "documents.action is not open to MCP clients. Use it from the Console.", ok: false, status: 403 })
     if (mcp && operation === "content.save" && Reflect.get(Object(input), "ifDigest") === undefined) return answer({ code: "CONTENT_R0009", message: "content.save requires ifDigest on MCP calls.", ok: false, status: 400 })
@@ -150,6 +150,11 @@ beforeAll(async () => {
     return answer({ ok: true, value: { deleted: 1 } })
   }))
 })
+
+const operationReference = [
+  { description: "List the keys.", input: { properties: { prefix: { type: "string" } }, type: "object" }, kind: "read", name: "kv.list" },
+  { description: "Delete a key.", input: { properties: { key: { type: "string" } }, required: ["key"], type: "object" }, kind: "destructive", name: "kv.del" },
+]
 
 afterAll(() => {
   vi.unstubAllGlobals()
@@ -247,7 +252,10 @@ describe("ViteHub MCP at /mcp/account", () => {
     linkVariable = variable
 
     expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ linked: true, status: 200 })
-    expect((await call("list_operations", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ operations: ["kv.list", "kv.del", "content.save"] })
+    // The app sends each operation's kind, description, and input schema to MCP clients, in place of the names.
+    const listed = (await call("list_operations", { id }, tokens.bob)).body!.result.structuredContent
+    expect(listed).toMatchObject({ name: "probe", operations: operationReference, sections: ["kv", "content"] })
+    expect(listed).not.toHaveProperty("reference")
 
     const refused = await call("run_operation", { id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
     expect(refused.body!.result.isError).toBe(true)

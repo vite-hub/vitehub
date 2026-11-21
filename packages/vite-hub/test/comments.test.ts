@@ -109,9 +109,9 @@ describe("comment operations over the Console RPC", () => {
     expect(typeof thread.createdAt).toBe("number")
     expect(await value<CommentThread[]>("comments.list", { page: "/pricing" })).toEqual([thread])
     expect(await value<CommentThread[]>("comments.list", { page: "/other" })).toEqual([])
-    expect(await value("comments.get", { id: thread.id })).toEqual(thread)
+    expect(await value("comments.get", { threadId: thread.id })).toEqual(thread)
     expect(await value("comments.get", { n: 1, scope: "site" })).toEqual(thread)
-    expect(await value("comments.get", { id: "thread_missing" })).toBeNull()
+    expect(await value("comments.get", { threadId: "thread_missing" })).toBeNull()
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toHaveLength(1)
     signedIn = ben
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toEqual([])
@@ -133,7 +133,7 @@ describe("comment operations over the Console RPC", () => {
     expect(authorize).toHaveBeenCalledWith({ console: true, action: "write", subject: page, user: ana })
     await value("comments.resolve", { threadId: thread.id })
     expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
-    await value("comments.get", { id: thread.id })
+    await value("comments.get", { threadId: thread.id })
     expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
   })
 
@@ -218,7 +218,7 @@ describe("comment operations over the Console RPC", () => {
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0009", status: 403 })
     signedIn = ana
     expect(await value("comments.delete", { messageId: mine.messages[0]!.id, threadId: mine.id })).toBeNull()
-    expect(await value("comments.get", { id: mine.id })).toBeNull()
+    expect(await value("comments.get", { threadId: mine.id })).toBeNull()
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
   })
 
@@ -353,7 +353,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(await transport.users({ query: "an" })).toEqual([ana])
     expect(await transport.delete({ threadId: thread.id })).toBeNull()
     expect(transport.subscribe).toBeUndefined()
-    await expect(transport.get({ id: "x" })).resolves.toBeNull()
+    await expect(transport.get({ threadId: "x" })).resolves.toBeNull()
     await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", fix: expect.stringMatching(/\S/), status: 404 })
   })
 })
@@ -422,7 +422,7 @@ describe("who can see and change a thread", () => {
     ] as const) expect(await failure(name, input), name).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     expect(await failure("comments.reply", { body: "Hi", threadId: "thread_missing" })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     // get answers null for a hidden thread and for a missing one, by id and by number.
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toBeNull()
     signedIn = ana
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toEqual(thread)
@@ -434,7 +434,7 @@ describe("who can see and change a thread", () => {
     install(defineComments(), store)
     signedIn = undefined
     const messageId = thread.messages[0]!.id
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.list", {})).toEqual([])
     for (const [name, input] of [
       ["comments.users", { query: "an" }],
