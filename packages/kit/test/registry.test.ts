@@ -55,4 +55,9 @@ describe("@vitehub registry", () => {
     expect(style?.cssVars?.dark).toMatchObject({ background: "oklch(0 0 0)", foreground: "oklch(0.985 0 0)" });
     expect(Object.keys(style?.cssVars?.theme ?? {})).toEqual(["font-sans", "font-mono"]);
   });
+
+  it("declares the CSS package shadcn-vue imports when adding the skill after the style", () => {
+    const skill = items.find((item) => item.name === "vitehub-ui-skill");
+    expect(skill?.dependencies ?? []).toContain("tw-animate-css");
+  });
 });

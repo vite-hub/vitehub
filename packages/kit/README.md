@@ -103,6 +103,10 @@ The parts have no styles until you load a style family. A family is one CSS file
 | `vitehub` | `registry:style` | The tokens into the app's CSS, and the family to `styles/vitehub.css` |
 | `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
 
+In an app with Tailwind 4 and a font set in `components.json`, shadcn-vue 2.9.0 can also add its base CSS when it installs the skill. The skill item declares `tw-animate-css` so the base CSS import resolves.
+
+To check this in a Vite + Vue + Tailwind 4 app, point the `@vitehub` entry in `components.json` at the registry under test (`/r/{name}.json` on your local docs server). Set a `font` in `components.json` and start without `tw-animate-css` installed. Run `npx shadcn-vue@2.9.0 add @vitehub/vitehub`, import the installed `styles/vitehub.css` in the app's main stylesheet, and check that the app builds. Then run `npx shadcn-vue@2.9.0 add @vitehub/vitehub-ui-skill`. Check that the skill file exists, `tw-animate-css` is installed, and the app still builds.
+
 ## Nuxt
 
 The module auto-imports every part as a component, including the parts that the kit adds, and every helper, such as `createDialogController()` and `formatNumber()`. Set `prefix` when the app has its own components with the same names:

@@ -22,6 +22,7 @@
       "type": "registry:item",
       "title": "ViteHub UI agent skill",
       "description": "A skill that tells a coding agent how to use, style, and install ViteHub UI parts.",
+      "dependencies": ["tw-animate-css"],
       "files": [
         {
           "path": "registry/vitehub-ui/SKILL.md",
