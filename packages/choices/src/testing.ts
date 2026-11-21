@@ -74,7 +74,9 @@ export function selectionGateway<TGroups extends ChoiceGroups = ChoiceGroups>(
         const exclude = value?.exclude ?? []
         if (!Array.isArray(include) || !Array.isArray(exclude)) throw invalid(`Group "${key}" needs arrays of option values for include and exclude.`)
         for (const item of [...include, ...exclude]) checkValue(item)
-        return [key, { exclude: optionValues.filter(item => !include.includes(item) && exclude.includes(item)), include: optionValues.filter(item => include.includes(item)) }]
+        const both = include.find(item => exclude.includes(item))
+        if (both !== undefined) throw invalid(`Group "${key}" includes and excludes ${JSON.stringify(both)}. Put each option value in one list.`)
+        return [key, { exclude: optionValues.filter(item => exclude.includes(item)), include: optionValues.filter(item => include.includes(item)) }]
       }))
     },
   }
@@ -85,11 +87,19 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+// A name matches as whole words: "Bar" does not match "barcode", and "not" does not match "another".
+const edge = String.raw`[\p{L}\p{N}_]`
+
+function wordPattern(pattern: string): RegExp {
+  return new RegExp(`(?<!${edge})${pattern}(?!${edge})`, "u")
+}
+
 /**
  * An offline gateway that answers by word match, for get-started and local dev without an API key. It is not a model:
- * an option is included when the text names its label, and excluded when "except", "not", or "without" comes before it.
- * A single group chooses the first option that the text names. An infer group also matches words of five letters or more
- * from the option descriptions. Text with the word "unsupported" fails the supported check, so you can see `DECISIONS_R0004`.
+ * an option is included when the text names its label or one of its aliases as whole words, and excluded when "except",
+ * "not", or "without" comes before that name. A single group chooses the first option that the text names. An infer group
+ * also matches words of five letters or more from the option descriptions. Text with the word "unsupported" fails the
+ * supported check, so you can see `DECISIONS_R0004`.
  */
 export function wordGateway(): { ask: AiGatewayAsk } {
   const ask: AiGatewayAsk = async (state, questions, options) => {
@@ -97,14 +107,15 @@ export function wordGateway(): { ask: AiGatewayAsk } {
     // SAFETY: defineChoices() sends the state that buildPlan() makes.
     const { groups, query } = state as ChoicesPlan["state"]
     const text = query.toLowerCase()
+    const names = (option: { aliases?: readonly string[], label: string }) => [option.label, ...option.aliases ?? []].map(name => escapeRegExp(name.toLowerCase()))
     const answer = (key: string, question: AskQuestion) => {
-      if (key === "supported") return answers.chance(text.includes("unsupported") ? 0.1 : 0.95)
+      if (key === "supported") return answers.chance(wordPattern("unsupported").test(text) ? 0.1 : 0.95)
       const [, groupIndex, optionIndex] = /^g(\d+)(?:_o(\d+))?$/.exec(key) ?? []
       const group = groups[Number(groupIndex)]
       if (!group || question.type !== "choice") return answers.first(question)
-      const labels = group.options.map(option => option.label)
-      const named = labels.filter(label => text.includes(label.toLowerCase()))
+      const named = group.options.filter(option => names(option).some(name => wordPattern(name).test(text))).map(option => option.label)
       if (optionIndex === undefined && group.infer) {
+        const labels = group.options.map(option => option.label)
         // Descriptions are in the question criteria, not in the state.
         const words = (label: string) => {
           const criteria = question.criteria[label]
@@ -117,9 +128,10 @@ export function wordGateway(): { ask: AiGatewayAsk } {
         const best = named[0] ?? "(none)"
         return answers.choice(question, best, best === "(none)" ? 0.9 : 0.8)
       }
-      const label = labels[Number(optionIndex)]!.toLowerCase()
-      const excluded = new RegExp(`(except|not|without)\\s+(\\w+\\s+)?${escapeRegExp(label)}`).test(text)
-      return answers.choice(question, !text.includes(label) ? "none" : excluded ? "exclude" : "include", 0.9)
+      const option = group.options[Number(optionIndex)]!
+      if (!named.includes(option.label)) return answers.choice(question, "none", 0.9)
+      const excluded = names(option).some(name => wordPattern(String.raw`(?:except|not|without)\s+(?:${edge}+\s+)?${name}`).test(text))
+      return answers.choice(question, excluded ? "exclude" : "include", 0.9)
     }
     const entries = Object.entries(questions).map(([key, question]) => [key, answer(key, question)] as const)
     options?.onUsage?.({ provider: "scripted", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } })

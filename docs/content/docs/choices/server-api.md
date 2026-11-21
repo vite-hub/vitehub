@@ -171,8 +171,8 @@ selection?.supplier.include // ['S2']
 await defineChoices({ gateway: selectionGateway(unsupported), groups }).resolve('price above 100')
 ```
 
-A group that you leave out selects nothing. Pass a function, `(text, context) => selection`, to answer from the text and the request `context`. Return `unsupported` for [`DECISIONS_R0004`](/docs/choices/limits-and-errors#decisions_r0004), and throw for [`DECISIONS_R0005`](/docs/choices/limits-and-errors#decisions_r0005). A group key or option value that the groups do not have also returns `DECISIONS_R0005`, with `DECISIONS_TESTING_SELECTION_INVALID` as its `cause`.
+A group that you leave out selects nothing. Pass a function, `(text, context) => selection`, to answer from the text and the request `context`. Return `unsupported` for [`DECISIONS_R0004`](/docs/choices/limits-and-errors#decisions_r0004), and throw for [`DECISIONS_R0005`](/docs/choices/limits-and-errors#decisions_r0005). A group key or option value that the groups do not have, or a value in both `include` and `exclude`, also returns `DECISIONS_R0005`, with `DECISIONS_TESTING_SELECTION_INVALID` as its `cause`.
 
-`wordGateway()` answers by word match: it includes an option that the text names and excludes one after "except", "not", or "without". [Get started](/docs/choices/get-started) uses it. It is not a model, so use it to try the flow, not to ship.
+`wordGateway()` answers by word match: it includes an option when the text names its label or an alias as whole words, and excludes one after "except", "not", or "without". [Get started](/docs/choices/get-started) uses it. It is not a model, so use it to try the flow, not to ship.
 
 For a failing gateway, pass `scriptedAsk()` from `vite-hub/gateways/testing` with `{ error: 'GATEWAYS_R0008' }`. `resolve()` returns `DECISIONS_R0005` with the gateway's public reason. See [Test without a key](/docs/gateways/server-api#test-without-a-key).
