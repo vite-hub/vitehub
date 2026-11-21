@@ -427,18 +427,27 @@ describe("vitehub/no-owned-table-writes", () => {
         "  db.run('DELETE FROM \"public\".\"vitehub_comment_threads\"'),",
         "  db.run(\"UPDATE OR IGNORE vitehub_comment_threads SET status = 'open'\"),",
         "  db.run(sql`DELETE FROM ${commentThreads} WHERE status = 'resolved'`),",
+        "  db.run('DELETE FROM/* target */vitehub_comment_threads'),",
+        '  db.run(`DELETE FROM "public"."vitehub_comment_threads" WHERE status = \'--\'`),',
+        '  db.run(sql`DELETE FROM "public".${commentThreads}`),',
         "]",
       ),
-    })).map(diagnostic => diagnostic.line)).toEqual([4, 5, 6, 7])
+    })).map(diagnostic => diagnostic.line)).toEqual([4, 5, 6, 7, 8, 9, 10])
   })
 
   it("accepts SQL that only mentions a vitehub_ table in a string or comment", async () => {
     expect(await codes(noOwnedTableWrites, {
       "package.json": app,
       "server/utils/jobs.ts": lines(
-        "export const jobs = (db: { all(sql: string): unknown }) => [",
+        'import { sql } from "drizzle-orm"',
+        'import { commentThreads } from "vite-hub/comments/database"',
+        "export const jobs = (db: { all(sql: unknown): unknown }) => [",
         "  db.all(\"SELECT * FROM jobs WHERE operation = 'update vitehub_comment_threads'\"),",
         "  db.all(\"SELECT 1 -- delete from vitehub_comment_threads\"),",
+        '  db.all(`SELECT 1 AS "update vitehub_comment_threads"`),',
+        '  db.all(`SELECT $$update vitehub_comment_threads$$`),',
+        '  db.all(sql`SELECT 1 -- DELETE FROM ${commentThreads}`),',
+        '  db.all(sql`SELECT \'DELETE FROM ${commentThreads}\'`),',
         "]",
       ),
     })).toEqual([])

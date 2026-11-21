@@ -443,15 +443,20 @@ const ownedTableModule = /^(?!auth\/)([\w-]+)(?:\/[\w-]+)*\/(?:database|blob-dat
 const serverApiPages = new Set(["comments", "content", "env", "forms", "sync", "webhooks"])
 const docsFolders: Record<string, string> = { agent: "agents" }
 const sqlWrite = String.raw`\b(?:insert\s+(?:or\s+\w+\s+)?into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)\s+`
+const sqlSchema = "(?:(?:\\w+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\])\\s*\\.\\s*)?"
 /** A write whose target is a `vitehub_` table, with an optional schema: `DELETE FROM "public"."vitehub_comment_threads"`. */
-const ownedTableSql = new RegExp(`${sqlWrite}(?:["\`[]?\\w+["\`\\]]?\\s*\\.\\s*)?["\`[]?(vitehub_\\w+)`, "i")
+const ownedTableSql = new RegExp(`${sqlWrite}${sqlSchema}(?:"(vitehub_\\w+)"|\`(vitehub_\\w+)\`|\\[(vitehub_\\w+)\\]|(vitehub_\\w+)(?![\\w$.]))`, "i")
 /** A write that ends where a Drizzle `sql` template interpolates its target table. */
-const sqlWriteBeforeTable = new RegExp(`${sqlWrite}$`, "i")
+const sqlWriteBeforeTable = new RegExp(`${sqlWrite}${sqlSchema}$`, "i")
 const drizzleWrites = new Set(["insert", "update", "delete"])
 
-/** SQL without its string literals and comments, so data that reads like SQL is not matched as SQL. */
+/** Mask SQL data and comments without changing offsets. Keep quoted identifiers but mask their punctuation and spaces. */
 function sqlCode(text: string): string {
-  return text.replace(/'(?:[^']|'')*'/g, "''").replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "")
+  return text.replace(/--[^\r\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:''|[^'])*'|(?<![\w$])(\$(?:[A-Za-z_]\w*)?\$)[\s\S]*?\1|"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\]/g, (token) => {
+    if (token.startsWith("--") || token.startsWith("/*")) return " ".repeat(token.length)
+    if (token.startsWith("'") || token.startsWith("$")) return "#".repeat(token.length)
+    return `${token[0]}${token.slice(1, -1).replace(/[^\w]/g, "#")}${token.at(-1)}`
+  })
 }
 
 function featureDocs(feature: string): string {
@@ -499,12 +504,13 @@ export const noOwnedTableWrites: DoctorRule = createRule({
       TaggedTemplateExpression(node) {
         const quasi = node.quasi
         if (!isIdentifier(node.tag, "sql") || !isNodeType(quasi, "TemplateLiteral") || !Array.isArray(quasi.quasis) || !Array.isArray(quasi.expressions)) return
-        let before = ""
+        const code = sqlCode(literalText(quasi) ?? "")
+        let offset = 0
         for (const [index, expression] of quasi.expressions.entries()) {
-          before += cookedText(quasi.quasis[index])
-          const table = sqlWriteBeforeTable.test(sqlCode(before)) ? ownedTable(expression) : undefined
+          offset += cookedText(quasi.quasis[index]).length
+          const table = code.startsWith("${}", offset) && sqlWriteBeforeTable.test(code.slice(0, offset)) ? ownedTable(expression) : undefined
           if (table) return reportTable(node, "SQL changes", table)
-          before += "${}"
+          offset += "${}".length
         }
       },
       Literal(node) {
@@ -516,10 +522,10 @@ export const noOwnedTableWrites: DoctorRule = createRule({
     }
 
     function checkSql(node: unknown) {
-      const match = ownedTableSql.exec(sqlCode(literalText(node) ?? ""))
-      if (!match) return
+      const table = ownedTableSql.exec(sqlCode(literalText(node) ?? ""))?.slice(1).find(Boolean)
+      if (!table) return
       ctx.report(diagnostics.VHUB0039({
-        why: `This SQL changes \`${match[1]}\`, a table that a ViteHub feature owns. The write skips the checks that the feature runs, and breaks when ViteHub changes the table.`,
+        why: `This SQL changes \`${table}\`, a table that a ViteHub feature owns. The write skips the checks that the feature runs, and breaks when ViteHub changes the table.`,
         fix: "Use the server API of the feature that owns the table. When it has no operation for this write, ask for one in vite-hub/vitehub.",
       }), { range: ctx.range(node) })
     }
