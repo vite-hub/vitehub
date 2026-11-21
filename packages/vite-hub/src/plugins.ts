@@ -42,7 +42,9 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
+import { miniflareDevEnvPlugin } from "./miniflare-dev-env.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
+import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
@@ -1659,7 +1661,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       order: "post",
       handler: "handler" in configHook ? configHook.handler : configHook,
     }
-    plugins.push(agentChannelEnvPlugin())
+    plugins.push(agentChannelEnvPlugin({ simulate: typeof options.agent === "object" && options.agent.channels?.simulate === true }))
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
@@ -1668,7 +1670,8 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
   if (plan.host === "cloudflare") plugins.push(cloudflareNodeDevPlugin())
-  plugins.push(forgeBuildCheckPlugin())
+  plugins.push(miniflareDevEnvPlugin())
+  plugins.push(drizzleBuildCheckPlugin(), forgeBuildCheckPlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
@@ -2059,6 +2062,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     database: Boolean(options.database),
     queue: Boolean(options.queue) && plan.services.queue.supported,
     imports: {
+      ...options.auth ? { auth: "#vitehub/auth/server" } : {},
       runtime: "vite-hub/webhooks/runtime",
       operations: "vite-hub/webhooks/operations",
       database: "vite-hub/webhooks/database",

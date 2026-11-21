@@ -117,6 +117,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ installed }: { installed: string }) => `${installed} ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.`,
       fix: ({ install }: { install: string }) => `Install the ViteHub packages of the same release as vite-hub: \`pnpm add ${install}\`. When pnpm \`overrides\`, \`resolutions\`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.`,
     },
+    VITE_HUB_PEER_VERSION_UNSUPPORTED: {
+      why: ({ installed }: { installed: string }) => `${installed} ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as \`drizzle-orm/libsql/codecs\` not exported.`,
+      fix: ({ install }: { install: string }) => `Install a supported version in your app: \`pnpm add ${install}\`. pnpm keeps a version that the lockfile or another dependency already has, even outside the peer range of vite-hub, and only warns. When pnpm \`overrides\` or \`resolutions\` pin the package, change them too, then install again.`,
+    },
     VITE_HUB_PUBLIC_URL_INVALID: {
       why: ({ value }: { value: string }) => `\`publicUrl\` must be an http or https origin without a path, but it is ${value}.`,
       fix: "Set `vitehub({ publicUrl })` to an origin such as `https://shop.example.com`, with no path, query, or user name.",
@@ -311,7 +315,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0001: {
       ...dynamicError,
-      fix: "Pass a section that `vitehub project info` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
+      fix: "Pass a section that `vitehub project get` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
     },
     VITE_HUB_C0002: {
       ...dynamicError,

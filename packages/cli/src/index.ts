@@ -12,6 +12,7 @@ import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
+import { renamedCommandMessage } from "./renamed-commands.ts"
 import { createSeedNamespace } from "./seed.ts"
 
 import type { LoadProvision } from "./provision.ts"
@@ -373,6 +374,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       ? process.stderr.write(chunk, encoding)
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
+  const renamed = renamedCommandMessage(args)
+  if (renamed) {
+    stderr.write(`${renamed}\n`)
+    return 1
+  }
   const spawn = options.spawn || defaultSpawn
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
   // `vitehub seed --remote` writes the deployment of the stage, so its `publicUrl` and primitives come from that mode too.

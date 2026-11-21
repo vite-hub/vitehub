@@ -16,8 +16,9 @@ A Driver decides how one Invocation (one call to an Agent) runs. Pick the Driver
 | Provider-backed | Codex or Claude Code runs its own loop, tools, approvals, and session. |
 | Custom run | Your code does the work. |
 | Ask | A fast decision model answers a fixed set of typed questions. |
+| External | A process outside the app runs the Agent, and the app keeps its definition and journal. |
 
-`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Other Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
+`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Other Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`, or the string `'external'`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
 ## Use a model-backed Driver
 
@@ -518,7 +519,7 @@ export const agentCapacity = createProcessAgentCapacity({
 })
 ```
 
-`concurrency` is the hard maximum. Under CPU or memory pressure, ViteHub admits fewer new Invocations. Active ones continue, the queue stays FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts use Node's available-memory and parallelism signals. A failed sample, or one slower than `sampleTimeoutMs` (default one second), uses `fallbackConcurrency` (default one). `vitehub agent info` shows the current limit, hard maximum, queue depth, and sampling reason.
+`concurrency` is the hard maximum. Under CPU or memory pressure, ViteHub admits fewer new Invocations. Active ones continue, the queue stays FIFO, and admission resumes after recovery. Linux uses cgroup v2 limits, memory events, and pressure stall information when available. Other hosts use Node's available-memory and parallelism signals. A failed sample, or one slower than `sampleTimeoutMs` (default one second), uses `fallbackConcurrency` (default one). `vitehub agent get` shows the current limit, hard maximum, queue depth, and sampling reason.
 
 ## Use a custom run Driver
 
@@ -541,6 +542,22 @@ The callback receives prepared input, messages, tools, Workspace access, invocat
 ViteHub cannot stop this callback. On cancel, `input.abortSignal` aborts and the result shows `notEnforcedBy: 'run'`. Pass the signal to your I/O or throw `input.abortSignal.reason` to stop. Model and provider Drivers stop on cancel. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation).
 
 Read [Instructions](/docs/agents/instructions) for model-facing behavior and [Workspace context](/docs/agents/workspace-context) for files and writeback.
+
+## Use an external Driver
+
+Use `driver: 'external'` when Codex, Claude Code, or another tool runs the Agent outside the app, such as on a laptop or a CI runner. The app keeps the Agent's description, Workspace, and Invocation journal, so the Console shows the Agent and its imported runs.
+
+```ts [server/agents/coding-agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  description: 'Codex or Claude Code, building Nuxt projects from a product spec.',
+  workspace: 'meetups',
+  driver: 'external',
+})
+```
+
+Write the runs to the journal with [`importAgentSession()`](/docs/agents/invocations#import-a-session-that-ran-elsewhere). An external Agent has no runtime. `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`. ViteHub makes no Workflow for it, so a Workflow can use the same name. A Workspace command such as `vitehub agent dev --agent coding-agent "!pnpm test"` does not start the Driver, so it still runs.
 
 ## Use an ask Driver
 
@@ -693,7 +710,7 @@ State, instructions, and criteria accept JSON. Root numbers and booleans become 
 
 `driver.ask` accepts only `ask`, `capacity`, and `gateway`. A gateway that cannot answer Jev, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient failures. A missing `advocaat` or a missing or rejected key fails the Invocation with a `GATEWAYS_` code. See [AI gateway errors](/docs/gateways/limits-and-errors#errors).
 
-The Console and `vitehub agent info` show the Driver kind as `ask`.
+The Console and `vitehub agent get` show the Driver kind as `ask`.
 
 Each question is a trace step, so the journal and Console show what Jev was asked and answered:
 

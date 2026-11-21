@@ -97,7 +97,7 @@ async function build(modules: unknown[]): Promise<string> {
   await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "cloudflare-resources", private: true, type: "module" }))
   await mkdir(join(root, "server/schedules"), { recursive: true })
-  await writeFile(join(root, "server/schedules/daily.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
+  await writeFile(join(root, "server/schedules/daily.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 9 * * 1-5', handler() {} })\n")
   const options = {
     agent: false, auth: false, blob: false, database: false, env: false, host: "cloudflare", kv: false, queue: false,
     rateLimit: false, realtime: false, sandboxTask: false, schedule: true, workflow: false, workspace: false,
@@ -112,7 +112,7 @@ describe("Cloudflare build", () => {
   it("passes when wrangler.json has the Schedule cron", async () => {
     const root = await build([])
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8")) as { triggers?: { crons?: string[] } }
-    expect(wrangler.triggers?.crons).toContain("0 9 * * *")
+    expect(wrangler.triggers?.crons).toContain("0 9 * * MON,TUE,WED,THU,FRI")
   }, 120_000)
 
   it.each([
@@ -125,7 +125,7 @@ describe("Cloudflare build", () => {
   ])("fails with a coded error when a project module %s", async (_name, module) => {
     await expect(build([module])).rejects.toMatchObject({
       code: "VITE_HUB_CLOUDFLARE_RESOURCE_MISSING",
-      message: expect.stringMatching(/wrangler\.json lacks the cron trigger "0 9 \* \* \*" for schedule "daily"/),
+      message: expect.stringContaining('wrangler.json lacks the cron trigger "0 9 * * MON,TUE,WED,THU,FRI" for schedule "daily"'),
     })
   }, 120_000)
 })

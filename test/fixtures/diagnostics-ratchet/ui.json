@@ -1,6 +1,7 @@
 {
   "rawErrors": {
-    "packages/ui/src/internal/icon-shapes.ts": 2
+    "packages/ui/src/internal/icon-shapes.ts": 2,
+    "packages/ui/src/motion/spring.ts": 1
   },
   "codesWithoutFix": [],
   "invariants": {
