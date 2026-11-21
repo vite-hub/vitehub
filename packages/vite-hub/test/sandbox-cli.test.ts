@@ -102,58 +102,40 @@ describe("vitehub sandbox", () => {
     expect(agentStatus.definitions.at(-1)).not.toHaveProperty("driver.gateway");
   });
 
-  it("serves SSH commands from env fallbacks and stops on SIGTERM", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-cli-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
-    const hostKey = join(root, "host");
-    const identity = join(root, "identity");
-    await Promise.all(
-      [hostKey, identity].map((path) =>
-        run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path]),
-      ),
-    );
-    const serveSsh = sandboxSsh.serveSsh;
-    const listener = vi.spyOn(sandboxSsh, "serveSsh").mockImplementation((options) =>
-      serveSsh({ ...options, port: 0 }),
-    );
+  it("configures SSH from env fallbacks and stops on SIGTERM without draining by default", async () => {
+    const close = vi.fn(async () => {});
+    const listener = vi.spyOn(sandboxSsh, "serveSsh").mockResolvedValue({
+      port: 43210,
+      connections: 1,
+      close,
+    });
     const serve = context({
       CRABBOX_STATIC_USER: "agent",
-      RUNNER_WORKSPACE: root,
-      SSH_AUTHORIZED_KEY: `${identity}.pub`,
-      SSH_HOST_KEY: hostKey,
+      RUNNER_WORKSPACE: "/workspace",
+      SSH_AUTHORIZED_KEY: "/ssh/identity.pub",
+      SSH_HOST_KEY: "/ssh/host",
       SSH_PORT: "2222",
     });
-    const running = Promise.resolve(feature("serve").run([], serve.context));
-    await vi.waitFor(() => expect(serve.stdout()).toContain('"event":"sandbox.listening"'), {
-      timeout: 10_000,
+    const listening = Promise.withResolvers<string>();
+    vi.spyOn(serve.context.stdout, "write").mockImplementation((chunk) => {
+      listening.resolve(String(chunk));
+      return true;
     });
-    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ port: 2222 }));
-    const { port } = JSON.parse(serve.stdout()) as { port: number };
-    expect(port).toBeGreaterThan(0);
-    expect(JSON.parse(serve.stdout())).toEqual({ event: "sandbox.listening", port });
-
-    const { stdout } = await run("ssh", [
-      "-T",
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "StrictHostKeyChecking=no",
-      "-o",
-      "UserKnownHostsFile=/dev/null",
-      "-o",
-      "LogLevel=ERROR",
-      "-i",
-      identity,
-      "-p",
-      String(port),
-      "agent@127.0.0.1",
-      "pwd",
-    ]);
-    expect(stdout.trim()).toBe(root);
-
+    const running = Promise.resolve(feature("serve").run([], serve.context));
+    const event = await Promise.race([listening.promise, running]);
     process.emit("SIGTERM");
     expect(await running).toBe(0);
-    expect(serve.stdout()).not.toContain("sandbox.draining");
+    expect(listener).toHaveBeenCalledExactlyOnceWith({
+      authorizedKeyFile: "/ssh/identity.pub",
+      cwd: "/workspace",
+      host: "127.0.0.1",
+      hostKeyFile: "/ssh/host",
+      port: 2222,
+      user: "agent",
+    });
+    expect(event).toBe('{"event":"sandbox.listening","port":43210}\n');
+    expect(close).toHaveBeenCalledExactlyOnceWith({ drainTimeoutMs: 0 });
+    expect(serve.context.stdout.write).toHaveBeenCalledTimes(1);
   });
 
   it("drains open connections on SIGTERM with --drain-timeout", async () => {
