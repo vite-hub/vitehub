@@ -60,11 +60,12 @@ export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
 }
 
 /** Use the manifest for canonical Docs twins and Content for other page lookups. */
-export function docsMarkdownContent(): ContentMarkdownRuntime {
+export function docsMarkdownContent(raw = false): ContentMarkdownRuntime {
   const runtime = docsContent()
   const base = useRuntimeConfig().public.docs.appBase.replace(/\/+$/, "")
+  const relativePath = (path: string) => base && path.startsWith(`${base}/`) ? path.slice(base.length) : path
   function twin(path: string): DocsPage | undefined {
-    const relative = base && path.startsWith(`${base}/`) ? path.slice(base.length) : path
+    const relative = relativePath(path)
     try {
       return docsRawPage(`/raw${decodeURI(relative)}`)
     }
@@ -75,6 +76,17 @@ export function docsMarkdownContent(): ContentMarkdownRuntime {
   return {
     seo: runtime.seo,
     async markdown(path, options) {
+      if (raw) {
+        let decoded: string
+        try {
+          decoded = decodeURIComponent(relativePath(path))
+        }
+        catch (error) {
+          if (!(error instanceof URIError)) throw error
+          return null
+        }
+        return await readDocsRawCopy(decoded)
+      }
       const page = twin(path)
       return page ? await readDocsPageCopy(page) : await runtime.markdown(path, options)
     },

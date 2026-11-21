@@ -15,11 +15,14 @@ const markdown = defineContentMarkdownHandler(
   () => import("../content.ts").then(module => module.docsMarkdownContent()),
   { render: request => serverFetch(request) },
 )
+const rawMarkdown = defineContentMarkdownHandler(
+  () => import("../content.ts").then(module => module.docsMarkdownContent(true)),
+)
 
 const handler: ContentMiddleware = async (event, next) => {
   const path = new URL(event.req.url).pathname
   const raw = docsAppPath("/raw/", useRuntimeConfig().public.docs.appBase)
-  if (path.startsWith("/raw/") || path.startsWith(raw)) return await next?.()
+  if (path.startsWith(raw) && path.endsWith(".md")) return await rawMarkdown(event, next)
   return await markdown(event, next)
 }
 

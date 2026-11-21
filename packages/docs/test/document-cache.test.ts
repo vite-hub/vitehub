@@ -109,7 +109,13 @@ it("serves exact raw URLs and reads only the requested page on a cold runtime", 
 
   expect(await (await request("/docs/Guide.md")).text()).toContain("Body of upper.md")
   expect(read.mock.calls.filter(([store]) => store === "docs")).toEqual([["docs", "upper.md"]])
-  expect(await (await request("/raw/docs/Guide.md")).text()).toContain("Body of upper.md")
+  const upper = await request("/raw/docs/Guide.md")
+  expect(await upper.text()).toContain("Body of upper.md")
+  expect(upper.headers.get("content-location")).toBe("/raw/docs/Guide.md")
+  const etag = upper.headers.get("etag")
+  expect(etag).not.toBeNull()
+  const fresh = await server.fetch(new Request("https://docs.example.com/raw/docs/Guide.md", { headers: { "if-none-match": etag! } }))
+  expect(fresh.status).toBe(304)
   expect(await (await request("/raw/docs/guide.md")).text()).toContain("Body of lower.md")
   for (const path of ["/raw/docs/GUIDE.md", "/raw/docs/guide/.md", "/raw/docs/missing.md"]) {
     expect((await request(path)).status).toBe(404)
