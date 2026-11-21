@@ -84,6 +84,7 @@ export default function ({ test, open, rects, near }) {
     wrapIcon: ".vh-ws-wrap-button svg",
     breadcrumbIcon: ".vh-ws-breadcrumb .vh-ws-file-icon",
     breadcrumbName: ".vh-ws-breadcrumb b",
+    breadcrumbSeparator: ".vh-ws-breadcrumb-separator:last-of-type",
     gutter: ".cm-gutters",
     line: ".cm-line",
     status: ".vh-ws-status",
@@ -97,8 +98,11 @@ export default function ({ test, open, rects, near }) {
       for (const name of ["head", "wrap", "wrapIcon", "status"]) {
         for (const side of ["x", "y", "w", "h"]) near(got[name][side], both[name][side], `${name}.${side}`)
       }
-      near(got.breadcrumbIcon.x, expected.breadcrumbIconX, "breadcrumb icon x", 2)
-      near(got.breadcrumbName.x, expected.breadcrumbNameX, "breadcrumb name x", 2)
+      // Folder names take the width of the font, which differs between machines. So the icon is checked against the
+      // end of the last folder separator, and the name against the icon.
+      if (got.breadcrumbSeparator) near(got.breadcrumbIcon.x - got.breadcrumbSeparator.x - got.breadcrumbSeparator.w, 2, "breadcrumb icon after the separator")
+      else near(got.breadcrumbIcon.x, expected.breadcrumbIconX, "breadcrumb icon x", 2)
+      near(got.breadcrumbName.x - got.breadcrumbIcon.x, expected.breadcrumbNameX - expected.breadcrumbIconX, "breadcrumb name after the icon")
       near(got.gutter.w, both.gutterW, "gutter width")
       near(got.line.x, both.codeX, "code x")
       near(got.line.y, both.firstLineY, "first line y")
@@ -129,6 +133,33 @@ export default function ({ test, open, rects, near }) {
       near(got.edited.dot.y + got.edited.dot.h / 2, got.edited.row.y + got.edited.row.h / 2, "dot centered in its row")
     })
   }
+
+  test("code parts: at the narrowest code split the file name and the status line fit", async () => {
+    const page = await open("code-parts", { section: "glosa" })
+    await page.locator("[data-split=code]").press("Home")
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const got = await page.evaluate(() => {
+      const box = element => element.getBoundingClientRect()
+      const name = document.querySelector(".vh-ws-breadcrumb b")
+      const status = box(document.querySelector(".vh-ws-status"))
+      return {
+        name: { clipped: name.scrollWidth > name.clientWidth, w: box(name).width },
+        folders: [...document.querySelectorAll(".vh-ws-breadcrumb > span, .vh-ws-breadcrumb-separator")].reduce((sum, item) => sum + box(item).width, 0),
+        nav: box(document.querySelector(".vh-ws-breadcrumb")),
+        nameBox: box(name),
+        status: { left: status.left, right: status.right },
+        items: [...document.querySelectorAll(".vh-ws-status-items > span")].map(item => ({ left: box(item).left, right: box(item).right, text: item.textContent })),
+        cursor: (() => { const item = document.querySelector(".vh-ws-status-cursor"); return item.scrollWidth <= item.clientWidth })(),
+      }
+    })
+    // The name ends with an ellipsis only when the folders gave all their room to it.
+    if (got.name.w < 30 || (got.name.clipped && got.folders > 0.5)) throw new Error(`The file name is ${got.name.w}px, clipped: ${got.name.clipped}, with ${got.folders}px of folders.`)
+    if (got.nameBox.right > got.nav.right + 0.5) throw new Error("The file name ends past the breadcrumb.")
+    for (const item of got.items) {
+      if (item.right > got.status.right + 0.5) throw new Error(`"${item.text}" ends at ${item.right}, past the status line at ${got.status.right}.`)
+    }
+    if (!got.cursor) throw new Error("The cursor position is shortened.")
+  })
 
   test("code parts: Alt+Z and the wrap button toggle line wrapping", async () => {
     const page = await open("code-parts", { section: "gpu" })

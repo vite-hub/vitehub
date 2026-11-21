@@ -12,8 +12,10 @@ import { WorkspaceStatus, workspaceLanguage } from "../src/workspace/workspace-s
 
 const global = { plugins: [createViteHubUI({ components: uiSdkComponents })] };
 
-function pressAltZ(target: Element) {
-  target.dispatchEvent(new KeyboardEvent("keydown", { altKey: true, bubbles: true, cancelable: true, code: "KeyZ", key: "z", keyCode: 90 }));
+function pressAltZ(target: Element, key = "z", code = "KeyZ") {
+  const event = new KeyboardEvent("keydown", { altKey: true, bubbles: true, cancelable: true, code, key, keyCode: 90 });
+  target.dispatchEvent(event);
+  return event;
 }
 
 describe("line wrapping", () => {
@@ -32,6 +34,14 @@ describe("line wrapping", () => {
       expect(onToggleWrap).toHaveBeenCalledTimes(1);
       // The editor waits for `setWrap`, so a bound value stays the source of truth.
       expect(content.classList.contains("cm-lineWrapping")).toBe(false);
+
+      // Option+Z on a US Mac layout types `Ω`. The physical Z key still toggles, and the character is not typed.
+      expect(pressAltZ(content, "Ω").defaultPrevented).toBe(true);
+      expect(onToggleWrap).toHaveBeenCalledTimes(2);
+      // A layout that puts another letter on the Z key, such as AZERTY, goes by the letter.
+      pressAltZ(content, "w");
+      pressAltZ(content, "z", "KeyW");
+      expect(onToggleWrap).toHaveBeenCalledTimes(3);
     }
     finally {
       editor.destroy();
@@ -92,6 +102,12 @@ describe("WorkspaceEditorHead", () => {
     expect(wrapper.get(".vh-ws-breadcrumb .vh-ws-file-icon").attributes("data-file-type")).toBe("ts");
     expect(wrapper.get(".vh-ws-breadcrumb b").text()).toBe("name-tagger.model.ts");
   });
+
+  it("draws the muted dot for an extension that is a name of Object.prototype", () => {
+    const wrapper = mount(WorkspaceEditorHead, { global, props: { path: "notes.constructor" } });
+    expect(wrapper.get(".vh-ws-breadcrumb .vh-ws-file-icon").html()).toContain("·");
+    expect(wrapper.get(".vh-ws-breadcrumb b").text()).toBe("notes.constructor");
+  });
 });
 
 describe("WorkspaceFileTree", () => {
@@ -126,11 +142,15 @@ describe("WorkspaceFileTree", () => {
 describe("WorkspaceStatus", () => {
   it("shows the cursor, the language and the indentation", async () => {
     const wrapper = mount(WorkspaceStatus, { props: { cursor: { column: 7, line: 12 }, path: "name-tagger.model.ts" } });
-    expect(wrapper.findAll("span").map(item => item.text())).toEqual(["Ln 12, Col 7", "TypeScript", "Spaces: 2"]);
+    const items = () => wrapper.findAll(".vh-ws-status-items > span").map(item => item.text());
+    expect(items()).toEqual(["Ln 12, Col 7Line 12, column 7", "TypeScript", "Spaces: 2"]);
+    // The screen reader text is the long form, and the short form is hidden from it.
+    expect(wrapper.get(".vh-ws-status-cursor [aria-hidden=true]").text()).toBe("Ln 12, Col 7");
+    expect(wrapper.get(".vh-ws-status-cursor .vh-ws-sr-only").text()).toBe("Line 12, column 7");
     expect(wrapper.text()).not.toContain("Wrap");
 
     await wrapper.setProps({ indent: "tab", language: "Vue SFC" });
-    expect(wrapper.findAll("span").map(item => item.text())).toEqual(["Ln 12, Col 7", "Vue SFC", "Tabs"]);
+    expect(items()).toEqual(["Ln 12, Col 7Line 12, column 7", "Vue SFC", "Tabs"]);
   });
 
   it("follows the cursor of WorkspaceEditor", async () => {
@@ -148,5 +168,8 @@ describe("WorkspaceStatus", () => {
     expect(workspaceLanguage("App.TSX")).toBe("TypeScript JSX");
     expect(workspaceLanguage("Dockerfile")).toBe("Plain Text");
     expect(workspaceLanguage(".env")).toBe("Plain Text");
+    // Names of Object.prototype are not languages.
+    expect(workspaceLanguage("notes.constructor")).toBe("Plain Text");
+    expect(workspaceLanguage("a.toString")).toBe("Plain Text");
   });
 });
