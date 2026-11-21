@@ -148,12 +148,17 @@ interface ResolveRequest {
   kind: ImportKind | undefined
 }
 
+/**
+ * Resolves `specifier` from a resolveId hook without running that hook again. `flag` in `custom` also skips the hook in
+ * resolutions that other plugins start from this one. `skipSelf` is still needed: when two equal resolutions run at the
+ * same time, Rolldown 1.2 can give one of them no `custom`, and the hook would then wait on its own resolution.
+ */
 function resolveFrom(context: PluginContext, specifier: string, request: ResolveRequest, workingDir: string, flag: string): Promise<ResolvedId | null> {
   return context.resolve(specifier, importerFor(request.importer, workingDir), {
     custom: { ...request.custom, [flag]: true },
     isEntry: request.isEntry,
     kind: request.kind,
-    skipSelf: false,
+    skipSelf: true,
   })
 }
 
