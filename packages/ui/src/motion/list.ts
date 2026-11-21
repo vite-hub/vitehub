@@ -23,6 +23,11 @@ export type MotionListOrigin = Element | ((item: HTMLElement) => Element | null 
 export interface MotionListOptions {
   /** The items of the list. Defaults to the element children of the container. */
   items?: (container: HTMLElement) => HTMLElement[];
+  /**
+   * Only the items that stay move. A new item shows at once, and a removed item goes at once. Use it for items that come
+   * and go for another reason than an add or a remove, such as the cards of a margin that the scroll brings in.
+   */
+  movesOnly?: boolean;
 }
 
 export interface MotionListPlay {
@@ -36,7 +41,10 @@ export interface MotionListPlay {
 }
 
 export interface MotionList {
-  /** Reads where each item is. Call it just before the list changes. */
+  /**
+   * Reads where each item is. Call it before the list changes: just before, or after the last `play()`, also while the
+   * items still move. A change that you only see after it happened, such as a resize, needs the second way.
+   */
   measure(): void;
   /**
    * Call it just after the list changed. Each item that moved springs from where `measure()` found it to its new place,
@@ -203,8 +211,12 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
       snapshot = new Map();
       for (const element of items(container)) {
         const rect = element.getBoundingClientRect();
-        const { x, y } = center(rect);
-        snapshot.set(element, { x, y, rect });
+        // An item that is not laid out, such as one with `display: none`, has no place yet: it grows in when it shows.
+        if (!rect.width && !rect.height) continue;
+        // The place without the motion, so `measure()` can also run while items still move, such as right after `play()`.
+        const now = center(rect);
+        const shift = offset(motions.get(element));
+        snapshot.set(element, { x: now.x - shift.x, y: now.y - shift.y, rect });
       }
     },
     play(play = {}) {
@@ -218,7 +230,7 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
         const rect = element.getBoundingClientRect();
         const shift = offset(motions.get(element));
         const now = center(rect);
-        return { element, rect, now, layout: { x: now.x - shift.x, y: now.y - shift.y } };
+        return { element, rect, layout: { x: now.x - shift.x, y: now.y - shift.y } };
       });
       const origins = reads.map(({ element }) => {
         if (before.has(element) || !play.origin) return undefined;
@@ -230,15 +242,15 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
         if (present.has(element)) continue;
         stopItem(element);
         // Hold to delete already sends this item toward the trash.
-        if (!off && !element.hasAttribute("data-motion-leaving")) leave(element, rect, play.target);
+        if (!off && !options.movesOnly && !element.hasAttribute("data-motion-leaving")) leave(element, rect, play.target);
       }
       starting = true;
-      reads.forEach(({ element, rect, now, layout }, index) => {
+      reads.forEach(({ element, rect, layout }, index) => {
         if (off) return stopItem(element);
         const old = before.get(element);
         if (old) {
-          const dx = old.x - now.x;
-          const dy = old.y - now.y;
+          const dx = old.x - layout.x;
+          const dy = old.y - layout.y;
           if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
           if (!onScreen(old.rect) && !onScreen(rect)) return stopItem(element);
           const motion = motionOf(element);
@@ -246,7 +258,7 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
           travel(motion.y, motion.y.value + dy);
           return;
         }
-        if (!onScreen(rect)) return;
+        if (!onScreen(rect) || options.movesOnly) return;
         const motion = motionOf(element);
         const origin = origins[index];
         if (prefersReducedMotion()) motion.from = { x: 0, y: 0, scale: 1 };

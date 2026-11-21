@@ -82,6 +82,11 @@
       "import": "./dist/agent/invocations/drizzle.js",
       "default": "./dist/agent/invocations/drizzle.js"
     },
+    "./agent/invocations/postgres": {
+      "types": "./dist/agent/invocations/postgres.d.ts",
+      "import": "./dist/agent/invocations/postgres.js",
+      "default": "./dist/agent/invocations/postgres.js"
+    },
     "./agent/mcp": {
       "types": "./dist/agent/mcp.d.ts",
       "import": "./dist/agent/mcp.js",
@@ -811,6 +816,11 @@
       "types": "./dist/ui/motion.d.ts",
       "import": "./dist/ui/motion.js",
       "default": "./dist/ui/motion.js"
+    },
+    "./ui/motion/core": {
+      "types": "./dist/ui/motion/core.d.ts",
+      "import": "./dist/ui/motion/core.js",
+      "default": "./dist/ui/motion/core.js"
     },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",

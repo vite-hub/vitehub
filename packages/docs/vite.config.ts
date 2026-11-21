@@ -16,14 +16,15 @@ export default defineConfig({
     ...packDefaults,
     clean: false,
     // Nuxt compiles the Vue app and the theme. Nitro handlers are entries, so they ship as JavaScript.
-    copy: [{ from: "runtime/app", to: "dist/runtime" }, { from: "runtime/theme", to: "dist/runtime" }],
+    // The snapshot worker runs in its own Node process, so it ships as a file beside the module.
+    copy: [{ from: "runtime/app", to: "dist/runtime" }, { from: "runtime/theme", to: "dist/runtime" }, { from: "src/runnable/snapshot-worker.mjs", to: "dist" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
       neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\/(?!internal(?:\/|$))/, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "h3", /^nitro(\/|$)/, "defu", "nuxt-agent-discovery"],
       onlyBundle: false,
     },
     // virtual.d.ts types the Nitro virtual modules for this package only. Shipped, it would add a `#imports` overload to the app.
-    entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/link-checker-redirects.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts", "!src/runtime/server/*.d.ts"],
+    entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/link-checker-redirects.ts", "src/navigation.ts", "src/nuxt.ts", "src/runnable.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts", "!src/runtime/server/*.d.ts"],
     exports: {
       customExports(exports) {
         // The Nuxt module loads the runtime handlers, the theme, and its link checker helper by path. They are not public entries.

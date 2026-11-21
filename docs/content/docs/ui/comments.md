@@ -271,7 +271,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `accept` limits the file types, such as `image/*`.
 - A new comment needs text unless you set `allowEmpty`. A reply can send files without text.
 - `v-model:files` lets the parent clear the files after a send.
-- In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
+- In the box, the pictures sit in one stack beside the text, with their count. Hover, focus, or a tap fans them out above the box, where each one opens full size and has a round Remove button. A new picture comes out of the text for a paste, the box for a drop, and the attach button for a pick. Other files show their name.
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` accept an `upload` function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`, even when the client has an outbox.
 
@@ -293,7 +293,7 @@ async function upload(files: File[]): Promise<string[]> {
 </template>
 ```
 
-`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. A thumbnail keeps the shape of its image, up to 10rem tall. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
+`attachmentUrl` turns a key into a URL. With it, the images of a message show as a mosaic, and other files show as link chips. One image keeps its shape, up to 10rem tall. Two split the width, three put the first beside the other two, and four or more show four tiles, the last with how many more. A tile opens its picture full size, from where it is, and the arrow keys step through every picture of the message. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
 // The files that `upload` stored, by key
@@ -398,7 +398,7 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
 | `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
 | `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px grey line, 22% of the ink, with no fill. Active is a firmer grey line (45%), resolved is dashed and grey, and a draft is 2px comment blue with a fill. |
 | `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
-| A pin or an area | `data-leaving="true"` | It shrinks and fades in 130ms (`commentLeaveMs`). Remove it after that. With reduced motion, it has no animation and is hidden at once. |
+| A pin or an area | `data-leaving="true"` | With CSS alone, it fades in 130ms (`commentLeaveMs`) or hides at once under reduced motion. If the motion layer is installed, the leave effect plays the exit on a copy. Remove the original after `commentLeaveMs`. |
 
 Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
 

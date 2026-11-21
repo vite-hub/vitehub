@@ -16,6 +16,11 @@ describe("Auth option resolution", () => {
     expect(() => resolveAuthOptions(definition).options).toThrow(expect.objectContaining({ code: "AUTH_C0039" }))
   })
 
+  it("rejects an invalid `components` returned by a Definition callback", () => {
+    const definition = defineAuth(({ env }) => env.SIMPLE ? {} : { components: { prefix: " Custom" } })
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+  })
+
   it("keeps the owned Database next to runtime values from the callback", () => {
     const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
     expect(resolveAuthOptions(defineFixedAuth({ database, secret: "runtime-secret" })).providerOptions.database).toBe(database)

@@ -1540,18 +1540,9 @@ onBeforeUnmount(() => {
   justify-content: flex-start;
 }
 
-.vitehub-console__section-toggle [data-slot="trailingIcon"] {
-  transition: transform 150ms ease-out;
-}
-
+/* The chevron turns with the disclosure effect of the motion layer. */
 .vitehub-console__section-toggle[aria-expanded="true"] [data-slot="trailingIcon"] {
   transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vitehub-console__section-toggle [data-slot="trailingIcon"] {
-    transition: none;
-  }
 }
 
 .vitehub-console__section-count {

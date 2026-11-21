@@ -742,7 +742,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
 
   it("names the copy and revalidates it with an ETag", async () => {
     const content = await site({ site: "https://example.com", markdown: { prefix: "/raw" } })
-    for (const [path, accept, location] of [["/blog/hello.md", "*/*", "/blog/hello.md"], ["/raw/blog/hello.md", "*/*", "/raw/blog/hello.md"], ["/blog/hello", "text/markdown", "/blog/hello.md"]] as const) {
+    for (const [path, accept, location] of [["/blog/hello.md", "*/*", "/blog/hello.md"], ["/raw/blog/hello.md", "*/*", "/raw/blog/hello.md"], ["/blog/hello", "text/markdown", "/blog/hello.md"], ["/blog/hello.md?v=2", "*/*", "/blog/hello.md?v=2"], ["/blog/hello?v=2", "text/markdown", "/blog/hello.md?v=2"]] as const) {
       const first = await app(content).request(`https://example.com${path}`, { headers: { accept } })
       expect(first.status).toBe(200)
       expect(first.headers.get("content-location")).toBe(location)
@@ -1036,6 +1036,31 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(acceptsMarkdown("text/plain, text/markdown;q=0.1")).toBe(true)
     expect(acceptsMarkdown("*/*")).toBe(false)
     expect(acceptsMarkdown(null)).toBe(false)
+  })
+
+  it("lets the first listed type win when Markdown and HTML have the same quality", () => {
+    expect(acceptsMarkdown("text/html, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/html;q=0.8, text/markdown;q=0.8")).toBe(false)
+    expect(acceptsMarkdown("text/markdown;q=0.8, text/html;q=0.8")).toBe(true)
+    // A type named on its own beats a wildcard of the same quality, wherever it stands.
+    expect(acceptsMarkdown("text/*, text/markdown")).toBe(true)
+    expect(acceptsMarkdown("text/html, text/*, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/html;q=0, text/markdown;q=0, text/*")).toBe(false)
+  })
+
+  it("skips a range whose parameters the UTF-8 page and copy do not have", async () => {
+    expect(acceptsMarkdown("text/html; charset=iso-8859-1, text/markdown")).toBe(true)
+    // The more specific HTML range refuses UTF-8 HTML, so the plain `text/html` does not decide.
+    expect(acceptsMarkdown("text/html; charset=utf-8;q=0, text/html, text/markdown")).toBe(true)
+    expect(acceptsMarkdown("text/html; charset=UTF-8, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/markdown; charset=iso-8859-1, text/html")).toBe(false)
+    // A type with a matching parameter is no more specific in the tie than the same type without one.
+    expect(acceptsMarkdown("text/markdown, text/html; charset=utf-8")).toBe(true)
+    const content = await site({ site: "https://example.com", markdown: true })
+    for (const [accept, markdown] of [["text/html; charset=iso-8859-1, text/markdown", true], ["text/html; charset=utf-8;q=0, text/html, text/markdown", true], ["text/html, text/markdown", false]] as const) {
+      const response = await app(content).request("https://example.com/blog/hello", { headers: { accept } })
+      expect(response.headers.get("content-type")?.startsWith("text/markdown"), accept).toBe(markdown)
+    }
   })
 })
 

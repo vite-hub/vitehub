@@ -13,7 +13,8 @@ import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSch
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
 import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
-import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { maintainerApproval, type HostHead } from '../approval.ts'
+import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type Snapshot = {
@@ -34,6 +35,10 @@ export type Snapshot = {
   sourcePushHeads?: string[]
   sourcePushOverflow?: boolean
   prospectivePush?: { token: string; heads: string[] }
+  /** Heads the host pushed whose new commits are all its own, oldest first. An approval carries over along them. */
+  hostHeads?: HostHead[]
+  /** Heads the host asked GitHub to update with the base. The host's own `synchronize` from one adds a `hostHeads` entry. */
+  hostUpdates?: string[]
   threadReopens?: Record<string, number>
   /** Authenticated outcome replies, including IDs used by thread-only reads. */
   ownedReviewCommentIds?: string[]
@@ -91,6 +96,8 @@ function parseSnapshot(value: unknown): Snapshot {
     throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   }
   if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
+  if (input.hostUpdates !== undefined) v.parse(v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))), input.hostUpdates)
+  if (input.hostHeads !== undefined) v.parse(v.array(v.object({ head: v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i)), parent: v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i)) })), input.hostHeads)
   if (input.threadReopens !== undefined) v.parse(v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))), input.threadReopens)
   if (input.sourcePushHeads !== undefined) v.parse(v.array(v.string()), input.sourcePushHeads)
   if (input.sourcePushOverflow !== undefined) v.parse(v.boolean(), input.sourcePushOverflow)
@@ -123,6 +130,11 @@ export interface PullRequestInboxOptions {
   /** The served repositories, or a function that returns the current lowercase list on each read. */
   repositories: readonly string[] | (() => readonly string[])
   filter?: GitHubPullRequestFilter
+  /**
+   * Also admit an open PR that `filter`'s author rules leave out while a reviewer with write access
+   * approves its current head, or a head the host built on the approved one. Every other rule still applies.
+   */
+  admitApproved?: boolean
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
@@ -153,6 +165,8 @@ export function pullRequestFilterContext(repository: string, pr: GitHubPullReque
 }
 
 const stringValue = (value: unknown): string => isRuntimeString(value) ? value : String(value)
+const ciEvidencePrefix = 'ci-evidence:v1:'
+const ciEvidenceAtPrefix = 'ci-evidence-at:v1:'
 const legacyRecordSchema = v.record(v.string(), v.unknown())
 const legacyWaitSchema = v.object({ headSha: v.pipe(v.string(), v.minLength(1)), contextKey: v.pipe(v.string(), v.minLength(1)) })
 const summarySchema = v.object({
@@ -253,6 +267,8 @@ export class PullRequestInbox {
   private repositoryList: () => readonly string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
+  /** Whether a maintainer's approval admits an author the filter leaves out. */
+  readonly admitApproved: boolean
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
@@ -261,7 +277,7 @@ export class PullRequestInbox {
   private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
@@ -276,6 +292,7 @@ export class PullRequestInbox {
     }
     this.clock = clock
     this.filter = filter
+    this.admitApproved = admitApproved
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
     this.activityAppId = activityAppId === undefined ? undefined : v.parse(v.pipe(v.number(), v.integer(), v.minValue(1)), activityAppId)
     this.storage = storage ?? createNodeSqliteInboxStorage(path!)
@@ -481,6 +498,9 @@ export class PullRequestInbox {
   }
   private async setMetaIn(tx: PullRequestInboxExecutor, key: string, value: unknown): Promise<void> {
     await tx.execute(`INSERT OR REPLACE INTO ${this.tables.meta} (scope, key, value) VALUES (?,?,?)`, [this.scope, key, JSON.stringify(value)])
+    // CI evidence holds full job logs. A small row keeps its fetch time so pruning never reads the logs.
+    if (key.startsWith(ciEvidencePrefix) && isRuntimeRecord(value) && isRuntimeNumber(value.fetchedAt))
+      await tx.execute(`INSERT OR REPLACE INTO ${this.tables.meta} (scope, key, value) VALUES (?,?,?)`, [this.scope, ciEvidenceAtPrefix + key.slice(ciEvidencePrefix.length), JSON.stringify(value.fetchedAt)])
   }
   async meta(key: string): Promise<unknown> {
     await this.init()
@@ -975,8 +995,23 @@ export class PullRequestInbox {
   isMainRepair(pr: GitHubPullRequestRecord | null | undefined): boolean {
     return this.mainRepairBranchPrefix !== undefined && Boolean(pr?.head?.ref?.startsWith(this.mainRepairBranchPrefix))
   }
-  eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
-    return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
+  /**
+   * Whether the runtime acts on `pr`. With `admitApproved`, a maintainer's approval of the head in
+   * `snapshot` admits an author the filter leaves out. `writers` holds the reviewers whose write
+   * permission the caller verified; without it, the review's association stands in, which only the
+   * inbox's own bookkeeping relies on before a pass checks again.
+   */
+  eligible(repository: string, pr: GitHubPullRequestRecord | null, snapshot?: Pick<Snapshot, 'reviews' | 'hostHeads'>, writers?: ReadonlySet<string>): boolean {
+    if (!pr || pr.state !== 'open') return false
+    const context = pullRequestFilterContext(repository, pr)
+    if (matchesBabysitterPullRequestFilter(context, this.filter, 'pull-request')) return true
+    if (!this.admitApproved || !snapshot || !pr.head?.sha) return false
+    // An approval stands in for the author allow lists. Deny lists and every other rule still apply.
+    const { author, authorAssociation } = this.filter ?? {}
+    const denyOnly = { ...this.filter, author: author?.deny ? { deny: author.deny } : undefined, authorAssociation: authorAssociation?.deny ? { deny: authorAssociation.deny } : undefined }
+    if (!matchesBabysitterPullRequestFilter(context, denyOnly, 'pull-request')) return false
+    const approval = maintainerApproval(snapshot, pr.head.sha, writers)
+    return approval.approved && !approval.changesRequested.length
   }
   async seed(repository: string, value: unknown, signal?: AbortSignal): Promise<Snapshot> {
     repository = repository.toLowerCase()
@@ -985,7 +1020,7 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, repository, pr.number) ?? this.empty(repository, pr.number)
       if (this.updatePr(s, pr)) this.dirty(s, 'bootstrap')
-      if (!this.eligible(repository, s.pr)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
+      if (!this.eligible(repository, s.pr, s)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
       else if (s.status === 'terminal') {
         delete s.wait
         s.status = 'ready'
@@ -1066,6 +1101,7 @@ export class PullRequestInbox {
         if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch && !pendingHead) continue // unrelated old-head CI cannot wake current head
         let changed = false
         if (payload.pull_request) changed = this.updatePr(s, payload.pull_request)
+        if (event === 'pull_request' && payload.action === 'synchronize' && s.hostUpdates?.length) this.settleHostUpdate(s, payload)
         const upsert = (map: Record<string, GitHubEvidence>, value: GitHubEvidence | undefined, itemKey?: string) => {
           if (!value) return
           const key = itemKey ?? String(value.id)
@@ -1177,7 +1213,7 @@ export class PullRequestInbox {
         else if (changed) s.revision = (s.revision ?? 0) + 1
         if (changed && human && feedbackEvent) s.humanFeedbackGeneration = s.generation
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
-        const eligible = this.eligible(repository, s.pr)
+        const eligible = this.eligible(repository, s.pr, s)
         if (s.pr && !eligible) {
           // Filter ineligibility is terminal for this snapshot. Do not retain
           // an explicit wait across it: recovery must be admitted normally.
@@ -1230,7 +1266,7 @@ export class PullRequestInbox {
         const s = await this.getRowIn(tx, candidate)
         options.signal?.throwIfAborted()
         if (!s) continue
-        if (s.pr && !this.eligible(s.repository, s.pr)) continue
+        if (s.pr && !this.eligible(s.repository, s.pr, s)) continue
         if (options.only && !options.only(s)) continue
         if (options.skip && options.skip(s)) continue
         s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'; s.sourcePushHeads = []
@@ -1254,7 +1290,7 @@ export class PullRequestInbox {
       Object.assign(s, patch)
       this.cleanSnapshot(s)
       if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
-      if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
+      if (s.pr && !this.eligible(s.repository, s.pr, s)) s.status = 'terminal'
       await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
@@ -1298,8 +1334,12 @@ export class PullRequestInbox {
       return true
     })
   }
-  /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
-  async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
+  /**
+   * Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt.
+   * With `lineage.hostOnly`, it also records the head as the host's own work on `lineage.parent`, so an
+   * approval of that parent carries over to it.
+   */
+  async registerProspectivePush(claim: Claim, head: string, lineage?: { parent: string; hostOnly: boolean }): Promise<boolean> {
     invariant(/^[a-f\d]{40}$/i.test(head), 'the runtime registers the full commit SHA that the host push returned')
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
@@ -1311,10 +1351,45 @@ export class PullRequestInbox {
         heads.push(head)
       }
       s.prospectivePush = { token: claim.token, heads }
+      if (lineage?.hostOnly && /^[a-f\d]{40}$/i.test(lineage.parent)) this.addHostHead(s, head, lineage.parent)
       s.revision = (s.revision ?? 0) + 1
       await this.put(tx, s)
       return true
     })
+  }
+  /**
+   * Records that the host asks GitHub to update the PR's branch from `from` with its base, before it sends
+   * the request. GitHub writes the merge commit and the response carries no SHA, so the `synchronize`
+   * delivery that the host's own identity sends from `from` records the new head as the host's work. A
+   * merges API call returns the commit: pass it as `head` to record it at once. Anything but a full commit
+   * SHA records nothing, so the approval does not carry over.
+   */
+  async registerHostUpdate(repository: string, number: number, from: string, head?: string): Promise<void> {
+    if (!/^[a-f\d]{40}$/i.test(from) || head !== undefined && !/^[a-f\d]{40}$/i.test(head)) return
+    await this.transaction(async tx => {
+      const s = await this.getIn(tx, repository.toLowerCase(), number)
+      if (!s) return
+      if (head) this.addHostHead(s, head, from)
+      else s.hostUpdates = [...(s.hostUpdates ?? []).filter(entry => entry !== from), from].slice(-8)
+      await this.put(tx, s)
+    })
+  }
+  private addHostHead(s: Snapshot, head: string, parent: string): void {
+    if (s.hostHeads?.some(entry => entry.head === head)) return
+    // The newest 64 are enough: each approval needs only the chain since it, and push budgets keep that short.
+    s.hostHeads = [...s.hostHeads ?? [], { head, parent }].slice(-64)
+  }
+  /**
+   * A webhook head move ends every pending update. Only the host's own move from a registered head carries an
+   * approval. A probe's synthetic `synchronize` has no `before` and leaves the updates for the webhook.
+   */
+  private settleHostUpdate(s: Snapshot, payload: GitHubDelivery): void {
+    const before = payload.before, after = payload.after ?? payload.pull_request?.head?.sha
+    if (typeof before !== 'string') return
+    const sender = payload.sender
+    const own = String(sender?.type ?? '').toLowerCase() === 'bot' && this.activityAuthors.has(String(sender?.login ?? '').trim().toLowerCase())
+    if (own && typeof after === 'string' && /^[a-f\d]{40}$/i.test(after) && s.hostUpdates?.includes(before)) this.addHostHead(s, after, before)
+    delete s.hostUpdates
   }
   async release(claim: Claim): Promise<boolean> {
     return await this.transaction(async tx => {
@@ -1667,13 +1742,28 @@ export class PullRequestInbox {
     // Entries written before timestamps were introduced are expired too.
     await this.transaction(async tx => {
       signal?.throwIfAborted()
-      await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
-        AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
-          WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
+      const meta = this.tables.meta, evidenceKeys = `key>='${ciEvidencePrefix}' AND key<'ci-evidence:v1;'`
+      // Entries written before fetch-time rows existed are read once here to add their row; the rest have no fetch time.
+      const unindexed = `scope=? AND ${evidenceKeys} AND NOT EXISTS (SELECT 1 FROM ${meta} WHERE scope=evidence.scope
+        AND key='${ciEvidenceAtPrefix}' || substr(evidence.key, ${ciEvidencePrefix.length + 1}))`
+      await tx.execute(`INSERT INTO ${meta} (scope, key, value) SELECT scope, '${ciEvidenceAtPrefix}' || substr(key, ${ciEvidencePrefix.length + 1}),
+        json_extract(value, '$.fetchedAt') FROM ${meta} AS evidence WHERE ${unindexed} AND json_valid(value) AND json_type(value)='object'
+        AND json_type(value, '$.fetchedAt') IN ('integer', 'real')`, [this.scope])
+      await tx.execute(`DELETE FROM ${meta} AS evidence WHERE ${unindexed}`, [this.scope])
+      const expiredAt = `key>='${ciEvidenceAtPrefix}' AND key<'ci-evidence-at:v1;' AND CAST(value AS REAL)<?`
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND key IN (SELECT '${ciEvidencePrefix}' || substr(key, ${ciEvidenceAtPrefix.length + 1})
+        FROM ${meta} WHERE scope=? AND ${expiredAt})`, [this.scope, this.scope, now - payloadMs])
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND ${expiredAt}`, [this.scope, now - payloadMs])
       signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       signal?.throwIfAborted()
-      await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
+      // Only an insert writes a payload, stamped with the clock, so rows below the last cutoff
+      // hold none. Scanning them all again visited every week-old delivery each hour.
+      const cutoff = now - payloadMs
+      const prunedBefore = await this.metaIn(tx, 'deliveries-payload-pruned-before')
+      const from = isRuntimeNumber(prunedBefore) && prunedBefore <= cutoff ? prunedBefore : 0
+      await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received>=? AND received<? AND payload IS NOT NULL`, [this.scope, from, cutoff])
+      await this.setMetaIn(tx, 'deliveries-payload-pruned-before', cutoff)
       signal?.throwIfAborted()
     })
   }

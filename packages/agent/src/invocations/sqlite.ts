@@ -6,6 +6,7 @@ import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { observationRecordProjection } from "./observation-projection.ts"
+import { observationRowChanges, parsedObservation } from "./observation-rows.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
@@ -19,11 +20,13 @@ import type {
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreUpdateInput,
 } from "../invocations.ts"
-import type { Client, InStatement, Row } from "@libsql/client"
+import type { Client, Config, InStatement, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
+import type { ObservationRow } from "./observation-rows.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { startWalCheckpointer } from "../internal/sqlite-wal-checkpointer.ts"
 
 export interface LibsqlAgentInvocationStoreOptions extends AgentRetentionPolicy {
   authToken?: string
@@ -83,19 +86,6 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
   return stringify(record)
 }
 
-function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
-  if (typeof value !== "string") return
-  const parsed: unknown = JSON.parse(value)
-  if (parsed === null || typeof parsed !== "object" || !("name" in parsed) || typeof parsed.name !== "string") return
-  // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
-  return parsed as TraceEventLogEntry
-}
-
-interface ObservationRow {
-  observation: TraceEventLogEntry
-  position: number
-}
-
 function observationRows(rows: readonly Row[]): ObservationRow[] {
   return rows.flatMap((row) => {
     const observation = parsedObservation(row.observation)
@@ -106,33 +96,6 @@ function observationRows(rows: readonly Row[]): ObservationRow[] {
 function withObservationRows(record: AgentInvocationRecord, rows: readonly Row[]): AgentInvocationRecord {
   if (!rows.length) return record
   return { ...record, observations: [...record.observations, ...observationRows(rows).map(row => row.observation)] }
-}
-
-/**
- * Returns the row changes when an update kept the record's observations and the order of existing rows.
- * Appends and evictions of appended observations qualify. Any other change returns undefined.
- */
-function observationRowChanges(
-  inRecord: readonly TraceEventLogEntry[],
-  rows: readonly ObservationRow[],
-  observations: readonly TraceEventLogEntry[],
-): { added: TraceEventLogEntry[], removed: number[] } | undefined {
-  if (observations.length < inRecord.length || inRecord.some((observation, index) => observations[index] !== observation)) return
-  const positions = new Map(rows.map(row => [row.observation, row.position]))
-  const kept = new Set<number>()
-  const added: TraceEventLogEntry[] = []
-  let lastPosition = -1
-  for (const observation of observations.slice(inRecord.length)) {
-    const position = positions.get(observation)
-    if (position === undefined) {
-      added.push(observation)
-      continue
-    }
-    if (added.length || position <= lastPosition) return
-    lastPosition = position
-    kept.add(position)
-  }
-  return { added, removed: rows.flatMap(row => kept.has(row.position) ? [] : [row.position]) }
 }
 
 function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {
@@ -256,6 +219,17 @@ interface PendingUpdate {
   resolve: (record: AgentInvocationRecord | undefined) => void
 }
 
+// Clients created by this package's @libsql/client. A checkpoint worker loads that same native addon;
+// another copy of SQLite in the process would drop this client's file locks when it closes.
+const ownedClients = new WeakSet<Client>()
+
+/** Creates a libSQL client whose WAL file the store may checkpoint on a worker thread. */
+export function createOwnedLibsqlClient(config: Config): Client {
+  const client = createClient(config)
+  ownedClients.add(client)
+  return client
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): Required<AgentInvocationStore> {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
@@ -266,7 +240,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     size: "any",
     error: retentionError,
   })
-  const client = options.client || createClient({
+  const client = options.client || createOwnedLibsqlClient({
     ...(options.authToken ? { authToken: options.authToken } : {}),
     url: options.url!,
   })
@@ -542,9 +516,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
       }
+      const checkpoints = synchronousNormal && ownedClients.has(client)
+      const file = checkpoints || maxSize !== false
+        ? (await client.execute("PRAGMA database_list")).rows.find(row => row.name === "main")?.file
+        : undefined
+      // The store has no close, so the worker runs for the life of the process.
+      if (checkpoints && typeof file === "string" && file) startWalCheckpointer(file)
       if (maxSize !== false) {
-        const databases = await client.execute("PRAGMA database_list")
-        const file = databases.rows.find(row => row.name === "main")?.file
         if (typeof file !== "string" || !file) {
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }

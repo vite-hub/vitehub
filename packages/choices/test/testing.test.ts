@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { answers, scriptedAsk } from "@vite-hub/gateways/testing"
 import { defineChoices } from "../src/index.ts"
-import { selectionGateway, unsupported } from "../src/testing.ts"
+import { selectionGateway, unsupported, wordGateway } from "../src/testing.ts"
 
 const groups = {
   chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] },
@@ -89,7 +89,7 @@ describe("selectionGateway()", () => {
   })
 
   it("returns DECISIONS_R0005 for an unknown group or value, with DECISIONS_TESTING_SELECTION_INVALID as the cause", async () => {
-    for (const selection of [{ shipper: "x" }, { chart: "pie" }, { chart: { include: ["line"] } }, { supplier: "S1" }]) {
+    for (const selection of [{ shipper: "x" }, { chart: "pie" }, { chart: { include: ["line"] } }, { supplier: "S1" }, { supplier: { exclude: ["S1"], include: ["S1"] } }]) {
       const [error] = await defineChoices({ gateway: selectionGateway(selection), groups }).resolve("x")
       expect(error?.code).toBe("DECISIONS_R0005")
       expect(error?.cause).toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
@@ -98,6 +98,62 @@ describe("selectionGateway()", () => {
 
   it("throws outside defineChoices()", async () => {
     await expect(selectionGateway({}).ask("x", {})).rejects.toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
+  })
+})
+
+describe("wordGateway()", () => {
+  const forecast = defineChoices({
+    gateway: wordGateway(),
+    groups: {
+      ...groups,
+      supplier: { label: "Supplier", options: [{ aliases: ["vak"], label: "Vak Supply", value: "S1" }, { aliases: ["nord"], label: "Nord Parts", value: "S2" }, { label: "Vakuum Co", value: "S3" }] },
+    },
+  })
+
+  it("matches option aliases", async () => {
+    const [error, selection] = await forecast.resolve("nord except vak")
+    expect(error).toBeUndefined()
+    expect(selection?.supplier).toEqual({ exclude: ["S1"], include: ["S2"] })
+  })
+
+  it("matches names as whole words", async () => {
+    const [, selection] = await forecast.resolve("vakuum co, barcode scan by deadline")
+    expect(selection?.supplier).toEqual({ exclude: [], include: ["S3"] })
+    expect(selection?.chart).toMatchObject({ value: null })
+  })
+
+  it.each([["line, not columns", "line"], ["not columns", null]] as const)("skips negated options in a single group: %s", async (text, value) => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: { chart: { ...groups.chart, options: [{ aliases: ["columns"], label: "Bar", value: "bar" }, groups.chart.options[0]] } },
+    })
+    const [error, selection] = await choices.resolve(text)
+    expect(error).toBeUndefined()
+    expect(selection?.chart.value).toBe(value)
+  })
+
+  it.each([
+    ["east", { exclude: [], include: ["east"] }],
+    ["except east", { exclude: ["east"], include: [] }],
+  ] as const)("keeps alias matches tied to the option: %s", async (text, expected) => {
+    const options = [{ aliases: ["east"], label: "Depot", value: "east" }, { aliases: ["west"], label: "Depot", value: "west" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { site: { label: "Site", options } } }).resolve(text)
+    expect(selection?.site).toEqual(expected)
+  })
+
+  it.each([
+    ["कला", { exclude: [], include: ["art"] }],
+    ["except कला", { exclude: ["art"], include: [] }],
+  ] as const)("keeps combining marks within a word: %s", async (text, expected) => {
+    const options = [{ aliases: ["कल"], label: "Yesterday", value: "yesterday" }, { label: "कला", value: "art" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { topic: { label: "Topic", options } } }).resolve(text)
+    expect(selection?.topic).toEqual(expected)
+  })
+
+  it("ignores blank aliases", async () => {
+    const options = [{ aliases: ["", "  "], label: "Line", value: "line" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { chart: { label: "Chart", options } } }).resolve("show chart.")
+    expect(selection?.chart).toEqual({ exclude: [], include: [] })
   })
 })
 

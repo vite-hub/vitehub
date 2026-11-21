@@ -3,11 +3,20 @@
  * its mark is dragged. ViteHub's page tools draw theirs with it, and `vite-hub/page/pill.js` ships it as a browser script
  * for other tools that put a bar on someone's page, such as Drop's review toolbar, so both behave the same.
  *
- * This file runs only in the browser. It imports only the shared button styles, so it bundles on its own.
+ * This file runs only in the browser. It imports only the shared button styles and the motion layer of
+ * `@vite-hub/ui/motion/core` with the one effect that it runs, the press, so it bundles on its own and stays small.
  */
+import { createMotionList, createSpring, getMotionSlowFactor, installMotion, prefersReducedMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
+
 import { viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageToolsDock, ViteHubPageToolsEdge } from "./page-tools-window.ts"
+
+/**
+ * The effects of the motion layer that the pill runs: the press of each button. Only the press goes in its bundle. A
+ * page tool that adds more to the pill, such as a tab that comes out from under the bar, installs that effect too.
+ */
+export const viteHubPillMotion = { effects: [pressEffect] }
 
 // Drop's review toolbar: dark glass with the system font on every page. The tools in its segments inherit the colors
 // and the font. Space groups the buttons: 8px between segments, 2px inside one.
@@ -16,31 +25,46 @@ import type { ViteHubPageToolsDock, ViteHubPageToolsEdge } from "./page-tools-wi
 // `--at` the place along it, from 0 (left or top end) to 100 (right or bottom end). Expanded, the pill sits 16px from
 // the edge and stays 16px inside both ends. On the left and right edges the mark and the exit button share the first
 // row, and the tools stack under them, aligned at the left. Collapsed, the glass is the ViteHub hexagon (24px high, the
-// mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing of the page. The bar keeps its layout and only its clip changes, so the morph never reflows: 12 clip points go from
-// the bar to the hexagon, at the center of the bar, while the bar moves so that the hexagon lands on the edge. Each
+// mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing of the page. The bar keeps its layout and only its clip changes, so the fold never reflows: 12 clip points go from
+// the bar to the hexagon, at the center of the bar, while the bar moves so that the hexagon lands on the edge. The fold
+// is a spring of the motion layer (`snappy`): it moves and resizes, so ¼× and reduced motion apply to it. Each
 // corner of the hexagon is two points where the mark's path meets its rounded corner, so the shape is the mark at every
 // size. The bar's corner points cut 6px corners that stay outside the 12px border-radius, so the shape keeps soft
 // corners at every frame instead of square ones that round only at the end. The shape grows from its center and
-// shrinks from its ends, so the mark and the exit button at the ends of the bar fade with their own timing. Collapsing
+// shrinks from its ends, so the mark and the exit button at the ends of the bar fade with their own timing. Folding
 // fades the ends out in 40ms and the tools in 80ms, and closes the shape 40ms in, so it never cuts through a label.
 // Expanding shows the tools from 80ms and the ends from 120ms, when the shape has reached them. A pill whose mark is a
 // picture of its own can fold to that mark instead: the glass fades in 120ms, before the shape has closed enough to
 // show as a box, and the mark glides to the center and grows to the hexagon's size. When the exit button turns the tools off, the bar first folds the same way.
-const pillBar = "polygon(0 6px,6px 0,calc(100% - 6px) 0,100% 6px,100% 50%,100% 50%,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 50%,0 50%)"
+/** The 12 points of a clip shape, as CSS lengths. */
+type ClipPoints = Array<[string, string]>
+const barPoints: ClipPoints = [
+  ["0px", "6px"], ["6px", "0px"], ["calc(100% - 6px)", "0px"], ["100%", "6px"], ["100%", "50%"], ["100%", "50%"],
+  ["100%", "calc(100% - 6px)"], ["calc(100% - 6px)", "100%"], ["6px", "100%"], ["0px", "calc(100% - 6px)"], ["0px", "50%"], ["0px", "50%"],
+]
 // The points of the mark's path in its 20 by 18 box, from its center, as parts of its width and height.
-const hexagonPoints: Array<[number, number]> = [
+const around = (points: Array<[number, number]>): ClipPoints => points.map(([x, y]) => [`calc(50% + var(--vitehub-hex-w) * ${x})`, `calc(50% + var(--vitehub-hex-h) * ${y})`])
+const hexagonPoints = around([
   [-0.28, -0.453], [-0.208, -0.5], [0.208, -0.5], [0.28, -0.453], [0.488, -0.047], [0.488, 0.047],
   [0.28, 0.453], [0.208, 0.5], [-0.208, 0.5], [-0.28, 0.453], [-0.488, 0.047], [-0.488, -0.047],
-]
-const clipAround = (points: Array<[number, number]>) => `polygon(${points.map(([x, y]) => `calc(50% + var(--vitehub-hex-w) * ${x}) calc(50% + var(--vitehub-hex-h) * ${y})`).join(",")})`
-const pillHexagon = clipAround(hexagonPoints)
+])
 // A pill that folds to its bare mark (`fold: "mark"`) clips to the box of the hexagon instead, with the same 12 points,
-// so the morph is the same and the mark inside is never cut. The glass and its line fade out while the shape closes.
-const pillMarkBox = clipAround([[-0.5, -0.5], [-0.5, -0.5], [0.5, -0.5], [0.5, -0.5], [0.5, 0], [0.5, 0], [0.5, 0.5], [0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5], [-0.5, 0], [-0.5, 0]])
+// so the fold is the same and the mark inside is never cut. The glass and its line fade out while the shape closes.
+const markBoxPoints = around([[-0.5, -0.5], [-0.5, -0.5], [0.5, -0.5], [0.5, -0.5], [0.5, 0], [0.5, 0], [0.5, 0.5], [0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5], [-0.5, 0], [-0.5, 0]])
+const polygon = (points: ClipPoints) => `polygon(${points.map(([x, y]) => `${x} ${y}`).join(",")})`
+/** The shape `amount` of the way from `from` to `to`. An amount past 1 or below 0, from the spring, overshoots. */
+function between(from: ClipPoints, to: ClipPoints, amount: number): string {
+  const a = (1 - amount).toFixed(4)
+  const b = amount.toFixed(4)
+  return polygon(from.map(([x, y], index) => [`calc(${x} * ${a} + ${to[index]![0]} * ${b})`, `calc(${y} * ${a} + ${to[index]![1]} * ${b})`]))
+}
+const pillBar = polygon(barPoints)
+const pillHexagon = polygon(hexagonPoints)
+const pillMarkBox = polygon(markBoxPoints)
 const along = (size: string) => `calc(var(--start) + ${size} / 2 + (100% - var(--start) - var(--end) - ${size}) * var(--at) / 100)`
 /** The pill's styles. A pill of its own, such as the small mark that stays when the tools are off, can reuse them. */
-export const viteHubPagePillStyles: string = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:280ms;--vitehub-pill-fade:opacity 160ms ease-out 80ms,visibility 0s;--vitehub-pill-fade-end:opacity 160ms ease-out 120ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
-:host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms;--vitehub-pill-fade-end:opacity 40ms ease-out,visibility 0s 40ms}
+export const viteHubPagePillStyles: string = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-fade:opacity 160ms ease-out 80ms,visibility 0s;--vitehub-pill-fade-end:opacity 160ms ease-out 120ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px)}
+:host([collapsed]){--margin:2px;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms;--vitehub-pill-fade-end:opacity 40ms ease-out,visibility 0s 40ms}
 :host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
 :host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column;--vitehub-pill-justify:flex-start}
 :host([edge=bottom]){bottom:max(16px,var(--safe-bottom))}
@@ -53,14 +77,13 @@ export const viteHubPagePillStyles: string = `:host{all:initial;position:fixed;z
 :host([collapsed][edge=top]){top:calc(max(2px,var(--safe-top)) + var(--vitehub-hex-h) / 2);--y:-50%}
 :host([collapsed][edge=right]){right:calc(max(2px,var(--safe-right)) + var(--vitehub-hex-w) / 2);--x:50%}
 :host([collapsed][edge=left]){left:calc(max(2px,var(--safe-left)) + var(--vitehub-hex-w) / 2);--x:-50%}
-:host{translate:var(--x,0) var(--y,0)}
+:host{transform:translate(var(--x,0),var(--y,0))}
 :host([dragging]){transition:none;cursor:grabbing;user-select:none;-webkit-user-select:none}
-div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;scrollbar-width:none;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 150ms ease-out,scale 150ms ease-out}
+div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;scrollbar-width:none;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:background-color 150ms ease-out}
 :host(:is([edge=left],[edge=right])) div{display:grid;grid-template-columns:auto 1fr;align-items:stretch;gap:8px 2px}
 :host([collapsed]) div{clip-path:${pillHexagon}}
 @media(hover:hover){:host([collapsed]) div:hover{background:rgb(38 38 38/94%)}}
-:host([collapsed]) div:active{scale:.96}
-:host([dragging]) div{transition:none;scale:none}
+:host([dragging]) div{transition:none}
 ::slotted(*){flex-shrink:0;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:2px;transition:var(--vitehub-pill-fade)}
 :host(:is([edge=left],[edge=right])) ::slotted(*){grid-column:1/-1;align-items:stretch}
 ::slotted([hidden]){display:none!important}
@@ -80,27 +103,27 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host([edge=right]) ::slotted([slot=tab]){border-right:0;border-radius:10px 0 0 10px}
 ${viteHubPillButtonStyles}
 button{flex-shrink:0;padding:0;justify-content:center}
-.exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade-end)}
+.exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,var(--vitehub-pill-fade-end)}
 :host(:is([edge=left],[edge=right])) .mark{justify-self:start}
 :host(:is([edge=left],[edge=right])) .exit{grid-area:1/2;justify-self:end;top:0;bottom:auto}
 .mark{position:sticky;left:0;top:0;z-index:1;cursor:grab}
 :host([dragging]) .mark{cursor:grabbing}
 .mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
 @media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
-.mark svg{width:16px;height:16px;transition:opacity 160ms ease-out 120ms,scale 160ms ease-out 120ms}
-:host([collapsed]) .mark svg{opacity:0;scale:.6;transition-duration:40ms;transition-delay:0s;transition-timing-function:ease-out}
-:host([collapsed]) .mark:is(:hover,:active){background:none;scale:none}
-:host([collapsed]) .mark{translate:var(--vitehub-mark-x,0) var(--vitehub-mark-y,0);transition:translate 0s 80ms}
+.mark svg{width:16px;height:16px;transition:opacity 160ms ease-out 120ms}
+:host([collapsed]) .mark svg{opacity:0;transform:scale(.6);transition-duration:40ms;transition-delay:0s}
+:host([collapsed]) .mark:is(:hover,:active){background:none}
+:host([collapsed]) .mark{transform:translate(var(--vitehub-mark-x,0),var(--vitehub-mark-y,0))}
 :host([collapsed]) .mark::before{content:"";position:absolute;inset:-8px}
-:host([fold=mark]){transition-property:left,top,right,bottom,translate,filter}
+:host([fold=mark]){transition:filter 240ms ease-out}
 :host([fold=mark][collapsed]){filter:drop-shadow(0 1px 2px rgb(0 0 0/25%))}
-:host([fold=mark]:not([dragging])) div{transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 120ms ease-out,border-color 120ms ease-out,scale 150ms ease-out}
+:host([fold=mark]:not([dragging])) div{transition:background-color 120ms ease-out,border-color 120ms ease-out}
 :host([fold=mark][collapsed]) div,:host([fold=mark][collapsed]) div:hover{clip-path:${pillMarkBox};background-color:transparent;border-color:transparent}
-:host([fold=mark]) .mark{transition-property:background-color,color,scale,translate;transition-duration:150ms,150ms,150ms,var(--vitehub-pill-morph);transition-timing-function:ease-out,ease-out,ease-out,var(--vitehub-pill-ease);transition-delay:0s,0s,0s,var(--vitehub-pill-wait,0s)}
-:host([fold=mark]) .mark svg{transition:scale var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s)}
-:host([fold=mark][collapsed]) .mark svg{opacity:1;scale:1.5}
-@media(any-pointer:coarse){:host{--vitehub-hex-h:40px}:host([fold=mark][collapsed]) .mark svg{scale:2.5}}
-@media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([collapsed]) .mark,:host([fold=mark]) :is(div,.mark,.mark svg){transition:none}}`
+:host([fold=mark]) .mark{transition:background-color 150ms ease-out,color 150ms ease-out}
+:host([fold=mark]) .mark svg{transition:none}
+:host([fold=mark][collapsed]) .mark svg{opacity:1;transform:scale(1.5)}
+@media(any-pointer:coarse){:host{--vitehub-hex-h:40px}:host([fold=mark][collapsed]) .mark svg{transform:scale(2.5)}}
+@media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([fold=mark]) :is(div,.mark){transition:none}}`
 
 /** An SVG icon with one path, hidden from assistive technology. */
 export function viteHubPageSvgIcon(viewBox: string, path: string, attributes: Record<string, string>): SVGSVGElement {
@@ -207,6 +230,111 @@ export interface ViteHubPagePillOptions {
   signal: AbortSignal
 }
 
+/** The fold of a pill between its bar and its collapsed shape, and its glide to a new place, on springs of the motion layer. */
+interface PillFold {
+  /**
+   * Runs `change`, which may fold or unfold the pill or move it, and moves the pill there from where it was. `wait`:
+   * milliseconds of motion time before it starts. Resolves when the pill is at rest.
+   */
+  move(change: () => void, wait?: number): Promise<void>
+  /** True while the pill folds or moves. */
+  readonly moving: boolean
+}
+
+const folds = new WeakMap<HTMLElement, PillFold>()
+
+/** The scale of the `transform` of an element, such as the mark of a folded pill. */
+function restScale(element: Element | null): number {
+  const transform = element ? getComputedStyle(element).transform : "none"
+  const scale = /^matrix\(([^,]+)/.exec(transform)?.[1]
+  return scale ? Number.parseFloat(scale) || 1 : 1
+}
+
+/**
+ * The fold of `pill`. The stylesheet draws the bar and the collapsed shape at rest. While the pill folds, a `snappy`
+ * spring draws the way there: the clip of the bar, the place of the mark, and the size of its icon. The pill itself
+ * moves to its new place on two more springs, from where it was, so the collapsed shape lands on the edge. `onRest`
+ * runs when nothing moves.
+ */
+function createPillFold(pill: HTMLElement, toolbar: HTMLElement, mark: HTMLElement, onStart: () => void, onRest: () => void): PillFold {
+  const collapsedPoints = () => pill.getAttribute("fold") === "mark" ? markBoxPoints : hexagonPoints
+  const icon = () => mark.querySelector("svg")
+  // 0 is the bar, 1 the collapsed shape. The mark's place and its icon's size when collapsed are read at each change.
+  let markPlace = { x: 0, y: 0 }
+  let markScale = 1
+  let holding = false
+  let waiting: ReturnType<typeof setTimeout> | undefined
+  let resting: Array<() => void> = []
+  const draw = () => {
+    if (!holding && !folded.active && !x.active && !y.active) {
+      writeMotionStyle(toolbar, { "clip-path": null })
+      writeMotionStyle(pill, { translate: null })
+      writeMotionStyle(mark, { translate: null })
+      const svg = icon()
+      if (svg) writeMotionStyle(svg, { scale: null })
+      for (const resolve of resting) resolve()
+      resting = []
+      onRest()
+      return
+    }
+    const collapsed = pill.hasAttribute("collapsed")
+    const amount = folded.value
+    writeMotionStyle(toolbar, { "clip-path": between(barPoints, collapsedPoints(), amount) })
+    writeMotionStyle(pill, { translate: `${x.value.toFixed(2)}px ${y.value.toFixed(2)}px` })
+    // The stylesheet puts the collapsed mark at the center. The spring draws the way from where the stylesheet puts it now.
+    const rest = collapsed ? markPlace : { x: 0, y: 0 }
+    writeMotionStyle(mark, { translate: `${(markPlace.x * amount - rest.x).toFixed(2)}px ${(markPlace.y * amount - rest.y).toFixed(2)}px` })
+    const svg = icon()
+    if (svg) writeMotionStyle(svg, { scale: ((1 + (markScale - 1) * amount) / (collapsed ? markScale : 1)).toFixed(4) })
+  }
+  const folded = createSpring(0, draw, springs.snappy)
+  const x = createSpring(0, draw, springs.snappy)
+  const y = createSpring(0, draw, springs.snappy)
+  // Where the pill is without its own motion: the center of its bar.
+  const place = () => {
+    const box = toolbar.getBoundingClientRect()
+    return { x: box.left + box.width / 2 - x.value, y: box.top + box.height / 2 - y.value }
+  }
+  const readMark = () => {
+    markPlace = { x: Number.parseFloat(mark.style.getPropertyValue("--vitehub-mark-x")) || 0, y: Number.parseFloat(mark.style.getPropertyValue("--vitehub-mark-y")) || 0 }
+    if (pill.hasAttribute("collapsed")) markScale = restScale(icon())
+  }
+  return {
+    get moving() {
+      return holding || folded.active || x.active || y.active
+    },
+    move(change, wait = 0) {
+      onStart()
+      const done = new Promise<void>(resolve => resting.push(resolve))
+      const before = place()
+      const was = pill.hasAttribute("collapsed")
+      readMark()
+      change()
+      readMark()
+      const after = place()
+      const collapsed = pill.hasAttribute("collapsed")
+      clearTimeout(waiting)
+      // The pill stays where it was: each spring starts there and keeps the speed it has.
+      holding = true
+      for (const [spring, distance] of [[x, before.x - after.x + x.value], [y, before.y - after.y + y.value]] as const) {
+        const velocity = spring.velocity
+        spring.set(distance)
+        if (velocity) spring.to(distance, { velocity })
+      }
+      if (!folded.active) folded.set(was ? 1 : 0)
+      const start = () => {
+        holding = false
+        x.to(0, { preset: springs.snappy })
+        y.to(0, { preset: springs.snappy })
+        folded.to(collapsed ? 1 : 0, { preset: springs.snappy })
+      }
+      if (wait > 0 && !prefersReducedMotion()) waiting = setTimeout(start, wait * getMotionSlowFactor())
+      else start()
+      return done
+    },
+  }
+}
+
 /**
  * Draws a pill docked to an edge of the page, with the mark, a named slot per segment, and the optional exit button.
  * The mark collapses the pill to itself, and dragging the mark docks the pill to another edge. The browser remembers
@@ -233,6 +361,9 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   const collapse = (collapsed: boolean) => {
     if (collapsed) toolbar.scrollTo(0, 0)
     pill.toggleAttribute("collapsed", collapsed)
+    // The folded glass is the hexagon that a person presses, so a press squashes it. A bare mark squashes its icon.
+    if (collapsed && options.fold !== "mark") mark.dataset.motionPressTarget = "[role=toolbar]"
+    else delete mark.dataset.motionPressTarget
     mark.setAttribute("aria-expanded", String(!collapsed))
     mark.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} ${options.label}`)
     mark.title = `${mark.getAttribute("aria-label")!}. Drag to move.`
@@ -244,8 +375,11 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   mark.addEventListener("click", () => {
     if (dragged()) return
     const collapsed = !pill.hasAttribute("collapsed")
-    collapse(collapsed)
-    place(dock)
+    // Folding waits 40ms, so the ends of the bar fade before the shape cuts through them.
+    void fold.move(() => {
+      collapse(collapsed)
+      place(dock)
+    }, collapsed ? 40 : 0)
     if (markOnly()) {
       opened = !collapsed
       return
@@ -313,8 +447,9 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
       return { size, lead, part, margin: collapsed ? 2 : 16 }
     },
     place,
+    // A drop can move the pill aside, where the page asks for its mark. It glides there.
     drop: () => {
-      place(dock)
+      void fold.move(() => place(dock))
       try { localStorage.setItem(options.storage.dock, JSON.stringify({ edge: dock.edge, at: dock.at })) }
       catch {}
     },
@@ -322,50 +457,58 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   })
 
   // A segment that grows or shrinks, such as a tool that draws more buttons once it loads, would move every other
-  // button at once. Each button glides from its old place instead, and the glass grows out of its old outline. Only
-  // transforms and the clip animate, so the page sees no layout shift.
-  let parts = new Map<Element, { x: number, y: number }>()
+  // button at once. Each button moves from its old place instead, with the list mover of the motion layer, and the glass
+  // grows out of its old outline. Only transforms and the clip change, so the page sees no layout shift.
+  const parts = createMotionList(toolbar, {
+    items: () => [mark, ...[...pill.children].filter((part): part is HTMLElement => part instanceof HTMLElement && part.slot !== "tab"), ...button ? [button] : []],
+    movesOnly: true,
+  })
   let box = { width: 0, height: 0 }
-  const measure = () => {
-    const origin = toolbar.getBoundingClientRect()
-    // The mark always leads the bar when it is expanded. Collapsed, it moves to the center, which is no place to glide from.
-    parts = new Map([[mark, { x: 0, y: 0 }], ...[...[...pill.children].filter(part => part.slot !== "tab"), ...button ? [button] : []].map((part): [Element, { x: number, y: number }] => {
-      const rect = part.getBoundingClientRect()
-      return [part, { x: rect.left - origin.left, y: rect.top - origin.top }]
-    })])
-    box = { width: toolbar.offsetWidth, height: toolbar.offsetHeight }
+  // How far the glass was from its new outline, on each side, and the spring that closes it: 1 is the old outline.
+  let grown = { top: 0, right: 0, bottom: 0, left: 0 }
+  const glass = createSpring(0, (value, velocity) => {
+    const rest = velocity === 0 && value === 0
+    writeMotionStyle(toolbar, { "clip-path": rest ? null : `inset(${[grown.top, grown.right, grown.bottom, grown.left].map(side => `${(side * value).toFixed(2)}px`).join(" ")} round 12px)` })
+  }, springs.snappy)
+  const fold = createPillFold(pill, toolbar, mark, () => glass.stop(), () => parts.measure())
+  folds.set(pill, fold)
+  // The motion layer moves the pill and what it holds: the host covers the segments and the tabs, also the shadow roots
+  // in them. The shadow root has its own install, because an observer does not see into it. The page around the pill
+  // does not move.
+  const stopMotion = [installMotion(pill, viteHubPillMotion), installMotion(shadow, viteHubPillMotion)]
+  if (signal.aborted) {
+    for (const stop of stopMotion) stop()
+    return pill
   }
-  if (signal.aborted) return pill
   const resized = new ResizeObserver(() => {
-    const before = { parts, box }
-    for (const part of [toolbar, ...before.parts.keys()]) for (const animation of part.getAnimations()) if (animation.id === "vitehub-pill-glide") animation.cancel()
-    measure()
+    const before = box
+    box = { width: toolbar.offsetWidth, height: toolbar.offsetHeight }
     place(dock)
-    if (!before.box.width || pill.hasAttribute("collapsed") || pill.hasAttribute("dragging") || matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    // The first observation only measures: the pill must not move when the page loads. A folded or moving pill measures
+    // when it comes to rest.
+    if (pill.hasAttribute("collapsed") || pill.hasAttribute("dragging") || fold.moving) return
+    if (!before.width) return parts.measure()
+    parts.play()
+    parts.measure()
     // How far the bar's corner moved back: the size change times its place along the edge, and the whole change on the
     // right and bottom edges, where the bar grows away from the edge.
-    const grown = { x: box.width - before.box.width, y: box.height - before.box.height }
+    const change = { x: box.width - before.width, y: box.height - before.height }
     const corner = {
-      x: vertical() ? shown.edge === "right" ? grown.x : 0 : grown.x * shown.at / 100,
-      y: vertical() ? grown.y * shown.at / 100 : shown.edge === "bottom" ? grown.y : 0,
+      x: vertical() ? shown.edge === "right" ? change.x : 0 : change.x * shown.at / 100,
+      y: vertical() ? change.y * shown.at / 100 : shown.edge === "bottom" ? change.y : 0,
     }
-    const timing = { duration: 250, easing: "cubic-bezier(.32,.72,0,1)", id: "vitehub-pill-glide" }
-    for (const [part, now] of parts) {
-      const then = before.parts.get(part)
-      if (!then) continue
-      const x = then.x + corner.x - now.x
-      const y = then.y + corner.y - now.y
-      if (Math.abs(x) > .5 || Math.abs(y) > .5) part.animate([{ translate: `${x}px ${y}px` }, { translate: "0 0" }], timing)
+    grown = { top: Math.max(0, corner.y), right: Math.max(0, change.x - corner.x), bottom: Math.max(0, change.y - corner.y), left: Math.max(0, corner.x) }
+    if (grown.top || grown.right || grown.bottom || grown.left) {
+      glass.set(1)
+      glass.to(0, { preset: springs.snappy })
     }
-    const top = Math.max(0, corner.y)
-    const left = Math.max(0, corner.x)
-    const right = Math.max(0, grown.x - corner.x)
-    const bottom = Math.max(0, grown.y - corner.y)
-    if (top || left || right || bottom) toolbar.animate([{ clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px round 12px)` }, { clipPath: "inset(0 round 12px)" }], timing)
   })
   signal.addEventListener("abort", () => {
     pill.remove()
     resized.disconnect()
+    glass.stop()
+    parts.destroy()
+    for (const stop of stopMotion) stop()
   }, { once: true })
   // A router may replace the body. By default the tools stay connected as siblings of it throughout the swap.
   const parent = options.parent ?? document.documentElement
@@ -379,9 +522,12 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
       opened = false
       // A fold hides the focused button of a segment. The focus moves to the mark, which stays, and not to the page.
       const focused = pill.contains(document.activeElement)
-      collapse(folded())
+      const collapsed = folded()
+      void fold.move(() => {
+        collapse(collapsed)
+        place(dock)
+      }, collapsed && !pill.hasAttribute("collapsed") ? 40 : 0)
       if (focused && pill.hasAttribute("collapsed")) mark.focus({ preventScroll: true })
-      place(dock)
     }, signal)
   }
   return pill
@@ -391,19 +537,22 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
  * Folds a pill to its collapsed shape before it goes away, such as when its exit button turns the tools off, so the bar
  * closes into the hexagon instead of vanishing. The bar keeps its size, so its segments may go at once. The browser's
  * saved choice stays as it was, and the pill takes no more input. Resolves when the shape has closed, at once for a
- * collapsed pill or with reduced motion.
+ * collapsed pill, with reduced motion, or for a pill with no layout.
  */
 export async function closeViteHubPagePill(pill: HTMLElement): Promise<void> {
   pill.inert = true
   if (pill.hasAttribute("collapsed") || matchMedia("(prefers-reduced-motion: reduce)").matches) return
   // The bar keeps its size while it closes, so the tools can stop at once without the hexagon moving.
   const bar = pill.shadowRoot?.querySelector("div")
-  if (bar) Object.assign(bar.style, { width: `${bar.offsetWidth}px`, height: `${bar.offsetHeight}px` })
-  pill.setAttribute("collapsed", "")
-  const morph = bar?.getAnimations?.().find(animation => "transitionProperty" in animation && animation.transitionProperty === "clip-path")
-  if (!morph) return
-  // The clip takes 280ms with its delay. The timer covers a tab in the background, where the transition may not end.
-  await Promise.race([morph.finished.catch(() => {}), new Promise(resolve => setTimeout(resolve, 400))])
+  const fold = folds.get(pill)
+  if (!bar?.offsetWidth || !fold) {
+    pill.setAttribute("collapsed", "")
+    return
+  }
+  Object.assign(bar.style, { width: `${bar.offsetWidth}px`, height: `${bar.offsetHeight}px` })
+  const closed = fold.move(() => pill.setAttribute("collapsed", ""), 40)
+  // The timer covers a tab in the background, where the frames of the springs may not run.
+  await Promise.race([closed, new Promise(resolve => setTimeout(resolve, 600 * getMotionSlowFactor()))])
 }
 
 /** The part of a pill that a drag moves, along the edge it docks to: a `side` edge is the left or right one. */

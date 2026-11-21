@@ -3,6 +3,7 @@ import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
+import type { AuthPages } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 import type { AuthSchemaOptions } from "./table-specs.ts"
@@ -22,6 +23,7 @@ export type AuthReservedOption =
   | "access"
   | "adminClaim"
   | "basePath"
+  | "components"
   | "database"
   | "deleteAccount"
   | "preset"
@@ -161,10 +163,22 @@ export interface AuthAccessConfiguration {
    * user from an `auth: 'guest'` page. Default: `"/"`.
    */
   afterSignIn?: string
+  /**
+   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`, such as
+   * `{ '/dashboard/**': 'user', '/login': 'guest' }`. The most specific pattern wins, and `definePageMeta({ auth })` of
+   * a page wins over all patterns. Vite apps without Nuxt ignore it.
+   */
+  pages?: AuthPages
 }
 
 /** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
 export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterAuthOptions>) & { readonly vitehubDatabase: string }
+
+/** `components` of `defineAuth()`: how the Nuxt module names the Auth components. */
+export interface AuthComponentsOptions {
+  /** Prepended to each component name, such as `"Custom"` for `<CustomAuthPermission>`. */
+  prefix?: string
+}
 
 export interface AuthViteHubOptions {
   /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
@@ -180,6 +194,16 @@ export interface AuthViteHubOptions {
   console?: AuthConsoleOptions;
   access?: AuthAccessConfiguration
   basePath?: string
+  /**
+   * The names that the Nuxt module gives `<AuthPermission>`. A prefix keeps it apart from an app component of the same name.
+   * The prefix follows Nuxt's component prefix rules, as the prefix of `components: [{ path, prefix }]` does: words that the
+   * name starts with are dropped, so `MyAuth` gives `<MyAuthPermission>` and `Auth` changes nothing. The Vite
+   * plugin reads it at build time, so write it as an inline string literal. The module registers `<AuthPermission>` only
+   * when the app has `shared/abilities.ts`. Vite apps without Nuxt ignore it.
+   *
+   * @example { prefix: "Custom" } // <CustomAuthPermission>
+   */
+  components?: AuthComponentsOptions
   /**
    * `authDatabase()` from `vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
    * Auth adapter from the Definition callback. `"memory"` keeps them in the memory of one server process,
@@ -240,8 +264,12 @@ export interface ResolvedAuthViteConfig {
     signIn?: { page: string } | { provider: true }
     /** `access.afterSignIn`. Set only when the Definition has it. */
     afterSignIn?: string
+    /** `access.pages`. Set only when the Definition has it. */
+    pages?: AuthPages
   }
   basePath: string
+  /** `components` of the Definition, which the Nuxt module reads at build time. Set only when the Definition has a prefix. */
+  components?: { prefix: string }
   /**
    * The app Database that `authDatabase()` names, which gets the Better Auth tables, and the plugins and additional fields
    * of the Definition that add tables and columns. `false` without the call.
@@ -264,6 +292,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "console"
       | "access"
       | "adminClaim"
+      | "components"
       | "database"
       | "deleteAccount"
       | "preset"
@@ -278,6 +307,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "console"
       | "access"
       | "adminClaim"
+      | "components"
       | "database"
       | "deleteAccount"
       | "preset"

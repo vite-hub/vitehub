@@ -299,8 +299,6 @@ const config: KnipConfiguration = {
         "scripts/**/*.mjs",
         "test/**/*.test.ts",
         "test/browser/*.browser.mjs",
-        // `modules/tutorials/snapshots.ts` runs it as a child process.
-        "modules/tutorials/snapshot-worker.mjs",
       ],
       ignoreDependencies: [
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
