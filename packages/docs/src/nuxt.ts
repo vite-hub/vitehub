@@ -26,6 +26,7 @@ import { findContentEntry } from "@vite-hub/source/vite"
 import { vitehubTheme } from "@vite-hub/ui/theme"
 import { sizeOf } from "comark-zoom/size"
 import { defu } from "defu"
+import { formatDiagnostic } from "nostics"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
@@ -96,8 +97,9 @@ export interface DocsModuleOptions {
   components?: string
   /**
    * URL prefix whose folders are sections in the rail. Defaults to `/docs` when the content folder has a `docs/` folder,
-   * and to `/` when it has none, so the docs are the whole site. Mapped sources default to `/docs`, and setup stops with
-   * `DOCS_BASE_EMPTY` when no page is at or below it.
+   * and to `/` when it has none, so the docs are the whole site. With `sources`, the default is always `/docs`.
+   * If the site has pages but none are at or below the default base, setup warns with `DOCS_BASE_EMPTY`.
+   * Set `base: '/docs'` to keep those pages standalone without the warning.
    */
   base?: string
   site?: DocsSiteOptions
@@ -443,8 +445,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (sources && options.base === undefined) {
       // `sources` defaults to `/docs`. A site that moves from `dir` to `sources` without a `docs/` folder would move from
       // `/` to `/docs` and lose its rail.
-      const paths = docsManifestPages(manifest).map(page => page.path)
-      if (paths.length && !paths.some(path => isDocsPath(path, base))) throw docsErrorDiagnostics.DOCS_BASE_EMPTY({ base, path: paths.sort()[0]! })
+      const pages = docsManifestPages(manifest)
+      const firstPage = pages[0]
+      if (firstPage && !pages.some(page => isDocsPath(page.path, base))) {
+        useLogger("@vite-hub/docs").warn(formatDiagnostic(docsErrorDiagnostics.DOCS_BASE_EMPTY({ base, path: firstPage.path })))
+      }
     }
     /**
      * Resolves when development has read the content after a change. Nuxt generates the app again when a file is added

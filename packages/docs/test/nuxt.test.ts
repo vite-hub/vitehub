@@ -534,18 +534,28 @@ describe("docs Nuxt setup", () => {
     await expect(compiled[0]!()).rejects.toThrow(/_vitehub, which has no page or file/)
   })
 
-  it("stops when docs.sources keeps the default /docs base but no page is below it", async () => {
-    // A site that moves from `dir` to `sources` without a `docs/` folder: `dir` gave it the base `/`.
-    const app = appWithDocs({ "guide/index.md": "Guide", "guide/start.md": "Start" })
-    await expect(setupDocs({ sources: [app.dir] })).rejects.toThrow(expect.objectContaining({
-      code: "DOCS_BASE_EMPTY",
-      why: expect.stringContaining("/guide"),
-      fix: expect.stringContaining("base: '/'"),
-    }))
-    const options = await setupDocs({ base: "/", sources: [app.dir] })
-    expect(options.runtimeConfig.public.docs.base).toBe("/")
-    const mounted = await setupDocs({ sources: [{ source: app.dir, mount: "/docs" }] })
-    expect(mounted.runtimeConfig.public.docs.base).toBe("/docs")
+  it("warns but keeps standalone Source pages when none are under the default base", async () => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ sources: [{ source: app.dir, mount: "/legal" }] })
+    expect(options.runtimeConfig.public.docs.base).toBe("/docs")
+    expect(manifestTemplate()).toMatchObject({ sections: [], pages: [{ path: "/legal/privacy" }] })
+    const nitro = { prerender: { routes: [] as string[] } }
+    await callHook("nitro:config", nitro)
+    expect(nitro.prerender.routes).toContain("/legal/privacy")
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/DOCS_BASE_EMPTY[\s\S]*\/legal\/privacy[\s\S]*base: '\/'/))
+  })
+
+  it.each([
+    { base: "/docs", mount: "/legal" },
+    { base: "/", mount: "/legal" },
+    { base: undefined, mount: "/docs" },
+  ])("does not warn for sources at $mount with base $base", async ({ base, mount }) => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ base, sources: [{ source: app.dir, mount }] })
+    expect(options.runtimeConfig.public.docs.base).toBe(base ?? "/docs")
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("DOCS_BASE_EMPTY"))
   })
 
   it("reads source files in development through Vite, writes raw copies from the right directory and loads configured components", async () => {

@@ -14,8 +14,8 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Ask the question again. The next Invocation lists the current pages.",
     },
     DOCS_BASE_EMPTY: {
-      why: ({ base, path }: { base: string, path: string }) => `[@vite-hub/docs] With docs.sources, the docs base defaults to ${base}, but no page is at or below it, so the docs have no sections. The pages start at ${path}. docs.dir uses / when the folder has no docs/ folder, and docs.sources does not.`,
-      fix: "Set `docs: { base: '/' }` in nuxt.config.ts to make the top folders of the pages the sections, or mount the pages at `/docs`.",
+      why: ({ base, path }: { base: string, path: string }) => `[@vite-hub/docs] With docs.sources, the docs base defaults to ${base}. No page is at or below it, so pages such as ${path} render as standalone articles.`,
+      fix: "To show sections, set `docs: { base: '/' }` in nuxt.config.ts or mount the pages at `/docs`. To keep the pages standalone, set `docs: { base: '/docs' }`.",
     },
     DOCS_COMMENTS_DATABASE_OFF: {
       why: "[@vite-hub/docs] Docs sites on vite-hub/nuxt have Comments on, which keeps threads in the Database, but vitehub sets database: false.",
