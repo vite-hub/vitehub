@@ -713,7 +713,7 @@ async function inspectScheduleResources(definitions: DiscoveredScheduleDefinitio
     definition,
     host: "cloudflare",
     kind: "cloudflare-cron",
-    name: cron,
+    name: cronWithWeekdayNames(cron),
     note: inStandalone
       ? "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config of the standalone Schedule Worker."
       : "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",

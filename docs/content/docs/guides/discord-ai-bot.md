@@ -149,7 +149,7 @@ The Gateway connection goes out from your machine to Discord, so you need no pub
 Check what ViteHub found:
 
 ```bash [Terminal]
-pnpm vitehub agent get --agent assistant --url http://localhost:3000
+pnpm vitehub agent get assistant --dev --url http://localhost:3000
 ```
 
 If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener failed and will retry.` in the server log. ViteHub retries 5 seconds after a failure. Listener start, stop, and failure events also show in the JSON logs under the `vitehub.channel.listener` scope. See [Inspect delivery custody](/docs/agents/channels#inspect-delivery-custody).

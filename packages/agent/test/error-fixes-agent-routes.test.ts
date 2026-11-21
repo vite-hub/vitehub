@@ -106,7 +106,7 @@ it("gives the conversations export and Invocation cancel codes a fix and their o
   }
 })
 
-it("prints the fix of a bad vitehub conversations export option", async () => {
+it("prints the fix of a bad vitehub agent conversations export option", async () => {
   const stderr: string[] = []
   const code = await runConversationsExportCli(["support", "telegram", "telegram:456", "--format", "xml"], {
     cwd: "/tmp",
@@ -116,5 +116,5 @@ it("prints the fix of a bad vitehub conversations export option", async () => {
     stdout: { write: () => undefined },
   })
   expect(code).toBe(1)
-  expect(stderr.join("")).toContain("--format must be markdown or json.\nFix: Pass the Agent, the Channel, and the thread to `vitehub conversations export")
+  expect(stderr.join("")).toContain("--format must be markdown or json.\nFix: Pass the Agent, the Channel, and the thread to `vitehub agent conversations export")
 })

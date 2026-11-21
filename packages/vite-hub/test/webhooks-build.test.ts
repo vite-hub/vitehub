@@ -191,7 +191,11 @@ describe("Webhooks in a built Nitro 3 app", () => {
       ...files,
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ cloudflare: { binding: 'DB', databaseId: 'database-id', databaseName: 'app' }, schema: {} })\n",
     })
-    await build(root, { database: { driver: "cloudflare" }, host: "cloudflare", queue: true })
+    const options = { database: { driver: "cloudflare" }, host: "cloudflare", queue: true } as const
+    const generate = await runCli(root, vitehub(options), ["database", "generate"])
+    expect(generate.stderr).toBe("")
+    expect(generate.exitCode).toBe(0)
+    await build(root, options)
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8")) as { queues?: { producers?: Array<{ binding: string, queue: string }>, consumers?: Array<{ queue: string }> } }
     expect(wrangler.queues?.producers).toContainEqual({ binding: `QUEUE_${queueHex.toUpperCase()}`, queue: expect.stringContaining(queueHex) })
     expect(wrangler.queues?.consumers).toContainEqual(expect.objectContaining({ queue: expect.stringContaining(queueHex) }))

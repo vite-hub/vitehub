@@ -26,6 +26,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -328,6 +329,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
+  let contributedTablesChecked: Promise<void> | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   // `vite dev` writes the generated schemas in the background. The Database virtual modules wait for them.
   let generatedArtifacts: Promise<unknown> = Promise.resolve()
@@ -653,6 +655,10 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       }
       resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
+      if (resolved?.command === "build" && runtimeConfig && !(database && "nuxtHostResource" in database)) {
+        contributedTablesChecked ??= assertContributedTablesGenerated(runtimeConfig, { alias: viteStringAliases(resolved.resolve?.alias) })
+        return contributedTablesChecked
+      }
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return

@@ -135,7 +135,7 @@ describe("skills() documentation", () => {
   it("documents an inspectable path and missing-file smoke test", () => {
     const page = readFileSync(skillsCapabilityPage, "utf8");
 
-    expect(page).toContain("pnpm vitehub agent get --agent support --json");
+    expect(page).toContain("pnpm vitehub agent get support --json");
     expect(page).toContain("select(.id == \"skills\") | .metadata");
     expect(page).toContain("'::skill{path=\"skills/review\"}'");
     expect(page).toContain("'::'");

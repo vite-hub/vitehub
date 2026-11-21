@@ -39,7 +39,7 @@
   "packages/blob/src/provision.ts": 10,
   "packages/blob/src/reference.ts": 4,
   "packages/blob/src/runtime/operations.ts": 15,
-  "packages/blob/src/runtime/signed.ts": 5,
+  "packages/blob/src/runtime/signed.ts": 4,
   "packages/blob/src/runtime/storage.ts": 4,
   "packages/blob/src/served.ts": 2,
   "packages/blob/src/storage.ts": 41,

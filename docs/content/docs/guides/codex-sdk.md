@@ -163,7 +163,7 @@ Each Invocation runs in a new temporary folder, deleted at the end. To give Code
 While the dev server runs, inspect the Definition and send a prompt from another terminal:
 
 ```bash [Terminal]
-pnpm vitehub agent get --agent reviewer --url http://localhost:3000
+pnpm vitehub agent get reviewer --dev --url http://localhost:3000
 pnpm vitehub agent dev --agent reviewer --url http://localhost:3000 -p "Which tools can you use?"
 ```
 

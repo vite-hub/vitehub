@@ -478,9 +478,9 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** Nuxt makes the Nitro config in its project root but builds with Vite in its source directory.
 
-**Decision:** Node server plugin writes are tracked by root, and buildStart rewrites them in the root that Nitro reads.
+**Decision:** Vite uses the Nuxt project root for discovery, generated files, and Vitest setup. Both passes name Definitions from that root. Node server plugin writes are tracked by root, and buildStart rewrites them in the root that Nitro reads.
 
-**Consequences:** Writing only to the Vite root leaves Nitro reading a stale plugin in Nuxt apps.
+**Consequences:** Writing to the Vite root leaves Nitro reading a stale plugin. Naming from the source directory can also make `app/sync` and `sync` collide.
 
 ## Nuxt state is stored per root and merged into an existing build state
 
