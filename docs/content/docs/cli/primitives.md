@@ -580,7 +580,7 @@ pnpm vitehub workflow runs clear --yes
 
 The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/console/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `runs get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `runs get` and `runs list`.
 
-Inline runs can be read with `runs get` for five minutes. Inline cancellation, Cloudflare resume, and OpenWorkflow resume return unsupported-operation errors. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
+Inline runs can be read with `runs get` for five minutes. Inline cancellation is not supported. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. For `resume`, pass the token from `context.createSignal()` on Cloudflare, OpenWorkflow, or an inline run in the same process. On Vercel, pass a Workflow DevKit hook token. Do not pass a run ID or signal name.
 
 ### Inspect runs in development
 

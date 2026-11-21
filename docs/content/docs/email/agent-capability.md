@@ -222,7 +222,7 @@ Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) before
 ## Verify email delivery
 
 1. Start the Vite dev server.
-2. Run `vitehub agent get --agent support --json`. Check that `tools` has an entry with `name: "email"`. With `recipients` set, check that `capabilities` has `{ id: "email", metadata: { recipients: [...] } }` with your addresses.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "email"`. With `recipients` set, check that `capabilities` has `{ id: "email", metadata: { recipients: [...] } }` with your addresses.
 3. For the first send, use an approved test recipient and a test or sandbox provider account.
 4. Approve the call. Check that the tool result has no error and a non-empty `id`. Then find the message in the provider delivery logs or the recipient's inbox.
 

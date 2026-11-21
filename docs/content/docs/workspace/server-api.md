@@ -173,6 +173,19 @@ A commit always builds on the head of its own ref. There is no `base` option. To
 
 In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run on every changed path. A `put` with the same content as the head skips them. With `{ content, mediaType, metadata }`, a different MIME type or metadata counts as a change.
 
+When you no longer need a ref, such as the ref of one Agent run, delete it:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
+It removes the ref or returns `false` when the ref does not exist and no `ifHead` was supplied. A head that does not match `ifHead` throws `WORKSPACE_CONFLICT`. Deleting `main` or the Store's working ref throws `WORKSPACE_DEFAULT_REF_DELETE`, including through a GitHub ref alias.
+
+- The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup fails and `history.head()` confirms the ref is still absent, call `deleteRef({ ref })` without `ifHead` to finish cleanup. This call returns `false` because there was no ref left to delete.
+  This cleanup includes bytes uploaded by commits that lost a head race on the deleted ref. Only committed revisions on other refs keep those bytes alive.
+- The GitHub Store only deletes the branch. Its commits and their bytes may still be readable by SHA. GitHub checks `ifHead` before sending the delete request, so it can still delete a branch whose head moves between the check and the delete. GitHub also refuses to delete the repository's default branch.
+
 ### Conflicts
 
 `ifHead` is required: `null` for the first revision on a ref, then a revision id. If the ref head changed, the commit fails with `WORKSPACE_CONFLICT` and `details.ref`, `details.expected`, and `details.actual`. Commits to other refs never conflict. Catch `isWorkspaceConflict(error)` and load the new head before you merge the edits. A conflict changes no ref. After any other error, read the head before you retry, because Database responses and post-write hooks can fail after publication.
@@ -188,13 +201,15 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
+| `history.deleteRef({ ref, ifHead? })` | `true` after deleting the ref, or `false` when the ref does not exist and no `ifHead` was supplied. Only Blob + Database deletes the revisions and their unshared bytes. |
 
 - Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` needs write mode.
+- `deleteRef` needs write mode and access to the complete Workspace.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.
 - `history.checkpoint()` and `history.rebase()` work as before and use `main`. A checkpoint does not prove that every Store kept the file bytes.
 - History covers the Store file tree, not live Source responses or a running Session. Empty directories are not part of it.
 - The working tree follows `main`. A commit to `main` replaces staged `fs` writes. Commits to other refs leave them alone.
-- Committed revisions never change until the workspace is deleted.
+- Committed revisions never change until their ref or the workspace is deleted.
 
 A commit waits for Definition sync before it checks Source ownership. Sync can publish a Source revision and move the `main` head. The commit then reports `WORKSPACE_CONFLICT`, so read the new head and retry. No ref can change or delete Source-owned files, including materialized files not yet in a revision.
 

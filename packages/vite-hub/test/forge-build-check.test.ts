@@ -109,7 +109,7 @@ it("builds a route that uses an inline memory Workspace without Forge", async ()
 it("builds a route that uses a Web Chat Agent without Forge", async () => {
   await expect(build(`
     import { defineAgent } from 'vite-hub/agent'
-    import { webChat } from 'vite-hub/agent/channels'
+    import { webChat } from 'vite-hub/channels/adapters'
     const agent = defineAgent({ channels: { web: webChat() }, driver: { run: () => 'ok' } })
     export default () => Object.keys(agent.channels)
   `)).resolves.toBeUndefined()

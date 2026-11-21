@@ -159,7 +159,7 @@ find .output -maxdepth 4 -type f | sort
 
 The Worker gets ViteHub's tested `compatibility_date`, `2026-04-20`, not the day of the build, because Wrangler refuses a date newer than its own workerd. To use another date, set `nitro({ compatibilityDate: '2026-11-01' })` in Vite, or `nitro: { compatibilityDate: '2026-11-01' }` in `nuxt.config.ts`. You can also set `compatibility_date` in a project Wrangler config or set `COMPATIBILITY_DATE` in the build environment or the project's `.env` file.
 
-Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub adds the types of that module to the app's TypeScript config, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, ViteHub adds its full types instead. You do not need a `declare module "cloudflare:workers"` file in the app.
+Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. ViteHub supplies the types that those files need, even without `@cloudflare/workers-types`. Install `@cloudflare/workers-types` to use other Worker APIs. The Nuxt server project loads the full Worker types. The app and `shared/` projects get `cloudflare:workers` and `DurableObjectState` without replacing browser DOM types, so Nuxt can check server auto-imports and typed routes. You do not need to add a `declare module "cloudflare:workers"` file or a `/// <reference types="@cloudflare/workers-types" />` line in the app.
 
 ### A project Wrangler config
 
@@ -173,6 +173,45 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bind
 - Two entries that name different resources fail the build with `INTERNAL_B0051`. Remove the project entry, or rename one.
 
 Container duplicates must agree on `scheduling_policy`, which defaults to `default`. ViteHub rejects a policy change or conflicting image settings. It does not combine the default policy's `image` with Durable Object-managed `images`.
+
+### Resource check
+
+After Nitro's `compiled` hooks run, the build checks that `wrangler.json` still has the D1, KV, R2, Queue, and Workflow bindings, the Durable Objects of Agent state, Realtime, and Sandbox Tasks, and the Schedule cron triggers that ViteHub generates for the app. A Worker without a binding fails only when code first reads it, so a missing entry fails the build with `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`. A missing or invalid `wrangler.json` counts as an empty config. The error names each missing entry and its Definition. Look for a project Wrangler config, Nitro hook, or module that removes or renames it. The check uses the resource inventory from `vitehub inspect resources` and also checks Realtime's Durable Object. It skips resources of a standalone Worker, which has its own Wrangler config, and does not run when `cloudflare.deployConfig` is `false`.
+
+### Your own Worker classes
+
+Cloudflare finds a Durable Object, Workflow, or `WorkerEntrypoint` class only among the exports of the Worker entry. Export the class from `server/cloudflare.ts`, and ViteHub adds each named export of that file to the entry when it builds for Cloudflare:
+
+```ts [server/cloudflare.ts]
+export { Counter } from './utils/counter'
+```
+
+```ts [server/utils/counter.ts]
+import { DurableObject } from 'cloudflare:workers'
+
+export class Counter extends DurableObject {
+  async increment() {
+    const count = ((await this.ctx.storage.get<number>('count')) ?? 0) + 1
+    await this.ctx.storage.put('count', count)
+    return count
+  }
+}
+```
+
+Declare the binding and its migration in your project Wrangler config. ViteHub does not write them:
+
+```json [wrangler.json]
+{
+  "durable_objects": { "bindings": [{ "name": "COUNTER", "class_name": "Counter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Counter"] }]
+}
+```
+
+A route then reaches the class through `env.COUNTER` from `cloudflare:workers`. For the types of `DurableObject`, install `@cloudflare/workers-types`.
+
+- ViteHub reads the file from Nitro's `serverDir`. In Nuxt, the app's `server/cloudflare.ts` wins over a layer's.
+- The file must not have a default export, because the entry's default export is the app. A name that the entry already exports, such as the class of a ViteHub Workflow or Sandbox Task, fails the build with `VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT`.
+- Other hosts, the prerender build, and `vite dev` do not load the file.
 
 ### Node.js compatibility in Nuxt
 
