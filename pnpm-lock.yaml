@@ -2327,6 +2327,9 @@ importers:
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
