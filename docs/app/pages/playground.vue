@@ -38,7 +38,7 @@ function keep(id: string) {
 </script>
 
 <template>
-  <div class="vh-playground" :class="{ 'has-workspace': open }">
+  <div class="vh-playground">
     <!-- The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app. -->
     <PlaygroundContainer
       v-model:open="open"
@@ -77,21 +77,6 @@ function keep(id: string) {
 </template>
 
 <style scoped>
-/* The page is as tall as the viewport under the header, so a desktop shows the workspace start in place. */
-.vh-playground {
-  display: flex;
-  min-height: calc(100dvh - var(--ui-header-height));
-  flex-direction: column;
-}
-
-.vh-playground.has-workspace {
-  height: calc(100dvh - var(--ui-header-height));
-}
-
-.vh-playground > :deep(.vh-pc) {
-  flex: 1 1 0;
-}
-
 .vh-playground :deep(.vh-pc-gate-content) {
   width: 100%;
   max-width: calc(65ch + 2rem);
