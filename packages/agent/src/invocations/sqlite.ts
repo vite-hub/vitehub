@@ -26,6 +26,7 @@ import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
 import type { ObservationRow } from "./observation-rows.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { startWalCheckpointer } from "../internal/sqlite-wal-checkpointer.ts"
 
 export interface LibsqlAgentInvocationStoreOptions extends AgentRetentionPolicy {
   authToken?: string
@@ -504,9 +505,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
       }
+      const checkpoints = synchronousNormal && !options.client
+      const file = checkpoints || maxSize !== false
+        ? (await client.execute("PRAGMA database_list")).rows.find(row => row.name === "main")?.file
+        : undefined
+      // The store has no close, so the worker runs for the life of the process.
+      if (checkpoints && typeof file === "string" && file) startWalCheckpointer(file)
       if (maxSize !== false) {
-        const databases = await client.execute("PRAGMA database_list")
-        const file = databases.rows.find(row => row.name === "main")?.file
         if (typeof file !== "string" || !file) {
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }
