@@ -33,6 +33,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
+import { setupDocsRunnable, type DocsRunnableOptions } from "./runnable/nuxt.ts"
 import { checkDocsLinks, docsLinkError, docsLinkExclusion, docsOutputFile, type DocsLinkCheckOptions } from "./check-links.ts"
 import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoLocation } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
@@ -56,6 +57,7 @@ import type { DocsManifest, DocsPage } from "./types.ts"
 
 export type { DocsThemeScope } from "./theme.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
+export type { DocsRunnableExample, DocsRunnableLesson, DocsRunnableOptions } from "./runnable/nuxt.ts"
 
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
@@ -190,6 +192,13 @@ export interface DocsModuleOptions {
    * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
    */
   examples?: string
+  /**
+   * Lessons and playground examples that run in the reader's browser, in a WebContainer. Each one runs an app from the
+   * fixtures folder. The build writes `#build/runnable-tutorials.mjs`, `#build/playground-templates.mjs`,
+   * `#build/learn-facts.mjs`, and a `node_modules` snapshot of each app at `/_tutorials/snapshots/`. Lessons read their
+   * pages from `dir`.
+   */
+  runnable?: DocsRunnableOptions
 }
 
 /** `llms` of the docs module options. */
@@ -435,6 +444,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt types runtime config from its value, and that type has no fields for objects in arrays, such as `socials`.
     addTypeTemplate({ filename: "types/vite-hub-docs.d.ts", getContents: () => docsRuntimeConfigTypes })
     setupDocsAssistant(nuxt, config)
+    if (options.runnable) await setupDocsRunnable(options.runnable, { nuxt, contentDir })
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
     addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })

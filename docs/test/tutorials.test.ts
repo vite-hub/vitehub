@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
-import { runnableTutorials } from "../modules/tutorials/list";
-import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
+import { restartsDevServer, tutorialStepFiles, tutorialWorkspaceFiles } from "@vite-hub/docs/runnable";
+
+import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest } from "../../packages/docs/src/runnable/build";
+import { runnableTutorials } from "../runnable";
 import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
@@ -206,6 +207,7 @@ describe("runnable tutorials", () => {
     contentDir: resolve(docsRoot, "content"),
     fixturesDir: fixturesRoot,
     versions: await readWorkspaceVersions(repoRoot),
+    start: "/docs/getting-started/installation",
   });
 
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
@@ -311,6 +313,6 @@ describe("runnable tutorials", () => {
   it("isolates only the tutorial pages and the playground", async () => {
     const config = await readFile(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     expect(config).toContain(`webContainer: { routes: ["/learn/**", "/playground"] }`);
-    expect(await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8")).not.toContain("webContainerHeaders");
+    expect(await readFile(resolve(repoRoot, "packages/docs/src/runnable/nuxt.ts"), "utf8")).not.toContain("webContainerHeaders");
   });
 });

@@ -199,7 +199,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 ## Inspect
 
-Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`docs/modules/tutorials/snapshots.ts`).
+Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`packages/docs/src/runnable/snapshots.ts`).
 
 ## Test
 
