@@ -211,6 +211,8 @@ export interface WorkspaceSessionHostFiles {
 }
 
 export interface WorkspaceSessionHost {
+  /** Maximum compressed archive bytes accepted by `files.write`, after allowing for transport overhead. Omit to copy files individually. */
+  readonly archiveMaxBytes?: number
   readonly executionAuthority: ExecutionAuthority
   readonly inspectionConcurrency?: number
   /** Maximum independent workspace files copied into this host concurrently. Defaults to 1. */
@@ -275,9 +277,13 @@ export interface WorkspaceNameMap extends ViteHubWorkspaceNameMap {}
 export interface WorkspaceSourceResolutionContextMap extends ViteHubWorkspaceSourceResolutionContextMap {}
 
 export type WorkspaceName = [keyof ViteHubWorkspaceNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceNameMap, string>
+declare const validatedWorkspaceName: unique symbol
+/** A name checked against the runtime Workspace registry by `isWorkspaceName()`. */
+export type ValidatedWorkspaceName = string & { readonly [validatedWorkspaceName]: true }
+export type WorkspaceLookupName = WorkspaceName | ValidatedWorkspaceName
 export type WorkspaceScopeName = [keyof ViteHubWorkspaceScopeNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceScopeNameMap, string>
 
-export type WorkspaceAssetPath<Name extends WorkspaceName = WorkspaceName> =
+export type WorkspaceAssetPath<Name extends WorkspaceLookupName = WorkspaceName> =
   Name extends keyof ViteHubWorkspaceAssetMap
     ? Extract<ViteHubWorkspaceAssetMap[Name], string>
     : string
@@ -559,10 +565,43 @@ export interface WorkspaceHistoryExtensions {
   merge?(options: WorkspaceMergeOptions): Promise<WorkspaceRevision | null>
   /** Open a pull request from one ref into another. */
   openPullRequest?(options: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest>
+  /**
+   * Delete a ref. Returns false when it does not exist and no `ifHead` was supplied. Deleting `main` or the Store's
+   * working ref throws `WORKSPACE_DEFAULT_REF_DELETE`.
+   * Blob + Database also deletes the ref's revisions and file bytes not used by other revisions. GitHub only deletes
+   * the branch; commits and their bytes may still be readable by SHA.
+   */
+  deleteRef?(options: WorkspaceHistoryDeleteRefOptions): Promise<boolean>
+}
+
+export interface WorkspaceHistoryDeleteRefOptions {
+  /** The ref to delete, such as `run-42`. */
+  ref: string
+  /**
+   * The expected head of `ref`. A mismatch throws `WORKSPACE_CONFLICT`. Blob + Database checks the head atomically
+   * with ref deletion. GitHub checks the head before sending an unconditional branch deletion request.
+   */
+  ifHead?: string
+}
+
+export interface WorkspaceHistoryDiffOptions {
+  /** The older revision id. Leave it out to list every file of `to` as added. */
+  from?: string
+  /** The newer revision id. Revisions can be on different refs. */
+  to: string
+}
+
+export interface WorkspaceHistoryDiffOptions {
+  /** The older revision id. Leave it out to list every file of `to` as added. */
+  from?: string
+  /** The newer revision id. Revisions can be on different refs. */
+  to: string
 }
 
 export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
+  /** The files that were added, modified, or removed from `from` to `to`, sorted by path. Changes to bytes or retained attributes count as modifications. */
+  diff(options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff>
 }
 
 /** Run the Workspace commit policy on a prepared merge before the Store advances its destination ref. */
@@ -579,8 +618,8 @@ export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<Work
 export interface WorkspaceDiffEntry {
   path: string
   type: "added" | "modified" | "removed"
-  before?: WorkspaceSnapshot["entries"][string]
-  after?: WorkspaceSnapshot["entries"][string]
+  before?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
+  after?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
 }
 
 export interface WorkspaceDiff {
@@ -604,6 +643,12 @@ export interface WorkspaceStore {
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
+  /**
+   * Creates new files without replacing existing paths, then sets the metadata keys. Call `onWrite` with each file's
+   * path after it is created, so the Workspace can roll back those files if a later write fails. Startup Source
+   * materialization uses this for new files. Without it, each file and key is written on its own.
+   */
+  writeFiles?(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>, onWrite?: (path: string) => void): Promise<void>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>

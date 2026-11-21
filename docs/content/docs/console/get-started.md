@@ -20,7 +20,7 @@ Turn on the Console endpoint of your app, deploy it, and link it in [console.vit
 ## In development
 
 ```bash [Terminal]
-pnpm vitehub project info
+pnpm vitehub project get
 pnpm vitehub kv list
 ```
 
@@ -92,4 +92,4 @@ Sign in with GitHub or a passkey. Each account has a personal team. You can crea
 
 ## Self-host the Console
 
-The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console) package. It runs on Node.js with SQLite or Cloudflare Workers with D1, and its README covers how to build, configure, and deploy it.
+The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console) package. It runs on Node.js with SQLite, on Cloudflare Workers with D1, or on Vercel with hosted libSQL, and its README covers how to build, configure, and deploy it.

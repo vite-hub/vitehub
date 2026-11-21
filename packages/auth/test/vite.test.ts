@@ -69,7 +69,7 @@ describe("hubAuth", () => {
     await mkdir(join(root, "shared"))
     await writeFile(join(root, "shared/abilities.ts"), 'export default { "app.rule": Object.assign(() => true, { guest: true }) }\n')
     await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
-    await writeFile(join(root, "main.js"), 'import { Can, useAbility } from "@vite-hub/auth/vue"; console.log(Can, useAbility)')
+    await writeFile(join(root, "main.js"), 'import { AuthPermission, useAbility } from "@vite-hub/auth/vue"; console.log(AuthPermission, useAbility)')
     const installed = join(root, "node_modules/@vite-hub/auth")
     await mkdir(installed, { recursive: true })
     await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
@@ -481,6 +481,17 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
   })
 
+  it("checks access.pages in the virtual Auth Definition that the ViteHub Nuxt integration loads", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user' } },"])
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+
+    expect(loadAuthDefinition(plugin)).toContain("import { checkBuiltAuthPages } from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("checkBuiltAuthPages(definition, {\"/dashboard/**\":\"user\"})")
+  })
+
   it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {
     const root = await createTempProject()
     await writeAuth(root)
@@ -816,6 +827,48 @@ describe("Auth tables in the app Database", () => {
     await writeAuthDatabase(root, "authDatabase()")
     expect((await contributions(root)).tables).toMatchObject([{ definition: { module: "vite-hub/auth/schema" } }])
     await expect(readFile(module, "utf8")).rejects.toThrow()
+  })
+
+  it("adds tables from used helper exports in the files that Vite selects", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "src", "server"), { recursive: true })
+    await writeFile(join(root, "src", "server", "auth-plugins.js"), [
+      "import { stripe } from '@better-auth/stripe'",
+      "export function authPlugins(stripeClient) {",
+      "  return [stripe({ stripeClient, stripeWebhookSecret: '', subscription: { enabled: true, plans: [] } })]",
+      "}",
+      "",
+    ].join("\n"))
+    await writeFile(join(root, "src", "server", "auth-plugins.ts"), [
+      "import { username } from 'better-auth/plugins'",
+      "export const authPlugins = () => [username()]",
+    ].join("\n"))
+    await mkdir(join(root, "server", "plugins"), { recursive: true })
+    await writeFile(join(root, "server", "plugins", "index.mjs"), [
+      "export { accountProtection, loginByUsername } from './protection.js'",
+    ].join("\n"))
+    await writeFile(join(root, "server", "plugins", "protection.tsx"), [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "export const accountProtection = () => [twoFactor()]",
+      "export const loginByUsername = () => [username()]",
+    ].join("\n"))
+    await writeFile(join(root, "server", "auth.ts"), [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { authPlugins } from '../src/server/auth-plugins'",
+      "import { accountProtection, loginByUsername } from './plugins'",
+      "export default defineAuth(({ env }) => ({",
+      "  database: authDatabase(),",
+      "  plugins: [...authPlugins(env.stripe), ...accountProtection()],",
+      "  user: { additionalFields: { username: { type: 'string', required: true } } },",
+      "}))",
+      "",
+    ].join("\n"))
+    const { tables } = await contributions(root)
+    expect(tables[0]!.tables).toMatchObject({ subscription: "subscription", twoFactor: "two_factor", user: "user" })
+    const source = await readFile(join(root, ".vitehub", "auth", "schema.ts"), "utf8")
+    expect(source).toContain("\"plugins\":[\"stripe\",\"twoFactor\"]")
+    expect(source).toContain("\"username\":{\"type\":\"string\",\"required\":true}")
   })
 
   it("keeps the Auth tables of the latest migration as they are", async () => {

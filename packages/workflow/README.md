@@ -197,12 +197,12 @@ The other runtime helpers are:
 
 - `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
 - `cancelWorkflow()` cancels a Cloudflare run with `instance.terminate()`, a native Vercel run, or a pending or running OpenWorkflow run. A finished run keeps its status, and a missing run reports `unknown`.
-- `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
+- `resumeWorkflow(token, value)` sends `value` to a run that waits on `context.createSignal()`, or resumes a Workflow DevKit hook token on Vercel.
 - `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
 
-`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, `runs-show`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs show <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports the `runtime/dev-runs` module, by file path. It holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. The three commands fail there with `WORKFLOW_RUNS_UNAVAILABLE`.
+`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs get <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports the `runtime/dev-runs` module, by file path. It holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. `runs list` and `runs clear` fail there with `WORKFLOW_RUNS_UNAVAILABLE`, and `runs get` reads the run from the provider, without steps.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. Every provider returns the same plain value, so a `Date` comes back as a string and `undefined` fields are dropped. Return a JSON-safe value, or return a `Response` for binary data or for status and headers. When the handler returns a `Response`, `result` is a `Response`.
 
@@ -328,6 +328,25 @@ The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 
 After a sleep, the provider runs `index.ts` again from the start, and completed step files return their stored results. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put each side effect and each value that changes, such as `Date.now()`, in a step file. `getWorkflowRun()` lists a sleep as a step with the name `sleep-1` and the wake time in `sleepUntil` on OpenWorkflow. A sleeping Cloudflare run reports `running` with `metadata.status: "waiting"`.
 
 A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. A duration that is not in the form above throws `WORKFLOW_SLEEP_DURATION_INVALID`.
+
+A folder Workflow can wait for a value from outside the run, such as a webhook. `context.createSignal<T>()` returns `{ token, wait() }`. Give `token` to the other service, then call `wait()`. `resumeWorkflow(token, value)` sends a JSON value, and `wait()` returns it.
+
+```ts fragment
+// server/workflows/summary/index.ts
+export default defineWorkflow<{ callId: string }>({
+  handler: async ({ createSignal, payload, steps }) => {
+    const transcript = createSignal<{ text: string }>();
+    await steps.requestTranscript({ callId: payload.callId, token: transcript.token });
+    const { text } = await transcript.wait();
+    return await steps.summarize({ text });
+  },
+});
+
+// server/api/webhooks/transcript.post.ts, after the webhook signature check
+const [error] = await resumeWorkflow(body.token, { text: body.text });
+```
+
+ViteHub makes the token from the Workflow name, the run id, and the call order (`signal-1`, `signal-2`), so a replay gets the same token. The token is not a secret: check the caller before you pass a token from a request. Cloudflare waits with `step.waitForEvent()` for at most 365 days, and `resumeWorkflow()` calls `instance.sendEvent()`. OpenWorkflow waits with `step.waitForSignal()` for one year, then fails the run with `WORKFLOW_SIGNAL_TIMEOUT`. It drops a value that comes before the wait, so `resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` and the caller retries later. Inline runs wait in memory and keep an early value. Vercel does not support signals yet: `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`, and a `native` entry uses `defineHook()` from Workflow DevKit instead. A token of another provider returns `WORKFLOW_SIGNAL_TOKEN_INVALID`, and `wait()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SIGNAL`.
 
 ## Production checklist
 

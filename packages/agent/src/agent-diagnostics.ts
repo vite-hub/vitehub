@@ -444,6 +444,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
   "AGENT_DRAIN_MS_INVALID",
   "AGENT_EXTENDS_INVALID",
+  "AGENT_EXTERNAL_DRIVER_RUNTIME",
   "AGENT_INSTRUCTIONS_EXTEND_INVALID",
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
@@ -2242,7 +2243,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object, not a string.",
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
@@ -2270,19 +2271,19 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0497: {
       ...dynamicError,
-      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.",
+      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver.",
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent info --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get support --url http://localhost:3000.",
     },
     AGENT_R0499: {
       ...dynamicError,
-      fix: "Remove the unknown option. Run vitehub agent info --help to list the options.",
+      fix: "Remove the unknown option. Run vitehub agent get --help to list the options.",
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent info --agent <name>.",
+      fix: "Remove the extra argument. Pass one Agent name: vitehub agent get <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -2290,7 +2291,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0502: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations show <id>.",
+      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations get <id>.",
     },
     AGENT_R0503: {
       ...dynamicError,
@@ -2310,7 +2311,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0507: {
       ...dynamicError,
-      fix: "Pass the invocation ID after the action, such as vitehub agent invocations show <id>. Run vitehub agent invocations list to find it.",
+      fix: "Pass the invocation ID after the action, such as vitehub agent invocations get <id>. Run vitehub agent invocations list to find it.",
     },
     AGENT_R0508: {
       ...dynamicError,
@@ -4359,11 +4360,11 @@ const agentDiagnosticHandles = defineDiagnostics({
         option: `Unknown option ${value}.`,
         value: `${value} requires a value.`,
       })[problem],
-      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub agent conversations export <agent> <channel> <thread>`, and only the options that `vitehub agent conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
     },
     AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
       why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
-      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub agent conversations export`.",
     },
     AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
       why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
@@ -4429,6 +4430,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
       fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
     },
+    AGENT_EMULATOR_NOT_RUNNING: {
+      why: ({ where }: { where: string }) => `[vitehub] No AI emulator answers: ${where}.`,
+      fix: "Start the dev server with `vitehub({ agent: { models: { emulate: true } } })`, or set `VITEHUB_EMULATE_URL` to the URL of a running emulator. Pass --url when the dev server runs in another project.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
       why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
       fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
@@ -4448,6 +4453,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUN: {
+      why: ({ agent }: { agent: string }) => `[vitehub] Agent ${JSON.stringify(agent)} has driver: "external", so a process outside this app runs it. ViteHub does not run it.`,
+      fix: "Run the Agent where it lives, such as Codex or Claude Code on a laptop or a CI runner, and import its session with `importAgentSession()` from `@vite-hub/agent/sessions`. To run the Agent in this app, give it a model, provider, run, or ask Driver.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUNTIME: {
+      why: "[vitehub] defineAgent({ driver: \"external\" }) cannot have a Workflow runtime. A process outside the app runs the Agent, so no Workflow can run it.",
+      fix: "Remove `runtime` from the Agent Definition. An external Agent has no runtime.",
     },
     AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
       why: "GitHub activity session links require an Agent identity.",
@@ -4530,6 +4543,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATION_ID_AMBIGUOUS: {
       why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
       fix: "Cancel the Invocation through the Agent that owns it, with `invocations.cancel(id)` of that Agent.",
+    },
+    AGENT_INVOCATION_POSTGRES_TABLES_MISSING: {
+      why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
     },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,
@@ -4762,6 +4779,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_STATE_MIGRATE_ARGUMENT_INVALID: {
+      why: ({ reason }: { reason: string }) => `vitehub agent state migrate: ${reason}`,
+      fix: "Run `vitehub agent state migrate --agent <name> --channel <adapter> --url <libsql-url>`, check the moves it prints, then add `--apply`.",
+    },
+    AGENT_STATE_MIGRATE_DATABASE_MISSING: {
+      why: ({ path }: { path: string }) => `No Agent State database exists at ${path}. vitehub agent state migrate does not create one.`,
+      fix: "Pass `--url` with the `file:` URL or path of the Agent State database that the app used, such as the `url` of the old `messages.state`.",
     },
     AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
       why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
@@ -5007,6 +5032,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_GITHUB_PULL_REQUEST_TRIGGER_DISABLED: {
       why: ({ trigger }: { trigger: string }) => `[vitehub] The github() Channel has the pull request trigger "${trigger}", but \`pullRequest\` is not set, so the Channel does not read pull request events.`,
       fix: "Set `pullRequest` on the github() Channel, such as `pullRequest: { reply: false }`, or remove the trigger.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] sendChannelTrigger() for the GitHub pull request trigger "${trigger}" needs \`{ pullRequest: { repository: "owner/repo", number } }\`, with an optional string \`id\` and \`body\`.`,
+      fix: "Pass `{ pullRequest: { repository: \"owner/repo\", number: 42 } }`. Set `id` to a non-empty string to send the run once, and `body` to the request text.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] A queued sendChannelTrigger() run of the GitHub pull request trigger "${trigger}" has no stored command or pull request. A deploy can change the stored input while the run waits.`,
+      fix: "Call sendChannelTrigger() again. Before you deploy a change to the trigger, let queued server sends finish.",
     },
     AGENT_GMAIL_AGENT_AMBIGUOUS: {
       why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,

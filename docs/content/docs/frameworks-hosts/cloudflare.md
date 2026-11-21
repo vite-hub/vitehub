@@ -112,6 +112,8 @@ Keep `host: 'cloudflare'` in development too. With the Vite configurations above
 
 In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
 
+workerd does not get the variables of your shell. It reads the Wrangler `vars` and the `.dev.vars` or `.env` files. ViteHub adds each `VITEHUB_*` shell variable, such as `VITEHUB_AGENT_STATE_URL`, to the Wrangler `vars` in development, so the server reads it in `process.env` and `env`. If Nitro selects an environment defined in inline Wrangler config, ViteHub adds the values to that environment's `vars`. A value in `.dev.vars` or `.env` wins. Put other variables in those files.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment
@@ -157,7 +159,7 @@ find .output -maxdepth 4 -type f | sort
 
 The Worker gets ViteHub's tested `compatibility_date`, `2026-04-20`, not the day of the build, because Wrangler refuses a date newer than its own workerd. To use another date, set `nitro({ compatibilityDate: '2026-11-01' })` in Vite, or `nitro: { compatibilityDate: '2026-11-01' }` in `nuxt.config.ts`. You can also set `compatibility_date` in a project Wrangler config or set `COMPATIBILITY_DATE` in the build environment or the project's `.env` file.
 
-Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub adds the types of that module to the app's TypeScript config, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, ViteHub adds its full types instead. You do not need a `declare module "cloudflare:workers"` file in the app.
+Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. ViteHub supplies the types that those files need, even without `@cloudflare/workers-types`. Install `@cloudflare/workers-types` to use other Worker APIs. The Nuxt server project loads the full Worker types. The app and `shared/` projects get `cloudflare:workers` and `DurableObjectState` without replacing browser DOM types, so Nuxt can check server auto-imports and typed routes. You do not need to add a `declare module "cloudflare:workers"` file or a `/// <reference types="@cloudflare/workers-types" />` line in the app.
 
 ### A project Wrangler config
 
@@ -171,6 +173,45 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bind
 - Two entries that name different resources fail the build with `INTERNAL_B0051`. Remove the project entry, or rename one.
 
 Container duplicates must agree on `scheduling_policy`, which defaults to `default`. ViteHub rejects a policy change or conflicting image settings. It does not combine the default policy's `image` with Durable Object-managed `images`.
+
+### Resource check
+
+After Nitro's `compiled` hooks run, the build checks that `wrangler.json` still has the D1, KV, R2, Queue, and Workflow bindings, the Durable Objects of Agent state, Realtime, and Sandbox Tasks, and the Schedule cron triggers that ViteHub generates for the app. A Worker without a binding fails only when code first reads it, so a missing entry fails the build with `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`. A missing or invalid `wrangler.json` counts as an empty config. The error names each missing entry and its Definition. Look for a project Wrangler config, Nitro hook, or module that removes or renames it. The check uses the resource inventory from `vitehub inspect resources` and also checks Realtime's Durable Object. It skips resources of a standalone Worker, which has its own Wrangler config, and does not run when `cloudflare.deployConfig` is `false`.
+
+### Your own Worker classes
+
+Cloudflare finds a Durable Object, Workflow, or `WorkerEntrypoint` class only among the exports of the Worker entry. Export the class from `server/cloudflare.ts`, and ViteHub adds each named export of that file to the entry when it builds for Cloudflare:
+
+```ts [server/cloudflare.ts]
+export { Counter } from './utils/counter'
+```
+
+```ts [server/utils/counter.ts]
+import { DurableObject } from 'cloudflare:workers'
+
+export class Counter extends DurableObject {
+  async increment() {
+    const count = ((await this.ctx.storage.get<number>('count')) ?? 0) + 1
+    await this.ctx.storage.put('count', count)
+    return count
+  }
+}
+```
+
+Declare the binding and its migration in your project Wrangler config. ViteHub does not write them:
+
+```json [wrangler.json]
+{
+  "durable_objects": { "bindings": [{ "name": "COUNTER", "class_name": "Counter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Counter"] }]
+}
+```
+
+A route then reaches the class through `env.COUNTER` from `cloudflare:workers`. For the types of `DurableObject`, install `@cloudflare/workers-types`.
+
+- ViteHub reads the file from Nitro's `serverDir`. In Nuxt, the app's `server/cloudflare.ts` wins over a layer's.
+- The file must not have a default export, because the entry's default export is the app. A name that the entry already exports, such as the class of a ViteHub Workflow or Sandbox Task, fails the build with `VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT`.
+- Other hosts, the prerender build, and `vite dev` do not load the file.
 
 ### Node.js compatibility in Nuxt
 
@@ -283,13 +324,27 @@ Build where the deployment values are set, such as Workers Builds. A build that 
 
 ### Workers Builds
 
-Use Nitro's generated deploy command for production and non-production Workers Builds:
+With deploy config generation on (the default), ViteHub writes `npx wrangler deploy --config ./server/wrangler.json` to `.output/nitro.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. `vitehub deploy` supports this command shape, including the generated D1 migration steps and gradual Container rollout flag. It does not run arbitrary `nitro.commands.deploy` overrides or Nitro's default Wrangler command, which ViteHub keeps when `nitro.cloudflare.deployConfig` is `false`.
+
+Workers Builds runs the deploy command set on the Worker. `nitro deploy --prebuilt` uses `commands.deploy` from the loaded Nitro config, which defaults to the preset's command, not the saved `commands.deploy` in `.output/nitro.json`. With deploy config generation on, use the generated command as the Workers Builds deploy command, with paths from the project root:
 
 ```bash [Deploy command]
-pnpm exec nitro deploy --prebuilt
+npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-With deploy config generation on (the default), ViteHub writes the command to `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own. With `nitro.cloudflare.deployConfig: false`, ViteHub keeps Nitro's default command. With `database: { migrateOnDeploy: true }`, the command applies the pending D1 migrations before `wrangler deploy`, and stops when one fails. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+With `database: { migrateOnDeploy: true }`, apply the pending D1 migrations first, once for each D1 binding. When a migration fails, `&&` stops the command and the Worker does not deploy. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+
+Create each D1 database before the first deploy and give the Workers Builds API token D1 Write access (D1 Edit in the dashboard). For a named Wrangler environment, pass the same `--env` value to every migration command and to `wrangler deploy`.
+
+```bash [Deploy command]
+npx wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json && npx wrangler deploy --config .output/server/wrangler.json
+```
+
+With Sandbox, add `--containers-rollout=gradual` to `wrangler deploy`, as `nitro.json` does.
+
+::warning
+The default Workers Builds and Nitro prebuilt deploy commands do not apply D1 migrations or warn about pending ones. Apply the migrations first so the new code has the tables and columns it needs.
+::
 
 With config generation and Sandbox on, ViteHub writes an explicit gradual Container rollout to `.output/nitro.json`, so the Worker and its Container application deploy together.
 

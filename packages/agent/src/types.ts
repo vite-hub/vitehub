@@ -1362,7 +1362,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "ask" | "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "external" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -1869,6 +1869,13 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /**
+   * Set when `VITEHUB_MODELS=emulate` is on and the Driver of this Agent runs on the AI emulator. Under the switch, the
+   * check reads no credentials. A Driver that the emulator cannot run is `unavailable` with a `code` instead.
+   */
+  emulated?: { url: string }
+  /** The diagnostic code that an Invocation fails with, when the check knows it, such as `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. */
+  code?: string
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
@@ -2182,6 +2189,23 @@ export interface AgentAskDriver<
   sandbox?: never
   sessionKey?: never
   workDir?: never
+}
+
+/**
+ * The options of an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner:
+ * `defineAgent({ driver: "external" })`. The Agent has a description, a Workspace, and a journal for the sessions that
+ * you import with `importAgentSession()`, but ViteHub never runs it: `runAgent()`, `streamAgent()`, and
+ * `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN`.
+ */
+export interface ExternalAgentOptions {
+  description?: string
+  driver: "external"
+  invocations?: AgentInvocationsSetting
+  name?: string
+  /** An external Agent has no runtime. */
+  runtime?: false
+  version?: string
+  workspace?: WorkspaceAgentWorkspaceConfig
 }
 
 export type AgentDriver<
@@ -3019,7 +3043,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
-/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/channels/adapters`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 

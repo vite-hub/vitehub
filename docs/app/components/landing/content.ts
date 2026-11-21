@@ -41,7 +41,7 @@ export const agentStory = {
   code: [
     'import { codexDriver, defineAgent } from "vite-hub/agent"',
     'import { browser, kv } from "vite-hub/agent/capabilities"',
-    'import { github } from "vite-hub/agent/channels"',
+    'import { github } from "vite-hub/channels/adapters"',
     "",
     "export default defineAgent({",
     '  description: "Reviews pull requests.",',
@@ -324,6 +324,41 @@ export const landingPrimitives = [
     description: "Agent interfaces",
     to: "/docs/ui",
     icon: "i-vitehub-ui",
+  },
+  {
+    id: "sync",
+    name: "Sync",
+    description: "Local table sync",
+    to: "/docs/sync",
+    icon: "i-vitehub-sync",
+  },
+  {
+    id: "device",
+    name: "Device",
+    description: "Stored browser reads",
+    to: "/docs/device",
+    icon: "i-vitehub-device",
+  },
+  {
+    id: "forge",
+    name: "Forge",
+    description: "Git forge identity",
+    to: "/docs/forge",
+    icon: "i-vitehub-forge",
+  },
+  {
+    id: "webhooks",
+    name: "Webhooks",
+    description: "Signed event delivery",
+    to: "/docs/webhooks",
+    icon: "i-vitehub-webhooks",
+  },
+  {
+    id: "mcp",
+    name: "MCP server",
+    description: "App MCP server",
+    to: "/docs/mcp",
+    icon: "i-vitehub-mcp",
   },
 ] as const;
 

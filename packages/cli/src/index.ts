@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import process from "node:process"
 
-import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, viteCliProjectConfig, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -12,6 +12,7 @@ import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
+import { renamedCommandMessage } from "./renamed-commands.ts"
 import { createSeedNamespace } from "./seed.ts"
 
 import type { LoadProvision } from "./provision.ts"
@@ -265,14 +266,17 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
 
 async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
+  const resolvedMode = mode ?? (command === "build" ? "production" : "development")
+  const project = viteCliProjectConfig(rootDir)
+  const nitro = createCliDiscoveryNitroCloser()
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
-    root: rootDir,
+    ...project,
     ...(mode ? { mode } : {}),
+    plugins: [...project.plugins, nitro.plugin],
     vitehubCliDiscovery: true,
   }
-  const nitro = createCliDiscoveryNitroCloser()
   try {
-    return await resolveConfig({ ...inlineConfig, plugins: [nitro.plugin] }, command, mode ?? (command === "build" ? "production" : "development"))
+    return await resolveConfig(inlineConfig, command, resolvedMode)
   }
   finally {
     await nitro.close()
@@ -373,6 +377,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       ? process.stderr.write(chunk, encoding)
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
+  const renamed = renamedCommandMessage(args)
+  if (renamed) {
+    stderr.write(`${renamed}\n`)
+    return 1
+  }
   const spawn = options.spawn || defaultSpawn
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
   // `vitehub seed --remote` writes the deployment of the stage, so its `publicUrl` and primitives come from that mode too.

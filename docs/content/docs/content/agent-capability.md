@@ -209,7 +209,7 @@ Saves, publishes, schedules, and cancellations record `metadata.agent = { name, 
 
 ## Verify the tools
 
-1. Run `vitehub agent info --agent editor --json`. Check that `tools` has a `content` entry with the expected commands, and `capabilities` has `{ id: "content" }`.
+1. Run `vitehub agent get editor --json`. Check that `tools` has a `content` entry with the expected commands, and `capabilities` has `{ id: "content" }`.
 2. Ask the Agent to draft a post. Check that `content_save_draft` returns `ok: true` and `content.collection('posts').status('<id>')` reports `draft`.
 3. Ask it to publish. Approve the request, then read the post from `/api/content/get/posts/<id>`.
 4. Ask it to schedule a change for tomorrow. Approve the request, then check that `content.schedules()` lists it.

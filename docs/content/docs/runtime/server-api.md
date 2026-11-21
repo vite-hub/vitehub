@@ -190,4 +190,4 @@ The [package README](https://github.com/vite-hub/vitehub/tree/main/packages/runt
 | --- | --- |
 | `vite-hub/runtime` | Context, Capability, policy, approval, trace, lease, diagnostic, error, execution authority, public URL, and host binding APIs. |
 
-Do not import from `src`, `dist`, or `_internal` paths.
+Do not import from `src`, `dist`, `internal`, or `_internal` paths. Only ViteHub packages use them.

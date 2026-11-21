@@ -26,7 +26,7 @@ icon: i-lucide-code-2
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
-| `useAbility`, `Can`, `Cannot` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
+| `useAbility`, `AuthPermission` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
 | `useUserSession`, `createAuthClient`, `loadAuthClient` from `vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
 | `defineAuthClient` from `vite-hub/auth/vue` | Set the [client plugins](#client-plugins) of the default client in `auth.client.ts`. |
 | `authenticated` from `vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
@@ -346,6 +346,20 @@ The generated access middleware checks each request that an access route matches
 
 The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
 
+Other generated ViteHub routes check access on every request, even without an app rule. These are Realtime and Comments, Blob signed links, Connections, MCP with `auth: true` and its `publicRoute`, the Content GitHub webhook, and the page tools session. Each runs a required `authorize` policy, an explicit `access` rule, a required access token, or a signature check. The access routes still apply to them, so an app rule such as an admin check stays in force. Routes that can run without a check stay unmarked: `/_vitehub/browser-errors`, Forms, Sync, Blob serve routes, and Agent webhooks. Middleware of your own that guards the whole app can skip the marked routes and the Console with `checksOwnAccess(event)`:
+
+```ts [server/middleware/members-only.ts]
+import { checksOwnAccess } from 'vite-hub/auth'
+import { defineHandler } from 'h3'
+
+export default defineHandler((event) => {
+  if (checksOwnAccess(event)) return
+  // Check the session of every other request here.
+})
+```
+
+The check reads the route that Nitro matched, so an app route file on the same path gets `false`.
+
 ### Make every route private
 
 With `routes: ['/**']`, the access middleware guards every path. List the paths that a signed-out visitor can open in `access.public`. A request to a public path skips all access routes and their `authorize` callbacks.
@@ -404,6 +418,27 @@ export default defineAuth({
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
 - Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.
+
+## See auth outcomes on each request
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Auth puts the outcome of a request on the request's wide event, in an `auth` field. A failed OAuth sign-in shows its reason here, also when the browser only gets a redirect:
+
+```json
+{ "path": "/api/auth/callback/github", "status": 302, "auth": { "path": "/callback/:id", "provider": "github", "outcome": "failure", "status": 302, "code": "state_mismatch" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `outcome` | `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, `refused` for a refusal of an Auth guard, such as `requireAuth()`. |
+| `path` | The Better Auth endpoint, such as `/sign-in/email`. It is not set when Better Auth refused the request before an endpoint ran, such as for its rate limit, or for a guard. |
+| `provider` | The OAuth provider of a callback or a social sign-in. |
+| `status` | The HTTP status of a failure or a refusal. |
+| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
+| `userId` | The user of a completed sign-in or sign-up. |
+
+Better Auth's warnings and errors also go on the event, with `[Better Auth]` before the message. Auth keeps your `logger` option: your `logger.log`, or Better Auth's console output, still gets every message.
+
+The event never holds an email address, a password, a token, or the query of a URL. Only the message of a Better Auth log line goes on the event, not its other values, because they can hold a provider response. Auth event log failures (`AUTH_EVENT_WRITE_FAILED`, `AUTH_EVENT_CALLBACK_FAILED`) also go on the event, or to the server console without evlog. Without evlog, Auth sets nothing.
 
 ## Typed user fields
 

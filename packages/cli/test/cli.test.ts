@@ -87,7 +87,7 @@ describe("ViteHub CLI", () => {
     // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
     const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     runViteHubCliEntrypoint({
-      args: ["agent", "info"],
+      args: ["agent", "get"],
       loadConfig: async () => { throw error },
       stderr,
       stdout,
@@ -155,6 +155,33 @@ export default ({ mode }) => ({
       expect(JSON.parse(stdout.output())).toEqual({ mode: "production", publicUrl: override ?? "https://production.example.com" })
       expect(process.env.VITEHUB_TEST_PUBLIC_URL).toBe(previous)
     }
+  })
+
+  it("passes the root selected by Vite's config environment to commands", async () => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "web"))
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  root: process.env.NODE_ENV === "development" ? "web" : "wrong",
+  plugins: [{
+    name: "root-contributor",
+    vitehub: { cli: { namespaces: [{ name: "probe", features: [{ name: "root", run(args, context) { context.stdout.write(context.rootDir); return 0 } }] }] } },
+  }],
+}
+`)
+    const stdout = stream()
+    const stderr = stream()
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+    expect(stderr.output()).toBe("")
+    expect(stdout.output()).toBe(join(rootDir, "web"))
   })
 
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
@@ -564,7 +591,7 @@ export default ({ mode }) => ({
     const runtime = vi.fn(() => 0)
     const project = vi.fn(() => 0)
     const loadConfig = vi.fn(async () => ({
-      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "info", run: project }], name: "agent" }] } } }],
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "get", run: project }], name: "agent" }] } } }],
       root: "/repo",
     }))
     const runtimeFeatures = [{ features: [{ name: "invocations", run: runtime }], name: "agent" }]
@@ -573,7 +600,7 @@ export default ({ mode }) => ({
     expect(runtime).toHaveBeenCalledWith(["list"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
     expect(loadConfig).not.toHaveBeenCalled()
 
-    expect(await runViteHubCli({ args: ["agent", "info"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["agent", "get"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(project).toHaveBeenCalledOnce()
     expect(await runViteHubCli({ args: ["agent", "--help"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledTimes(2)

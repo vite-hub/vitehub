@@ -17,6 +17,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { resolveAgentTriggerInvocation } from "../index.ts"
+import { modelEmulatorUrl } from "../internal/agent-emulation.ts"
 import { runAgentInline, streamAgentInline } from "../internal/agent-run.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { handleChannelReplayRequest } from "../channel-replay.ts"
@@ -529,6 +530,8 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
 function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  // The command does not start the Driver, so an Agent with `driver: "external"` can run it too.
+  Object.defineProperty(clone, Symbol.for("vitehub.agentWorkspaceCommandRun"), { value: true })
   clone.run = async (context) => {
     if (!context.workspace) throw agentDiagnostics.AGENT_R0876({ message: "[vitehub] Agent Dev Loop command requires an Agent with a Workspace." })
     const { resolveSandbox } = await import("@vite-hub/" + "sandbox") as typeof import("@vite-hub/sandbox")
@@ -626,12 +629,14 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
           runtime: createViteAgentRuntimeContext(server, req, entry.identity, { capabilities, fallbackRoute: agentInvocationStreamRoute, run }),
         })
       : undefined
+    const emulatorUrl = modelEmulatorUrl()
     const response = {
       agents: entries.map(entry => ({
         ...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
         name: entry.name,
         triggers: Object.keys(entry.triggers),
       })),
+      ...(emulatorUrl ? { emulator: { url: emulatorUrl } } : {}),
       ...(inspection && entry ? { inspection: { ...inspection, name: entry.name } } : {}),
       root: server.config.root,
       workspaceDevTokenServerId: tokenOptions.serverId,

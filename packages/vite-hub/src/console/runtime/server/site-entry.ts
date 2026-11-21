@@ -1,4 +1,4 @@
-import { hostedConsoleOrigin } from "@vite-hub/runtime"
+import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { viteHubPageToolAllows } from "@vite-hub/internal/runtime/page-tools"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"

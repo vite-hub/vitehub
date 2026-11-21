@@ -1,4 +1,5 @@
 import { byteRangeBounds } from "../internal/byte-range.ts"
+import { downloadDisposition } from "../internal/active-content.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
 import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
@@ -33,7 +34,7 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request. Bind the exact size with `contentLength`." })
   }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
   const accessKeyId = r2Credential(options, "accessKeyId")
@@ -54,26 +55,32 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
     requestChecksumCalculation: "WHEN_REQUIRED",
   })
   const headers: Record<string, string> = {}
+  const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
   const command = signOptions.method === "GET"
-    ? new GetObjectCommand({ Bucket: bucket, Key: pathname })
+    ? new GetObjectCommand({ Bucket: bucket, Key: pathname, ResponseContentDisposition: disposition })
     : new PutObjectCommand({
         Bucket: bucket,
+        ContentLength: signOptions.contentLength,
         ContentType: signOptions.contentType,
         IfNoneMatch: signOptions.createOnly ? "*" : undefined,
         Key: pathname,
       })
+  // The presigner signs only the headers it is told to. A signed `content-length` makes R2 reject a body of another size.
+  const signableHeaders = new Set<string>()
   if (signOptions.method === "PUT") {
-    if (signOptions.contentType) headers["Content-Type"] = signOptions.contentType
+    if (signOptions.contentType) {
+      headers["Content-Type"] = signOptions.contentType
+      signableHeaders.add("content-type")
+    }
     if (signOptions.createOnly) headers["If-None-Match"] = "*"
+    if (signOptions.contentLength !== undefined) signableHeaders.add("content-length")
   }
   return {
     headers,
     method: signOptions.method,
     url: await getSignedUrl(client, command, {
       expiresIn: signOptions.expiresIn,
-      signableHeaders: signOptions.method === "PUT" && signOptions.contentType
-        ? new Set(["content-type"])
-        : undefined,
+      signableHeaders: signableHeaders.size ? signableHeaders : undefined,
     }),
   }
 }

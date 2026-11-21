@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -59,6 +59,15 @@ const projectRootFileMarkers = [
 export const VITEHUB_ENV_PUBLIC_ID = "#vitehub/env/public" as const
 export const VITEHUB_ENV_SERVER_ID = "#vitehub/env/server" as const
 export const VITEHUB_ENV_DESCRIPTION_ID = "#vitehub/env/description" as const
+
+/** Record a selected plugin in its pre config hook, before other plugins consume the selection. */
+export function markViteConfigPlugin(env: ConfigEnv, name: string): void {
+  Reflect.set(env, Symbol.for(`vitehub.config-plugin:${name}`), true)
+}
+
+export function hasViteConfigPlugin(env: ConfigEnv, name: string): boolean {
+  return Reflect.get(env, Symbol.for(`vitehub.config-plugin:${name}`)) === true
+}
 
 // Config hooks for existing ViteHub packages need the complete merged value,
 // while newer hooks can return only additions for Vite's array merge behavior.
@@ -392,6 +401,17 @@ function hasProjectRootFileMarker(root: string, markers: string[][] | string[]):
     }
   }
   return false
+}
+
+/**
+ * Whether the app at `root` installs `name`, in its own `node_modules` or one of its parents. `require.resolve` would
+ * also read `NODE_PATH`, which pnpm bin scripts point at every hoisted package.
+ */
+export function installsPackage(root: string, name: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(resolve(directory, "node_modules", name, "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 export function viteHubEnvAmbientTypesPath(root: string): string {

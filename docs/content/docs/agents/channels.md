@@ -23,17 +23,17 @@ A Channel is one connection in `server/channels/<name>.ts`, defined with `define
 
 ## Add a Channel
 
-Define the Channel in `server/channels`, with an adapter from `vite-hub/agent/channels`. Then list its name in the Agent.
+Define the Channel in `server/channels`, with an adapter from `vite-hub/channels/adapters`. Then list its name in the Agent.
 
 ```ts [server/channels/portal.ts]
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 import { defineChannel } from 'vite-hub/channels'
 
 export default defineChannel({ adapter: webChat() })
 ```
 
 ```ts [server/channels/github.ts]
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 import { defineChannel } from 'vite-hub/channels'
 
 export default defineChannel({ adapter: github() })
@@ -113,6 +113,8 @@ Point an AI SDK `useChat` client at the same route to chat from a page. The Agen
 
 The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
 
+The simulated Channels need no bot token or webhook secret. In a simulated `vite dev`, Server Env declares their values optional, so `useServerEnv()` works without them. A build still requires them.
+
 Simulation applies to every app in the same Node.js process. To simulate only one app, start its dev server in a separate process.
 
 ## Answer replies in subscribed threads
@@ -120,7 +122,7 @@ Simulation applies to every app in the same Node.js process. To simulate only on
 Built-in chat Channels answer in a shared channel only when mentioned. To also answer human messages in threads the Agent follows (subscribed threads), set `messages.replyToSubscribedThreads: true` on the Agent or one Channel:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 
 teams({
   messages: {
@@ -139,7 +141,7 @@ teams({
 Built-in chat Channels ignore bot messages, also mentions and direct messages, so two bots cannot answer each other forever. The Chat SDK already skips the Agent's own messages. To accept other bots, set `messages.allowBots: true` on the Agent or one Channel:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 
 teams({
   messages: {
@@ -169,7 +171,7 @@ Each message that a chat Channel receives has a delivery record. `vitehub channe
 With `messages.concurrency: 'steer'`, a new message can redirect (steer) the active Invocation. Only the invoker (who started it) can steer by default. Others wait and start their own Invocation. To let others in the thread steer, set `messages.steerFromParticipants: true`:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 
 teams({
   messages: {
@@ -198,7 +200,8 @@ Hooks let the Agent act on the message that started it, for example to label an 
 
 ```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter } from 'vite-hub/channels/adapters'
+import { defineChannelTrigger } from 'vite-hub/channels'
 import * as v from 'valibot'
 import { applyLabels, readEmail } from '../lib/mailbox'
 
@@ -273,11 +276,12 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 ### Give a Channel its own route
 
-A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels/adapters` does not need an Agent Definition, but it does need the `@vite-hub/agent` package to serve the route. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
-import { defineChannelTrigger } from 'vite-hub/agent/channels'
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannelTrigger } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 import { ticketEvent } from './events'
 
 export default defineChannel({
@@ -312,7 +316,8 @@ ViteHub keeps a webhook's State and queue under `webhook:<agent>:<origin>:<regis
 Set `stateScope` on the adapter to the old scope to keep it:
 
 ```ts [server/channels/airtable/index.ts]
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 
 export default defineChannel({
   adapter: webhook({
@@ -340,7 +345,8 @@ Every webhook registration of `channelAdapter()` that ViteHub verifies must set 
 `webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
 
 ```ts [server/channels/public-events.ts]
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 
 export default defineChannel({
   // Anyone who knows the URL can send events.
@@ -421,7 +427,8 @@ export default defineConfig({
 ::
 
 ```ts [server/channels/prefect.ts]
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 import { useServerEnv } from 'vite-hub/env'
 
 export default defineChannel({
@@ -436,7 +443,8 @@ export default defineChannel({
 ```
 
 ```ts [server/channels/airtable.ts]
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 
 export default defineChannel({
   adapter: webhook({
@@ -501,7 +509,7 @@ A transcript keeps messages after the provider forgets them. With durable Agent 
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/agent/channels'
+import { telegram } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
@@ -545,8 +553,8 @@ pnpm vitehub channels threads support telegram
 pnpm vitehub channels conversation support telegram telegram:456
 pnpm vitehub channels status labeller gmail
 pnpm vitehub channels deliveries support teams
-pnpm vitehub conversations export support telegram telegram:456 > chat.md
-pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
+pnpm vitehub agent conversations export support telegram telegram:456 > chat.md
+pnpm vitehub agent conversations export support telegram telegram:456 --format json --output ./chat
 ```
 
 Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/cli/agents#export-a-channel-conversation).
@@ -598,7 +606,8 @@ export async function applyLabels(id: string, labels: string[]) {
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter } from 'vite-hub/channels/adapters'
+import { defineChannelTrigger } from 'vite-hub/channels'
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 import { applyLabels, listEmails } from '../lib/mailbox'
@@ -829,7 +838,7 @@ Updates keep their order within one process. Across concurrent hosts, GitHub del
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -875,7 +884,7 @@ Reconcile lets PR events, such as a push, start the Agent. `pullRequest: true` a
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -957,7 +966,8 @@ A `reconcile.triggers` entry always starts the Agent. To run your own code inste
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github, githubPullRequestTrigger, ignored } from 'vite-hub/agent/channels'
+import { github, githubPullRequestTrigger } from 'vite-hub/channels/adapters'
+import { ignored } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1001,6 +1011,29 @@ export default defineAgent({
 
 The trigger needs a webhook queue: a durable State, such as SQLite or libSQL, and the `x-github-delivery` header that GitHub sends. The queue stores the delivery before it answers GitHub, so a restart during `debounceMs` keeps it. A repeated or redelivered `x-github-delivery` does not run `invoke` again. If `invoke` throws or the process stops while it runs, the queue runs it again, up to three attempts. Send `event.deliveryId` as an idempotency key when a repeated call has an effect. Without `x-github-delivery`, such as a call from code, `invoke` runs before the answer.
 
+#### Start a pull request trigger from server code
+
+Server code, such as a Schedule that finds a stuck pull request, can start the same trigger with [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code). Pass the pull request, an optional `id`, and an optional `body`:
+
+```ts [server/utils/wake.ts]
+import { sendChannelTrigger } from 'vite-hub/channels'
+
+export async function wakePullRequest(number: number) {
+  const [error] = await sendChannelTrigger('github', 'reviewFeedback', {
+    pullRequest: { repository: 'acme/app', number },
+    id: `wake:${number}:${new Date().toISOString().slice(0, 10)}`,
+    body: 'Rebase on main and fix the failing checks.',
+  })
+  if (error) throw error
+}
+```
+
+- The send waits for the pull request's queue slot, like a webhook delivery, so it does not run next to an Agent run of the same pull request.
+- `invoke` gets `event: 'server'`, `body` from the send, and the `pullRequest` that ViteHub reads from GitHub when the slot is free. `filter`, `events`, `mentions`, and `debounceMs` do not apply, because the send names the trigger.
+- The delivery ID is `<trigger>:<id>`. A second send with the same `id` is a duplicate and returns `queued: false`. Without `id`, every send runs.
+- With `pullRequest.reconcile`, the send follows the branch rules of a queued webhook run. A close while it waits or runs stops it. A push by a person while it waits adds a notice to the prompt, or drops it with `headMoves: 'cancel'`, and a push while it runs stops it with `headMoves: 'cancel'`.
+- A closed pull request finishes with `ignored('pull_request_closed')`, at the send and again when the slot is free. Input without an `owner/repo` repository and a positive `number` returns `CHANNEL_TRIGGER_FAILED` with the cause `AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID`.
+
 The Channel delivery record of each delivery shows what the trigger did. `trigger.started` names the `trigger`. `trigger.completed` has `outcome: 'response'` with the `status` and `reason` of the answer, or `outcome: 'input'` when the Agent starts. `trigger.failed` has the `error`. A delivery that no trigger matches ends with a `completed` event whose `reason` says why, such as `not_command` or `filtered`.
 
 ### Pull request Workspace
@@ -1027,7 +1060,7 @@ Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in 
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -1103,7 +1136,7 @@ Chat and webhook routes accept at most 1 MiB by default. `route.maxBodyBytes` lo
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -1131,7 +1164,7 @@ A browser can reconnect to an active response. Set `resume: true` in `useChat()`
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -1164,7 +1197,7 @@ Adapter Channels connect Discord, Slack, Teams, Telegram, and similar platforms 
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { discord } from 'vite-hub/agent/channels'
+import { discord } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -1202,7 +1235,7 @@ For Telegram, ViteHub can own the verified webhook route and register it after d
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/agent/channels'
+import { telegram } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {
@@ -1291,7 +1324,7 @@ Delivery custody shows what happened to each incoming message, so you can find w
 No ViteHub record can prove a provider event that never reached the process. Use provider audit logs and Gateway session history for that.
 ::
 
-Timelines live in the Channel's State Adapter, for the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
+Timelines live in the Channel's State Adapter, for at least the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. The index trims at most once a minute, so it can briefly hold the extra admissions of that minute. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
 
 Hooks and Drivers get the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`. JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. Host integrations read records with the webhook handler's `handler.deliveries(request, webhookId, options)`, through the Channel's scoped State Adapter.
 
@@ -1302,7 +1335,7 @@ A Capability gives the Agent an ability, such as API tools. Channel Capabilities
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { openapi } from 'vite-hub/agent/capabilities'
-import { teams, webChat } from 'vite-hub/agent/channels'
+import { teams, webChat } from 'vite-hub/channels/adapters'
 
 const portalApi = openapi({
   cli: { name: 'portal-api' },
@@ -1327,7 +1360,7 @@ Channel `instructions` apply only to Invocations that the Channel starts. They c
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   channels: {

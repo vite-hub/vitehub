@@ -13,6 +13,7 @@ import { createOccurrenceClaims } from "./claims.ts"
 import { scheduleIdempotencyKey } from "./date.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule, toRunId } from "./execute.ts"
+import { markLoggedScheduleError } from "./static.ts"
 import { runStartedSchedules } from "./started.ts"
 import { getScheduleOccurrenceClaims, getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleOccurrenceClaims, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
@@ -166,9 +167,10 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   const previousClaims = getScheduleOccurrenceClaims()
   const reportError = createErrorReporter(options.onError)
   const leaseTtlMs = resolveLeaseTtlMs(options.leaseTtlMs)
+  const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
   const claims = createOccurrenceClaims({
     // Catch-up after a restart looks back `catchUpMs`. The done marker must outlast it and the wait of other processes.
-    doneTtlMs: (options.catchUpMs ?? DEFAULT_CATCH_UP_MS) + leaseTtlMs + 2 * minuteMs,
+    doneTtlMs: catchUpMs + leaseTtlMs + 2 * minuteMs,
     leases: options.leases ?? createMemoryLeaseStore(),
     owner: `${hostname()}:${process.pid}`,
     prefix: options.prefix,
@@ -211,9 +213,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     reportError,
     retries() {
       const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
-      const since = currentMinute - (options.catchUpMs ?? DEFAULT_CATCH_UP_MS)
       for (const [runId, input] of held) {
-        if (input.scheduledAt.getTime() < since) held.delete(runId)
+        if (currentMinute > (input.startBy ?? input.scheduledAt.getTime() + catchUpMs)) held.delete(runId)
       }
       return [...held.values()]
     },
@@ -238,6 +239,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           return
         }
         const runId = toRunId("static", entry.name, input.scheduledAt)
+        let logged = false
         try {
           const result = await claims.run(runId, onExecution => executeStaticSchedule({
             claimed: true,
@@ -245,15 +247,19 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
             definition,
             name: entry.name,
             onExecution,
+            onRunLogged: () => { logged = true },
             scheduledAt: input.scheduledAt,
             waitUntil,
           }))
-          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          // The claim of a crashed process can end after the catch-up window. Retry until the window of its done marker ends.
+          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt, startBy: input.scheduledAt.getTime() + catchUpMs + leaseTtlMs + minuteMs })
           else held.delete(runId)
         }
         catch (error) {
-          held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
-          throw error
+          // Keep the retry window of an earlier held result, so one lease store error does not drop a failover.
+          held.set(runId, { ...held.get(runId), scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          // The run's evlog event has the failure, so `onError` gets it marked and does not log it again.
+          throw logged ? markLoggedScheduleError(error) : error
         }
       })()
       activeWakes.add(wake)
@@ -270,7 +276,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
    * finished them.
    */
   async function recoverUnfinishedOccurrences(): Promise<void> {
-    const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
     if (catchUpMs <= 0) return
     const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
     const since = currentMinute - catchUpMs

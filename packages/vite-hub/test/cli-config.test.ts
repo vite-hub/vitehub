@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, isAgentEmulatorStandalone, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -40,6 +40,20 @@ describe("ViteHub CLI config loading", () => {
     roots.push(root)
     await writeFile(join(root, "vite.config.ts"), source, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  it("runs agent emulator without the project only for an explicit emulator, help, or no config", async () => {
+    const empty = await mkdtemp(join(tmpdir(), "vitehub-emulator-guard-"))
+    roots.push(empty)
+    const vite = await createProject("vite")
+    const nuxt = await createProject("nuxt")
+    expect(isAgentEmulatorStandalone([], {}, empty)).toBe(true)
+    expect(isAgentEmulatorStandalone([], {}, vite)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--json"], {}, nuxt)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--url", "http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--url=http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--help"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone([], { VITEHUB_EMULATE_URL: "http://localhost:4014" }, vite)).toBe(true)
   })
 
   // A production install can leave out the optional `vite` peer, which the config scanner parses with.
@@ -310,6 +324,21 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", mode ?? "development")
   })
 
+  it("keeps the root selected by Vite's config environment for CLI discovery", async () => {
+    const root = await createProject("vite")
+    await writeFile(join(root, "vite.config.ts"), 'export default { root: process.env.NODE_ENV === "development" ? "web" : "wrong" }\n', "utf8")
+    await mkdir(join(root, "web"))
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      const config = await loadViteHubCliConfig(root, "serve")
+      expect(config.root).toBe(join(root, "web"))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {
     const root = await createProject("vite")
     await writeFile(join(root, "nuxt.config.ts"), "export default {}\n", "utf8")
@@ -336,6 +365,47 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
+  it.each(["option", "environment variable"])("requires the Telegram token in env check with simulation enabled by %s", async source => {
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-channel-env-"));
+    roots.push(root);
+    await mkdir(join(root, "server/agents"), { recursive: true });
+    await writeFile(join(root, "server/agents/chat.ts"), `
+import { defineAgent } from "vite-hub/agent"
+import { telegram } from "vite-hub/agent/channels"
+export default defineAgent({ driver: { model: "openai/gpt-5.1-mini" }, channels: { telegram: telegram({ mode: "webhook" }) } })
+`);
+    await writeFile(join(root, "vite.config.ts"), `
+import { vitehub } from "vite-hub"
+export default { plugins: [vitehub({ agent: { channels: { simulate: ${source === "option"} } } })] }
+`);
+
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEHUB_CHANNELS", source === "option" ? undefined : "simulate");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", undefined);
+    vi.stubEnv("VITEHUB_TELEGRAM_BOT_TOKEN", undefined);
+    let stdout = "";
+    let stderr = "";
+    try {
+      const code = await runViteHubCli({
+        args: ["env", "check", "--stage", "production", "--json"],
+        cwd: root,
+        loadConfig: loadViteHubCliConfig,
+        stdout: { write: chunk => { stdout += chunk; return true } },
+        stderr: { write: chunk => { stderr += chunk; return true } },
+      });
+      expect(code, stderr).toBe(1);
+    }
+    finally {
+      vi.unstubAllEnvs();
+    }
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      stage: "production",
+      entries: expect.arrayContaining([expect.objectContaining({ path: "env.server.telegram.botToken", required: true, status: "missing" })]),
+    });
+  });
 })
 
 describe("shipped ViteHub CLI production discovery", () => {

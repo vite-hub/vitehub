@@ -205,7 +205,7 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 }
 
 /**
- * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
+ * Answers `GET <base>/_vitehub/page/tools`: the tools whose `allowed` check passes for this visitor, in registration
  * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
  * each tool `script` path gets it. When at least one tool is allowed, the answer also has the `account` of a signed-in
  * visitor, from the reader of `registerViteHubPageAccount()`. An anonymous visitor never gets one. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
@@ -246,8 +246,8 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
 }
 
 /**
- * The route of `GET /_vitehub/page/session`: a Fetchable (https://fetchable.org). Nitro 3 binds each Request to its
- * app in `installViteHubPageTools()`, so the route finds the tools of that app.
+ * The route of `GET /_vitehub/page/tools`: a Fetchable (https://fetchable.org). `installViteHubPageTools()` binds
+ * each Request to its app in Nitro's `request` hook, so the route finds the tools of that app.
  */
 export const viteHubPageSessionHandler: { fetch(request: Request): Promise<Response> } = {
   async fetch(request) {
@@ -386,6 +386,8 @@ export interface ViteHubPageToolsInstallOptions {
  * static assets, still shows the pill. Call it from each owner's Nitro plugin: it installs once per app, whatever the
  * number of calls. It reads that app's registry and configured base on each request, so plugin order does not matter.
  * It wraps `nitroApp.fetch`, the Web entry that every preset and the prerenderer call. The tag uses `options.base`.
+ * It binds each request to the app in Nitro's `request` hook too, since another wrapper of `fetch` may pass a copy of
+ * the request inward, such as the `security` policy of `vite-hub` on Node.js.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
@@ -394,6 +396,15 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
   if (options.origins !== undefined) (state().origins ??= new WeakMap()).set(nitroApp, options.origins)
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
+
+  // The hook gets the `event.req` that the routes get, even when an inner wrapper of `fetch` copied the request.
+  const hooks: unknown = Reflect.get(nitroApp, "hooks")
+  const hook: unknown = hooks && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
+  if (hook instanceof Function) {
+    Reflect.apply(hook, hooks, ["request", (event: { req?: unknown } | undefined) => {
+      if (event?.req instanceof Request) state().apps.set(event.req, nitroApp)
+    }])
+  }
 
   const fetch: unknown = Reflect.get(nitroApp, "fetch")
   if (fetch instanceof Function) {

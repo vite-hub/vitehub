@@ -1,5 +1,6 @@
 export { defineAuth } from "./definition.ts"
 export { checkGitHubOrgMember } from "./github.ts"
+export { checksOwnAccess } from "./own-access.ts"
 export type { GitHubOrgMemberErrorCode, GitHubOrgMemberOptions } from "./github.ts"
 export type { AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
@@ -17,6 +18,7 @@ export type {
   AuthAnonymousAuthorize,
   AuthAnonymousGuardedHandler,
   AuthAuthorization,
+  AuthComponentsOptions,
   AuthDefinition,
   AuthDefinitionInput,
   AuthDefinitionOptions,

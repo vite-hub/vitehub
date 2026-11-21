@@ -213,7 +213,7 @@ The local driver is the Node host's driver when the app has no Postgres Database
 
 ## Postgres delivery
 
-The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
+The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. When the Database sets `driver: 'node-postgres'`, it opens its own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides the connection. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
 
 - The first server to start creates the table and its indexes under a transaction lock, so servers that start at once do not race.
 - A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so instances cannot take a job while its claim is held. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.
@@ -248,7 +248,7 @@ Dev differs from the host:
 - `idempotencyKey` deduplicates only while a job is pending or running. Vercel does it for the retention time, up to 24 hours.
 - `useQueue()` returns the local client, so `client.provider` is `'local'`.
 
-`vitehub queue jobs list|show|retry|clear` and the Console read stored jobs through the `queue.jobs-*` operations. In `vite dev`, a plain `Error` from a handler reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and message there. A production local server that reopens jobs stored by `vite dev` hides their stored errors that have no code. Queue errors and `ViteHubError` keep their code and message.
+`vitehub queue jobs list|get|retry|clear` and the Console read stored jobs through the `queue.jobs-*` operations. In `vite dev`, a plain `Error` from a handler reports its message and stack, and `jobs get` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and message there. A production local server that reopens jobs stored by `vite dev` hides their stored errors that have no code. Queue errors and `ViteHubError` keep their code and message.
 
 On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. An unknown message ID fails with `QUEUE_JOB_NOT_FOUND`. `retry` on a running job fails with `QUEUE_JOB_RUNNING`.
 

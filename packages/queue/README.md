@@ -131,7 +131,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. When the Database sets `driver: "node-postgres"`, the jobs open their own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts
@@ -183,7 +183,7 @@ List, inspect, run again, and remove the stored jobs with the CLI. The commands 
 
 ```sh
 pnpm vitehub queue jobs list --state dead
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```

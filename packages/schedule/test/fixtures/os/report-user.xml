@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>report (ViteHub schedule). Managed by ViteHub (user scope). sha256:c7515ef603f15afed00f8b019679d6b38cd17095cb6195d3bb3f122bb6d1d169</Description>
+    <Description>report (ViteHub schedule). Managed by ViteHub (user scope). sha256:832cf86045d3d1d9b8977dcd22dc1594f8979c291f5bb89ad173c825ef3ce4e3</Description>
     <URI>\report</URI>
   </RegistrationInfo>
   <Triggers>
@@ -40,7 +40,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;C:\Users\me\AppData\Local\ViteHub\schedules\skync.ps1&quot;</Arguments>
+      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand JABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAAPQAgADEACgAmACAAJwBDADoAXABVAHMAZQByAHMAXABtAGUAXABBAHAAcABEAGEAdABhAFwATABvAGMAYQBsAFwAVgBpAHQAZQBIAHUAYgBcAHMAYwBoAGUAZAB1AGwAZQBzAFwAcwBrAHkAbgBjAC4AcABzADEAJwAKAGUAeABpAHQAIAAkAGcAbABvAGIAYQBsADoATABBAFMAVABFAFgASQBUAEMATwBEAEUA</Arguments>
     </Exec>
   </Actions>
 </Task>

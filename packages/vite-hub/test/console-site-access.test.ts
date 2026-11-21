@@ -355,7 +355,7 @@ describe("the account in the pill", () => {
   }
 
   async function pageSession(nitroApp: object, cookie = "") {
-    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session`, { headers: { cookie } }))
+    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools`, { headers: { cookie } }))
     return readViteHubPageSession(await response.json())
   }
 

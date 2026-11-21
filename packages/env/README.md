@@ -417,7 +417,7 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 `hubEnv()` contributes two CLI commands:
 
 ```bash
-vitehub env inspect [--stage <name>] [--json]
+vitehub env list [--stage <name>] [--json]
 vitehub env check [--stage <name>] [--json]
 ```
 
@@ -426,7 +426,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 `hubEnv()` also contributes the `env.inspect` operation. It asks the running app, not a local stage, so the CLI and the Console can check that a deployed app has its env. It answers on the signed `POST /_vitehub/rpc` endpoint like every other operation, and needs the `env` Console section (`env:read` is enough).
 
 ```bash
-vitehub env status --url https://my-app.example.com
+vitehub env list --url https://my-app.example.com
 ```
 
 The result has `ok`, the `host` that the app runs on when it is known, and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.

@@ -38,10 +38,11 @@ The server checks the arguments with `input` before the handler runs. Invalid ar
 
 ## Write the handler
 
-The handler gets the checked input and `{ event, caller }`:
+The handler gets the checked input and `{ event, caller, elicit }`:
 
 - `event` is the H3 event of the MCP request. `event.req` is the web `Request`.
 - `caller` is the signed-in caller when `mcpOAuth()` protects the server, else `undefined`. It has the Auth `user`, the approved `scopes`, the OAuth `clientId`, and the `clientName`, such as `Claude Code`. The server reads the user again for each request, so a deleted or banned person has no access.
+- `elicit` asks the person for values in the middle of the call. See [Ask the person for values](#ask-the-person-for-values).
 
 The return value becomes the tool result:
 
@@ -54,6 +55,47 @@ The return value becomes the tool result:
 ## Report an error
 
 Throw an error with a 4xx `status`, such as H3's `HTTPError`, to tell the Agent what to fix. The Agent reads its message as a tool error. Other errors are logged, and the Agent reads only `<name> failed on the server.`
+
+## Ask the person for values
+
+`elicit(form, { message })` shows a form to the person in the MCP client, such as Claude or Cursor, and waits for the answer. MCP calls this elicitation. The form is a `defineForm()` form of `vite-hub/forms`, or a Standard Schema of a flat object, such as a Zod object:
+
+```ts [server/mcp/tools/share_drop.ts]
+import { defineMcpTool } from 'vite-hub/mcp'
+import { z } from 'zod'
+
+const Invite = z.object({
+  email: z.email().describe('The email of your teammate.'),
+  role: z.enum(['viewer', 'editor']),
+})
+
+export default defineMcpTool({
+  description: 'Share a drop with a teammate. Asks the person who gets access.',
+  input: z.object({ drop: z.string() }),
+  handler: async ({ drop }, { elicit }) => {
+    const [error, answer] = await elicit(Invite, { message: `Who gets access to ${drop}?` })
+    if (error) return `The answer is not valid: ${error.issues.map(issue => issue.message).join(' ')}`
+    if (answer.action !== 'accept') return `The person did not share ${drop}.`
+    return { drop, email: answer.data.email, role: answer.data.role }
+  },
+})
+```
+
+`elicit()` returns `[error, answer]`:
+
+- `answer.action` is `accept` with the checked values in `answer.data`, `decline` when the person refused, or `cancel` when the person closed the form, the client closed the stream or cancelled the tool call, or no answer came in 10 minutes.
+- `error` has the issue of each field when the values do not pass the schema, the same issues as the [form route](/docs/forms/server-api). Call `elicit()` again to ask again.
+
+A tool that elicits answers the `tools/call` with an event stream. Tools that do not elicit keep a JSON answer. Do not ask for passwords, API keys, or payment details: MCP does not allow them in a form.
+
+`elicit()` throws, and the Agent reads the reason as a tool error, in two cases:
+
+| Code | Cause |
+| --- | --- |
+| [`MCP_ELICITATION_CLIENT_UNSUPPORTED`](/docs/mcp/diagnostics/mcp_elicitation_client_unsupported) | The MCP client did not declare the `elicitation` capability. |
+| [`MCP_ELICITATION_HOST_UNSUPPORTED`](/docs/mcp/diagnostics/mcp_elicitation_host_unsupported) | The build is for a host that can send the answer to another server instance. |
+
+The waiting call stays in the memory of the server process, so the answer of the client must reach the same process. That works on the dev server and in builds for one Node, Bun, or Deno server process: the `node-server`, `node-middleware`, `bun`, and `deno-server` presets. It does not work on Cloudflare Workers, Vercel, Netlify, Deno Deploy, or `node-cluster`.
 
 ## Define a prompt
 
