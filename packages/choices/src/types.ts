@@ -101,8 +101,18 @@ export type ChoicesSelection<TGroups> = {
     : MultipleSelection<Extract<GroupValue<TGroups[K]>, ChoiceValue>>
 }
 
-/** A nostics error. Its `code` is one of `DECISIONS_R0001` to `DECISIONS_R0006`. */
-export type ChoicesError = Diagnostic
+/**
+ * Why `resolve()` returned no selection. Check `error.code`. `DECISIONS_R0002`: a group or option is invalid or over a
+ * limit. `DECISIONS_R0003`: the text is empty or too long. `DECISIONS_R0004`: the options cannot express the text.
+ * `DECISIONS_R0005`: the gateway request failed, with the gateway error in `cause`. `DECISIONS_R0006`: the model left a
+ * question without an answer. `defineChoices()` throws `DECISIONS_R0001`, so it never comes back here.
+ */
+export type ChoicesError =
+  | Diagnostic<unknown, "DECISIONS_R0002">
+  | Diagnostic<unknown, "DECISIONS_R0003">
+  | Diagnostic<unknown, "DECISIONS_R0004">
+  | Diagnostic<unknown, "DECISIONS_R0005">
+  | Diagnostic<unknown, "DECISIONS_R0006">
 
 export type ChoicesResult<TData> = readonly [error: ChoicesError, data?: undefined] | readonly [error: undefined, data: TData]
 
