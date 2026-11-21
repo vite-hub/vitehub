@@ -51,14 +51,18 @@ export function realtimeRoomFields(key: string, presence: boolean): RealtimeLogF
 /**
  * Logs one Realtime failure as its own evlog event, `{ action: "realtime", message, realtime: fields }`, when the app
  * registers evlog and has it on. The event has the fixed `message` and the error's `code`, never its message. Otherwise
- * it prints to the console, with the error, unless `console` is false. It never throws: it also runs inside a Durable
+ * it prints to the console, with the error unless the room is private. It never throws: it also runs inside a Durable
  * Object and in socket callbacks, which have no `waitUntil()`.
  */
-export function logRealtime(level: "warn" | "error", message: string, fields: RealtimeLogFields, error?: unknown, options: { console?: boolean } = {}): void {
+export function logRealtime(level: "warn" | "error", message: string, fields: RealtimeLogFields, error?: unknown, options: { console?: boolean, privateRoom?: boolean } = {}): void {
   logFailure({ field: "realtime", fields: { ...fields }, level, message, ...(error === undefined ? {} : { error }) }, () => {
     if (options.console === false) return
     const text = `[vitehub] ${message}`
-    if (level === "error") console.error(text, ...error === undefined ? [] : [error])
+    if (options.privateRoom) {
+      if (level === "error") console.error(text, fields)
+      else console.warn(text, fields)
+    }
+    else if (level === "error") console.error(text, ...error === undefined ? [] : [error])
     else console.warn(text, ...error === undefined ? [] : [error instanceof Error ? error.message : String(error)])
   })
 }

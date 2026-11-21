@@ -770,7 +770,7 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
     }
     catch (error) {
       // The next save of that room finds the change.
-      logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definition, documentId), failed: "refresh" }, error)
+      logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definition, documentId), failed: "refresh" }, error, { privateRoom: true })
     }
   }
   return reseeded
@@ -796,7 +796,7 @@ async function refreshDurableRoom(binding: RealtimeDurableObjectNamespace, defin
     return result instanceof Object && "reseeded" in result && result.reseeded === true
   }
   catch (error) {
-    logRealtime("warn", "Realtime could not refresh an open room.", fields, error)
+    logRealtime("warn", "Realtime could not refresh an open room.", fields, error, { privateRoom: true })
     return false
   }
 }
@@ -904,7 +904,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function publish(room: Room, type: RealtimeBusMessageType, data: Uint8Array): void {
     room.bus?.publish({ type, room: room.key, epoch: roomEpoch(room), data }).catch((error: unknown) => {
-      logRealtime("error", "Realtime could not send a room message to the other instances.", { ...roomFields(room), failed: "bus-publish" }, error)
+      logRealtime("error", "Realtime could not send a room message to the other instances.", { ...roomFields(room), failed: "bus-publish" }, error, { privateRoom: room.kind === "events" && !room.workspace })
     })
   }
 
@@ -969,7 +969,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const [definitionName, documentId]: unknown[] = Array.isArray(key) ? key : []
       if (typeof definitionName === "string" && typeof documentId === "string") {
         refreshOpenRoom(definitionName, documentId, false).catch((error: unknown) => {
-          logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definitionName, documentId), failed: "refresh" }, error)
+          logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definitionName, documentId), failed: "refresh" }, error, { privateRoom: true })
         })
       }
       return
@@ -1975,7 +1975,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         await (await sharedBus())?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() })
       }
       catch (error) {
-        logRealtime("warn", "Realtime could not ask the other instances to refresh a room.", { ...refreshLogFields(definitionName, documentId), failed: "bus-publish" }, error)
+        logRealtime("warn", "Realtime could not ask the other instances to refresh a room.", { ...refreshLogFields(definitionName, documentId), failed: "bus-publish" }, error, { privateRoom: true })
       }
     }
     const pending = rooms.get(key)
@@ -2111,16 +2111,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   }
 
   /** The definition and room of each request, as far as the request got. A refusal logs them. */
-  const requestFields = new WeakMap<H3Event, RealtimeLogFields>()
+  const requestFields = new WeakMap<H3Event, { fields: RealtimeLogFields, privateRoom: boolean }>()
 
   async function requestContext(event: H3Event) {
     const fields: RealtimeLogFields = {}
-    requestFields.set(event, fields)
+    const metadata = { fields, privateRoom: true }
+    requestFields.set(event, metadata)
     const { definitionName, documentId, searchParams, workspaceEvents } = await refusing("path", () => parseRoomPath(event.req.url))
     fields.definition = definitionName
     const definition = await refusing("definition", () => getDefinition(definitionName))
-    if (definition.document === false) redactRealtimePath(event)
-    fields.room = realtimeRoomLabel(documentId, definition.document === false)
+    metadata.privateRoom = definition.document === false
+    if (metadata.privateRoom) redactRealtimePath(event)
+    fields.room = realtimeRoomLabel(documentId, metadata.privateRoom)
     const resolved = definition.document === false ? undefined : await refusing("definition", () => resolveRealtimeDefinition(definition))
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
@@ -2137,20 +2139,20 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   function logRefusal(event: H3Event, error: unknown, upgrade: boolean): void {
     const mark = typeof error === "object" && error !== null ? refusals.get(error) : undefined
     const request = requestFields.get(event)
-    if (request?.room === undefined) redactRealtimePath(event)
+    if (request?.fields.room === undefined) redactRealtimePath(event)
     const httpError = upgrade
       ? error instanceof HTTPError ? error : undefined
       : HTTPError.isError(error) ? error : new HTTPError(error as Error)
     const data: unknown = httpError?.data
     const status = httpError?.status ?? 500
     const code = errorCode(data) ?? errorCode(mark?.cause ?? error)
-    const fields: RealtimeLogFields = { ...request, refused: mark?.reason ?? "error", status, ...code ? { code } : {} }
+    const fields: RealtimeLogFields = { ...request?.fields, refused: mark?.reason ?? "error", status, ...code ? { code } : {} }
     const log = requestLog(event)
     log?.set({ realtime: fields })
     if (!upgrade || status < 500) return
     log?.error("Realtime refused a connection.")
     // Also without evlog, or when evlog excludes this path: its request logger then never emits.
-    console.error("[vitehub] Realtime refused a connection.", fields, error)
+    console.error("[vitehub] Realtime refused a connection.", fields, ...request?.privateRoom === false ? [error] : [])
   }
 
   const httpHandler = defineEventHandler(async (event) => {

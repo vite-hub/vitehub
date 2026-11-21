@@ -120,6 +120,17 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     expect(JSON.stringify(log.fields)).not.toContain(token)
   })
 
+  it("does not print a presence room URL from an upgrade error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const token = "private-room-upgrade"
+    const response = await server({ document: false, authorize: ({ request }) => { throw new Error(`Could not authorize ${request.url}`) } })(token)
+
+    expect(response.status).toBe(500)
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith("[vitehub] Realtime refused a connection.", {
+      definition: "docs", room: expect.stringMatching(/^#[0-9a-f]{8}$/), refused: "authorize", status: 500,
+    })
+  })
+
   it("records the response status and diagnostic code for an unsynchronized save", async () => {
     const log = requestLogger()
     const client = new Y.Doc()
@@ -255,6 +266,17 @@ describe("Realtime log events: one per failure, and none lost", () => {
     expect(evlog.events.map(event => event.fields.realtime)).toEqual([
       { definition: "docs", room: expect.stringMatching(/^#[0-9a-f]{8}$/), failed: "refresh", status: 500 },
     ])
+  })
+
+  it("does not print an unverified room URL from a failed refresh fetch", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const fetch = vi.fn(async (request: Request) => { throw new Error(`Could not fetch ${request.url}`) })
+    const durableObjects = { idFromName: () => ({}), get: () => ({ fetch }) }
+
+    await expect(refreshRealtimeDocument("docs", "private-room-refresh", { durableObjects })).resolves.toBe(false)
+    expect(consoleWarn).toHaveBeenCalledExactlyOnceWith("[vitehub] Realtime could not refresh an open room.", {
+      definition: "docs", room: expect.stringMatching(/^#[0-9a-f]{8}$/), failed: "refresh",
+    })
   })
 
   it("does not log an unverified room ID in a failed refresh fan-out", async () => {

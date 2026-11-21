@@ -69,7 +69,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `status` | The HTTP status that the browser got. |
 | `code` | The diagnostic code of the cause, such as `AUTH_R0007` when the Auth origin check refused the request. |
 
-When `authorize()`, `identify()`, or the room throws during a connection, the wide event also gets the error, and the server prints it to the console. The fields do not include tokens, cookies, or user data.
+For a connection refusal with status 500 or higher, the wide event gets a fixed error message and Realtime also logs the refusal to the console. The console includes the original error only for a known document room. An error message for a presence room can include its token.
 
 Failures after the WebSocket opens have no request. Realtime logs each one as its own evlog event, `{ action: "realtime", message, realtime }`:
 
@@ -80,7 +80,7 @@ Failures after the WebSocket opens have no request. Realtime logs each one as it
 | `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
 | `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Refresh diagnostics hash the room id since the caller may not know the room kind. Level `warn`. |
 
-Realtime sends these events to evlog when the app installs evlog and registers its Nitro module. They also reach the app's `evlog:drain` hooks. Without evlog, or with evlog's `enabled: false`, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
+Realtime sends these events to evlog when the app installs evlog and registers its Nitro module. They also reach the app's `evlog:drain` hooks. Without evlog, or with evlog's `enabled: false`, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors. For presence room sends and refresh failures, the console gets the redacted room fields instead of the original error.
 
 ## Request errors
 
