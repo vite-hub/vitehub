@@ -90,7 +90,7 @@ The scope comes from configuration or a scope function that gets the Capability 
 
 ## Verify memory
 
-1. Run `vitehub agent dev --agent <name>`, ask the Agent to search its memory, and check for a `memory_search` step. `agent info` does not list memory tools, because they are added when the run starts.
+1. Run `vitehub agent dev --agent <name>`, ask the Agent to search its memory, and check for a `memory_search` step. `agent get` does not list memory tools, because they are added when the run starts.
 2. Check that `memory_remember` and `memory_delete` appear only with `write.mode: 'tool'`.
 3. For the JSONL store, call `memory_remember` and check the Workspace file for a line with the scope and provenance.
 

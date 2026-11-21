@@ -291,6 +291,10 @@ pnpm exec nitro deploy --prebuilt
 
 With deploy config generation on (the default), ViteHub writes the command to `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own. With `nitro.cloudflare.deployConfig: false`, ViteHub keeps Nitro's default command. With `database: { migrateOnDeploy: true }`, the command applies the pending D1 migrations before `wrangler deploy`, and stops when one fails. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
 
+::warning
+The Workers Builds default deploy command, `npx wrangler deploy`, skips the generated command. It applies no D1 migration and prints no warning, so new code can reach production before its tables and columns.
+::
+
 With config generation and Sandbox on, ViteHub writes an explicit gradual Container rollout to `.output/nitro.json`, so the Worker and its Container application deploy together.
 
 ::warning

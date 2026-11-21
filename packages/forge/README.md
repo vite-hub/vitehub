@@ -54,6 +54,8 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
 | `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
 
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
+
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 
 ## Build identity

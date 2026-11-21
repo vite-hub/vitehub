@@ -10,7 +10,7 @@ import type { CacheDeleteResult, CacheGetResult, CacheListResult } from "./entri
 // run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime.ts")
 
-function defineCacheOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<NonNullable<OperationDefinition<Input, Output>["cli"]>, "namespace"> }): OperationDefinition<Input, Output> {
+function defineCacheOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<Exclude<OperationDefinition<Input, Output>["cli"], false | undefined>, "namespace"> }): OperationDefinition<Input, Output> {
   // The cache answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, cli: { ...definition.cli, namespace: "cache" }, section: "cache", user: false })
 }

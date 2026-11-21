@@ -55,6 +55,8 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the [`f
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
 | `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
 
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
+
 ## Who reads the same names
 
 - `useForge()` and the GitHub Channel read the same App credentials. See [Forge access for Git and Drivers](/docs/agents/channels#forge-access-for-git-and-drivers).

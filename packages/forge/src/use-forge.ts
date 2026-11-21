@@ -167,6 +167,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
   }
   const baseField = fields[kind].baseUrl
   const baseUrl = options.baseUrl ?? (baseField ? readForgeEnv(baseField, env) : undefined)
+  const webhookSecret = kind === "gitea" ? readForgeEnv(forgeEnv.gitea.webhookSecret, env) : undefined
   const userAgent = options.userAgent ?? "vitehub"
 
   let credentials: Promise<GitHubAppCredentials> | undefined
@@ -240,6 +241,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
           ? { conditionalRequests: false }
           : minted.identity ? { conditionalRequests: { identity: minted.identity } } : {}),
         ...(baseUrl ? { baseUrl } : {}),
+        ...(webhookSecret ? { webhookSecret } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })
       if (call.signal?.aborted) throw abortError(call.signal)

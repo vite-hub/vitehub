@@ -16,6 +16,8 @@ export interface ForgeConnection {
   baseUrl?: string
   /** Omitted: anonymous public reads. */
   token?: string
+  /** Default secret for verifying Gitea webhook deliveries. */
+  webhookSecret?: string
   readOnly?: boolean
   fetch?: typeof fetch
   /** Default "vitehub". */
@@ -67,7 +69,8 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
     }
     case "gitea": {
       const { gitea } = await import("forges/gitea")
-      return gitea(options)
+      const { webhookSecret } = connection
+      return gitea({ ...options, ...(webhookSecret ? { webhookSecret } : {}) })
     }
   }
   throw forgeDiagnostics.FORGE_UNSUPPORTED()

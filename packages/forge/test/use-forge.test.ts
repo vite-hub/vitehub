@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync, verify } from "node:crypto"
+import { createHmac, createPublicKey, generateKeyPairSync, verify } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
@@ -325,6 +325,20 @@ describe("useForge() with a token", () => {
 
     expect(() => useForge({ forge: "gitea", env: {} }))
       .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The gitea Forge has no credentials. It reads VITEHUB_GITEA_TOKEN." }))
+  })
+
+  it.each([
+    { VITEHUB_GITEA_WEBHOOK_SECRET: "gitea-secret", FORGES_GITEA_WEBHOOK_SECRET: "fallback-secret" },
+    { FORGES_GITEA_WEBHOOK_SECRET: "gitea-secret" },
+  ])("verifies Gitea webhooks with env %o", async (env) => {
+    const [error, provider] = await useForge({ forge: "gitea", env: { VITEHUB_GITEA_TOKEN: "token", ...env } }).provider()
+    expect(error).toBeUndefined()
+
+    const body = JSON.stringify({ ref: "refs/heads/main" })
+    const signature = createHmac("sha256", "gitea-secret").update(body).digest("hex")
+    const headers = { "x-gitea-signature": signature }
+    expect(await provider!.webhooks.verify({ headers, body })).toBe(true)
+    expect(await provider!.webhooks.verify({ headers, body: "{}" })).toBe(false)
   })
 
   // `forges` sends no User-Agent of its own where `WorkerGlobalScope` exists, and GitHub refuses a request without one.

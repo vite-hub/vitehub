@@ -279,6 +279,7 @@ fi
     "typecheck",
     "ui-sdk",
     "service-tests",
+    "agent-codex-emulator",
     "docs",
     "docs-snippets",
     "docs-demo",

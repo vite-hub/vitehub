@@ -373,6 +373,19 @@ async function waitUntilTime(startAt: number | undefined): Promise<void> {
   }
 }
 
+/** The inline run state forgets a finished run after five minutes. `vite dev` keeps its run history longer. */
+function recordedDevRun(config: ResolvedWorkflowOptions, name: string, id: string): WorkflowRun<unknown, unknown> | undefined {
+  const record = getWorkflowDevRecorder()?.get(name, id)
+  if (record?.status !== "completed" && record?.status !== "failed") return
+  return {
+    ...(record.status === "failed" ? { error: toWorkflowRunError(record.error) } : {}),
+    id,
+    provider: config.driver,
+    result: isSerializedResponse(record.result) ? deserializeResponse(record.result) : record.result,
+    status: record.status,
+  }
+}
+
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
     cancel: () => unsupportedOperation(config.driver, "cancellation"),
@@ -394,6 +407,8 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           status: run.status,
         }
       }
+      const recorded = recordedDevRun(config, name, id)
+      if (recorded) return recorded
       return {
         id,
         provider: config.driver,
@@ -402,6 +417,15 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
     },
     async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload, startAt }: RunWorkflowAdapterContext<TPayload, TResult>) {
       const existing = getWorkflowRunState(name, id)
+      // A second start with the id of a run that the dev history still has returns that run, as `get` reports it.
+      const recorded = existing ? undefined : recordedDevRun(config, name, id)
+      if (recorded) {
+        // SAFETY: The recorded run belongs to this Workflow Definition, so it has its payload and result types.
+        return {
+          ...recorded,
+          metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+        } as WorkflowRun<TPayload, TResult>
+      }
       if (existing) {
         return {
           ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
