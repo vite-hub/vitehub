@@ -1,6 +1,7 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
 import { commentsRoleGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
@@ -127,6 +128,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
-    installViteHubPageTools(nitroApp, { base: options.base })
+    // A build shows the overlay only on the origins of `vitehub({ publicUrl })`. A development server shows it on every origin.
+    installViteHubPageTools(nitroApp, { base: options.base, origins: options.development === true ? [] : configuredPublicOrigins() })
   }
 }
