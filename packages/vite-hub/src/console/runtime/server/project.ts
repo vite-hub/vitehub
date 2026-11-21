@@ -40,6 +40,8 @@ export interface ConsoleProject {
   vitehub: string
   /** The production build that serves this answer. */
   build?: ConsoleProjectBuild
+  /** The Comments of the app, when the caller may open the Comments section. */
+  comments?: { open: number }
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -69,5 +71,22 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
+  const comments = sections.includes("comments") ? await countOpenComments() : undefined
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
+}
+
+/**
+ * The open threads of the Comments section, from the same reader as its table, so the Console Home shows the count
+ * without one more request per app. A reader that fails gives no count, and the answer still describes the project.
+ */
+async function countOpenComments(): Promise<{ open: number } | undefined> {
+  const reader = consoleState().definitions?.readers?.comments
+  if (!reader) return undefined
+  try {
+    const records = await reader()
+    return { open: records.filter(record => record.cells.status === "Open").length }
+  }
+  catch {
+    return undefined
+  }
 }

@@ -90,6 +90,11 @@ function save(next: CommentThread): ConsoleRpcResult {
 }
 
 /** Answers one `comments.*` operation, or `undefined` for another operation. */
+/** The open threads, as `project.get` counts them for the Overview and the Apps table. */
+export function openCommentsFixture(): number {
+  return threads.filter(thread => thread.status === "open").length
+}
+
 export function callCommentsFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   if (!operation.startsWith("comments.")) return undefined
   const now = Date.now()
