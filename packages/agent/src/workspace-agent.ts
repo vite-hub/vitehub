@@ -735,7 +735,7 @@ function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
-  if (driver.kind === "model" || driver.kind === "ask") return noExecutionAuthority
+  if (driver.kind === "model" || driver.kind === "ask" || driver.kind === "external") return noExecutionAuthority
   if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
@@ -990,6 +990,7 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
@@ -1036,6 +1037,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 

@@ -190,6 +190,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/emulate-models": {
+      "types": "./dist/test/emulate-models.d.ts",
+      "import": "./dist/test/emulate-models.js",
+      "default": "./dist/test/emulate-models.js"
+    },
     "./ui": {
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
@@ -256,6 +261,7 @@
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
     "@emulators/ai": "0.14.0",
+    "@emulators/core": "0.14.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -301,6 +307,8 @@
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
+    "@emulators/ai": "0.14.0",
+    "@emulators/core": "0.14.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -337,6 +345,12 @@
       "optional": true
     },
     "@chat-adapter/teams": {
+      "optional": true
+    },
+    "@emulators/ai": {
+      "optional": true
+    },
+    "@emulators/core": {
       "optional": true
     },
     "@vercel/functions": {

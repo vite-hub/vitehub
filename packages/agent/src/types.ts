@@ -1362,7 +1362,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "ask" | "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "external" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -2184,6 +2184,23 @@ export interface AgentAskDriver<
   workDir?: never
 }
 
+/**
+ * The options of an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner:
+ * `defineAgent({ driver: "external" })`. The Agent has a description, a Workspace, and a journal for the sessions that
+ * you import with `importAgentSession()`, but ViteHub never runs it: `runAgent()`, `streamAgent()`, and
+ * `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN`.
+ */
+export interface ExternalAgentOptions {
+  description?: string
+  driver: "external"
+  invocations?: AgentInvocationsSetting
+  name?: string
+  /** An external Agent has no runtime. */
+  runtime?: false
+  version?: string
+  workspace?: WorkspaceAgentWorkspaceConfig
+}
+
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2473,10 +2490,36 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
+/**
+ * The `ai` seed of the AI emulator. The emulator validates it when `vite dev` starts, and a seed that it rejects fails
+ * with `AGENT_EMULATOR_RULES_INVALID`. This type does not import the optional `@emulators/ai` package, so the config
+ * types work without it. `EmulatedModelSeed` from `@vite-hub/agent/test/emulate-models` is the full upstream type.
+ */
+export interface AgentModelsEmulateSeed {
+  /** Scripted rules. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. */
+  rules?: readonly object[]
+  /** When `true`, a request that no rule matches fails with the missing rule. */
+  strict?: boolean
+  timing?: object
+  random?: { seed?: number }
+  models?: readonly string[]
+}
+
+export interface AgentModelsOptions {
+  /**
+   * In `vite dev`, start the AI emulator (`@emulators/ai`) on a free loopback port and run every model Driver Agent on
+   * it with no AI key. `true` uses the default answers; a seed object sets the rules.
+   * The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` in `vite dev` only. A build does not start the
+   * emulator. It needs the optional packages `@emulators/core` and `@emulators/ai`.
+   */
+  emulate?: boolean | AgentModelsEmulateSeed
+}
+
 export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
+  models?: AgentModelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions

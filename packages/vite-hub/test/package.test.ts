@@ -377,6 +377,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-app-types.d.ts`, "utf8")).toContain(
+      "export = CloudflareWorkersModule",
+    );
     expect(readFileSync(`${packageRoot}/dist/cloudflare-workers.d.ts`, "utf8")).toContain(
       'declare module "cloudflare:workers"',
     );
@@ -784,7 +787,7 @@ describe("framework package contract", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

@@ -54,6 +54,8 @@ export interface ViteHubResourceSummary {
   owner: string
   /** Absent when no id is known yet. */
   source?: ViteHubResourceIdSource
+  /** The resource is in the Wrangler config of a standalone Provider Output Worker, not in Nitro's. */
+  standalone?: boolean
 }
 
 export interface ViteHubInspectionContributor {

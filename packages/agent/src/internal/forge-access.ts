@@ -1,7 +1,7 @@
 import { abortable } from "@vite-hub/internal/abort"
 import { forgeEnv } from "@vite-hub/internal/forge"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
-import type { ForgeKind } from "@vite-hub/forge"
+import type { ForgeKind } from "./forge-kind.ts"
 import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import * as v from "valibot"
