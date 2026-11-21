@@ -1673,10 +1673,6 @@ export class PullRequestInbox {
     await this.transaction(async tx => {
       signal?.throwIfAborted()
       const meta = this.tables.meta, evidenceKeys = `key>='${ciEvidencePrefix}' AND key<'ci-evidence:v1;'`
-      const expiredAt = `key>='${ciEvidenceAtPrefix}' AND key<'ci-evidence-at:v1;' AND CAST(value AS REAL)<?`
-      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND key IN (SELECT '${ciEvidencePrefix}' || substr(key, ${ciEvidenceAtPrefix.length + 1})
-        FROM ${meta} WHERE scope=? AND ${expiredAt})`, [this.scope, this.scope, now - payloadMs])
-      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND ${expiredAt}`, [this.scope, now - payloadMs])
       // Entries written before fetch-time rows existed are read once here to add their row; the rest have no fetch time.
       const unindexed = `scope=? AND ${evidenceKeys} AND NOT EXISTS (SELECT 1 FROM ${meta} WHERE scope=evidence.scope
         AND key='${ciEvidenceAtPrefix}' || substr(evidence.key, ${ciEvidencePrefix.length + 1}))`
@@ -1684,6 +1680,10 @@ export class PullRequestInbox {
         json_extract(value, '$.fetchedAt') FROM ${meta} AS evidence WHERE ${unindexed} AND json_valid(value) AND json_type(value)='object'
         AND json_type(value, '$.fetchedAt') IN ('integer', 'real')`, [this.scope])
       await tx.execute(`DELETE FROM ${meta} AS evidence WHERE ${unindexed}`, [this.scope])
+      const expiredAt = `key>='${ciEvidenceAtPrefix}' AND key<'ci-evidence-at:v1;' AND CAST(value AS REAL)<?`
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND key IN (SELECT '${ciEvidencePrefix}' || substr(key, ${ciEvidenceAtPrefix.length + 1})
+        FROM ${meta} WHERE scope=? AND ${expiredAt})`, [this.scope, this.scope, now - payloadMs])
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND ${expiredAt}`, [this.scope, now - payloadMs])
       signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       signal?.throwIfAborted()

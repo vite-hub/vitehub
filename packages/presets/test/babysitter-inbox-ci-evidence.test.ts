@@ -158,13 +158,17 @@ it('prunes expired CI logs and metadata while retaining recent logs and unrelate
  assert.deepEqual(await inbox.meta('review-assessment:keep'), { head: 'head' })
 })
 
-it('adds fetch-time rows to fresh CI evidence written before they existed', async () => {
+it('backfills fresh legacy CI evidence and deletes expired legacy evidence on the first prune', async () => {
  const { inbox } = await fixture(); const fetchedAt = Date.now()
  await inbox.setMeta('ci-evidence:v1:job-log:upgraded', { fetchedAt, value: { log: 'kept' } })
  await inbox.deleteMeta('ci-evidence-at:v1:job-log:upgraded')
+ await inbox.setMeta('ci-evidence:v1:job-log:expired', { fetchedAt: 1, value: { log: 'expired' } })
+ await inbox.deleteMeta('ci-evidence-at:v1:job-log:expired')
  await inbox.pruneDeliveries()
  assert.deepEqual(await inbox.meta('ci-evidence:v1:job-log:upgraded'), { fetchedAt, value: { log: 'kept' } })
  assert.equal(await inbox.meta('ci-evidence-at:v1:job-log:upgraded'), fetchedAt)
+ assert.equal(await inbox.meta('ci-evidence:v1:job-log:expired'), undefined)
+ assert.equal(await inbox.meta('ci-evidence-at:v1:job-log:expired'), undefined)
 })
 
 it('keeps the diagnostic anchor before oversized trailing context', () => {
