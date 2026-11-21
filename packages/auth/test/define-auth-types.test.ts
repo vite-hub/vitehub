@@ -48,27 +48,46 @@ it("names the wrong secondary storage member in a Definition callback", { timeou
   expect(errors[0]).toContain("is missing the following properties from type 'SecondaryStorage': getAndDelete, increment")
 })
 
+it("keeps contextual inference for an inline Definition callback", { timeout: 60_000 }, () => {
+  const errors = typeErrors(`
+    import { defineAuth, type AuthDefinition, type AuthDefinitionResolver } from "../src/index.ts"
+
+    type Options = { database: "memory"; trustedOrigins: Array<\`https://\${string}\`> }
+    export default defineAuth(() => ({
+      database: "memory",
+      trustedOrigins: Array.of("https://app.example"),
+    })) satisfies AuthDefinition<AuthDefinitionResolver<Options>>
+  `)
+  expect(errors).toEqual([])
+})
+
 // A composite project writes declarations, so TypeScript must write the type of the default export.
 const declarations = { declaration: true, emitDeclarationOnly: true }
 const compositeDefinition = (exported: string) => `
   import { apiKey } from "@better-auth/api-key"
-  import { defineAuth, type AuthDefinition, type AuthDefinitionResolver, type AuthFor } from "../src/index.ts"
+  import { defineAuth, type AuthFor } from "../src/index.ts"
+  import { authDatabase } from "../src/database.ts"
+
+  type Options = {
+    database: ReturnType<typeof authDatabase>
+    plugins: [ReturnType<typeof apiKey>]
+  }
 
   ${exported}
-    plugins: [apiKey({ enableSessionForAPIKeys: true })],
-    secret: "define-auth-types-secret-abcdefghijklmnopqrstuvwxyz",
-    trustedOrigins: [requestOrigin],
+    baseURL: requestOrigin,
+    database: authDatabase(),
+    plugins: [apiKey()],
   }))
 `
 
-it("exports a Definition with a Better Auth plugin from a composite project through an annotated const", { timeout: 120_000 }, () => {
+it("exports a Definition with a Better Auth plugin from a composite project with explicit options", { timeout: 120_000 }, () => {
   // TypeScript cannot write the inferred type of a Definition with `apiKey()`: it is too long (TS7056), or it names
   // types that Better Auth does not export.
   const inferred = typeErrors(compositeDefinition("export default defineAuth(({ requestOrigin }) => ({"), declarations)
   expect(inferred.length).toBeGreaterThan(0)
   for (const error of inferred) expect(error).toMatch(/type annotation is (?:needed|necessary)/)
 
-  const errors = typeErrors(`${compositeDefinition("const auth: AuthDefinition<AuthDefinitionResolver<{ plugins: [ReturnType<typeof apiKey>] }>> = defineAuth(({ requestOrigin }) => ({")}
+  const errors = typeErrors(`${compositeDefinition("const auth = defineAuth<Options>(({ requestOrigin }) => ({")}
     export default auth
     // The annotation keeps the endpoints of the plugin.
     export type CreateApiKey = AuthFor<typeof auth>["api"]["createApiKey"]

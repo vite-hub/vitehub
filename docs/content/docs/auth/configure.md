@@ -54,14 +54,21 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 
 ### Type the Definition in a composite project
 
-A `tsconfig.json` with `composite: true`, such as the `tsconfig.node.json` of a Vite app, writes declarations. TypeScript cannot write the inferred type of a Definition with some Better Auth plugins, such as `apiKey()`, and fails with `TS7056`. Put the Definition in a `const`, give it a type that names the plugins, and export the `const`:
+A `tsconfig.json` with `composite: true`, such as the `tsconfig.node.json` of a Vite app, writes declarations. TypeScript cannot write the inferred type of a Definition with some Better Auth plugins, such as `apiKey()`, and fails with `TS7056`. Pass an explicit options type to `defineAuth()` and default-export the Definition:
 
 ```ts [server/auth.ts] fragment
 import { apiKey } from '@better-auth/api-key'
-import { defineAuth, type AuthDefinition, type AuthDefinitionResolver } from 'vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
-const auth: AuthDefinition<AuthDefinitionResolver<{ plugins: [ReturnType<typeof apiKey>] }>> = defineAuth(({ requestOrigin }) => ({
+type Options = {
+  database: ReturnType<typeof authDatabase>
+  plugins: [ReturnType<typeof apiKey>]
+}
+
+const auth = defineAuth<Options>(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [apiKey()],
 }))
 
