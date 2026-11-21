@@ -9,6 +9,7 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
 import type { Workspace, WorkspaceDefinition, WorkspaceDiff, WorkspaceDiffEntry, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryDiffOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
+import type { WorkspaceHistoryDeleteRefOptions } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -122,6 +123,20 @@ export function normalizeHistoryRef(ref: unknown): string {
     throw workspaceErrorDiagnostics.WORKSPACE_R0071({ message: `[vitehub] Invalid history ref${typeof ref === "string" ? ` ${JSON.stringify(ref.slice(0, 128))}` : ""}. Use up to 128 letters, numbers, underscores, and dashes, separated by single dots or slashes.` })
   }
   return ref
+}
+
+/** `history.deleteRef()` of a Workspace facade. A Store without it throws `WORKSPACE_R0069`. */
+export async function deleteWorkspaceHistoryRef(history: WorkspaceRetainedHistory | undefined, options: WorkspaceHistoryDeleteRefOptions): Promise<boolean> {
+  if (!history?.deleteRef) throw workspaceErrorDiagnostics.WORKSPACE_R0069({ message: "[vitehub] This Workspace Store cannot delete history refs. Use the Blob + Database Store or the GitHub Store." })
+  return await history.deleteRef(options)
+}
+
+/** Check the options of `history.deleteRef()`. The default ref stays, because the working tree follows it. */
+export function readHistoryDeleteRef(options: WorkspaceHistoryDeleteRefOptions): WorkspaceHistoryDeleteRefOptions {
+  const ref = normalizeHistoryRef(options?.ref)
+  if (ref === defaultWorkspaceHistoryRef) throw workspaceErrorDiagnostics.WORKSPACE_DEFAULT_REF_DELETE()
+  if (options.ifHead !== undefined && (typeof options.ifHead !== "string" || !options.ifHead)) throw workspaceError("[vitehub] history.deleteRef() requires ifHead to be a revision id.")
+  return options.ifHead === undefined ? { ref } : { ref, ifHead: options.ifHead }
 }
 
 export function normalizeHistoryPath(path: string): string {
@@ -321,6 +336,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
       })
     } } : {}),
     ...(store.history?.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => await store.history!.openPullRequest!(options) } : {}),
+    ...(store.history?.deleteRef ? { deleteRef: async (options: WorkspaceHistoryDeleteRefOptions) => await store.history!.deleteRef!(readHistoryDeleteRef(options)) } : {}),
     head: async options => await history().head(options),
     list: async options => await history().list(options),
     refs: async () => await history().refs(),

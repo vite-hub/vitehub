@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { defineChannel, sendChannelTrigger, stripe, webhook } from "@vite-hub/channels"
+import { defineChannel, sendChannelTrigger } from "@vite-hub/channels"
+import { stripe, webhook } from "@vite-hub/channels/adapters"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"

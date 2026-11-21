@@ -18,10 +18,10 @@ type PublicConfig = { vitehubAuth?: false | { basePath?: string, signInPage?: st
 const mocks = vi.hoisted(() => ({
   config: {} as { app?: { baseURL: string }, public?: PublicConfig },
   state: { value: undefined as unknown },
-  event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
+  event: {} as { url: URL, req: { headers: Headers }, res: { headers: Headers } },
   payload: {} as { prerenderedAt?: number },
   app: {} as App,
-  requestFetch: vi.fn(),
+  requestFetch: vi.fn<(request: Request) => Promise<Response>>(),
   createError: vi.fn(() => new Error("nuxt")),
   getSession: vi.fn(),
   useSession: vi.fn(),
@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
   middleware: undefined as Middleware | undefined,
 }))
 
+vi.mock("nitro", () => ({ serverFetch: mocks.requestFetch }))
+
 vi.mock("#app", () => ({
   createError: mocks.createError,
   defineNuxtPlugin: (plugin: unknown) => plugin,
@@ -42,7 +44,6 @@ vi.mock("#app", () => ({
   showError: mocks.showError,
   tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
-  useRequestFetch: () => mocks.requestFetch,
   useRouter: () => ({ currentRoute: mocks.currentRoute }),
   useRuntimeConfig: () => mocks.config,
   useState: () => mocks.state,
@@ -88,6 +89,8 @@ let useAbility: typeof import("../src/vue.ts").useAbility
 let useUserSession: typeof import("../src/vue.ts").useUserSession
 const roots: string[] = []
 const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00:00:00.000Z" }, user: { id: "u" } }
+const answer = (body: unknown) => async () => Response.json(body)
+const sentPaths = () => mocks.requestFetch.mock.calls.map(([request]) => new URL(request.url).pathname)
 
 beforeEach(async () => {
   vi.resetModules()
@@ -96,7 +99,12 @@ beforeEach(async () => {
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/" } } }
   mocks.state = { value: undefined }
-  mocks.event = { req: { headers: new Headers({ cookie: "vitehub_session=1" }) }, res: { headers: new Headers() } }
+  mocks.requestFetch.mockImplementation(answer(null))
+  mocks.event = {
+    url: new URL("https://app.example.com/private"),
+    req: { headers: new Headers({ cookie: "vitehub_session=1" }) },
+    res: { headers: new Headers() },
+  }
   mocks.payload = {}
   mocks.app = { runWithContext: run => run(), payload: mocks.payload }
   mocks.middleware = undefined
@@ -153,16 +161,15 @@ describe("Nuxt session and page guard", () => {
     ["/app/auth", "/app/", "/app/auth"],
   ])("allows an authenticated SSR page with Auth %s below %s", async (basePath, appBaseURL, mountedPath) => {
     await configure(basePath, appBaseURL)
-    mocks.requestFetch.mockImplementation(async (path: string, options: { onResponse: (input: { response: Response }) => void }) => {
-      if (path !== `${mountedPath}/get-session`) throw new Error("404")
-      options.onResponse({ response: new Response(null, { headers: { "set-cookie": "refreshed=1; HttpOnly" } }) })
-      return session
+    mocks.requestFetch.mockImplementation(async (request) => {
+      if (new URL(request.url).pathname !== `${mountedPath}/get-session`) return new Response(null, { status: 404 })
+      return Response.json(session, { headers: { "set-cookie": "refreshed=1; HttpOnly" } })
     })
 
     await plugin.setup({ payload: mocks.payload })
 
     expect(await mocks.middleware?.(userPage)).toBeUndefined()
-    expect(mocks.requestFetch).toHaveBeenCalledWith(`${mountedPath}/get-session`, expect.anything())
+    expect(sentPaths()).toEqual([`${mountedPath}/get-session`])
     expect(mocks.navigateTo).not.toHaveBeenCalled()
     expect(mocks.state.value).toEqual({ session: { id: "s", expiresAt: new Date(session.session.expiresAt) }, user: session.user })
     expect(mocks.event.res.headers.getSetCookie()).toEqual(["refreshed=1; HttpOnly"])
@@ -214,7 +221,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("reads the session once for an SSR page with a page guard and session composables", async () => {
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup(mocks.app)
 
     expect(await mocks.middleware?.(userPage)).toBeUndefined()
@@ -224,7 +231,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("reads the session once for SSR components without a page guard, and renders the user", async () => {
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup(mocks.app)
 
     expect(await renderPage(2)).toBe("<main><span>u</span><span>u</span></main>")
@@ -234,7 +241,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("reads the session once for SSR <Can> components, and renders what the rule allows", async () => {
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup(mocks.app)
     const can = (authorId: string) => h(Can as never, { do: "posts.edit", with: { authorId, published: false } }, {
       default: () => h("button", "Edit"),
@@ -248,7 +255,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("settles the session for an SSR component whose async setup waits until the session is ready", async () => {
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup(mocks.app)
     const User = defineComponent(async () => {
       const { ready, user, loggedIn } = useUserSession()
@@ -265,7 +272,7 @@ describe("Nuxt session and page guard", () => {
   })
 
   it("keeps the session read of each SSR request apart", async () => {
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     const first = { app: { ...mocks.app }, state: { value: undefined as unknown } }
     const second = { app: { ...mocks.app }, state: { value: undefined as unknown } }
     await plugin.setup(first.app)
@@ -437,7 +444,7 @@ describe("signOut() in Nuxt", () => {
 describe("the page guard with access.signIn and access.afterSignIn of server/auth.ts", () => {
   it("opens the sign-in page, and sends a signed-in user from a guest page to afterSignIn", async () => {
     await configure(undefined, "/", { signIn: "/sign-in", afterSignIn: "/dashboard" })
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     await plugin.setup({ payload: mocks.payload })
 
     expect(await mocks.middleware?.({ fullPath: "/login", meta: { auth: "guest" } })).toBe("/dashboard")
@@ -499,16 +506,16 @@ describe("Nuxt default client", () => {
     expect(mocks.createAuthClient.mock.calls).toEqual([[{ basePath: "/preview/auth", plugins: [{ id: "admin-client" }] }]])
   })
 
-  it("reads the session on the server at the Nitro route, without the runtime app.baseURL that Nuxt's $fetch adds", async () => {
+  it("reads the session on the server at the Nitro route, without the runtime app.baseURL", async () => {
     await configure("/auth", "/app/")
     mocks.config.app = { baseURL: "/preview/" }
-    mocks.requestFetch.mockResolvedValue(session)
+    mocks.requestFetch.mockImplementation(answer(session))
     const fresh = await loadFreshModules()
     await fresh.plugin.setup({ payload: mocks.payload })
     // The page guard reads the session the first time that it needs it.
     expect(await mocks.middleware?.(userPage)).toBeUndefined()
 
     // Nitro compiles its routes below the base path of the build. With `/preview/`, the read would render a page.
-    expect(mocks.requestFetch).toHaveBeenCalledWith("/app/auth/get-session", expect.objectContaining({ baseURL: "/" }))
+    expect(sentPaths()).toEqual(["/app/auth/get-session"])
   })
 })

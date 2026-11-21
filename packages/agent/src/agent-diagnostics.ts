@@ -2275,7 +2275,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent get --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get support --url http://localhost:3000.",
     },
     AGENT_R0499: {
       ...dynamicError,
@@ -2283,7 +2283,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent get --agent <name>.",
+      fix: "Remove the extra argument. Pass one Agent name: vitehub agent get <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -4360,11 +4360,11 @@ const agentDiagnosticHandles = defineDiagnostics({
         option: `Unknown option ${value}.`,
         value: `${value} requires a value.`,
       })[problem],
-      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub agent conversations export <agent> <channel> <thread>`, and only the options that `vitehub agent conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
     },
     AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
       why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
-      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub agent conversations export`.",
     },
     AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
       why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
@@ -5024,6 +5024,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_GITHUB_PULL_REQUEST_TRIGGER_DISABLED: {
       why: ({ trigger }: { trigger: string }) => `[vitehub] The github() Channel has the pull request trigger "${trigger}", but \`pullRequest\` is not set, so the Channel does not read pull request events.`,
       fix: "Set `pullRequest` on the github() Channel, such as `pullRequest: { reply: false }`, or remove the trigger.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] sendChannelTrigger() for the GitHub pull request trigger "${trigger}" needs \`{ pullRequest: { repository: "owner/repo", number } }\`, with an optional string \`id\` and \`body\`.`,
+      fix: "Pass `{ pullRequest: { repository: \"owner/repo\", number: 42 } }`. Set `id` to a non-empty string to send the run once, and `body` to the request text.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] A queued sendChannelTrigger() run of the GitHub pull request trigger "${trigger}" has no stored command or pull request. A deploy can change the stored input while the run waits.`,
+      fix: "Call sendChannelTrigger() again. Before you deploy a change to the trigger, let queued server sends finish.",
     },
     AGENT_GMAIL_AGENT_AMBIGUOUS: {
       why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,

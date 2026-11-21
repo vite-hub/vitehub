@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 
-import { github } from "@vite-hub/source"
+import { files, github } from "@vite-hub/source"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
@@ -545,6 +545,30 @@ describe("docs Nuxt setup", () => {
     await expect(compiled[0]!()).rejects.toThrow(/_vitehub, which has no page or file/)
   })
 
+  it("warns but keeps standalone Source pages when none are under the default base", async () => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ sources: [{ source: app.dir, mount: "/legal" }] })
+    expect(options.runtimeConfig.public.docs.base).toBe("/docs")
+    expect(manifestTemplate()).toMatchObject({ sections: [], pages: [{ path: "/legal/privacy" }] })
+    const nitro = { prerender: { routes: [] as string[] } }
+    await callHook("nitro:config", nitro)
+    expect(nitro.prerender.routes).toContain("/legal/privacy")
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/DOCS_BASE_EMPTY[\s\S]*\/legal\/privacy[\s\S]*base: '\/'/))
+  })
+
+  it.each([
+    { base: "/docs", mount: "/legal" },
+    { base: "/", mount: "/legal" },
+    { base: undefined, mount: "/docs" },
+  ])("does not warn for sources at $mount with base $base", async ({ base, mount }) => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ base, sources: [{ source: app.dir, mount }] })
+    expect(options.runtimeConfig.public.docs.base).toBe(base ?? "/docs")
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("DOCS_BASE_EMPTY"))
+  })
+
   it("reads source files in development through Vite, writes raw copies from the right directory and loads configured components", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
     roots.push(dir);
@@ -637,6 +661,19 @@ describe("docs Nuxt setup", () => {
     expect(existsSync(join(options.buildDir, "docs/raw"))).toBe(false);
     // A Source has no folder to watch.
     expect(watchContent).not.toHaveBeenCalled();
+  });
+
+  it("reads a page that a files() Source generates while Nuxt generates the templates of a build", async () => {
+    const options = await setupDocs({
+      base: "/",
+      sources: [{ source: files({ "catalog.md": () => "---\ntitle: All skills\n---\n:icon{name=\"i-lucide-library\"} Every skill" }), mount: "/skills" }],
+    });
+    expect(findDocsPage(manifestTemplate() as never, "/skills/catalog")?.page).toMatchObject({ title: "All skills" });
+    // `nuxi build` empties the build folder after the modules load, and generates the templates before `build:before`.
+    rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
+    const icons = new Set<string>();
+    await callHook("icon:clientBundleIcons", icons);
+    expect(icons).toContain("lucide:library");
   });
 
   it("packs the pages and rewritten agent copies of a build into one module instead of a server asset per file", async () => {

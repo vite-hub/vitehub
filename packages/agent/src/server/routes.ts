@@ -2087,6 +2087,9 @@ async function executeQueuedWebhookDelivery(
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
+        // A GitHub pull request trigger sent from server code tracks its run in `prepare`. Releasing any other signal
+        // does nothing.
+        reconcileSignal ??= prepared.input.abortSignal
         if (prepared.agent) executionAgent = prepared.agent
       }
     }
@@ -3361,6 +3364,16 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   if (typeof leaseState.mutateWithLock === "function") {
     Object.assign(scoped, {
       mutateWithLock: (held: Lock, mutations: readonly AgentStateCacheMutation[]) => leaseState.mutateWithLock!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) }))),
+      ...(typeof leaseState.acquireLockWith === "function" ? {
+        acquireLockWith: async (threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) => {
+          const result = await leaseState.acquireLockWith!.call(state, key(threadId), ttlMs, mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key))
+          return { ...result, lock: result.lock ? { ...result.lock, threadId } : null }
+        },
+      } : {}),
+      ...(typeof leaseState.releaseLockWith === "function" ? {
+        releaseLockWith: (held: Lock, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) =>
+          leaseState.releaseLockWith!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key)),
+      } : {}),
       ...(typeof leaseState.forCacheLocks === "function" ? {
         forCacheLocks: () => requireAtomicAgentStateLock(withChatStateScope(leaseState.forCacheLocks!.call(state), channelPrefix, agentPrefix)),
       } : {}),

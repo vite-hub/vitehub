@@ -86,10 +86,14 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
   return {
     ...actual,
-    resolveWorkspaceAutoCommit,
     useWorkspace,
   }
 })
+
+vi.mock("@vite-hub/workspace/internal/workspace", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace/internal/workspace")>(),
+  resolveWorkspaceAutoCommit,
+}))
 
 function responseChunkText(chunk: unknown) {
   if (typeof chunk === "string") return chunk

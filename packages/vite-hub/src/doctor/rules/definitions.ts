@@ -481,13 +481,13 @@ export const validChannel: DoctorRule = createRule({
         const fail = (target: unknown, why: string, fix: string) => ctx.report(diagnostics.VHUB0023({ why, fix }), { range: ctx.range(target) })
         const adapter = unwrap(objectValue(definition, "adapter"))
         if (!adapter) {
-          fail(definition, "`defineChannel()` has no `adapter`. It throws `CHANNELS_C0007` when it loads, and `send()` returns that error.", "Add an adapter, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`.")
+          fail(definition, "`defineChannel()` has no `adapter`. It throws `CHANNELS_C0007` when it loads, and `send()` returns that error.", "Add an adapter, such as `stripe()`, `webhook()`, or `slack()` from `vite-hub/channels/adapters`, or `{ kind, send }`.")
           return
         }
         if (isNodeType(adapter, "ObjectExpression") && !objectValue(adapter, "kind") && !objectProperties(adapter).some(property => property.type === "SpreadElement")) {
           fail(adapter, "The adapter has no `kind`. `defineChannel()` throws `CHANNELS_C0007` when it loads.", "Add `kind`, the name of the platform, such as `kind: 'alerts'`.")
         }
-        const chatAdapter = isNodeType(adapter, "CallExpression") && chatAdapterNames.some(name => isExport(r.callee(adapter), ["agent/channels"], name))
+        const chatAdapter = isNodeType(adapter, "CallExpression") && chatAdapterNames.some(name => isExport(r.callee(adapter), ["channels/adapters", "agent/channels"], name))
         if (!chatAdapter && !isNodeType(adapter, "ObjectExpression")) return
         const on = unwrap(objectValue(definition, "on"))
         if (!isNodeType(on, "ObjectExpression")) return

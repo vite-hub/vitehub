@@ -1293,10 +1293,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const evalFiles = discoverAgentEvalFiles(evalRoots)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
-      description: "Inspect a discovered Agent through a running Vite Development Server.",
+      description: "Inspect a discovered Agent through the Dev Loop or the app's Console.",
       name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent get [--agent <name>] [--json]",
+      usage: "vitehub agent get [name] [--url <app>] [--dev] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
@@ -1305,10 +1305,16 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
     {
+      description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
+      name: "conversations",
+      run: async (args, context) => await runAgentConversationsCli(args, context),
+      usage: conversationsExportUsage,
+    },
+    {
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [--url <url>] [--json]",
     },
     {
       description: "Move Chat State keys that an explicit `messages.state` wrote without a scope to their Channel scope.",
@@ -1343,7 +1349,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         description: "External Channel registration workflows.",
         features: [
           {
-            description: "Download one deployed Channel conversation and its attachments. `conversations export --format json --output <directory>` writes the same archive.",
+            description: "Download one deployed Channel conversation and its attachments. `agent conversations export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               envDir: options?.envDir,
@@ -1369,20 +1375,18 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         ],
         name: "channels",
       },
-      {
-        description: "Export Channel conversations.",
-        features: [
-          {
-            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
-            name: "export",
-            run: async (args, context) => await runConversationsExportCli(args, context),
-            usage: conversationsExportUsage,
-          },
-        ],
-        name: "conversations",
-      },
     ],
   }
+}
+
+/** `vitehub agent conversations export`: the one command of the `conversations` group. */
+async function runAgentConversationsCli(args: string[], context: Parameters<typeof runConversationsExportCli>[1]): Promise<number> {
+  const [command, ...rest] = args
+  if (command === "export") return await runConversationsExportCli(rest, context)
+  const stream = command === undefined || command === "-h" || command === "--help" ? context.stdout : context.stderr
+  if (command !== undefined && stream === context.stderr) stream.write(`Unknown command: vitehub agent conversations ${command}.\n`)
+  stream.write(`Usage: ${conversationsExportUsage}\n`)
+  return stream === context.stdout ? 0 : 1
 }
 
 export { runAgentInfoCli, runAgentInvocationsCli }

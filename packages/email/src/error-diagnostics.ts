@@ -109,6 +109,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ path }: { path: string }) => `The Email option ${path} uses \`env.provider()\`, and Email resolves its options synchronously.`,
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
+    EMAIL_TEMPLATE_SYNTAX_INVALID: {
+      why: ({ file }: { file: string }) => `The Email template ${file} cannot render with any \`data\`.`,
+      fix: "Read `error.cause` for the binding or block to change, and fix the template file. A template reads each value as `{{ data.<name> }}`, outside inline code and code blocks.",
+    },
     EMAIL_UNKNOWN_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
         ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`

@@ -147,6 +147,16 @@ describe("Agent forge access", () => {
     }
   })
 
+  it("commits as the identity that the github() Channel App resolves", async () => {
+    const identity = { login: "quiver-bot[bot]", email: "294442779+quiver-bot[bot]@users.noreply.github.com" }
+    const resolveIdentity = vi.fn(async () => ({ ...identity, appId: 294442778 }))
+    const channel = github({ app: { token: tokenSource(), identity: resolveIdentity } })
+    // SAFETY: the test token source does not read the callback context.
+    const env = await forgeGitEnvironment(runtime() as AgentCallbackContext, { [forgeAccessKey]: readForgeAccess(channel) }, { repository: "acme/app" })
+    expect(env).toMatchObject({ GIT_AUTHOR_NAME: identity.login, GIT_AUTHOR_EMAIL: identity.email, GIT_COMMITTER_NAME: identity.login, GIT_COMMITTER_EMAIL: identity.email })
+    expect(resolveIdentity).toHaveBeenCalled()
+  })
+
   it("sets no commit identity when the github() Channel App has none", async () => {
     const channel = github({ app: { token: tokenSource() } })
     // SAFETY: the test token source does not read the callback context.
