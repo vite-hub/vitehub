@@ -1,6 +1,6 @@
 import { defineComponent, h, type PropType, ref, watch } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
-import { useStepModel, type WorkspaceStep } from "./workspace-steps.ts";
+import { keepFocus, useStepModel, type WorkspaceStep } from "./workspace-steps.ts";
 
 /**
  * The guide of a lesson: the step's position and title, the page's text in the default slot, and Back and Next at the
@@ -24,6 +24,15 @@ export const WorkspaceGuide = defineComponent({
     const { current, go } = useStepModel(props, emit);
     const UButton = useUIComponent("UButton");
     const body = ref<HTMLElement | null>(null);
+    const nav = ref<HTMLElement | null>(null);
+
+    // Back leaves the footer on the first step and Next on the last. Focus then goes to the control that is left at the
+    // end of the move: the first one after Back, the last one (Next or the finish action) after Next.
+    function move(index: number) {
+      const forward = index > current.value;
+      go(index);
+      keepFocus(() => nav.value, controls => forward ? controls.at(-1) : controls[0]);
+    }
 
     // A new step starts at its top.
     watch(current, () => body.value?.scrollTo?.({ top: 0 }));
@@ -34,10 +43,11 @@ export const WorkspaceGuide = defineComponent({
       const previous = props.steps[index - 1];
       const next = props.steps[index + 1];
       const title = props.title ?? props.steps[index]?.title;
-      const slotProps = { next: () => go(index + 1), previous: () => go(index - 1), step: index, total };
+      const slotProps = { next: () => move(index + 1), previous: () => move(index - 1), step: index, total };
 
-      const footer = total > 1
-        ? h("nav", { "aria-label": "Step navigation", class: "vh-ws-guide-footer" }, slots.footer?.(slotProps) ?? [
+      // One step has no Back or Next, but a page's footer or finish action still shows.
+      const content = slots.footer?.(slotProps) ?? (total > 1
+        ? [
             previous
               ? h(UButton, {
                   "aria-label": `Back to step ${index}: ${previous.title}`,
@@ -47,7 +57,7 @@ export const WorkspaceGuide = defineComponent({
                   label: previous.title,
                   size: "sm",
                   variant: "ghost",
-                  onClick: () => go(index - 1),
+                  onClick: () => move(index - 1),
                 })
               : h("span"),
             next
@@ -58,10 +68,13 @@ export const WorkspaceGuide = defineComponent({
                   size: "sm",
                   trailingIcon: "i-lucide-chevron-right",
                   variant: "solid",
-                  onClick: () => go(index + 1),
+                  onClick: () => move(index + 1),
                 })
               : slots.finish?.(slotProps),
-          ])
+          ]
+        : slots.finish ? [h("span"), slots.finish(slotProps)] : undefined);
+      const footer = content
+        ? h("nav", { "aria-label": "Step navigation", class: "vh-ws-guide-footer", ref: nav }, content)
         : undefined;
 
       return h("article", { class: "vh-ws-guide-pane", "data-step": total ? index : undefined }, [
