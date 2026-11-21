@@ -14,7 +14,8 @@ import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeFieldValue, R
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { decodeRealtimeControlPayload, decodeRealtimeRequestFramePayload, messageAwareness, messageRealtimeControl, messageRealtimeRequest } from "../src/protocol.ts"
-import { createRealtimeHandler, encodeSyncStep1, encodeSyncUpdate } from "../src/server.ts"
+import { createRealtimeHandler } from "../src/server.ts"
+import { encodeSyncStep1, encodeSyncUpdate } from "../src/internal/server.ts"
 
 const messageSync = 0
 

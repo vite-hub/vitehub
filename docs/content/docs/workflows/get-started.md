@@ -132,7 +132,7 @@ pnpm vitehub workflow start onboard-user '{"email":"ada@example.com"}'
 Then read the run back with its ID:
 
 ```bash [commands/cli-get]
-pnpm vitehub workflow get <run-id>
+pnpm vitehub workflow runs get <run-id> --json
 ```
 
 ```json [output/cli-get.json]
@@ -158,7 +158,7 @@ pnpm vitehub workflow get <run-id>
 
 For a run started from a route, add `--workflow onboard-user` to `get`. Or open the Workflows page in the [Console](/docs/console) and click **Start**.
 
-With `vitehub()`, `pnpm vitehub workflow runs list` lists runs that the dev server ran inline, such as on the `vercel` host. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of a run. `pnpm vitehub workflow runs clear --yes` clears that history. Inline history does not include OpenWorkflow runs yet, so on `node` `runs list` prints `No runs.`. Read OpenWorkflow runs with `pnpm vitehub workflow get`.
+With `vitehub()`, `pnpm vitehub workflow runs list` lists runs that the dev server ran inline, such as on the `vercel` host. `pnpm vitehub workflow runs get <runId>` shows the steps, result, and error of an inline run. `pnpm vitehub workflow runs clear --yes` clears that history. Inline history does not include OpenWorkflow runs yet, so on `node` `runs list` prints `No runs.`. Use the same `runs get` command to read an OpenWorkflow run by ID.
 
 :::details{summary="When the Start button and the commands are available"}
 These commands call the Console RPC of the running app. They read a run with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is enabled, and the Console hides Start and Resume when they are off. `workflow.cancel` stays available. See [Run Workflows in development](/docs/cli/primitives#run-workflows-in-development).

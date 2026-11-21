@@ -122,6 +122,9 @@ async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname
   if (!token) {
     throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
   }
+  if (signOptions.contentLength !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot bind an exact `contentLength` to a signed upload. Bind the largest size with `maxSize`." })
+  }
   const allowOverwrite = !signOptions.createOnly && (options.allowOverwrite ?? true)
   const clientToken = await vercelClientToken(token, {
     addRandomSuffix: false,

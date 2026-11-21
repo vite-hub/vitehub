@@ -1,3 +1,4 @@
+import { downloadDisposition } from "../internal/active-content.ts"
 import { byteRangeBounds } from "../internal/byte-range.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
@@ -116,7 +117,7 @@ function encodePathname(pathname: string): string {
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request. Bind the exact size with `contentLength`." })
   }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
   const accessKeyId = r2Credential(options, "accessKeyId")
@@ -133,9 +134,15 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
   const url = new URL(`${r2S3Endpoint(accountId, options.jurisdiction)}/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
   url.searchParams.set("X-Amz-Expires", String(signOptions.expiresIn))
+  const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
+  if (disposition) url.searchParams.set("response-content-disposition", disposition)
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
+  // A signed `Content-Length` makes R2 reject a body of another size. The client sends the header with the body, and
+  // browsers refuse to set it by hand, so it is signed but not returned.
   const signed = await client.sign(url, {
-    headers,
+    headers: signOptions.method === "PUT" && signOptions.contentLength !== undefined
+      ? { ...headers, "Content-Length": String(signOptions.contentLength) }
+      : headers,
     method: signOptions.method,
     aws: { allHeaders: true, signQuery: true },
   })

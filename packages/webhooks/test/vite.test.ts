@@ -48,6 +48,7 @@ describe("member endpoints at build time", () => {
     expect(registry).toContain("endpoints: createDrizzleWebhookEndpointStore(db),")
     expect(registry).not.toContain("dynamicQueue")
     expect(registry).not.toContain("wake:")
+    expect(registry).not.toContain("resolveVerifiedOwner")
     await expect(readFile(files.queue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     expect(JSON.stringify(Reflect.get(config, "nitro"))).toContain(files.plugin)
     const context = { root, projectRoot: root, rootDir: root, plugins: [plugin, sendPlugin] }
@@ -57,6 +58,14 @@ describe("member endpoints at build time", () => {
       expect.objectContaining({ name: "webhook-endpoints", definition: { export: "webhookEndpointsSchema", module: "@vite-hub/webhooks/database" }, tables: { webhookEndpoints: "vitehub_webhook_endpoints" } }),
     ])
     expect(plugin.api.deploymentEnv({ host: "node" })).toEqual([{ names: ["VITEHUB_WEBHOOKS_KEY"], required: true, secret: true, hasDefault: false, owners: ["webhooks"] }])
+  })
+
+  it("uses the Auth resolver when the app has Auth and member endpoints", async () => {
+    const root = await project()
+    await configure(root, { database: true, queue: false, imports: { auth: "#vitehub/auth/server" } }, [sendPlugin])
+    const registry = await readFile(webhooksGeneratedFiles(root).registry, "utf8")
+    expect(registry).toContain('import { findVerifiedAuthUserId } from "#vitehub/auth/server"')
+    expect(registry).toContain("resolveVerifiedOwner: findVerifiedAuthUserId,")
   })
 
   it("retries member deliveries through the Queue when the app has one", async () => {

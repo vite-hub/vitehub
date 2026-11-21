@@ -1,8 +1,8 @@
-import { once } from "node:events"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { startAiEmulator, upstreamMessage } from "../internal/ai-emulator.ts"
 
-import type { AddressInfo } from "node:net"
+import type { AiEmulator } from "../internal/ai-emulator.ts"
 import type { AiConfig, AiSeedConfig, CallRecord, DefaultKind, RuleSnapshot } from "@emulators/ai"
 
 /** One scripted rule of the AI emulator, typed by upstream `@emulators/ai`. */
@@ -38,55 +38,6 @@ export interface EmulatedModels extends AsyncDisposable {
   close: () => Promise<void>
 }
 
-async function loadEmulate() {
-  try {
-    return await Promise.all([import("@emulators/core"), import("@emulators/ai")])
-  }
-  catch (error) {
-    throw agentDiagnostics.AGENT_EMULATOR_PACKAGES_MISSING({ cause: error })
-  }
-}
-
-async function startEmulator(config: EmulatedModelSeed) {
-  const [{ createServer, serve }, { aiPlugin, seedFromConfig, AiConfigError }] = await loadEmulate()
-  let app: ReturnType<typeof createServer>["app"] | undefined
-  const server = serve({
-    fetch: request => app?.fetch(request) ?? new Response("Starting", { status: 503 }),
-    hostname: "127.0.0.1",
-    port: 0,
-    abortOnClose: true,
-  })
-  const close = () => new Promise<void>((resolve, reject) => {
-    server.close(error => error ? reject(error) : resolve())
-    server.closeAllConnections()
-  })
-  await once(server, "listening")
-  try {
-    const address = server.address() as AddressInfo
-    const url = `http://${address.address}:${address.port}`
-    const runtime = createServer(aiPlugin, { baseUrl: url, port: address.port })
-    seedFromConfig(runtime.store, url, config)
-    app = runtime.app
-    return { url, close }
-  }
-  catch (error) {
-    await close()
-    if (error instanceof AiConfigError) throw agentDiagnostics.AGENT_EMULATOR_RULES_INVALID({ detail: error.message, cause: error })
-    throw error
-  }
-}
-
-/** Returns `error.message` of an upstream OpenAI error envelope, or the body as it is. */
-function upstreamMessage(body: string): string {
-  try {
-    const message = (JSON.parse(body) as { error?: { message?: unknown } }).error?.message
-    return typeof message === "string" ? message : body
-  }
-  catch {
-    return body
-  }
-}
-
 const envNames = ["VITEHUB_EMULATE_URL", "VITEHUB_MODELS"] as const
 const activeScope = Symbol.for("vitehub.agent.emulateModels.active")
 const worker = process as typeof process & { [activeScope]?: true }
@@ -101,10 +52,10 @@ export async function emulateModels(seed: EmulatedModelSeed = {}): Promise<Emula
   if (worker[activeScope]) throw agentDiagnostics.AGENT_EMULATOR_SCOPE_ACTIVE()
   worker[activeScope] = true
   let config: EmulatedModelSeed
-  let emulator: Awaited<ReturnType<typeof startEmulator>>
+  let emulator: AiEmulator
   try {
     config = { ...seed, strict: seed.strict ?? true }
-    emulator = await startEmulator(config)
+    emulator = await startAiEmulator(config)
   }
   catch (error) {
     delete worker[activeScope]
