@@ -1,7 +1,16 @@
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import type { WebhookDelivery } from "../../packages/webhooks/src/database.ts"
+import type { MemberEndpointRow } from "../../packages/webhooks/src/operations.ts"
 import type { WebhookInfo } from "../../packages/webhooks/src/runtime.ts"
 
+/**
+ * Synthetic webhooks of `server/webhooks/` for the Webhooks page. They answer the `webhooks.*` operations in memory, as
+ * the operations of an app with three webhooks do: `t3` with a 30 minute debounce, `slack-alerts` without a secret, and
+ * `billing` without a URL. Send now and Send test mark the delivery sent at once. A restart resets them.
+ *
+ * Four members connected an agent from Send: Ana and Tom with T3 Code, Mei with Claude Code, and Sam with Codex, whose
+ * endpoint Ana disabled. The playground user is Tom, so Redeliver shows only on Tom's member deliveries.
+ */
 const minute = 60_000
 const start = Date.now()
 
@@ -43,6 +52,33 @@ const deliveries: WebhookDelivery[] = [
   delivery({ attempts: 2, count: 3, event: "comments.created", key: "page:/pricing", lastStatus: 200, sentAt: start - 26 * 60 * minute, state: "sent", updatedAt: start - 26 * 60 * minute, webhook: "t3" }, 27 * 60 * minute),
 ]
 
+const hour = 60 * minute
+const endpoint = (fields: Pick<MemberEndpointRow, "id" | "owner" | "ownerName" | "agent" | "kind"> & Partial<MemberEndpointRow>): MemberEndpointRow => ({
+  createdAt: start - 9 * 24 * hour,
+  disabledAt: null,
+  disabledBy: null,
+  host: fields.kind === "url" ? "relay.t3.codes" : null,
+  last: null,
+  mine: false,
+  name: "Launch plan thread",
+  updatedAt: start - 9 * 24 * hour,
+  ...fields,
+})
+
+const memberEndpoints: MemberEndpointRow[] = [
+  endpoint({ agent: "t3", id: "whe_ana", kind: "url", owner: "user_ana", ownerName: "Ana Ruiz", last: { at: start - 2 * minute, error: null, failures: 0, state: "sent", status: 202 } }),
+  endpoint({ agent: "t3", id: "whe_tom", kind: "url", mine: true, owner: "user_tom", ownerName: "Tom Becker", last: { at: start - 22 * minute, error: "HTTP 401", failures: 3, state: "dead", status: 401 } }),
+  endpoint({ agent: "claude-code", id: "whe_mei", kind: "inbox", owner: "user_mei", ownerName: "Mei Lin", last: { at: start - 40 * minute, error: null, failures: 0, state: "sent", status: null } }),
+  endpoint({ agent: "codex", disabledAt: start - 26 * hour, disabledBy: "Ana", id: "whe_sam", kind: "inbox", owner: "user_sam", ownerName: "Sam Okafor" }),
+]
+
+deliveries.push(
+  delivery({ attempts: 1, body: { drop: "Launch plan", threads: 3 }, count: 1, event: "comments.send", key: "thr_1:msg_8", lastStatus: 202, sentAt: start - 2 * minute, state: "sent", updatedAt: start - 2 * minute, webhook: "@whe_ana" }, 2 * minute),
+  delivery({ attempts: 1, body: { drop: "Pricing FAQ", threads: 2 }, count: 1, event: "comments.send", key: "thr_4:msg_2", lastError: "HTTP 401", lastStatus: 401, state: "dead", updatedAt: start - 22 * minute, webhook: "@whe_tom" }, 22 * minute),
+  delivery({ attempts: 1, body: { drop: "Roadmap", threads: 4 }, count: 1, event: "comments.send", key: "thr_9:msg_1", lastError: "Webhooks does not send a signed body to this URL: its host is not relay.t3.codes.", state: "dead", updatedAt: start - 65 * minute, webhook: "@whe_tom" }, 65 * minute),
+  delivery({ attempts: 1, body: { drop: "Onboarding", threads: 1 }, count: 1, event: "comments.send", key: "thr_3:msg_5", sentAt: start - 40 * minute, state: "sent", updatedAt: start - 40 * minute, webhook: "@whe_mei" }, 40 * minute),
+)
+
 const fail = (status: number, code: string, message: string, fix?: string): ConsoleRpcResult => ({ code, message, ok: false, status, ...(fix ? { fix } : {}) })
 const notFound = (id: unknown) => fail(404, "WEBHOOKS_DELIVERY_NOT_FOUND", `No webhook delivery has the id ${String(id)}.`)
 
@@ -62,7 +98,9 @@ export function webhooksFixture(operation: string, input: Record<string, unknown
     case "webhooks.deliveries": {
       const state = typeof input.state === "string" ? input.state : undefined
       const limit = typeof input.limit === "number" ? input.limit : 100
-      const listed = deliveries.filter(entry => (!state || entry.state === state) && (!input.webhook || entry.webhook === input.webhook))
+      const owned = typeof input.owner === "string" ? memberEndpoints.find(entry => entry.owner === input.owner) : undefined
+      const webhook = typeof input.owner === "string" ? `@${owned?.id ?? "none"}` : input.webhook
+      const listed = deliveries.filter(entry => (!state || entry.state === state) && (!webhook || entry.webhook === webhook) && (!input.webhook || entry.webhook === input.webhook))
       return { ok: true, value: structuredClone(listed.sort((left, right) => right.createdAt - left.createdAt).slice(0, limit)) }
     }
     case "webhooks.get":
@@ -85,8 +123,20 @@ export function webhooksFixture(operation: string, input: Record<string, unknown
       else Object.assign(found, { state: "cancelled", updatedAt: Date.now() })
       return { ok: true, value: structuredClone(found) }
     }
+    case "webhooks.endpoints":
+      return { ok: true, value: structuredClone(memberEndpoints) }
+    case "webhooks.disable-endpoint":
+    case "webhooks.enable-endpoint": {
+      const target = memberEndpoints.find(entry => entry.id === input.id)
+      if (!target) return fail(404, "WEBHOOKS_ENDPOINT_NOT_FOUND", `No member endpoint has the id ${JSON.stringify(input.id)}.`)
+      const disabled = operation === "webhooks.disable-endpoint"
+      Object.assign(target, disabled ? { disabledAt: target.disabledAt ?? Date.now(), disabledBy: target.disabledBy ?? "Tom Becker" } : { disabledAt: null, disabledBy: null })
+      return { ok: true, value: { disabledAt: target.disabledAt, disabledBy: target.disabledBy, id: target.id, owner: target.owner } }
+    }
     case "webhooks.redeliver": {
       if (!found) return notFound(input.id)
+      const member = found.webhook.startsWith("@") ? memberEndpoints.find(entry => `@${entry.id}` === found.webhook) : undefined
+      if (found.webhook.startsWith("@") && !member?.mine) return fail(403, "WEBHOOKS_DELIVERY_NOT_OWNER", `The delivery ${found.id} went to the agent of a member, and only that member can send it again.`)
       if (found.state === "pending" || found.state === "sending") return fail(409, "WEBHOOKS_DELIVERY_ACTIVE", `The delivery ${found.id} is still ${found.state}.`)
       const entry = delivery({ body: structuredClone(found.body), count: found.count, event: found.event, state: "pending", webhook: found.webhook }, start - Date.now())
       send(entry)

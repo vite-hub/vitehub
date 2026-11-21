@@ -121,8 +121,8 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
       { label: "File", value: summary.file },
       { label: "Source", value: summary.source },
       startable
-        ? { label: "Runs", value: `Use \`vitehub schedule list ${summary.name}\` to list the Schedules that code started, and \`vitehub schedule runs <id>\` for the runs of one.` }
-        : { label: "Runs", value: `Use \`vitehub schedule runs ${summary.name}\` to list runs that this runtime recorded.` },
+        ? { label: "Runs", value: `Use \`vitehub schedule list ${summary.name}\` to list the Schedules that code started, and \`vitehub schedule runs list <id>\` for the runs of one.` }
+        : { label: "Runs", value: `Use \`vitehub schedule runs list ${summary.name}\` to list runs that this runtime recorded.` },
     ],
     id: `definition:${summary.name}`,
     runnable: field("Manual") === "Enabled",
@@ -137,7 +137,7 @@ export async function inspectScheduleConsoleRecords(options: ScheduleInspectionO
 /**
  * Console section for Schedules. Records list discovered Schedule Definitions. When the server runs the Process Runtime,
  * the cron and time zone come from the loaded Definitions, so any expression shows its real value.
- * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs <name>` lists the runs
+ * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs list <name>` lists the runs
  * that a runtime recorded.
  */
 export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<ScheduleInspectionOptions> = {

@@ -1,5 +1,5 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOptionalCredentials, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOpenAIChat, aiGatewayOptionalCredentials, aiGatewayStructuredOutputs, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
@@ -204,13 +204,15 @@ interface AiGatewayExtras {
   optional?: AiGatewayOptionalCredentials
   modelApis?: readonly AiGatewayCapabilities["apis"][]
   modelCredentials?: AiGatewayModelCredentialsResolver
+  openAIChat?: true
   structuredOutputs?: true
 }
 
-function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
+function createAiGateway(definition: AiGatewayDefinition, { route, optional, modelApis, modelCredentials, openAIChat, structuredOutputs }: AiGatewayExtras = {}): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
+  if (openAIChat) Object.defineProperty(gateway, aiGatewayOpenAIChat, { value: true })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
   if (structuredOutputs) Object.defineProperty(gateway, aiGatewayStructuredOutputs, { value: true })
@@ -374,13 +376,17 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
   return createAiGateway(definition, { route, modelCredentials }) as AiGateway<{ ask: true, routes: HostedRoutes }>
 }
 
-/** The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. */
+/**
+ * The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. Its AI SDK models use
+ * `@ai-sdk/openai` for both `chat` and `responses`.
+ */
 export function openai(options?: AiGatewayPresetOptions): AiModelGateway<"codex" | "openai-compatible"> {
-  return modelGateway<"codex" | "openai-compatible">(preset({
+  const definition = preset({
     name: "openai",
     baseURL: { "codex": "https://api.openai.com/v1", "openai-compatible": "https://api.openai.com/v1" },
     apiKey: apiKeyFromEnv("openai"),
-  }, options))
+  }, options)
+  return modelGateway(definition, { openAIChat: true })
 }
 
 /** The Anthropic API with an API key. Serves Claude Code and AI SDK models. Reads `ANTHROPIC_API_KEY`. */

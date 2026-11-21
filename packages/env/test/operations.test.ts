@@ -71,7 +71,7 @@ describe("env.inspect", () => {
     expect(await call({}, ["env:read"])).toMatchObject({ ok: true })
   })
 
-  it("is a read operation with a `vitehub env status` command", () => {
-    expect(registry.get("env.inspect")).toMatchObject({ cli: { command: "status" }, kind: "read", section: "env" })
+  it("is a read operation that `vitehub env list --url` calls", () => {
+    expect(registry.get("env.inspect")).toMatchObject({ cli: { command: "list" }, kind: "read", section: "env" })
   })
 })

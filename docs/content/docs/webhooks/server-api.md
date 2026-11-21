@@ -74,9 +74,9 @@ Delivery is at least once. A receiver can get the same delivery twice, for examp
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first. `limit` is 100 by default, 500 at most. |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first. |
 | `getWebhookDelivery(id)` | One delivery. |
-| `flushWebhookDelivery(id)` | Delivers a pending delivery now, without the rest of its debounce. |
+| `flushWebhookDelivery(id, { caller? })` | Delivers a pending delivery now, without the rest of its debounce. |
 | `cancelWebhookDelivery(id)` | Cancels a pending delivery. Its wake then does nothing. |
-| `redeliverWebhookDelivery(id)` | Sends a `sent`, `dead`, or `cancelled` delivery again now, as a new delivery with a new id, the same body, event, and count. |
+| `redeliverWebhookDelivery(id, { caller? })` | Sends a `sent`, `dead`, or `cancelled` delivery again now, as a new delivery with a new id, the same body, event, and count. A [member delivery](/docs/webhooks/member-endpoints#who-owns-an-endpoint) needs its owner as `caller`. |
 
 ```ts [server/utils/retry-dead.ts]
 import { listWebhookDeliveries, redeliverWebhookDelivery } from 'vite-hub/webhooks/runtime'

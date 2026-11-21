@@ -12,6 +12,7 @@ import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
+import { renamedCommandMessage } from "./renamed-commands.ts"
 import { createSeedNamespace } from "./seed.ts"
 
 import type { LoadProvision } from "./provision.ts"
@@ -352,6 +353,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       ? process.stderr.write(chunk, encoding)
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
+  const renamed = renamedCommandMessage(args)
+  if (renamed) {
+    stderr.write(`${renamed}\n`)
+    return 1
+  }
   const spawn = options.spawn || defaultSpawn
   const stage = (args[0] === "channels" && (args[1] === "sync" || args[1] === "history")) || args[0] === "seed" ? readStageArg(args) : undefined
   const loadProject = (command: "build" | "serve") => withStdoutOnStderr(async () => {

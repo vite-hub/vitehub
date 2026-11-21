@@ -24,7 +24,7 @@ const outboxList = defineEmailOperation<Record<string, never>, EmailOutboxList>(
 })
 
 const outboxShow = defineEmailOperation<{ id: string }, { message: EmailOutboxMessage }>({
-  cli: { command: "outbox show", positional: ["id"] },
+  cli: { command: "outbox get", positional: ["id"] },
   description: "Show one captured message with its bodies, headers, and attachment details.",
   input: v.object({ id: v.pipe(v.string(), v.minLength(1)) }),
   kind: "read",

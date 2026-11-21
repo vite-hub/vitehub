@@ -21,7 +21,7 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SCHEDULE_RUN_NOT_FOUND: {
       why: "Schedule Run was not found.",
-      fix: "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.",
+      fix: "List the runs of the Schedule with `vitehub schedule runs list <name>` and pass one of their ids.",
     },
 
     // Published numbered errors.

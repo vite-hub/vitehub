@@ -52,15 +52,11 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_RUNS_UNAVAILABLE: {
       why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
-      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.",
+      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow runs get <runId> --workflow <name>`, or use the provider dashboard.",
     },
     WORKFLOW_RUN_AMBIGUOUS: {
       why: ({ id, workflows }: { id: string, workflows: string }) => `Runs of ${workflows} have the id ${id}.`,
       fix: "Pass the name of the Workflow with `--workflow <name>`.",
-    },
-    WORKFLOW_RUN_NOT_FOUND: {
-      why: ({ id }: { id: string }) => `No recorded run has the id ${id}.`,
-      fix: "Run `vitehub workflow runs list` for the ids. The dev server keeps the newest 200 runs until it restarts or `vitehub workflow runs clear` empties the history.",
     },
     WORKFLOW_RUN_UNKNOWN: {
       why: ({ runId }: { runId: string }) => `Run ${runId} was not started by \`workflow.start\` in this runtime.`,

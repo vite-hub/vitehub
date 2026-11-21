@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { viteHubEnvServerModulePath } from "@vite-hub/internal/build/vite"
-import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
+import { appUrlError, createCliDiscoveryNitroCloser, writeCliFailure } from "@vite-hub/internal/cli"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageServer } from "@vite-hub/internal/vite-stage"
 
 import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
@@ -17,7 +18,7 @@ import { secretCliFeatures } from "./secret-cli.ts"
 
 export { secretCliFeatures }
 
-type EnvCliCommand = "check" | "inspect"
+type EnvCliCommand = "check" | "list"
 
 export interface EnvCliInspectInput {
   applicationRoot?: string
@@ -37,6 +38,8 @@ interface ParsedEnvCliArgs {
   help: boolean
   json: boolean
   stage?: string
+  /** `env list --url`: ask the running app instead of loading a local stage. */
+  url?: string
 }
 
 export interface EnvCliReport {
@@ -48,7 +51,7 @@ export interface EnvCliReport {
 const defaultEnvCliStage = "development"
 
 function usage(command: EnvCliCommand): string {
-  return `vitehub env ${command} [--stage <name>] [--json]`
+  return command === "list" ? "vitehub env list [--stage <name> | --url <app>] [--json]" : `vitehub env ${command} [--stage <name>] [--json]`
 }
 
 function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"]): void {
@@ -62,13 +65,14 @@ function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"])
     "Options:",
     `  --stage <name>  Load Vite env files for this mode. Defaults to ${defaultEnvCliStage}.`,
     "                  Variables from the current process take precedence.",
+    ...(command === "list" ? ["  --url <app>     Ask the running app, such as a deployment, for the status of its values."] : []),
     "  --json          Print machine-readable output.",
     "  -h, --help      Show this help.",
     "",
   ].join("\n"))
 }
 
-function parseArgs(args: string[]): ParsedEnvCliArgs {
+function parseArgs(command: EnvCliCommand, args: string[]): ParsedEnvCliArgs {
   const parsed: ParsedEnvCliArgs = { help: false, json: false }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -79,8 +83,14 @@ function parseArgs(args: string[]): ParsedEnvCliArgs {
       if (!value || value.startsWith("-")) throw envErrorDiagnostics.ENV_R0025({ message: "--stage requires a name." })
       parsed.stage = value
     }
+    else if (command === "list" && (arg === "--url" || arg.startsWith("--url="))) {
+      const value = arg === "--url" ? args[++index] : arg.slice("--url=".length)
+      if (!value || value.startsWith("-")) throw envErrorDiagnostics.ENV_R0026({ message: "--url requires the app URL, such as --url https://app.example.com." })
+      parsed.url = value
+    }
     else throw envErrorDiagnostics.ENV_R0026({ message: `Unknown option: ${arg}` })
   }
+  if (parsed.url && parsed.stage) throw envErrorDiagnostics.ENV_R0026({ message: "Pass --stage to read a local stage, or --url to ask the app, not both." })
   return parsed
 }
 
@@ -112,7 +122,9 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     }
   }
   try {
-    const resolved = await vite.resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, "serve")
+    // The discovery flag tells plugins that a CLI loads the project, so dev-server work, such as an AI emulator, stays off.
+    const inlineConfig: import("vite").InlineConfig & { vitehubCliDiscovery: true } = { ...config, plugins: [...config.plugins ?? [], nitro.plugin], vitehubCliDiscovery: true }
+    const resolved = await vite.resolveConfig(inlineConfig, "serve")
     environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
     await environment.init()
     let runnable: import("vite").RunnableDevEnvironment
@@ -222,10 +234,48 @@ function writeReport(command: EnvCliCommand, report: EnvCliReport, context: Vite
   context.stdout.write(`${lines.join("\n")}\n`)
 }
 
+const appEnvResult = v.looseObject({
+  entries: v.array(v.looseObject({ blocking: v.boolean(), path: v.optional(v.string()), provider: v.optional(v.string()), required: v.boolean(), secret: v.boolean(), source: v.picklist(["env", "literal", "provider"]), status: v.string() })),
+  ok: v.boolean(),
+})
+
+/** `env list --url`: the `env.inspect` operation of the running app, such as a deployment. Values are never returned. */
+async function listAppEnv(url: string, json: boolean, context: ViteHubCliContext): Promise<number> {
+  const message = appUrlError(url)
+  if (message) return writeCliFailure(json, context, { message })
+  const result = await callOperationFromCli({ env: context.env, ...(context.fetch ? { fetch: context.fetch } : {}), rootDir: context.rootDir, url }, "env.inspect", {})
+  if (!result.ok) return writeCliFailure(json, context, { code: result.code, ...(result.fix ? { fix: result.fix } : {}), message: result.message })
+  const parsed = v.safeParse(appEnvResult, result.value)
+  if (!parsed.success) return writeCliFailure(json, context, { message: `The app at ${url} returned an env report that this CLI cannot read.` })
+  if (json) {
+    context.stdout.write(`${JSON.stringify(parsed.output, null, 2)}\n`)
+    return 0
+  }
+  const { entries } = parsed.output
+  const lines = [`Server Env (app: ${url})`, ""]
+  if (!entries.length) lines.push("No Server Env variables declared.")
+  else {
+    lines.push(...formatTable([
+      ["VARIABLE", "STATUS", "SOURCE", "REQUIRED", "SECRET"],
+      ...entries.map(entry => [
+        entry.path?.replace(/^env\.server\./, "") ?? "(undisclosed name)",
+        entry.blocking ? `${entry.status} !` : entry.status,
+        entry.source === "provider" ? `provider:${entry.provider ?? "unknown"}` : entry.source === "env" ? "host env" : "literal",
+        entry.required ? "yes" : "no",
+        entry.secret ? "yes" : "no",
+      ]),
+    ]))
+  }
+  const blocking = entries.filter(entry => entry.blocking).length
+  lines.push("", blocking ? `${blocking} of ${entries.length} variables would make loadServerEnv() fail.` : `${entries.length} variables checked. Values are not shown.`)
+  context.stdout.write(`${lines.join("\n")}\n`)
+  return 0
+}
+
 async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHubCliContext, options: EnvCliOptions): Promise<number> {
   let parsed: ParsedEnvCliArgs
   try {
-    parsed = parseArgs(args)
+    parsed = parseArgs(command, args)
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -237,6 +287,7 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
     return 0
   }
 
+  if (parsed.url) return await listAppEnv(parsed.url, parsed.json, context)
   const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stderr: context.stderr, stage: parsed.stage ?? defaultEnvCliStage }
   const inspection = options.inspect
     ? await options.inspect(input)
@@ -257,10 +308,10 @@ export function createEnvCliContributor(options: EnvCliOptions): ViteHubCliContr
       description: "Server Env inspection workflows.",
       features: [
         {
-          description: "List declared Server Env variables and their status without values.",
-          name: "inspect",
-          run: async (args, context) => await runEnvCli("inspect", args, context, options),
-          usage: usage("inspect"),
+          description: "List declared Server Env variables and their status without values. With --url, ask the running app.",
+          name: "list",
+          run: async (args, context) => await runEnvCli("list", args, context, options),
+          usage: usage("list"),
         },
         {
           description: "Exit with 1 when a required Server Env value is missing or any value is invalid.",

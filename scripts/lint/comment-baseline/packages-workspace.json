@@ -8,7 +8,7 @@
   "packages/workspace/src/core/file-metadata.ts": 2,
   "packages/workspace/src/core/glob-pattern.ts": 4,
   "packages/workspace/src/core/glob.ts": 2,
-  "packages/workspace/src/core/history.ts": 6,
+  "packages/workspace/src/core/history.ts": 7,
   "packages/workspace/src/core/path.ts": 1,
   "packages/workspace/src/core/plugins.ts": 2,
   "packages/workspace/src/core/registry.ts": 1,

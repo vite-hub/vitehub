@@ -1,0 +1,7 @@
+{
+  "packages/schedule/src/os/task-scheduler.ts": 1,
+  "packages/schedule/src/vite.ts": 3,
+  "packages/schedule/test/os-e2e.mjs": 4,
+  "packages/schedule/test/os-render.test.ts": 1,
+  "packages/schedule/test/process-leases.test.ts": 3
+}

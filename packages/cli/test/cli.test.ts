@@ -86,7 +86,7 @@ describe("ViteHub CLI", () => {
     // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
     const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     runViteHubCliEntrypoint({
-      args: ["agent", "info"],
+      args: ["agent", "get"],
       loadConfig: async () => { throw error },
       stderr,
       stdout,
@@ -560,7 +560,7 @@ export default ({ mode }) => ({
     const runtime = vi.fn(() => 0)
     const project = vi.fn(() => 0)
     const loadConfig = vi.fn(async () => ({
-      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "info", run: project }], name: "agent" }] } } }],
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "get", run: project }], name: "agent" }] } } }],
       root: "/repo",
     }))
     const runtimeFeatures = [{ features: [{ name: "invocations", run: runtime }], name: "agent" }]
@@ -569,7 +569,7 @@ export default ({ mode }) => ({
     expect(runtime).toHaveBeenCalledWith(["list"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
     expect(loadConfig).not.toHaveBeenCalled()
 
-    expect(await runViteHubCli({ args: ["agent", "info"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["agent", "get"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(project).toHaveBeenCalledOnce()
     expect(await runViteHubCli({ args: ["agent", "--help"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledTimes(2)

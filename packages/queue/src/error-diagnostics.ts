@@ -66,7 +66,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_JOB_RUNNING: {
       why: "The job is running now.",
-      fix: "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.",
+      fix: "Wait for the attempt to end, then run `vitehub queue jobs get` for its state.",
     },
 
     // Config errors.

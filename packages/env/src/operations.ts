@@ -7,7 +7,8 @@ import type { EnvInspectResult } from "./runtime/operations.ts"
 const runtime = () => import("./runtime/operations.ts")
 
 const inspect = defineOperation<Record<string, never>, EnvInspectResult>({
-  cli: { command: "status" },
+  // `vitehub env list` reads a local stage, and `vitehub env list --url` calls this operation on the running app.
+  cli: { command: "list" },
   description: "Show the status of each Server Env value as the running app sees it. Values are never returned.",
   input: v.strictObject({}),
   kind: "read",

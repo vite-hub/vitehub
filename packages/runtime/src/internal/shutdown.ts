@@ -144,10 +144,15 @@ export function runShutdownDrains(app?: ShutdownApp, runtime: ShutdownRuntime | 
   })))
 }
 
-function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: ShutdownState): void {
+function isSrvxShutdown(listener: unknown): listener is (signal: ShutdownSignal) => unknown {
+  if (typeof listener !== "function") return false
+  const source = Function.prototype.toString.call(listener)
+  return source.includes("Stopping server gracefully (") && source.includes("Graceful shutdown timed out.")
+}
+
+function installSignalTrap(runtime: ShutdownRuntime, state: ShutdownState): void {
   state.trap = "pending"
-  const existing = new Map(signals.map(signal => [signal, new Set(runtime.listeners(signal))]))
-  const serverListeners: [ShutdownSignal, (signal: ShutdownSignal) => unknown][] = []
+  let serverShutdown: ((signal: ShutdownSignal) => unknown) | undefined
   let resolveSetup!: () => void
   const setup = new Promise<void>(resolve => { resolveSetup = resolve })
   const stop = (signal: ShutdownSignal) => {
@@ -159,7 +164,8 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     console.info("[vitehub]", JSON.stringify({ drainMs: drainBudget(runtime), drains: names, event: "shutdown.draining", signal, timestamp: new Date().toISOString() }))
     void (async () => {
       await setup
-      if (!serverListeners.length) {
+      const shutdown = serverShutdown
+      if (!shutdown) {
         state.status = "running"
         if (runtime.kill && typeof process !== "undefined" && typeof process.pid === "number")
           runtime.kill(process.pid, signal)
@@ -167,8 +173,7 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       }
       const results = await runShutdownDrains(undefined, runtime)
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.drained", results, signal, timestamp: new Date().toISOString() }))
-      const listeners = serverListeners.filter(([name]) => name === signal)
-      const closeServer = Promise.all(listeners.map(([, listener]) => Promise.resolve().then(() => listener(signal)))).then(
+      const closeServer = Promise.resolve().then(() => shutdown(signal)).then(
         () => undefined,
         (error: unknown) => console.error("[vitehub] Server shutdown failed.", error),
       )
@@ -204,24 +209,21 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     })
   }
   for (const signal of signals) runtime.on(signal, stop)
+  // The server's stop listener (srvx in the Node, Bun, and Deno presets) comes after sync plugins and before plugins
+  // that follow an async one. Hold it until the drains settle so HTTP stays up, then exit: srvx only closes HTTP.
   setTimeout(() => {
-    for (const signal of signals) {
-      const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
-        typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
-      const server = candidates.find(listener => listener.name === "shutdown" || listener.name === "stop")
-      if (server) {
-        // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
-        const handler = server as (signal: ShutdownSignal) => void
-        runtime.off(signal, handler)
-        serverListeners.push([signal, handler])
-      }
-    }
-    if (serverListeners.length) {
+    const interrupts = new Set(runtime.listeners("SIGINT"))
+    const candidates = runtime.listeners("SIGTERM").filter(listener => interrupts.has(listener)).filter(isSrvxShutdown)
+    const [server] = candidates
+    if (server && candidates.length === 1) {
+      serverShutdown = server
+      for (const signal of signals) runtime.off(signal, server)
       state.trap = "installed"
       state.signals = true
       resolveSetup()
       return
     }
+    // No unique srvx callback was found. Keep the existing signal behavior.
     for (const signal of signals) runtime.off(signal, stop)
     state.trap = "skipped"
     resolveSetup()
@@ -242,7 +244,7 @@ export function onShutdown(app: ShutdownApp, name: string, drain: ShutdownDrain,
     app.hooks.hook("close", () => runShutdownDrains(app, runtime))
   }
   if (runtime && !state.trap) {
-    if ((runtime.release?.name === "node" || runtime.release?.name === "bun") && globalThis.navigator?.userAgent !== "Cloudflare-Workers") installSignalTrap(app, runtime, state)
+    if ((runtime.release?.name === "node" || runtime.release?.name === "bun") && globalThis.navigator?.userAgent !== "Cloudflare-Workers") installSignalTrap(runtime, state)
     else state.trap = "skipped"
   }
 }

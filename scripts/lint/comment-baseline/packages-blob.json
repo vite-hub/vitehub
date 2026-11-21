@@ -47,7 +47,7 @@
   "packages/blob/src/upload.ts": 24,
   "packages/blob/src/virtual.ts": 1,
   "packages/blob/src/vite-config.ts": 1,
-  "packages/blob/src/vite.ts": 35,
+  "packages/blob/src/vite.ts": 36,
   "packages/blob/test/build-secrets.test.ts": 4,
   "packages/blob/test/cli-seed.test.ts": 2,
   "packages/blob/test/cli.test.ts": 3,

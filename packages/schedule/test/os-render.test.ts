@@ -136,6 +136,16 @@ describe("Task Scheduler task", () => {
     await expect(renderTaskXml(job, result, { scope: "user", userId: "DESKTOP-1\\me", wrapper: userWrapper, wrapperText })).toMatchFileSnapshot(join(fixtures, "pulse-user.xml"))
   })
 
+  // Task Scheduler expands %NAME% in the arguments, so a wrapper under such a folder was never found.
+  it("keeps % out of the task arguments and runs the wrapper by its exact path", () => {
+    const job = spec("0 * * * *")
+    const wrapper = "C:\\Users\\pct %PATH% O'Brien\\AppData\\Local\\ViteHub\\schedules\\skync.ps1"
+    const taskArguments = /<Arguments>(.*)<\/Arguments>/.exec(renderTaskXml(job, triggers(job.cron), { scope: "user", userId: "DESKTOP-1\\me", wrapper, wrapperText: "" }))![1]!
+    expect(taskArguments).not.toContain("%")
+    const encoded = / -EncodedCommand (\S+)$/.exec(taskArguments)![1]!
+    expect(Buffer.from(encoded, "base64").toString("utf16le")).toBe("$global:LASTEXITCODE = 1\n& 'C:\\Users\\pct %PATH% O''Brien\\AppData\\Local\\ViteHub\\schedules\\skync.ps1'\nexit $global:LASTEXITCODE")
+  })
+
   it("marks the task with its scope", () => {
     const job = spec("0 * * * *")
     const description = (scope: "user" | "system") => /<Description>(.*)<\/Description>/.exec(renderTaskXml(job, triggers(job.cron), { scope, userId: "DESKTOP-1\\me", wrapper: userWrapper, wrapperText: "" }))![1]

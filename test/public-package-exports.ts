@@ -25,6 +25,15 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorPeers = {
+  "@tiptap/core": "both",
+  "@tiptap/extension-image": "both",
+  "@tiptap/extension-list": "both",
+  "@tiptap/extension-table": "both",
+  "@tiptap/pm": "both",
+  "@tiptap/starter-kit": "both",
+} satisfies Readonly<Record<string, OptionalPeerUsage>>
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -45,8 +54,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
-  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
-  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/editor", { ...contentEditorPeers, "@vite-hub/realtime": "declaration" }],
+  ["@vite-hub/content/realtime", { ...contentEditorPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],

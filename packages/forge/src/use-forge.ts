@@ -23,8 +23,8 @@ export interface UseForgeOptions<TKind extends ForgeKind = "github"> {
   /** Default `"github"`. */
   forge?: TKind
   /**
-   * GitHub: the API base, for GitHub Enterprise Server. GitLab and Forgejo: the instance root.
-   * Default for GitLab and Forgejo: `VITEHUB_GITLAB_BASE_URL` or `VITEHUB_FORGEJO_BASE_URL`.
+   * GitHub: the API base, for GitHub Enterprise Server. GitLab, Forgejo and Gitea: the instance root.
+   * Default for GitLab, Forgejo and Gitea: `VITEHUB_GITLAB_BASE_URL`, `VITEHUB_FORGEJO_BASE_URL` or `VITEHUB_GITEA_BASE_URL`.
    */
   baseUrl?: string
   /** Default: the bindings of the active Cloudflare request, then `process.env`. */
@@ -166,6 +166,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
   }
   const baseField = fields[kind].baseUrl
   const baseUrl = options.baseUrl ?? (baseField ? readForgeEnv(baseField, env) : undefined)
+  const webhookSecret = kind === "gitea" ? readForgeEnv(forgeEnv.gitea.webhookSecret, env) : undefined
   const userAgent = options.userAgent ?? "vitehub"
 
   let credentials: Promise<GitHubAppCredentials> | undefined
@@ -238,6 +239,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
           ? { conditionalRequests: false }
           : minted.identity ? { conditionalRequests: { identity: minted.identity } } : {}),
         ...(baseUrl ? { baseUrl } : {}),
+        ...(webhookSecret ? { webhookSecret } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })
       if (call.signal?.aborted) throw abortError(call.signal)

@@ -25,7 +25,7 @@ export interface EmailOutboxList {
   messages: EmailOutboxListItem[]
 }
 
-/** Longest HTML source that one Console record shows. Use `vitehub email outbox show <id> --html` for the full source. */
+/** Longest HTML source that one Console record shows. Use `vitehub email outbox get <id> --html` for the full source. */
 export const emailConsoleHtmlSourceLimit = 4000
 
 /** The row of one message in a list. */
@@ -121,7 +121,7 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
       value: message.html === undefined
         ? "None"
         : message.html.length > emailConsoleHtmlSourceLimit
-          ? `${message.html.slice(0, emailConsoleHtmlSourceLimit)}\n... ${message.html.length - emailConsoleHtmlSourceLimit} more characters. Use \`vitehub email outbox show ${message.id} --html\`.`
+          ? `${message.html.slice(0, emailConsoleHtmlSourceLimit)}\n... ${message.html.length - emailConsoleHtmlSourceLimit} more characters. Use \`vitehub email outbox get ${message.id} --html\`.`
           : message.html,
     },
   ]

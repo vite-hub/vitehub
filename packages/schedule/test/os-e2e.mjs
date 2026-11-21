@@ -1,3 +1,7 @@
+//   node packages/schedule/test/os-e2e.mjs --scope user --percent-home
+//
+// `--percent-home` runs with HOME, USERPROFILE and LOCALAPPDATA under a folder named `pct %PATH% home`. Task Scheduler
+// expands `%NAME%` in the arguments of a task, so the wrapper path must not appear there.
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
@@ -8,7 +12,7 @@ import { parseArgs, promisify } from "node:util"
 
 import { installOsSchedule, osScheduleStatus, uninstallOsSchedule } from "../dist/os.js"
 
-const { values } = parseArgs({ options: { "scope": { type: "string", default: "user" }, "moved-home": { type: "boolean", default: false } }, strict: true })
+const { values } = parseArgs({ options: { "scope": { type: "string", default: "user" }, "moved-home": { type: "boolean", default: false }, "percent-home": { type: "boolean", default: false } }, strict: true })
 const scope = values.scope
 assert.ok(scope === "user" || scope === "system", `--scope must be "user" or "system", got "${scope}"`)
 
@@ -27,6 +31,14 @@ if (values["moved-home"]) {
   symlinkSync(join(dir, "real-home"), join(dir, "home"), "dir")
   process.env.HOME = join(dir, "home")
   process.env.XDG_CONFIG_HOME = join(dir, "home", ".config")
+}
+
+if (values["percent-home"]) {
+  const home = join(dir, "pct %PATH% home")
+  mkdirSync(home)
+  process.env.HOME = home
+  process.env.USERPROFILE = home
+  process.env.LOCALAPPDATA = join(home, "AppData", "Local")
 }
 
 function step(message) {
@@ -85,7 +97,7 @@ async function diagnose(unit) {
 let removed = false
 let unit
 try {
-  step(`platform ${process.platform}, scope ${scope}, name ${name}, temp dir ${dir}, HOME ${process.env.HOME}`)
+  step(`platform ${process.platform}, scope ${scope}, name ${name}, temp dir ${dir}, HOME ${process.env.HOME}, LOCALAPPDATA ${process.env.LOCALAPPDATA}`)
 
   step("install")
   unit = unwrap(await install({ VITEHUB_OS_E2E: "1" }), "first install")

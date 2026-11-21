@@ -16,7 +16,6 @@
   "docs/app/components/landing/PrimitiveLines.vue": 16,
   "docs/app/components/tutorial/TutorialCodePre.vue": 3,
   "docs/app/components/tutorial/TutorialWorkspace.vue": 13,
-  "docs/app/composables/useSharedIndicator.ts": 2,
   "docs/app/data/brand-colors.ts": 1,
   "docs/app/data/host-configs.ts": 11,
   "docs/app/data/support-matrix.ts": 7,

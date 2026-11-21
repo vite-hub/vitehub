@@ -4,6 +4,7 @@
   "packages/codemods/src/auth-accessors/index.ts": 10,
   "packages/codemods/src/auth-sign-in/index.ts": 4,
   "packages/codemods/src/channels/index.ts": 13,
+  "packages/codemods/src/cli-get-list/index.ts": 1,
   "packages/codemods/src/cli-yes-flag/index.ts": 1,
   "packages/codemods/src/define-forms/content.ts": 5,
   "packages/codemods/src/define-forms/database.ts": 11,

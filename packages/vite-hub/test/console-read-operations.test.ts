@@ -119,6 +119,6 @@ describe("usage operation", () => {
     const usage = consoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
     expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
-    expect(usage?.cli?.default).toBeUndefined()
+    expect((usage?.cli || undefined)?.default).toBeUndefined()
   })
 })

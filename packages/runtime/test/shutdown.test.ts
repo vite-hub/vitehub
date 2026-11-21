@@ -34,6 +34,21 @@ function fakeApp() {
 
 const nextTimer = () => new Promise(resolve => setTimeout(resolve, 0))
 
+function addServerShutdown(emitter: EventEmitter, close: (signal: ShutdownSignal) => unknown) {
+  async function gracefulClose(signal: ShutdownSignal) {
+    console.info("Stopping server gracefully (test)")
+    try {
+      await close(signal)
+    } catch (error) {
+      console.info("Graceful shutdown timed out.")
+      throw error
+    }
+  }
+  emitter.on("SIGINT", gracefulClose)
+  emitter.on("SIGTERM", gracefulClose)
+  return gracefulClose
+}
+
 describe("onShutdown", () => {
   it("runs every drain with one budget before the server closes HTTP, then exits once", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
@@ -62,15 +77,14 @@ describe("onShutdown", () => {
       order.push("server")
       await close()
     })
-    Object.defineProperty(closeServer, "name", { value: "shutdown" })
     const applicationSignal = vi.fn()
-    emitter.on("SIGTERM", closeServer)
+    const host = addServerShutdown(emitter, closeServer)
     emitter.on("SIGTERM", applicationSignal)
     await nextTimer()
 
     expect(shutdownState(runtime)).toMatchObject({ signals: true, status: "running", trap: "installed" })
     expect(emitter.listeners("SIGTERM")).toContain(prior)
-    expect(emitter.listeners("SIGTERM")).not.toContain(closeServer)
+    expect(emitter.listeners("SIGTERM")).not.toContain(host)
     expect(emitter.listeners("SIGTERM")).toContain(applicationSignal)
 
     emitter.emit("SIGTERM", "SIGTERM")
@@ -99,12 +113,19 @@ describe("onShutdown", () => {
     const { emitter, exit, runtime } = fakeRuntime()
     const { app, close } = fakeApp()
     const drain = vi.fn()
+    const cleanup = vi.fn()
+    function shutdown() { cleanup() }
+    emitter.on("SIGTERM", shutdown)
+    emitter.on("SIGINT", shutdown)
     onShutdown(app, "schedule", drain, runtime)
     await nextTimer()
 
-    expect(emitter.listenerCount("SIGTERM")).toBe(0)
-    expect(emitter.listenerCount("SIGINT")).toBe(0)
+    expect(emitter.listeners("SIGTERM")).toEqual([shutdown])
+    expect(emitter.listeners("SIGINT")).toEqual([shutdown])
     expect(shutdownState(runtime)).toMatchObject({ signals: false, trap: "skipped" })
+    emitter.emit("SIGTERM", "SIGTERM")
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(drain).not.toHaveBeenCalled()
 
     await close()
     await close()
@@ -122,9 +143,7 @@ describe("onShutdown", () => {
     Object.defineProperty(application, "name", { value: "stopMetrics" })
     emitter.on("SIGTERM", application)
     const httpServer = { close: vi.fn() }
-    const host = vi.fn(async () => { httpServer.close(); await close() })
-    Object.defineProperty(host, "name", { value: "shutdown" })
-    emitter.on("SIGTERM", host)
+    const host = addServerShutdown(emitter, async () => { httpServer.close(); await close() })
     await nextTimer()
 
     expect(emitter.listeners("SIGTERM")).toContain(application)
@@ -133,6 +152,32 @@ describe("onShutdown", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
     expect(application).toHaveBeenCalledWith("SIGTERM")
     expect(httpServer.close).toHaveBeenCalled()
+  })
+
+  it("drains and exits when the first drain registers after the server added its stop listener", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { emitter, exit, runtime } = fakeRuntime()
+    const { app, close } = fakeApp()
+    const closeServer = vi.fn(async (_signal: ShutdownSignal) => { await close() })
+    const cleanup = vi.fn()
+    function stop() { cleanup() }
+    emitter.on("SIGTERM", stop)
+    emitter.on("SIGINT", stop)
+    const host = addServerShutdown(emitter, closeServer)
+    const drain = vi.fn()
+    onShutdown(app, "agent.process-hosts", drain, runtime)
+    await nextTimer()
+
+    expect(shutdownState(runtime)).toMatchObject({ signals: true, trap: "installed" })
+    expect(emitter.listeners("SIGTERM")).toContain(stop)
+    expect(emitter.listeners("SIGTERM")).not.toContain(host)
+    expect(emitter.listeners("SIGINT")).not.toContain(host)
+    emitter.emit("SIGTERM", "SIGTERM")
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(drain).toHaveBeenCalledOnce()
+    expect(drain).toHaveBeenCalledBefore(closeServer)
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(closeServer).toHaveBeenCalledOnce()
   })
 
   it("does not handle signals outside a Node-compatible process", async () => {
@@ -195,8 +240,7 @@ describe("onShutdown", () => {
     const { app, close } = fakeApp()
     onShutdown(app, "broken", () => { throw Object.create(null) }, runtime)
     const closeServer = vi.fn(async () => { await close() })
-    Object.defineProperty(closeServer, "name", { value: "shutdown" })
-    emitter.on("SIGTERM", closeServer)
+    addServerShutdown(emitter, closeServer)
     await nextTimer()
 
     emitter.emit("SIGTERM", "SIGTERM")
@@ -216,8 +260,7 @@ describe("onShutdown", () => {
     const { emitter, exit, runtime } = fakeRuntime()
     const { app } = fakeApp()
     onShutdown(app, "host", async () => {}, runtime)
-    function shutdown() { throw new Error("server close failed") }
-    emitter.on("SIGINT", shutdown)
+    addServerShutdown(emitter, () => { throw new Error("server close failed") })
     await nextTimer()
 
     emitter.emit("SIGINT", "SIGINT")

@@ -114,7 +114,7 @@ function resolveDeclarations(options: EnvDeclarations, config: object): EnvDecla
 
 export type EnvVitePlugin = Plugin & {
   api: EnvVitePluginAPI
-  /** Contributes `vitehub env inspect`, `vitehub env check`, and the `env.inspect` operation. */
+  /** Contributes `vitehub env list`, `vitehub env check`, and the `env.inspect` operation. */
   vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
 
@@ -265,6 +265,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     },
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
+      // The Console, `vitehub env list --url <app>`, and agents run these on the signed RPC endpoint of the app.
       operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
     configEnvironment(name, config) {

@@ -220,7 +220,7 @@ const scheduleRecords = [
       { label: "Manual", value: "Enabled" },
       { label: "File", value: "server/schedules/nightly-digest.ts" },
       { label: "Source", value: "schedule" },
-      { label: "Runs", value: "Use `vitehub schedule runs nightly-digest` to list runs that this runtime recorded." },
+      { label: "Runs", value: "Use `vitehub schedule runs list nightly-digest` to list runs that this runtime recorded." },
     ],
     id: "definition:nightly-digest",
     runnable: true,

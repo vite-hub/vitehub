@@ -129,18 +129,18 @@ describe("generated operation commands", () => {
       description: "Read a file for redirection.",
       input: v.strictObject({}),
       kind: "read",
-      name: "workspace.show",
+      name: "workspace.get",
       run: () => ({ content }),
       section: "workspaces",
     })
     const options = { fetch: server("http://localhost:5173", {}, [show]), operations: [show] }
 
-    const result = await run(["workspace", "show"], options)
+    const result = await run(["workspace", "get"], options)
     expect(result.code).toBe(0)
     expect(result.stdout).toBe(content)
     expect(result.stderr).toBe("")
 
-    const json = await run(["workspace", "show", "--json"], options)
+    const json = await run(["workspace", "get", "--json"], options)
     expect(json.code).toBe(0)
     expect(JSON.parse(json.stdout)).toEqual({ content })
     expect(json.stdout.endsWith("\n")).toBe(true)

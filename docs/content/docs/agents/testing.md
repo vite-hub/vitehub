@@ -224,6 +224,10 @@ pnpm vitehub agent dev --agent support --prompt 'Summarize the support policy.'
 This checks discovery, the dev route, input preparation, Capability setup,
 the Driver, and streamed output together.
 
+To run this smoke test with no AI key, set `agent.models.emulate`. `vite dev`
+then starts the AI emulator, and model Driver Agents answer from your rules.
+See [Run on the AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
 `--timeout <milliseconds>` sets the stream inactivity timeout, for a long tool
 or provider turn that needs more time between events. It is not a deadline for
 the whole Invocation. With `--cli` or a direct Workspace command, `--timeout`
@@ -232,11 +236,11 @@ is a wall-clock command deadline instead.
 Before you debug model output, inspect the resolved Definition as JSON:
 
 ```bash
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get --agent support --json
 ```
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and
-metadata. `agent info` does not run the Driver. The
+metadata. `agent get` does not run the Driver. The
 [CLI reference](/docs/cli/agents#inspect-an-agent-definition) lists the
 route and authentication needs for a dev server.
 
@@ -252,7 +256,7 @@ so keep an Eval for tool choice.
 ## Check provider readiness
 
 Provider-backed Agents need a provider executable and an authentication path:
-local credentials, or a `gateway` that replaces them. `vitehub agent info` does
+local credentials, or a `gateway` that replaces them. `vitehub agent get` does
 not call the provider. To run the readiness probe, call the `status.get`
 operation of the Console endpoint for the Agent:
 
@@ -280,7 +284,7 @@ evidence. That does not prove a turn will fail.
 
 Fix the first layer that fails:
 
-1. `agent info` fails: fix discovery or Definition configuration.
+1. `agent get` fails: fix discovery or Definition configuration.
 2. `agent dev` cannot start: check the host route, authentication path,
    requirements, and Capability requirements.
 3. The Invocation starts but behaves wrong: add or update an Eval.

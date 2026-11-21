@@ -1,3 +1,5 @@
+export const sandboxTaskTypeTemplateFilename = 'runtime/sandbox-task.d.ts'
+
 export interface SandboxTaskTypeDefinition {
   handler: string
   kind: 'definition' | 'package-entry'

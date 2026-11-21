@@ -147,6 +147,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
+    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg.
+    ignoreBinaries: ["ffmpeg"],
     ignoreDependencies: [
       "nuxt-nightly",
       "@shikijs/langs",
@@ -207,6 +209,8 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        "scripts/lint/delete-comments.mjs",
+        "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",
         "test/package-metadata.mjs",
         "test/local/*.mjs",

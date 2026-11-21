@@ -7,7 +7,7 @@ import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } f
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { VITEHUB_FEATURES, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import { build as viteBuild, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
@@ -1768,6 +1768,57 @@ describe("hubSandboxTask", () => {
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
+  it("writes declarations before Nuxt writes the referenced tsconfig files", async () => {
+    const rootDir = await createViteRoot()
+    // A fresh clone of a Nuxt app: `nuxt prepare` writes `.nuxt/tsconfig.*.json` after the Vite hooks run.
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes: string = 'from helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "./notes"`,
+      `export default defineSandboxTask({ handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "serve" as const, mode: "development" }
+
+    // `nuxt dev` and `nuxt build` run after Nuxt writes the files, and keep reading the app's tsconfig.
+    await expect(prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })).rejects.toThrow(/TSCONFIG_ERROR/)
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(readdir(join(rootDir, ".vitehub/sandbox-task/runtime"))).resolves.toEqual(["sandbox-task.d.ts"])
+  })
+
+  it("leaves TypeScript path resolution to the runtime build and preserves the active runtime on prepare", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { "@helpers/*": ["./src/tools/*"] } } }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes = 'from aliased helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "@helpers/notes"`,
+      `export default defineSandboxTask({ project: false, handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "build" as const, mode: "production" }
+    const prepare = { env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } }
+    const runtimeDir = join(rootDir, ".vitehub/sandbox-task/runtime")
+    const bundle = join(runtimeDir, "sandbox-task-definitions/tools__release-notes.mjs")
+
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(lstat(bundle)).rejects.toMatchObject({ code: "ENOENT" })
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })
+    await expect(readFile(bundle, "utf8")).resolves.toContain("from aliased helper")
+
+    const facade = join(runtimeDir, "sandbox-task.mjs")
+    const activeRuntime = await readFile(facade, "utf8")
+    await writeFile(join(rootDir, "src/tools/next.sandbox-task.ts"), `export { default } from "./release-notes.sandbox-task"\n`)
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(facade, "utf8")).resolves.toBe(activeRuntime)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/next"')
   })
 
   it("keeps Windows definition fallbacks in the active runtime", async () => {

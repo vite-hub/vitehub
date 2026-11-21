@@ -1,14 +1,15 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
-import { join } from "pathe"
+import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
+import { shellQuote } from "../add.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
 import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand, untilInterrupted } from "./host.ts"
 
-import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, DeployRunResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 const valueFlags = new Set(["--config"])
 const plainFlags = new Set(["--containers-rollout=gradual"])
@@ -61,6 +62,12 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
  */
 export async function wranglerVarNames(outputDir: string): Promise<string[]> {
   const { config } = await readWranglerCommand(outputDir)
+  const wrangler = await readWranglerConfig(outputDir, config)
+  return isRecord(wrangler.vars) ? Object.keys(wrangler.vars) : []
+}
+
+/** The Wrangler config that the `--config` flag of `commands.deploy` names. */
+async function readWranglerConfig(outputDir: string, config: string): Promise<Record<string, unknown>> {
   const file = join(outputDir, config)
   let value: unknown
   try {
@@ -69,7 +76,47 @@ export async function wranglerVarNames(outputDir: string): Promise<string[]> {
   catch {
     throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
   }
-  return isRecord(value) && isRecord(value.vars) ? Object.keys(value.vars) : []
+  return isRecord(value) ? value : {}
+}
+
+interface D1Migrations {
+  binding: string
+  /** The migration file names, as Wrangler records them in the migrations table. */
+  files: string[]
+  table: string
+}
+
+/**
+ * The D1 bindings of the Wrangler config whose `migrations_dir` holds `.sql` files, except the bindings that the deploy
+ * command migrates. Wrangler reads `migrations_dir` relative to the config file, and its default pattern is `*.sql`
+ * without dot files. A binding with `migrations_pattern` selects other files, and ViteHub's build never writes one.
+ */
+async function unmigratedD1Bindings(outputDir: string, config: string, wrangler: Record<string, unknown>, migrated: readonly string[]): Promise<D1Migrations[]> {
+  const found: D1Migrations[] = []
+  for (const entry of Array.isArray(wrangler.d1_databases) ? wrangler.d1_databases : []) {
+    if (!isRecord(entry)) continue
+    const binding = optionalString(entry.binding)
+    const dir = optionalString(entry.migrations_dir)
+    if (!binding || !dir || entry.migrations_pattern !== undefined || migrated.includes(binding)) continue
+    const items = await readdir(join(outputDir, dirname(config), dir), { withFileTypes: true }).catch(() => [])
+    const files = items.filter(item => item.isFile() && item.name.endsWith(".sql") && !item.name.startsWith(".")).map(item => item.name).toSorted()
+    if (files.length) found.push({ binding, files, table: optionalString(entry.migrations_table) ?? "d1_migrations" })
+  }
+  return found
+}
+
+/** The `results` rows of `wrangler d1 execute --json`, which prints one `{ results, success, meta }` per statement. */
+function d1ResultNames(result: DeployRunResult): string[] | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(result.stdout.slice(Math.max(result.stdout.indexOf("["), 0)))
+  }
+  catch {
+    return undefined
+  }
+  if (!Array.isArray(value)) return undefined
+  return value.flatMap(item => isRecord(item) && Array.isArray(item.results) ? item.results : [])
+    .flatMap(row => isRecord(row) && typeof row.name === "string" ? [row.name] : [])
 }
 
 interface WranglerOutputEntry {
@@ -113,9 +160,39 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
   const run = (args: readonly string[], options: { stdin?: string, show?: boolean, env?: NodeJS.ProcessEnv, signal?: AbortSignal } = {}) =>
     context.run(wrangler[0], [...wrangler.slice(1), ...args], { cwd: context.outputDir, env: options.env ?? env, ...options })
 
+  /** The migrations of `target` that its migrations table does not list. A database without the table has none applied. */
+  const pendingD1Migrations = async (target: D1Migrations): Promise<string[]> => {
+    const query = async (sql: string) => {
+      const step = `wrangler d1 execute ${target.binding}`
+      const result = await run(["d1", "execute", target.binding, "--remote", "--config", command.config, "--json", "--command", sql], { env: { ...env, WRANGLER_LOG: "log" } })
+      if (result.exitCode !== 0) throw hostCliFailed(step, result, context.secrets)
+      const names = d1ResultNames(result)
+      if (!names) throw hostCliFailed(`${step} printed no JSON`, result, context.secrets)
+      return names
+    }
+    const tables = await query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${target.table.replaceAll("'", "''")}'`)
+    const applied = new Set(tables.length ? await query(`SELECT name FROM "${target.table.replaceAll('"', '""')}"`) : [])
+    return target.files.filter(file => !applied.has(file))
+  }
+
   return {
     async deploy(): Promise<DeployResult> {
       if (!context.preview && !context.temporary) {
+        // Without `database.migrateOnDeploy`, nothing applies the migrations of the build. New code on old tables
+        // answers every query that needs a new table or column with an error, so the deploy stops before it ships.
+        const wranglerConfig = await readWranglerConfig(context.outputDir, command.config)
+        const environment = env.CLOUDFLARE_ENV
+        const named = environment && isRecord(wranglerConfig.env) && Object.hasOwn(wranglerConfig.env, environment) ? wranglerConfig.env[environment] : undefined
+        const config = isRecord(named) ? named : wranglerConfig
+        for (const target of await unmigratedD1Bindings(context.outputDir, command.config, config, command.migrations)) {
+          const pending = await pendingD1Migrations(target)
+          if (!pending.length) continue
+          throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_D1_MIGRATIONS_PENDING({
+            apply: `npx wrangler d1 migrations apply ${shellQuote(target.binding)} --remote --config ${shellQuote(command.config)}${environment ? ` --env ${shellQuote(environment)}` : ""}`,
+            binding: target.binding,
+            migrations: pending.join(", "),
+          }), setupExitCodes.error)
+        }
         for (const binding of command.migrations) {
           const result = await run(["d1", "migrations", "apply", binding, "--remote", "--config", command.config], { show: true })
           if (result.exitCode !== 0) throw hostCliFailed(`wrangler d1 migrations apply ${binding}`, result, context.secrets)
