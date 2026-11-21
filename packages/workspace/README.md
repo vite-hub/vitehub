@@ -231,6 +231,35 @@ if (saved) {
 Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
 before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
 
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+`history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
+does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
+working ref:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
+Blob + Database checks `ifHead` atomically with ref deletion and also removes the
+ref's revisions and bytes that no other revision uses. GitHub only deletes the
+branch, so commits and bytes may still be readable by SHA. Its `ifHead` check
+happens before a separate, unconditional delete request.
+
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define. In a history commit, each hook gets
@@ -238,7 +267,7 @@ Workspace your package does not define. In a history commit, each hook gets
 that the commit changes. A hook can check all paths at once, and read the intent of
 the caller from the metadata, as Content reads `lease: "override"`.
 
-File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>-<generation>` Blob keys. Existing digest-only keys remain readable.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
 history object.
 Identical bytes share one object within a workspace. Database stores immutable
@@ -250,7 +279,8 @@ Normal file writes stage changes in instance memory until checkpoint or snapshot
 which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
-objects outside retained usage accounting until deletion. Pruning is not supported.
+objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
+one ref and the objects that no other revision uses.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).

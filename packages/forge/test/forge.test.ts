@@ -19,6 +19,23 @@ function privateKeys(type: "pkcs1" | "pkcs8") {
 }
 
 describe("internal Forge client", () => {
+  it("retries the bot user lookup after returning its plain noreply email", async () => {
+    let lookups = 0
+    const fetcher: typeof fetch = async (input, init) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/app") return Response.json({ id: 123, slug: "acme-bot" })
+      expect(path).toBe("/users/acme-bot%5Bbot%5D")
+      expect(new Headers(init?.headers).has("authorization")).toBe(false)
+      if (++lookups === 1) return Response.json({ message: "Bot user lookup failed" }, { status: 403 })
+      return Response.json({ id: 900 })
+    }
+    const credentials = githubAppCredentials({ appId: 123, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    expect(lookups).toBe(2)
+  })
+
   it("caches installation tokens and refreshes them when asked", async () => {
     const key = privateKeys("pkcs8")
     const fixture = fixtureFetch([
@@ -146,10 +163,12 @@ describe("internal Forge client", () => {
   it("resolves app metadata and installation ids", async () => {
     const fixture = fixtureFetch([
       { request: { method: "GET", url: "https://api.github.com/app" }, response: { status: 200, body: { id: 12, slug: "vitehub" } } },
+      { request: { method: "GET", url: "https://api.github.com/users/vitehub%5Bbot%5D" }, response: { status: 404, body: { message: "Not Found" } } },
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" }, response: { status: 200, body: { id: 33 } } },
     ])
     const credentials = githubAppCredentials({ appId: 12, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
-    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]" })
+    // Without the bot user's ID, the commit email keeps the plain noreply form.
+    await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]", email: "vitehub[bot]@users.noreply.github.com" })
     await expect(credentials.installation("acme/app")).resolves.toBe(33)
   })
 

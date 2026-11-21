@@ -476,7 +476,8 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
         return {
           definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }],
-          resources: () => inspectKVResources(options, projectRoot),
+          // The build's host decides the driver of a store without one, so use it here too.
+          resources: () => inspectKVResources(options, projectRoot, process.env, input.hosting),
         }
       },
       // The Console, `vitehub kv`, and agents run these.

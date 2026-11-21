@@ -94,4 +94,4 @@ The server checks in this order, and each refusal is `401` with a code and a fix
 | `CONSOLE_SIGNATURE_INVALID` | The signature does not match: another key, another path, another person, or a malformed header. |
 | `CONSOLE_SIGNATURE_BODY` | The body is not the body that was signed. |
 
-A `401` carries `WWW-Authenticate: VitehubSignature realm="vitehub-console"`. With no key variable set, every signed request and every request to a deployment gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`, and with one that is not a key, `500` with `CONSOLE_KEY_MALFORMED`, naming the variable.
+A `401` carries `WWW-Authenticate: VitehubSignature realm="vitehub-console"`. With no key variable set, every signed request and every request to a deployment gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`, and with one that is not a key, `500` with `CONSOLE_KEY_MALFORMED`, naming the variable. Each of these `500` answers, and `500 CONSOLE_SIGNATURE_ORIGIN`, also prints the diagnostic in the server log of the app, so you can find the cause on the host.

@@ -196,7 +196,7 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 }
 
 /**
- * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
+ * Answers `GET <base>/_vitehub/page/tools`: the tools whose `allowed` check passes for this visitor, in registration
  * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
  * each tool `script` path gets it. When at least one tool is allowed, the answer also has the `account` of a signed-in
  * visitor, from the reader of `registerViteHubPageAccount()`. An anonymous visitor never gets one. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
@@ -233,7 +233,7 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
 }
 
 /**
- * The route of `GET /_vitehub/page/session`: a Fetchable (https://fetchable.org). `installViteHubPageTools()` binds
+ * The route of `GET /_vitehub/page/tools`: a Fetchable (https://fetchable.org). `installViteHubPageTools()` binds
  * each Request to its app in Nitro's `request` hook, so the route finds the tools of that app.
  */
 export const viteHubPageSessionHandler: { fetch(request: Request): Promise<Response> } = {

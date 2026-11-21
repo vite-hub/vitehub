@@ -296,8 +296,8 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     comark-chat:
-      specifier: 0.10.1
-      version: 0.10.1
+      specifier: 0.12.1
+      version: 0.12.1
     forges:
       specifier: 0.3.1
       version: 0.3.1
@@ -1346,6 +1346,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
+      evlog:
+        specifier: 2.33.1
+        version: 2.33.1(f809258006af007a1a1d72a56baa9cd6)
       happy-dom:
         specifier: 20.14.5
         version: 20.14.5
@@ -2992,6 +2995,9 @@ importers:
         specifier: 0.1.0-beta.5
         version: 0.1.0-beta.5(patch_hash=adb5277f9c1b1544204e0b00bc25033fd3b2bf92eb434d11d95d05308be6ff99)(@nuxt/kit@4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.5(patch_hash=e7325911ed26723bca08375c301e23a4433268c7440f98a346a985086404e1d1))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))
     devDependencies:
+      '@cfworker/json-schema':
+        specifier: 4.1.1
+        version: 4.1.1
       '@fontsource-variable/geist':
         specifier: catalog:ui
         version: 5.3.0
@@ -3352,6 +3358,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      evlog:
+        specifier: 2.33.1
+        version: 2.33.1(f809258006af007a1a1d72a56baa9cd6)
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
@@ -3916,7 +3925,7 @@ importers:
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
       comark-chat:
         specifier: 'catalog:'
-        version: 0.10.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
+        version: 0.12.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       katex:
         specifier: ^0.19.1
         version: 0.19.1
@@ -12953,8 +12962,8 @@ packages:
       vue:
         optional: true
 
-  comark-chat@0.10.1:
-    resolution: {integrity: sha512-A/bUsLbo/4ypmzS9Yg6qH4qgHbEElOnK/mptnC2nn+2upmCTVq065QsoneTGewVn6dh0U8A0ftJG2rsAGsqAuQ==}
+  comark-chat@0.12.1:
+    resolution: {integrity: sha512-Ii86mmbCyEDZvmzbYm8EFi/JpmGF9Dca8ASHuG1BxXRHt8jo8L6ocSwkEfy8eTQ619lyBcXJc/tTQ8XjR+sceg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/react': ^0.9.0
@@ -32173,7 +32182,7 @@ snapshots:
       - echarts
       - plotly.js
 
-  comark-chat@0.10.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
+  comark-chat@0.12.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
     optionalDependencies:
       '@comark/vue': 0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
       react: 19.2.6

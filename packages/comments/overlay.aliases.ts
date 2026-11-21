@@ -16,5 +16,6 @@ export const overlayAliases = [
   { find: /^@vite-hub\/ui\/standalone\/(.+)$/, replacement: `${resolve(ui, "src/standalone")}/$1` },
   { find: /^@vite-hub\/ui\/comments$/, replacement: resolve(ui, "src/comments.ts") },
   { find: /^@vite-hub\/ui\/headless$/, replacement: resolve(ui, "src/headless.ts") },
+  { find: /^@vite-hub\/ui\/motion$/, replacement: resolve(ui, "src/motion.ts") },
   { find: /^@vite-hub\/comments\/client$/, replacement: resolve(root, "src/client.ts") },
 ]

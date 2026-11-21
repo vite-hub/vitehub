@@ -5,7 +5,6 @@ import type { Codemod, CodemodContext, CodemodResult } from "../types.ts"
 
 /** `get` reads one record and `list` reads many. Each entry rewrites the start of the arguments after `vitehub `. */
 const renames: ReadonlyArray<[RegExp, string]> = [
-  [/^agent\s+info(?=\s|$)/, "agent get"],
   [/^agent\s+invocations\s+show(?=\s|$)/, "agent invocations get"],
   [/^content\s+show(?=\s|$)/, "content get"],
   [/^email\s+outbox\s+show(?=\s|$)/, "email outbox get"],
@@ -22,6 +21,11 @@ function unquote(word: string): string {
 
 function rewrite(args: string, words: readonly ShellWord[]): string | { message: string } {
   const [namespace, command, subcommand] = words.map(word => word.text)
+  if (namespace === "agent" && command === "info") {
+    const end = words[1]!.start + command.length
+    const hasUrl = words.slice(2).some(word => /^--url(?:=|$)/.test(unquote(word.text)))
+    return `agent get${hasUrl ? " --dev" : ""}${args.slice(end)}`
+  }
   if (namespace === "definitions" && command === "list") {
     return { message: "`definitions list` was removed. Use `vitehub inspect definitions --kind <kind>` for local definitions, or the Console for runtime records." }
   }

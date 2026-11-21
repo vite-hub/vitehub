@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createTraceEventLog, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "../src/index.ts"
+import { createTraceEventLog } from "../src/index.ts"
+import { traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "../src/internal/trace.ts"
 
 describe("trace attribute projection", () => {
   it.each(["metadata", "content"] as const)("does not execute nested accessors when exporting a %s log as metadata", async (content) => {

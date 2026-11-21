@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import { distributionEntriesFromManifest } from "../vite.config.ts"
+import { renamedForwarders } from "./forwarder-owners.ts"
 
 const packageRoot = new URL("../", import.meta.url)
 const manifest: { dependencies: Record<string, string>, exports: Record<string, unknown>, peerDependencies: Record<string, string> }
@@ -15,7 +16,7 @@ const ownerPackages = new Set(Object.keys({ ...manifest.dependencies, ...manifes
 const facades = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
   const path = subpath.replace(/^\.\/?/, "")
   if (!path || !ownerPackages.has(`@vite-hub/${path.split("/")[0]}`)) return []
-  return distributionEntriesFromManifest(target).map(source => ({ owner: `@vite-hub/${path}`, source, subpath: `vite-hub/${path}` }))
+  return distributionEntriesFromManifest(target).map(source => ({ owner: renamedForwarders.get(subpath) ?? `@vite-hub/${path}`, source, subpath: `vite-hub/${path}` }))
 })
 
 /** The lines that a facade may contain: it re-exports its owner, and the owner's default export when it has one. */

@@ -76,6 +76,8 @@ export default defineAuth({
 
 The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module, or a file that it imports with a relative path, imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. When the SQLite Database has some of the tables already, for example an app that wrote the Better Auth tables itself, the plugin reads them from the snapshot of the latest migration, and `createAuthSqliteSchema(options, existing)` keeps their column defaults, unique keys, indexes, and foreign keys. The next migration then adds columns, tables, and indexes and rebuilds no table, so the drop of a rebuild cannot delete the rows that reference `user` or `organization`. The tables of `authSqliteSchema` and `authPostgresSchema` have typed columns. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
+Use `useDatabase().schema` to query the generated plugin tables and your `additionalFields`. The generated SQLite column types also reflect the migration snapshot's nullability and defaults. Use `authSqliteSchema` and `authPostgresSchema` for foreign keys to core tables such as `user` and `organization`.
+
 ## Delete an account
 
 ```ts
@@ -627,6 +629,10 @@ Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a
 - Use `authDatabase()` and apply its migration, configure another Better Auth database adapter, or use `stateless()` for social sign-in without a database.
 - Protect application routes and the Console endpoint explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
+
+## Auth outcomes in request logs
+
+With the evlog Nitro module registered, each request's wide event gets an `auth` field: `{ outcome, path?, provider?, status?, code?, userId? }`. `outcome` is `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, such as a failed OAuth callback that the browser only sees as a redirect with `?error=`, and `refused` for a refusal of an Auth guard. `code` is Better Auth's error code, the OAuth `error`, or `SIGNED_OUT` / `FORBIDDEN`. Better Auth's warnings and errors also go on the event; the app's own `logger` option still gets every message. The event never holds an email address, a token, or a URL query. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/auth/server-api#see-auth-outcomes-on-each-request).
 
 ## Passwords in a WebContainer
 

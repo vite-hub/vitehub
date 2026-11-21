@@ -10,7 +10,8 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeHandler, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, restoreRealtimeDocument, workspaceDocument } from "../src/server.ts"
+import { createRealtimeHandler, workspaceDocument } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, restoreRealtimeDocument } from "../src/internal/server.ts"
 import { workspaceDocument as packagedWorkspaceDocument } from "../dist/server.js"
 import { realtimeMarkdownEditor } from "../src/editor.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
@@ -763,8 +764,11 @@ describe("realtime server handler", () => {
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
 
-    expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
-    expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
+    // The server drops the frames of a peer that it closed, so the next case needs its own peer.
+    const awarenessPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(awarenessPeer)
+    expect(() => response.crossws.message(awarenessPeer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
+    expect(awarenessPeer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
   it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {

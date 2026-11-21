@@ -120,8 +120,14 @@ async function sample(page, testId) {
   return { stop: () => page.evaluate(() => window.stopSample()) }
 }
 
+/** The box of an element after it is scrolled into view, so the mouse can reach it on a page that grows with each unit. */
+async function boxInView(locator) {
+  await locator.scrollIntoViewIfNeeded()
+  return locator.boundingBox()
+}
+
 async function pointerDown(page, testId) {
-  const box = await page.locator(`[data-test="${testId}"]`).boundingBox()
+  const box = await boxInView(page.locator(`[data-test="${testId}"]`))
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
 }
@@ -279,7 +285,7 @@ describe("press by role", async () => {
     }
     for (const selector of ["button[role=tab]", "button[role=checkbox]", "button[role=radio]"]) {
       const element = page.locator(selector).first()
-      const box = await element.boundingBox()
+      const box = await boxInView(element)
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
       await page.mouse.down()
       const squashed = await element.evaluate(node => new Promise((resolve) => {
@@ -374,7 +380,7 @@ describe("press by role", async () => {
   test("a button in a shadow root gets the press", async () => {
     const { context, page } = await open()
     const button = page.locator("motion-shadow-button button")
-    const box = await button.boundingBox()
+    const box = await boxInView(button)
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await waitForScale(page, "shadow", scale => scale < 0.99)
