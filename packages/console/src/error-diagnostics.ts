@@ -12,5 +12,9 @@ export const consoleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Add the key that sealed the value to VITEHUB_CONSOLE_ENV_KEYS after the current key, such as `VITEHUB_CONSOLE_ENV_KEYS=<current key>,<old key>`, in place of VITEHUB_CONSOLE_ENV_KEY, and restart the Console. If the old key is lost, set the value again.",
       why: ({ name, stage }: { name?: unknown, stage?: unknown }) => `A key that this Console does not have sealed ${String(name)} of ${String(stage)}, so it cannot open the value. VITEHUB_CONSOLE_ENV_KEY or VITEHUB_CONSOLE_ENV_KEYS does not hold that key.`,
     },
+    CONSOLE_FORWARD_RATE_LIMITED: {
+      fix: "Wait the seconds in the Retry-After header, then send the call again. A script or an Agent that calls the app through the Console must wait between calls.",
+      why: ({ limit, retryAfter }: { limit?: unknown, retryAfter?: unknown }) => `You sent ${String(limit)} calls to this app through the Console in one minute, which is the most that the Console sends for one person. The next call can go in ${String(retryAfter)} seconds.`,
+    },
   },
 })

@@ -34,7 +34,6 @@ describe("Comments activation from the Console", () => {
       const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
       expect(generated).toContain('"kind":"operation-view"')
       expect(generated).toContain('"operation":"comments.list"')
-      expect(generated).not.toContain('"visit":')
       expect(generated).not.toContain("readCommentsConsoleRecords")
     }
     finally {
@@ -79,10 +78,8 @@ describe("Comments activation from the Console", () => {
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
       const route = config.nitro!.handlers.find(handler => handler.route.endsWith("/comments/**"))!.route.slice(0, -3)
-      expect(route).toBe(`${mount}/api/_vitehub/comments`)
-      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
-      expect(generated).not.toContain('"visit":')
-      expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
+      expect(route).toBe(`${mount}/_vitehub/comments`)
+      expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/tools` })]))
 
       // The hosted Console opens no page session of the app. Comments keeps its own route.
       const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -92,7 +89,7 @@ describe("Comments activation from the Console", () => {
       vi.stubGlobal("fetch", fetch)
       setConsoleProject({ origin: "", base: mount })
       await loadConsoleNavigation(`/_vitehub/api/sections?${encodeURIComponent(root)}`)
-      expect(fetch.mock.calls.map(([url]) => url)).not.toContain(`${mount}/_vitehub/page/session`)
+      expect(fetch.mock.calls.map(([url]) => url)).not.toContain(`${mount}/_vitehub/page/tools`)
     }
     finally {
       setConsoleProject(pageProject)

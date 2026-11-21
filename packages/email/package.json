@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/email",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -39,10 +39,15 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./drivers/cloudflare-email": {
-      "types": "./dist/drivers/cloudflare-email.d.ts",
-      "import": "./dist/drivers/cloudflare-email.js",
-      "default": "./dist/drivers/cloudflare-email.js"
+    "./drivers/cloudflare": {
+      "types": "./dist/drivers/cloudflare.d.ts",
+      "import": "./dist/drivers/cloudflare.js",
+      "default": "./dist/drivers/cloudflare.js"
+    },
+    "./drivers/log": {
+      "types": "./dist/drivers/log.d.ts",
+      "import": "./dist/drivers/log.js",
+      "default": "./dist/drivers/log.js"
     },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",
@@ -84,7 +89,6 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "birpc": "catalog:runtime",
-    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
@@ -92,6 +96,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -107,6 +112,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

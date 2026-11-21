@@ -306,9 +306,11 @@ describe("kv runtime", () => {
     upstashSetIfAbsent.mockResolvedValueOnce(false)
     expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1))).toBe(false)
     expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", undefined)
+    expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1, { ttl: "2m" }))
+    expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", 120)
 
     expect((await kv.setIfAbsent("uploads/ticket", 1, { ttl: 0 }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
-    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(2)
+    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(3)
   })
 
   it("returns invalid arguments as KV results", async () => {
@@ -329,13 +331,28 @@ describe("kv runtime", () => {
     expect(upstashEval).not.toHaveBeenCalled()
   })
 
+  it("rejects a legacy clear argument without deleting any keys", async () => {
+    process.env.VITEHUB_HOST = "local"
+    fsLiteDriver = createDriverWithoutOptionalMethods()
+    const { kv } = await import("../src/runtime/storage.ts")
+    expectKVSuccess(await kv.set("drafts:1", true))
+    expectKVSuccess(await kv.set("settings:1", true))
+
+    // @ts-expect-error Exercise a legacy JavaScript caller.
+    const [error] = await kv.clear("drafts")
+    expect(error).toMatchObject({ code: "KV_INVALID_CLEAR_OPTIONS" })
+    expect(expectKVSuccess(await kv.get("drafts:1"))).toBe(true)
+    expect(expectKVSuccess(await kv.get("settings:1"))).toBe(true)
+  })
+
   it("accepts only a positive ttl as a set() option", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
     const { kv } = await import("../src/runtime/storage.ts")
 
     expectKVSuccess(await kv.set("session", "value", { ttl: 60 }))
-    for (const ttl of [0, -1, Number.NaN]) expect((await kv.set("session", "value", { ttl }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    expectKVSuccess(await kv.set("session", "value", { ttl: "1h" }))
+    for (const ttl of [0, -1, Number.NaN, "0s", "60", "soon"]) expect((await kv.set("session", "value", { ttl: ttl as never }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
     // SAFETY: A JavaScript caller can pass options that the type rejects.
     const cloudflareOptions = { expirationTtl: 60 } as { ttl?: number }
     expect((await kv.set("session", "value", cloudflareOptions))[0]).toMatchObject({
@@ -427,7 +444,7 @@ describe("kv runtime", () => {
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     })
 
@@ -470,7 +487,7 @@ describe("kv runtime", () => {
     const driver = createLazyKVRuntimeDriver({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     }) as Driver & Record<string, unknown>
 

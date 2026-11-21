@@ -63,7 +63,7 @@ A record looks like this:
   "crops": { "mobile": { "aspect": "4:5" } },
   "createdAt": "2026-10-14T15:38:53.716Z",
   "updatedAt": "2026-10-14T15:38:53.716Z",
-  "url": "/api/_vitehub/blob/posts/cover.jpg"
+  "url": "/_vitehub/blob/posts/cover.jpg"
 }
 ```
 
@@ -131,9 +131,9 @@ An `image()` field or other stored pathname still points at the old path after a
 The serve route reads variant parameters from the query string. Without them, it serves the original.
 
 ```text
-/api/_vitehub/blob/posts/cover.jpg?w=640
-/api/_vitehub/blob/posts/cover.jpg?w=256&h=256
-/api/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
+/_vitehub/blob/posts/cover.jpg?w=640
+/_vitehub/blob/posts/cover.jpg?w=256&h=256
+/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
 ```
 
 | Parameter | Values | Default |
@@ -179,7 +179,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       serve: { access: 'public' },
       images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
@@ -198,7 +198,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
@@ -218,7 +218,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
@@ -253,7 +253,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       serve: { access: 'public' },
       images: { transformer: 'photon' },
     },
@@ -272,7 +272,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
@@ -292,7 +292,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
@@ -420,7 +420,7 @@ export default defineNuxtConfig({
 </template>
 ```
 
-The `src` is the Blob pathname, or the `url` of a media record. The example requests `/api/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
 
 | Modifier | Parameter |
 | --- | --- |
@@ -446,7 +446,7 @@ References stay portable in Markdown frontmatter and JSON. An alt-text fix in th
 
 The media library edits folders, uploads, alt text, focal points, and crops, and has a picker for `image()` fields and Markdown images.
 
-When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/console/access#grant-one-blob-store).
 
 ## Storage layout
 

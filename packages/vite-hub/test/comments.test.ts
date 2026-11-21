@@ -130,11 +130,11 @@ describe("comment operations over the Console RPC", () => {
     await setup(defineComments({ authorize }))
     const thread = await create()
     // `create` has no thread yet, so it gets the subject that the thread starts on.
-    expect(authorize).toHaveBeenCalledWith({ action: "write", subject: page, user: ana })
+    expect(authorize).toHaveBeenCalledWith({ console: true, action: "write", subject: page, user: ana })
     await value("comments.resolve", { threadId: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
     await value("comments.get", { id: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
   })
 
   it("filters the list by what authorize lets the user read", async () => {
@@ -354,7 +354,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(await transport.delete({ threadId: thread.id })).toBeNull()
     expect(transport.subscribe).toBeUndefined()
     await expect(transport.get({ id: "x" })).resolves.toBeNull()
-    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", name: "CommentsRpcError", status: 404 })
+    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", fix: expect.stringMatching(/\S/), status: 404 })
   })
 })
 

@@ -113,6 +113,21 @@ describe("DocsMarkdown", () => {
     expect(html.match(/<script\b/g)).toHaveLength(1)
   })
 
+  it("draws the screenshots of a compare inside its carousel", async () => {
+    const shot = (name: string) => `:::screenshot{src="/${name}.png" alt="${name} toolbar" viewport="900x360"}\n::::annotation{x=10 y=20 w=30 h=10}\nThe ${name} toolbar.\n::::\n:::\n`
+    const document = await parseMarkdown(`::compare\n${shot("before")}\n${shot("after")}::\n`)
+    const fallback = vue.defineComponent({
+      props: ["html", "block"],
+      setup: props => () => vue.h("div", { "data-block": props.block, innerHTML: props.html }),
+    })
+    const html = await renderToString(vue.createSSRApp(renderer({}, { ComarkHtml: fallback }), { document }))
+    const compare = html.slice(html.indexOf('data-block="compare"'))
+
+    expect(compare.match(/<img\b/g)).toHaveLength(2)
+    expect(compare).toContain('alt="before toolbar"')
+    expect(compare).toContain("The after toolbar.")
+  })
+
   it("keeps the HTML of a chart with a note, whose Vue component draws no marks", async () => {
     const document = await parseMarkdown("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n:::annotation{at=\"tue\" mark=\"circle\"}\nRelease day.\n:::\n::\n")
     const fallback = vue.defineComponent({
@@ -152,7 +167,7 @@ describe("DocsMarkdown", () => {
     const page = readDocsSeoPage("/", html, "https://docs.example.com")
     expect(page.h1).toBe(1)
     expect(page.headingSkip).toBeNull()
-    expect(docsSeoProblems([page], [])).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
+    expect(docsSeoProblems([page], []).map(problem => problem.message)).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
   })
 
   it("renders example headings without duplicating page anchors", async () => {

@@ -1,7 +1,7 @@
 import { destr } from "destr"
 import { normalizeKey } from "unstorage"
 
-import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
+import type { KVPageOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createLazyKVRuntimeDriver, type KVDatabasesLoader } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
@@ -19,7 +19,7 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
   getMany<T = unknown>(keys: readonly string[], options?: unknown): Promise<(T | null)[]>
   incrementItem?(key: string, ttl: number): Promise<number>
-  listKeys(options: KVListOptions): Promise<KVListPage>
+  listKeys(options: KVPageOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
@@ -34,7 +34,6 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
 
 function deserializeValue(value: unknown) {
   if (typeof value !== "string") return value
-  // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This is the decoder used by unstorage's ordinary read path.
   return destr(value)
 }
 
@@ -72,7 +71,7 @@ export function kvRemoteNotice(name: string, store: ResolvedKVStoreConfig): stri
   if (store.driver === "upstash" && store.remote) {
     return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Upstash database. Writes change real data.`
   }
-  if (store.driver === "cloudflare-kv-binding" && store.remote) {
+  if (store.driver === "cloudflare" && store.remote) {
     const namespace = store.namespaceId ? ` ${store.namespaceId}` : ""
     return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Cloudflare KV namespace${namespace} through the \`${store.binding}\` binding. Writes change real data.`
   }
@@ -92,7 +91,6 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   const notice = kvRemoteNotice(name, store)
   if (notice) console.warn(notice)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } }, loadDatabases)
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
   // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
   const storage = createKVStorage(driver) as unknown as RuntimeStorage
   storage.listKeys = options => driver.listKeys({ ...options, prefix: normalizeKVListPrefix(options.prefix) })

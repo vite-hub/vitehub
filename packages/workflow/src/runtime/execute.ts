@@ -1,29 +1,129 @@
-import type { WorkflowDefinition, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
-import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
+import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
+import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
-const defaultStepOptions = {
-  retries: {
-    backoff: "exponential",
-    delay: "10 seconds",
-    limit: 3,
-  },
-} satisfies WorkflowStepOptions
+/** The options of a step with the default retries filled in. */
+export interface ResolvedWorkflowStepOptions {
+  retries: Required<WorkflowStepRetries>
+  timeout?: WorkflowDuration
+}
+
+const defaultRetries = {
+  backoff: "exponential",
+  delay: "10 seconds",
+  limit: 3,
+} satisfies Required<WorkflowStepRetries>
+
+const stepOptionKeys = new Set(["retries", "timeout"])
+const retryOptionKeys = new Set(["backoff", "delay", "limit"])
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Checks the options of a step and fills in the default retries. A step file, `context.step.do()`, and every provider
+ * read the options through this function, so an invalid value fails the same way everywhere.
+ */
+export function resolveWorkflowStepOptions(step: string, options: unknown): ResolvedWorkflowStepOptions {
+  const invalid = (option: string, value: unknown) => workflowErrorDiagnostics.WORKFLOW_STEP_OPTIONS_INVALID({
+    option,
+    step,
+    value: typeof value === "string" ? JSON.stringify(value) : String(value),
+  })
+  if (options === undefined) return { retries: { ...defaultRetries } }
+  if (!isPlainObject(options)) throw invalid("options", options)
+  for (const key of Object.keys(options)) if (!stepOptionKeys.has(key)) throw invalid(key, options[key])
+
+  const retries = options.retries ?? {}
+  if (!isPlainObject(retries)) throw invalid("retries", retries)
+  for (const key of Object.keys(retries)) if (!retryOptionKeys.has(key)) throw invalid(`retries.${key}`, retries[key])
+  const { backoff = defaultRetries.backoff, delay = defaultRetries.delay, limit = defaultRetries.limit } = retries
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0) throw invalid("retries.limit", limit)
+  if (toDurationMilliseconds(delay) === undefined) throw invalid("retries.delay", delay)
+  if (backoff !== "constant" && backoff !== "exponential") throw invalid("retries.backoff", backoff)
+
+  const timeout = options.timeout
+  if (timeout !== undefined && !toDurationMilliseconds(timeout)) throw invalid("timeout", timeout)
+  // SAFETY: `toDurationMilliseconds` accepts only a number or a duration string, so `delay` and `timeout` are durations.
+  return { retries: { backoff, delay: delay as WorkflowDuration, limit }, ...(timeout === undefined ? {} : { timeout: timeout as WorkflowDuration }) }
+}
+
+/** Calls `callback` after `milliseconds`, also when that is longer than one Node timer can wait. Returns a cancel function. */
+function onTimeout(milliseconds: number, callback: () => void): () => void {
+  const deadline = Date.now() + milliseconds
+  let timer: ReturnType<typeof setTimeout>
+  const arm = () => {
+    timer = setTimeout(() => Date.now() >= deadline ? callback() : arm(), Math.min(Math.max(deadline - Date.now(), 0), maxTimerDelay))
+  }
+  arm()
+  return () => clearTimeout(timer)
+}
+
+/**
+ * Runs one attempt of a step. When `timeout` passes, the step's `signal` aborts and the attempt fails with
+ * `WORKFLOW_STEP_TIMEOUT`, so the provider retries it. A step that ignores the signal keeps running in the background:
+ * JavaScript cannot stop a promise.
+ */
+export async function runWorkflowStepAttempt<TResult>(
+  step: string,
+  timeout: WorkflowDuration | undefined,
+  run: (context: WorkflowStepContext) => TResult | Promise<TResult>,
+): Promise<TResult> {
+  const controller = new AbortController()
+  const milliseconds = timeout === undefined ? undefined : toDurationMilliseconds(timeout)
+  if (milliseconds === undefined) return await run({ signal: controller.signal })
+
+  const label = typeof timeout === "number" ? `${timeout} ms` : String(timeout)
+  let cancel = () => {}
+  const expired = new Promise<never>((_resolve, reject) => {
+    cancel = onTimeout(milliseconds, () => {
+      const error = workflowErrorDiagnostics.WORKFLOW_STEP_TIMEOUT({ step, timeout: label })
+      controller.abort(error)
+      reject(error)
+    })
+  })
+  try {
+    return await Promise.race([Promise.resolve().then(() => run({ signal: controller.signal })), expired])
+  }
+  finally {
+    cancel()
+  }
+}
+
+const timedAttempts = new WeakSet<() => unknown>()
+
+/** Adds a timeout once, including when a provider receives an already wrapped folder step. */
+export function withWorkflowStepTimeout<TResult>(
+  name: string,
+  timeout: WorkflowDuration | undefined,
+  run: () => TResult | Promise<TResult>,
+): () => TResult | Promise<TResult> {
+  if (timeout === undefined || timedAttempts.has(run)) return run
+  const attempt = () => runWorkflowStepAttempt(name, timeout, run)
+  timedAttempts.add(attempt)
+  return attempt
+}
 
 export async function runProviderStep<TResult>(
   step: WorkflowProviderContext["step"],
   name: string,
-  run: () => TResult | Promise<TResult>,
-  options: WorkflowStepOptions = defaultStepOptions,
+  run: (context: WorkflowStepContext) => TResult | Promise<TResult>,
+  options?: WorkflowStepOptions,
 ): Promise<TResult> {
+  const resolved = resolveWorkflowStepOptions(name, options)
+  // The provider runs this function for each attempt. Cloudflare also enforces `timeout` itself; elsewhere only this
+  // timer does. An inline run does not retry, and it keeps the time limit too.
+  const attempt = () => runWorkflowStepAttempt(name, resolved.timeout, run)
+  timedAttempts.add(attempt)
   if (typeof step?.do === "function") {
-    return await step.do(name, options, run)
+    return await step.do(name, resolved, attempt)
   }
 
   const recorder = getWorkflowDevRecorder()
-  return recorder ? await recorder.step(name, run) : await run()
+  return recorder ? await recorder.step(name, attempt) : await attempt()
 }
 
 /** `01.create-user.ts` becomes the `createUser` step. */
@@ -39,8 +139,8 @@ export function toStepPropertyName(file: string): string {
 
 export function createWorkflowSteps(
   context: WorkflowProviderContext,
-  stepModules: Array<{ name: string, run: WorkflowStepFunction }>,
-): Record<string, WorkflowStepFunction> {
+  stepModules: Array<{ name: string, options?: WorkflowStepOptions, run: WorkflowStepFunction }>,
+): Record<string, (input: unknown) => Promise<unknown>> {
   const names = new Map<string, string>()
   return Object.fromEntries(stepModules.map((module) => {
     const propertyName = toStepPropertyName(module.name)
@@ -61,7 +161,8 @@ export function createWorkflowSteps(
       async (input: unknown) => await runProviderStep(
         context.step,
         `${context.name}/${module.name}`,
-        () => module.run(input),
+        stepContext => module.run(input, stepContext),
+        module.options,
       ),
     ]
   }))
@@ -80,6 +181,15 @@ const durationUnits = {
 
 const durationPattern = /^(\d+(?:\.\d+)?) (second|minute|hour|day|week|month|year)s?$/
 
+/** The milliseconds of a `WorkflowDuration`: a number of 0 or more, or a string such as `'30 seconds'`. */
+export function toDurationMilliseconds(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : undefined
+  if (typeof value !== "string") return undefined
+  const match = durationPattern.exec(value)
+  // SAFETY: The pattern only matches the unit names of `durationUnits`.
+  return match ? Number(match[1]) * durationUnits[match[2] as WorkflowDurationUnit] : undefined
+}
+
 /** A sleep target: a number of milliseconds, or a date. */
 function toSleepTarget(name: string, until: unknown): number | Date {
   if (Object.prototype.toString.call(until) === "[object Date]") {
@@ -87,13 +197,9 @@ function toSleepTarget(name: string, until: unknown): number | Date {
     const date = new Date((until as Date).getTime())
     if (Number.isFinite(date.getTime())) return date
   }
-  else if (typeof until === "number") {
-    if (Number.isFinite(until) && until >= 0) return until
-  }
-  else if (typeof until === "string") {
-    const match = durationPattern.exec(until)
-    // SAFETY: The pattern only matches the unit names of `durationUnits`.
-    if (match) return Number(match[1]) * durationUnits[match[2] as WorkflowDurationUnit]
+  else {
+    const milliseconds = toDurationMilliseconds(until)
+    if (milliseconds !== undefined) return milliseconds
   }
   const value = typeof until === "string" ? JSON.stringify(until) : String(until)
   throw workflowErrorDiagnostics.WORKFLOW_SLEEP_DURATION_INVALID({ name, value })
@@ -134,7 +240,9 @@ function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext
  * their step files. The context keeps the provider step at runtime, so the generated step runner can use it.
  */
 function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"]): WorkflowExecutionContext<TPayload> {
-  return { ...context, sleep, steps: {} }
+  // SAFETY: `WorkflowSteps` types the steps of every folder Workflow. A Workflow without step files has none, and the
+  // generated entry of a folder Workflow replaces this object with its own steps.
+  return { ...context, sleep, steps: {} as WorkflowExecutionContext["steps"] }
 }
 
 /** The root step result that says the handler called `context.sleep()`. A replay reads it and fails the same way. */
@@ -174,8 +282,8 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   definition: WorkflowDefinition<TPayload, TResult>,
   encode: (value: TResult) => TOutput | Promise<TOutput>,
 ): Promise<TOutput> {
-  if (definition.options?.rootStep === false) {
-    return await encode(await definition.handler(context.payload, toExecutionContext(context, createSleep(context))))
+  if (definition.rootStep === false) {
+    return await encode(await definition.handler(toExecutionContext(context, createSleep(context))))
   }
 
   let slept = false
@@ -186,7 +294,7 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   }
   const output = await runProviderStep(context.step, context.name, async () => {
     try {
-      const value = await encode(await definition.handler(context.payload, toExecutionContext(context, sleep)))
+      const value = await encode(await definition.handler(toExecutionContext(context, sleep)))
       return slept ? rootStepSleepResult : value
     }
     catch (error) {

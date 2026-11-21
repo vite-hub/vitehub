@@ -90,7 +90,7 @@ export async function rerunFailedActions(
       await inbox.setMeta(metadataKey, { status: "pending", runId: run.runId, headSha, runAttempt: current.run_attempt, attemptedAt: now });
       fenced = true;
       const endpoint = current.conclusion === "cancelled" ? "rerun" : "rerun-failed-jobs";
-      // forges CI is read-only, so it cannot rerun a workflow run.
+      // forges has `ci.rerunFailed()`, but no rerun of a whole run (https://github.com/danielroe/forges/issues/301).
       await forge.request("POST", `/repos/${repository}/actions/runs/${run.runId}/${endpoint}`, { signal });
       posted = true;
       await inbox.setMeta(metadataKey, { status: "succeeded", runId: run.runId, headSha, runAttempt: current.run_attempt, attemptedAt: now });

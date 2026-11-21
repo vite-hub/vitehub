@@ -4,6 +4,7 @@ import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import * as v from "valibot"
 
+import { outboxAccountHeader } from "../client-files.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { resolveCommentsRuntime } from "../installed.ts"
@@ -60,6 +61,8 @@ export interface CommentsHandlerOptions extends CommentsSessionOptions {
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
   realtime: boolean
+  /** `false` hides the overlay's faces and cursors, for an app that shows its own presence. Threads still update live. */
+  presence?: false
   /** The commit and branch of this build. New threads keep them in `context.build`. */
   build?: NonNullable<CommentContext["build"]>
   /**
@@ -83,7 +86,7 @@ const createBody = v.object({
   anchor: v.optional(commentAnchorSchema),
   context: v.optional(contextSchema),
 })
-const replyBody = v.object({ body: commentInputSchemas.reply.entries.body, mentions: commentInputSchemas.reply.entries.mentions, attachments: commentInputSchemas.reply.entries.attachments })
+const replyBody = v.object({ body: commentInputSchemas.reply.entries.body, mentions: commentInputSchemas.reply.entries.mentions, attachments: commentInputSchemas.reply.entries.attachments, requestId: commentInputSchemas.reply.entries.requestId })
 const editBody = v.object({ body: commentInputSchemas.edit.entries.body, mentions: commentInputSchemas.edit.entries.mentions })
 
 /** The first issue as one sentence, for `COMMENTS_INVALID_INPUT`. */
@@ -135,7 +138,8 @@ function diagnosticResponse(error: unknown): Response {
   const status = Reflect.get(Object(error), "status")
   if (!(error instanceof Error) || typeof code !== "string" || !code.startsWith("COMMENTS_") || typeof status !== "number") throw error
   const fix = Reflect.get(error, "fix")
-  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status })
+  const retryAfter = Reflect.get(error, "retryAfter")
+  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status, ...(typeof retryAfter === "number" ? { headers: { "retry-after": String(Math.ceil(retryAfter)) } } : {}) })
 }
 
 /** The REST code of a diagnostic of the comment actions. Codes without one, such as `COMMENTS_R0019`, stay as they are. */
@@ -224,20 +228,15 @@ function leaseHolder(error: unknown): string {
 }
 
 /**
- * The Comments API at `/api/_vitehub/comments/**`, as a Fetchable: mount it as a Nitro or H3 route, or call
+ * The Comments API at `/_vitehub/comments/**`, as a Fetchable: mount it as a Nitro or H3 route, or call
  * `fetch(request)`. The overlay calls it; every route checks the `authorize` policy of `defineComments()` for the user of
  * the request, and inline edits also check `content.can()`.
  */
 export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(request: Request): Promise<Response> } {
   const { comments } = options
-  const sessionOptions: CommentsSessionOptions = {
-    ...options,
-    session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
-  }
-
   /** The user of the request. See `resolveCommentsIdentity()`. */
   async function identityOf(request: CommentsRequest): Promise<CommentsIdentity> {
-    return resolveCommentsIdentity(comments, request, sessionOptions)
+    return resolveCommentsIdentity(comments, request, options)
   }
 
   async function access(request: CommentsRequest, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<CommentsIdentity & { author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
@@ -324,6 +323,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         ...(signIn ? { signIn } : {}),
         ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
+        ...(options.presence === false ? { presence: false } : {}),
         content: Boolean(options.content),
         ...(subject ? { subject } : {}),
         ...(revision === undefined ? {} : { revision }),
@@ -554,6 +554,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
+        if (request.headers.has(outboxAccountHeader) && !("requestId" in parsed.output && parsed.output.requestId)) {
+          return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Queued replies need server support for requestId." }))
+        }
         // The overlay reads the message as `data`; other clients read the thread as `thread`.
         return await act(request, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
           data: message,

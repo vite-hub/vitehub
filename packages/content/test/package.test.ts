@@ -1,4 +1,9 @@
-import { readFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js"
@@ -38,7 +43,8 @@ describe("@vite-hub/content package contract", () => {
   it("leaves the Markdown preset external for consumer deduplication", async () => {
     expect(await startupImports("index.js")).toContain("comark-ui/html")
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    expect(manifest.dependencies["comark-ui"]).toBeTruthy()
+    expect(manifest.dependencies).not.toHaveProperty("comark-ui")
+    expect(manifest.peerDependencies["comark-ui"]).toBeTruthy()
   })
 
   it("loads Workspace and Database only from the collections entry", async () => {
@@ -55,5 +61,54 @@ describe("@vite-hub/content package contract", () => {
     expect([...graph.imports].sort()).toEqual(entry === "collections.js" ? ["@vite-hub/workspace/files", "@vite-hub/workspace/lineage"] : ["@vite-hub/workspace/files"])
     expect(graph.code).not.toContain("maxShellCalls")
     expect(graph.code).not.toContain("@vite-hub/shell/workspace")
+  })
+
+  it("leaves the Tiptap editor packages optional, so only apps that edit install them", async () => {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    const tiptap = Object.keys(manifest.peerDependencies).filter(name => name.startsWith("@tiptap/"))
+    expect(tiptap.length).toBeGreaterThan(0)
+    for (const name of tiptap) expect(manifest.peerDependenciesMeta[name], name).toEqual({ optional: true })
+  })
+
+  it.each(["editor", "realtime"])("names the missing Tiptap packages when ./%s loads without them", async (entry) => {
+    // A Node app that has Content and Comark UI, but no Tiptap packages.
+    const app = await mkdtemp(join(tmpdir(), "content-editor-peers-"))
+    try {
+      const content = join(app, "node_modules/@vite-hub/content")
+      await mkdir(content, { recursive: true })
+      await cp(new URL("../package.json", import.meta.url), join(content, "package.json"))
+      await cp(new URL("../dist/", import.meta.url), join(content, "dist"), { recursive: true })
+      // Content's own dependencies, without Comark UI and the editor packages.
+      const installed = fileURLToPath(new URL("../node_modules/", import.meta.url))
+      const link = async (name: string) => symlink(await realpath(join(installed, name)), join(app, "node_modules", name))
+      for (const entry of await readdir(installed)) {
+        if (entry === ".bin" || entry === "comark-ui" || entry === "@tiptap" || entry.startsWith("prosemirror-")) continue
+        if (!entry.startsWith("@")) {
+          await link(entry)
+          continue
+        }
+        await mkdir(join(app, "node_modules", entry), { recursive: true })
+        for (const name of await readdir(join(installed, entry))) {
+          if (`${entry}/${name}` !== "@vite-hub/content") await link(`${entry}/${name}`)
+        }
+      }
+      const comarkUi = join(app, "node_modules/comark-ui")
+      await mkdir(comarkUi, { recursive: true })
+      await writeFile(join(comarkUi, "package.json"), JSON.stringify({ name: "comark-ui", type: "module", exports: { "./editor": "./editor.js", "./html": "./html.js" } }))
+      await writeFile(join(comarkUi, "editor.js"), "import \"@tiptap/core\"\n")
+      await writeFile(join(comarkUi, "html.js"), "export default () => ({ plugins: [] })\n")
+
+      const script = `try { await import("@vite-hub/content/${entry}"); console.log("loaded") } catch (error) { console.log(JSON.stringify({ code: error.code, message: error.message, fix: error.fix, cause: error.cause?.code })) }`
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], { cwd: app })
+      expect(JSON.parse(stdout)).toEqual({
+        code: "CONTENT_EDITOR_PACKAGES_MISSING",
+        message: expect.stringContaining("@tiptap/core"),
+        fix: expect.stringContaining("@tiptap/starter-kit"),
+        cause: "ERR_MODULE_NOT_FOUND",
+      })
+    }
+    finally {
+      await rm(app, { recursive: true, force: true })
+    }
   })
 })

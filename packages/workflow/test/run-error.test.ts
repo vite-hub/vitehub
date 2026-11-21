@@ -11,6 +11,7 @@ import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConf
 import { inspectVercelWorkflowRun, setVercelWorkflowRuntimeLoader, setVercelWorkflowRuntimeModules } from "../src/runtime/vercel.ts"
 
 import type { VercelRun } from "../src/runtime/vercel.ts"
+import { unwrap } from "./unwrap.ts"
 
 beforeEach(async () => {
   resetWorkflowRuntime()
@@ -24,14 +25,14 @@ afterEach(async () => {
 })
 
 it("reports the error of a failed inline run", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("inline-failure", async () => {
     throw Object.assign(new TypeError("card declined"), { code: "CARD_DECLINED" })
   })
 
-  await workflow.start({}, { id: "inline-1" })
-  await vi.waitFor(async () => expect((await workflow.getRun("inline-1")).status).toBe("failed"))
-  const run = await workflow.getRun("inline-1")
+  await unwrap(workflow.start({}, { id: "inline-1" }))
+  await vi.waitFor(async () => expect((await unwrap(workflow.getRun("inline-1"))).status).toBe("failed"))
+  const run = await unwrap(workflow.getRun("inline-1"))
 
   expect(run.error).toEqual({ code: "CARD_DECLINED", message: "card declined", name: "TypeError" })
   expect(run.metadata).toBeUndefined()
@@ -39,7 +40,7 @@ it("reports the error of a failed inline run", async () => {
 })
 
 it("reports the error of an errored Cloudflare instance", async () => {
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {
     [getCloudflareWorkflowBindingName("checkout")]: {
@@ -48,7 +49,7 @@ it("reports the error of an errored Cloudflare instance", async () => {
     },
   } } } } })
 
-  const run = await getWorkflowRun("checkout", "cf-1")
+  const run = await unwrap(getWorkflowRun("checkout", "cf-1"))
 
   expect(run).toMatchObject({ error: { message: "boom" }, status: "failed" })
   expect(run.error).toEqual({ message: "boom" })
@@ -79,7 +80,7 @@ it("reports the error of a failed OpenWorkflow run", async () => {
     return await import(specifier) as never
   })
 
-  const run = await getOpenWorkflowRun({ provider: "openworkflow", sqlite: { path: ":memory:" } }, "checkout", "ow-1")
+  const run = await getOpenWorkflowRun({ driver: "openworkflow", sqlite: { path: ":memory:" } }, "checkout", "ow-1")
 
   expect(run).toMatchObject({ status: "failed" })
   expect(run.error).toEqual({ message: "step failed", name: "RangeError" })
@@ -117,18 +118,18 @@ it("reports the error of a failed native Vercel run", async () => {
     start: async () => run,
   }, { getWorld: async () => ({ steps: { list: async () => ({ data: [], hasMore: false }) } }) })
 
-  const inspected = await inspectVercelWorkflowRun("checkout", { handler: native, options: { native } }, "run-1")
+  const inspected = await inspectVercelWorkflowRun("checkout", { handler: native, native }, "run-1")
 
   expect(inspected).toMatchObject({ status: "failed" })
   expect(inspected.error).toEqual({ message: "payment API returned 503" })
 })
 
 it("adds no error to a run that did not fail", async () => {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("inline-success", async () => ({ ok: true }))
 
-  await workflow.start({}, { id: "inline-ok" })
-  await vi.waitFor(async () => expect((await workflow.getRun("inline-ok")).status).toBe("completed"))
+  await unwrap(workflow.start({}, { id: "inline-ok" }))
+  await vi.waitFor(async () => expect((await unwrap(workflow.getRun("inline-ok"))).status).toBe("completed"))
 
-  expect(await workflow.getRun("inline-ok")).not.toHaveProperty("error")
+  expect(await unwrap(workflow.getRun("inline-ok"))).not.toHaveProperty("error")
 })

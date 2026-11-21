@@ -31,6 +31,7 @@ import {
   resolveChatSessionId,
   resolveChatTriggerHistory,
   uiMessagesToAgentMessages,
+  withDriverTriggerHistoryDefaults,
 } from "../chat-message-input.ts"
 import { channelDeliveryFinishEffectsContextKey, normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -65,6 +66,7 @@ import {
   withRehydratedBodyDeliveryId,
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
+import { serverVariable } from "../internal/server-variable.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
 import {
   acquireChannelStateLock,
@@ -78,8 +80,9 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
-import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
+import { chatMessageHeaderPartType, createChatMetadataEchoFilter, isChatReplyPartType, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
+import type { ChatOmittedAttachment } from "../internal/input-attachments.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
 import { agentChatInvocationIdHeader, defaultAgentWebhookRoute, resolveAgentRoutePath } from "../internal/routes.ts"
@@ -96,7 +99,7 @@ import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs 
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
 import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
 import { keepStandardContext } from "../internal/webhook-request.ts"
 import { sendPreparedResponse } from "@vite-hub/runtime/internal/h3"
@@ -236,7 +239,7 @@ export interface AgentChannelWebhookRouteHandler {
   channelState(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStateBinding>
   /** Sync health and skipped messages of a Channel that reads a provider cursor, such as Gmail. `undefined` for other Channels. */
   channelStatus(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStatus | undefined>
-  deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
+  deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { channelId?: string; limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   /**
    * Runs the `poll` trigger of each Channel of the Agent that is `channel`, with the Channel State that its webhook route
    * uses, and waits for its work. Returns the IDs of the polled Channels. It checks nothing about the caller, so only
@@ -248,7 +251,7 @@ export interface AgentChannelWebhookRouteHandler {
    * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
    * the connected and migrated webhook State, and its queue backend ID. Call it at startup so that the first
    * delivery does not wait for this work. The generated webhook queue plugin calls it, and
-   * `/api/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
+   * `/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
    * would get, for example when a secret resolver or the State connection fails.
    */
   warm(options?: AgentChannelWebhookRouteOptions): Promise<void>
@@ -592,6 +595,8 @@ async function resolveWebhookSecret(
   context: AgentRuntimeContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
+  // A string names the server variable that holds the secret.
+  if (typeof value === "string") return serverVariable(value)
   if (typeof value === "function") {
     return await value(context)
   }
@@ -609,6 +614,9 @@ function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   return normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
 }
 
+// The Driver kind that defineAgent() stores on each Agent Definition.
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   if (!isRecord(agent)) return undefined
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -618,12 +626,16 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
 }
 
 function getChannelChatOptions(agent: unknown, channelId: string | undefined, options: AgentChatOptions | undefined): AgentChatOptions | undefined {
-  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
+  const driverKind = isRecord(agent) ? Reflect.get(agent, baseAgentDriverKind) : undefined
+  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const channel = agent.channels[channelId]
-  if (!isRecord(channel)) return options
+  if (!isRecord(channel)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const merged = isRecord(channel.messages) ? { ...options, ...channel.messages } : options
   // `channels.<name>.transcripts` sets the transcripts of this Channel only.
-  return channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] }
+  return withDriverTriggerHistoryDefaults(
+    channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] },
+    driverKind,
+  )
 }
 
 /**
@@ -689,13 +701,13 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
+  const secret = registration.secret === undefined ? undefined : await resolveWebhookSecret(registration.secret, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return secret !== false
+  if (registration.secret !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
   // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
-  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  // `secret: false`, so a registration that declares nothing answers 401 instead of running its trigger.
   return requireConfiguredSecret
 }
 
@@ -820,6 +832,76 @@ async function observeHandledChannelDeliveryResponse(response: Response, deliver
     }),
     response,
   )
+}
+
+/**
+ * Records the outcome of an acknowledged chat delivery that no message handler claimed once Chat finishes with it:
+ * Chat skipped it, such as an activity that is not a message or a message it already handled.
+ */
+async function settleUnclaimedChatDelivery(delivery: AgentChannelDeliveryTracker, tasks: readonly Promise<unknown>[], isQueued: () => boolean): Promise<void> {
+  const results = await Promise.allSettled(tasks)
+  if (delivery.claimed) return
+  const failure = results.find(result => result.status === "rejected")
+  if (!failure && isQueued()) {
+    detachAgentChannelDelivery(delivery)
+    return
+  }
+  await recordChannelDeliveryEvidence(delivery, failure
+    ? { error: channelDeliveryError(failure.reason), type: "failed" }
+    : { reason: "unhandled", type: "rejected" })
+}
+
+type ChatSteerOutcome = "accepted" | "deferred" | "failed"
+
+/** `deferred`: the run could not take the message, so the message waits for the run to end and starts the next one. */
+function chatSteerOutcome(result: "accepted" | "invalid-state" | "unavailable" | "unsupported", reason: string = result): { outcome: ChatSteerOutcome, reason?: string } {
+  if (result === "accepted") return { outcome: "accepted" }
+  return { outcome: result === "invalid-state" ? "failed" : "deferred", reason }
+}
+
+/**
+ * Appends one steer attempt to the Invocation that a chat message tried to reach, as `agent.input.steer`. The run
+ * shows each follow-up this way, also when its Driver records nothing.
+ */
+async function recordChatSteerAttempt(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  runId: string,
+  attempt: { deliveryId: string, messageId?: string, outcome: ChatSteerOutcome, reason?: string },
+): Promise<void> {
+  if (!isRecord(agent) || !agent.invocations) return
+  try {
+    // SAFETY: Agent Definitions own this field; the journal boundary validates it.
+    const invocations = agent.invocations as AgentInvocations
+    const id = await agentInvocationId(runId, routeAgentInvocationName(agent, context.agentIdentity))
+    await invocations.appendObservation(id, {
+      attributes: {
+        "channel.delivery.id": attempt.deliveryId,
+        ...(attempt.messageId ? { "input.steer.messageId": attempt.messageId } : {}),
+        "input.steer.outcome": attempt.outcome,
+        ...(attempt.reason ? { "input.steer.reason": attempt.reason } : {}),
+      },
+      name: "agent.input.steer",
+      type: "run",
+    }, { id: `steer:${attempt.deliveryId}:${attempt.outcome}` })
+  }
+  catch (error) {
+    console.error(JSON.stringify({
+      scope: "vitehub.channel.delivery",
+      event: "steer.record.failed",
+      deliveryId: attempt.deliveryId,
+      runId,
+      error: channelDeliveryError(error),
+    }))
+  }
+}
+
+/** Adds the Invocation that each delivery started or steered, from the run of its latest `invocation.started` event. */
+async function withDeliveryInvocationIds(deliveries: AgentChannelDeliveryInspection[], agentName: string | undefined): Promise<AgentChannelDeliveryInspection[]> {
+  return await Promise.all(deliveries.map(async (delivery) => {
+    const runId = delivery.events.findLast(event => event.type === "invocation.started" && event.runId)?.runId
+    return runId ? { ...delivery, invocationId: await agentInvocationId(runId, agentName) } : delivery
+  }))
 }
 
 function logChannelListener(event: string, provider: string, listenerId: string, extra: Record<string, unknown> = {}): void {
@@ -2394,7 +2476,11 @@ function createManualDeliveryProgressUpdater(
 
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
-      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || typeof event.text !== "string") return
+      // Codex sends most of its live progress as reasoning summaries, such as "**Inspecting the config**".
+      // Only a provider Driver emits `reasoning-delta`; reasoning text that a custom Driver marks with a phase stays hidden.
+      const progress = isRecord(event) && typeof event.text === "string"
+        && ((event.type === "text-delta" && event.phase === "commentary") || event.type === "reasoning-delta")
+      if (!progress) return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
       if (event.id !== undefined) {
         if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
@@ -2948,7 +3034,7 @@ async function postChatStream(
     }
     const previousAdapter = chatThread._adapter
     const previousFallback = chatThread._fallbackStreamingPlaceholderText
-    // ponytail: Chat SDK does not expose whether native streaming was accepted.
+    // Chat SDK does not expose whether native streaming was accepted (https://github.com/vercel/chat/issues/1178).
     chatThread._adapter = new Proxy(adapter, {
       get(target, property) {
         if (property === "stream") {
@@ -2990,7 +3076,8 @@ async function postChatStream(
     return
   }
 
-  // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one.
+  // Chat SDK has no per-stream fallback option; replace this when it exposes one
+  // (https://github.com/vercel/chat/issues/1178).
   const adapter = thread.adapter
   const placeholder = fallback === null ? Promise.resolve(undefined) : adapter.postMessage(thread.id, fallback)
   const clearPlaceholder = () => {
@@ -4348,16 +4435,37 @@ function chatSdkOption<T>(
 }
 
 interface ChatLockTracker {
+  queuedDeliveryId(message: ChatSdkMessage): string | undefined
   refresh(lockKey: string): () => void
   state: StateAdapter
 }
 
-function createChatLockTracker(state: StateAdapter): ChatLockTracker {
+function createChatLockTracker(state: StateAdapter, beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>): ChatLockTracker {
   const locks = new Map<string, { lock: Lock; ttlMs: number }>()
+  const queuedDeliveries = new WeakMap<object, string>()
   const trackedState = new Proxy(state, {
     get(target, property) {
+      if (property === "enqueue" && beforeEnqueue) {
+        return async (threadId: string, entry: QueueEntry, maxSize: number) => {
+          const channelDeliveryId = await beforeEnqueue(true)
+          const queuedEntry = channelDeliveryId ? { ...entry, channelDeliveryId } : entry
+          return await target.enqueue(threadId, queuedEntry, maxSize)
+        }
+      }
+      if (property === "dequeue") {
+        return async (threadId: string) => {
+          const entry = await target.dequeue(threadId)
+          if (entry && "channelDeliveryId" in entry && typeof entry.channelDeliveryId === "string" && isRecord(entry.message.raw)) {
+            queuedDeliveries.set(entry.message.raw, entry.channelDeliveryId)
+          }
+          return entry
+        }
+      }
       if (property === "acquireLock") {
         return async (lockKey: string, ttlMs: number) => {
+          // Chat enqueues a message right after it finds the thread lock busy. Resolve the delivery before that check,
+          // so the enqueue does not wait for a State write while the lock holder drains the queue and releases the lock.
+          await beforeEnqueue?.(false)
           const lock = await target.acquireLock(lockKey, ttlMs)
           if (lock) locks.set(lockKey, { lock, ttlMs })
           return lock
@@ -4387,6 +4495,7 @@ function createChatLockTracker(state: StateAdapter): ChatLockTracker {
   })
 
   return {
+    queuedDeliveryId: (message) => isRecord(message.raw) ? queuedDeliveries.get(message.raw) : undefined,
     refresh(lockKey) {
       const tracked = locks.get(lockKey)
       if (!tracked) return () => undefined
@@ -4423,6 +4532,11 @@ async function chatSdkLockKey(adapter: Adapter, threadId: string, options: Agent
   return scope
 }
 
+function chatSteerBurst(options: AgentChatOptions | undefined): number | undefined {
+  const debounceMs = options?.debounceMs
+  if (options?.concurrency === "steer" && typeof debounceMs === "number" && Number.isFinite(debounceMs) && debounceMs >= 0) return debounceMs
+}
+
 function createChatSdkConfig(adapterName: string, adapter: Adapter, state: StateAdapter, options: AgentChatOptions | undefined): ChatConfig {
   const configuredPlaceholderText = options?.loading?.text ?? options?.fallbackStreamingPlaceholderText
   const fallbackStreamingPlaceholderText = typeof configuredPlaceholderText === "string"
@@ -4433,13 +4547,13 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   const identity: ChatConfig["identity"] =
     options?.identity ?? (options?.transcripts ? ({ author }) => (author.isBot === true ? null : `${adapterName}:${author.userId}`) : undefined)
   const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
-  const debounceMs = chatSdkOption<number>(options, "debounceMs")
+  const debounceMs = chatSteerBurst(options)
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
     // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
-    concurrency: concurrency === "steer" && typeof debounceMs === "number" && Number.isFinite(debounceMs) && debounceMs >= 0
+    concurrency: debounceMs !== undefined
       ? { debounceMs, strategy: "burst" }
       : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
@@ -4858,7 +4972,7 @@ function chatPartId(part: UIMessageLikePart): string | undefined {
 
 function isChatReplyModelPart(part: UIMessageLikePart): boolean {
   const type = chatPartType(part)
-  return !!type && (type.startsWith("data-chat-reply-") || type === "data-chat-user-message-context")
+  return !!type && isChatReplyPartType(type)
 }
 
 function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<string>, shownIds: Set<string>): string {
@@ -4879,9 +4993,26 @@ function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<s
 }
 
 /**
+ * Steering input reaches a run that has not seen this message's history window, so its reply
+ * line quotes the message it answers instead of pointing to it as shown above.
+ */
+function chatSteeringUiMessage(uiMessage: UIMessageLike, message: ChatSdkMessage, options: AgentChatOptions | undefined): UIMessageLike {
+  if (!message.replyTo || !Array.isArray(uiMessage.parts)) return uiMessage
+  const keptIds = new Set(uiMessage.parts.map(chatPartId).filter((id) => typeof id === "string"))
+  const replyLine = chatReplyLine(message.replyTo, chatHeaderTimeZone(options), keptIds, new Set())
+  return {
+    ...uiMessage,
+    parts: uiMessage.parts.map(part => chatPartType(part) === "data-chat-reply-context"
+      ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: replyLine } }
+      : part),
+  }
+}
+
+/**
  * Give the model one readable header per user message and limit history attachments.
  * Current and queued messages keep every attachment. History keeps only the newest
- * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`.
+ * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`. The header's
+ * `data.omittedAttachments` names each attachment left out and why, so the Driver can record it.
  */
 function decorateChatTriggerMessages(
   thread: Thread,
@@ -4911,9 +5042,14 @@ function decorateChatTriggerMessages(
     const parts = uiMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType)
     if (!parts.length) return uiMessage
     const time = chatMessageTime(uiMessage.createdAt)
+    const omittedAttachments: ChatOmittedAttachment[] = []
     const kept = parts.filter((part) => {
       if (retained || !isAttachmentPart(part) || chatPartId(part)?.startsWith("reply-input-")) return true
-      if (part.type !== "image" || !isRecent(time) || remainingImages <= 0) return false
+      const reason = part.type !== "image" ? "not-image" : !isRecent(time) ? "max-age" : remainingImages <= 0 ? "max-images" : undefined
+      if (reason) {
+        omittedAttachments.push({ ...(part.id ? { id: part.id } : {}), mediaType: part.mediaType, ...(part.name ? { name: part.name } : {}), reason })
+        return false
+      }
       remainingImages--
       return true
     })
@@ -4937,7 +5073,7 @@ function decorateChatTriggerMessages(
     return {
       ...uiMessage,
       parts: [
-        { data: { modelText: header }, id: "message-header", type: chatMessageHeaderPartType },
+        { data: { modelText: header, ...(omittedAttachments.length ? { omittedAttachments } : {}) }, id: "message-header", type: chatMessageHeaderPartType },
         ...kept.map(part => isChatReplyModelPart(part)
           ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
           : part),
@@ -5791,6 +5927,8 @@ interface InlineChatTurn {
 
 const chatWrapUpBeforeMs = 120_000
 const chatWrapUpMinimumTimeoutMs = 300_000
+const chatWrapUpFirstRetryMs = 50
+const chatWrapUpMaximumRetryMs = 5_000
 
 /** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
 interface ChatWrapUpTimer {
@@ -5812,15 +5950,18 @@ function scheduleChatWrapUp(
     : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
   let timer: ReturnType<typeof setTimeout> | undefined
   let cancelled = false
+  let retryMs = chatWrapUpFirstRetryMs
   const deadline = Date.now() + timeout
   const steer = async (): Promise<void> => {
     if (cancelled) return
     // Driver setup can register its input handler just after this timer fires.
     // Retry that transient state, while leaving unsupported Drivers alone.
+    // A Driver that never registers one would otherwise be polled until the timeout, so back off.
     const outcome = await sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => "unavailable" as const)
     if (!cancelled && outcome === "unavailable" && Date.now() < deadline) {
-      timer = setTimeout(() => void steer(), Math.min(50, Math.max(1, deadline - Date.now())))
+      timer = setTimeout(() => void steer(), Math.min(retryMs, Math.max(1, deadline - Date.now())))
       timer.unref?.()
+      retryMs = Math.min(retryMs * 2, chatWrapUpMaximumRetryMs)
     }
   }
   timer = setTimeout(() => void steer(), timeout - beforeMs)
@@ -5876,7 +6017,7 @@ async function admitChatSdkMessage(
 ) {
   // The Chat SDK skips the Agent's own messages. Other bots can loop with the Agent, so they need `allowBots`.
   if (message.author.isBot === true && options?.allowBots !== true) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "bot-author", type: "rejected" })
     return
   }
   let input = createChatTriggerInput(
@@ -5904,7 +6045,7 @@ async function admitChatSdkMessage(
   )
   const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
   if (!invoker) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "unauthorized", type: "rejected" })
     return
   }
   const parsedChannelContext = authorizationInput.context?.channel
@@ -5921,7 +6062,7 @@ async function admitChatSdkMessage(
   )
   const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
   if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "empty", type: "rejected" })
     return
   }
   const filter = options?.filter
@@ -5940,7 +6081,7 @@ async function admitChatSdkMessage(
         },
       }))
     ) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      await recordChannelDeliveryEvidence(delivery, { reason: "filtered", type: "rejected" })
       return
     }
   }
@@ -6305,11 +6446,12 @@ async function handleChatSdkMessage(
   deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
   state: { keyPrefix: string; state: StateAdapter; workflowCustodySupported?: boolean; reconciliationWaitUntil?: AgentWaitUntil },
-  messageContext?: MessageContext,
-  maximumInvocationDeadline?: number,
-  historyThroughCurrent = false,
-  durableSteerScope?: string,
+    messageContext?: MessageContext,
+    maximumInvocationDeadline?: number,
+    historyThroughCurrent = false,
+    durableSteerScope?: string,
   admitted?: ChatSdkMessageAdmission,
+  batchDeliveryIds: string[] = [],
 ): Promise<void> {
   const delivery =
     agentChannelDeliveryTracker(context) ||
@@ -6367,6 +6509,13 @@ async function handleChatSdkMessage(
         ? maximumInvocationDeadline
         : Math.min(configuredWaitDeadline, maximumInvocationDeadline ?? Infinity)
       let waitedForActiveTurn = false
+      // Record each deferral once. The loop below polls while the active run gets ready.
+      let lastDeferral: string | undefined
+      const recordSteerDeferral = async (runId: string, reason: string) => {
+        if (lastDeferral === `${runId}:${reason}`) return
+        lastDeferral = `${runId}:${reason}`
+        await recordChannelDeliveryEvidence(delivery, { reason, runId, type: "steer.deferred" })
+      }
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
         if (!active) {
@@ -6405,18 +6554,26 @@ async function handleChatSdkMessage(
         const steersActiveTurn = sameInlineInvoker(active.invoker, invoker) ||
           (options?.steerFromParticipants === true && active.threadId === thread.id && message.author.isBot !== true)
         if (active.runId && steersActiveTurn) {
-          const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
+          const [steerMessage] = uiMessagesToAgentMessages([chatSteeringUiMessage(currentMessage, message, options)])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
           let timeoutEvidence: Promise<void> | undefined
-          const submitted = (active.steering ?? Promise.resolve()).then(() => {
+          let deferralReason: string | undefined
+          const submitted = (active.steering ?? Promise.resolve()).then(async () => {
             if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
             if (agentInvocationInputSupport(activeRunId).steer === false) return "unavailable" as const
-            return steerMessage
-              ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
-              : "unsupported" as const
+            if (!steerMessage) return "unsupported" as const
+            const { outcome, reason } = await sendAgentInvocationInputResult(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+            deferralReason = reason
+            return outcome
           })
           active.steering = submitted.then(() => undefined, () => undefined)
+          const steerAttempt = { deliveryId: delivery.delivery.id, messageId: message.id }
+          const observation = submitted.then(
+            result => recordChatSteerAttempt(agent, context, activeRunId, { ...steerAttempt, ...chatSteerOutcome(result, deferralReason) }),
+            (error: unknown) => recordChatSteerAttempt(agent, context, activeRunId, { ...steerAttempt, outcome: "failed", reason: channelDeliveryError(error) }),
+          )
+          state.reconciliationWaitUntil?.(observation)
           const submission = submitted.then(async (result) => {
             await timeoutEvidence
             if (result === "accepted") {
@@ -6464,6 +6621,7 @@ async function handleChatSdkMessage(
                 // Retain the claim on this turn so late duplicate continuations
                 // observe the same result even after the successor has finished.
                 fallback = (async () => {
+                  await recordSteerDeferral(activeRunId, deferralReason ?? result)
                   try {
                     await waitForInlineChatTurn(active, maximumInvocationDeadline)
                   } catch (error) {
@@ -6487,9 +6645,12 @@ async function handleChatSdkMessage(
             })
             return
           }
+          // The Driver did not take the input. Unsupported input runs after the active run; unavailable input tries again.
+          await recordSteerDeferral(activeRunId, deferralReason ?? outcome)
           if (outcome === "unsupported") await waitForInlineChatTurn(active, inlineWaitDeadline)
           else await pollInlineChatTurn(active, inlineWaitDeadline)
         } else {
+          if (active.runId) await recordSteerDeferral(active.runId, "not-invoker")
           await pollInlineChatTurn(active, inlineWaitDeadline)
         }
       }
@@ -6501,7 +6662,7 @@ async function handleChatSdkMessage(
         )
         currentMessage = message.id ? messages.find(item => item.id === message.id) : messages.at(-1)
         if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-          await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+          await recordChannelDeliveryEvidence(delivery, { reason: "empty", type: "rejected" })
           return
         }
       }
@@ -6596,7 +6757,7 @@ async function handleChatSdkMessage(
       let workflowRunContext = runContext
       let workflowSettlementError: DurableSteerQueueMessage["settlementError"]
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
-      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
+      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput, run?.messageId)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
         capabilities: workflowCapabilities,
         input: workflowInput,
@@ -6650,7 +6811,7 @@ async function handleChatSdkMessage(
             expiresAt: Number.MAX_SAFE_INTEGER,
             message: {
               capabilities: workflowCapabilities,
-              deliveryIds: coalesceHead ? deliveryIds : [],
+              deliveryIds: coalesceHead ? [...new Set([...deliveryIds, ...batchDeliveryIds])] : batchDeliveryIds,
               errorDeliveries: coalesceHead
                 ? mergeDurableSteerErrorDeliveries(previous?.message?.errorDeliveries, [currentErrorDelivery])
                 : [currentErrorDelivery],
@@ -6713,7 +6874,7 @@ async function handleChatSdkMessage(
                 expiresAt: Number.MAX_SAFE_INTEGER,
                 message: {
                   capabilities: workflowCapabilities,
-                  deliveryIds: [],
+                  deliveryIds: batchDeliveryIds,
                   errorDeliveries: [currentErrorDelivery],
                   input: workflowInput,
                   invokerKey: workflowInvokerKey,
@@ -6761,7 +6922,7 @@ async function handleChatSdkMessage(
               queue: steerQueue,
               pendingQueue: durableSteerPendingQueue(steerQueue),
               ttlMs: steerTtlMs,
-              deliveryIds: sameInvoker ? deliveryIds : durableSteerMergedDeliveryIds(reclaimedMessage, recoveredPrimaryDeliveryId),
+              deliveryIds: sameInvoker ? [...new Set([...deliveryIds, ...batchDeliveryIds])] : durableSteerMergedDeliveryIds(reclaimedMessage, recoveredPrimaryDeliveryId),
             },
           }
         }
@@ -7446,7 +7607,8 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
-  const coalesced = chatSdkOption<string>(options, "concurrency") === "queue"
+  const burst = chatSteerBurst(options) !== undefined
+  const coalesced = chatSdkOption<string>(options, "concurrency") === "queue" || burst
   const individualMessages = serial || coalesced
   const accepted: Array<{ message: ChatSdkMessage; thread: Thread; delivery: AgentChannelDeliveryTracker; kind: AgentMessageDeliveryKind; admission: ChatSdkMessageAdmission }> = []
   const messages = individualMessages ? [...(messageContext?.skipped ?? []), message] : [message]
@@ -7460,8 +7622,11 @@ async function handleChatSdkMessages(
       try {
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
-        const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
-        const queuedDelivery = individualMessages
+        const queuedDeliveryId = individualMessages ? lockTracker.queuedDeliveryId(queuedMessage) : undefined
+        const payloadFingerprint = individualMessages && !queuedDeliveryId ? await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined) : undefined
+        const queuedDelivery = queuedDeliveryId
+          ? await resumeAgentChannelDelivery(state.state, queuedDeliveryId)
+          : individualMessages
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined) ||
             (queuedMessageId
               ? (await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)) ||
@@ -7477,41 +7642,42 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
+        const delivery = queuedDelivery || (!queuedDeliveryId && queuedMessage === message && (!individualMessages || !requestDelivery?.claimed) ? requestDelivery : undefined)
+        if (delivery) delivery.claimed = true
+        claimedDelivery = delivery
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage, options) : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) {
-          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
+          const rejected = delivery || await openAgentChannelDelivery(state.state, {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: chatRegistrationOrigin(registration),
             scope: `${state.keyPrefix}${queuedThread.id}`,
             sourceId: queuedMessageId || randomToken(),
           }).catch(() => undefined)
-          if (delivery) {
-            delivery.claimed = true
-            await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-          }
+          if (rejected) await recordChannelDeliveryEvidence(rejected, { reason: "not-addressed", type: "rejected" })
           continue
         }
         if (coalesced) {
-          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
+          const admittedDelivery = delivery || await openAgentChannelDelivery(state.state, {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: chatRegistrationOrigin(registration),
             scope: `${state.keyPrefix}${queuedThread.id}`,
             sourceId: queuedMessageId || randomToken(),
           })
-          claimedDelivery = delivery
-          delivery.claimed = true
+          claimedDelivery = admittedDelivery
+          admittedDelivery.claimed = true
           const admission = await admitChatSdkMessage(
-            agent, withAgentChannelDelivery(context, delivery), registration,
-            observeChatThread(queuedThread, delivery), queuedMessage, deliveryKind,
-            options, delivery, undefined, true,
+            agent, withAgentChannelDelivery(context, admittedDelivery), registration,
+            observeChatThread(queuedThread, admittedDelivery), queuedMessage, deliveryKind,
+            options, admittedDelivery, undefined, true,
           )
           if (!admission) continue
-          accepted.push({ message: queuedMessage, thread: queuedThread, delivery, kind: deliveryKind, admission })
+          accepted.push({ message: queuedMessage, thread: queuedThread, delivery: admittedDelivery, kind: deliveryKind, admission })
           continue
         }
-        const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
+        const queuedContext = delivery ? withAgentChannelDelivery(context, delivery) : context
+        claimedDelivery = undefined
         await handleChatSdkMessage(
           agent,
           queuedContext,
@@ -7555,9 +7721,10 @@ async function handleChatSdkMessages(
         state,
         { skipped: accepted.slice(0, -1).map(item => item.message), totalSinceLastHandler: accepted.length },
         maximumInvocationDeadline,
-        true,
-        undefined,
+        !burst,
+        durableSteerScope,
         latest.admission,
+        accepted.slice(0, -1).map(item => item.delivery.delivery.id),
       )
     }
   } finally {
@@ -7732,11 +7899,12 @@ async function createChannelChat(
     workflowCustodySupported?: boolean
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<Chat> {
   // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
   if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
-  const lockTracker = createChatLockTracker(resolvedState.state)
+  const lockTracker = createChatLockTracker(resolvedState.state, beforeEnqueue)
   const transcripts = effectiveTranscripts(options, resolvedState.state)
   if (options && options.transcripts !== transcripts) options = { ...options, transcripts }
   else if (!options && transcripts) options = { transcripts }
@@ -7844,13 +8012,20 @@ async function createChannelChat(
       const delivery = await resolveDelivery?.()
       if (delivery) {
         delivery.claimed = true
-        await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+        const reason = chatThread.isDM ? "edit-in-direct-message" : message.isMention === true ? "edit-already-mentioned" : "edit-without-mention"
+        await recordChannelDeliveryEvidence(delivery, { reason, type: "rejected" })
       }
       return
     }
     // The original message already holds Chat's dedupe key.
     await chat.processMessage(adapter, chatThread.id, message, { deduplicate: false })
   })
+  // Chat calls an unfiltered message handler for a message that does not mention the Agent, in a thread it does not
+  // follow. Record why that message started no work.
+  chat.onNewMessage(async (thread, message, messageContext) => handleChatSdkMessages(
+    agent, await deliveryContext(), registration, thread, message, () => undefined,
+    options, state, adapter, chat, lockTracker, messageContext, maximumInvocationDeadline,
+  ))
 
   return chat
 }
@@ -8696,6 +8871,7 @@ async function createChatWebhookHandler(
   maximumInvocationDeadline?: number,
   state?: { state: StateAdapter; titleKeyPrefix: string },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
+  beforeEnqueue?: (enqueue: boolean) => Promise<string | undefined>,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
   const chat = await createChannelChat(
     agent,
@@ -8708,6 +8884,7 @@ async function createChatWebhookHandler(
     maximumInvocationDeadline,
     state,
     resolveDelivery,
+    beforeEnqueue,
   )
   const handler = chat.webhooks[adapterName]
   if (!handler) {
@@ -9178,7 +9355,10 @@ export function createChannelChatRouteHandler(
     const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
     const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
     await state.connect()
-    return await readAgentChannelDeliveries(state, handlerOptions.limit, `chat:${agentName}:${registration.provider}:`)
+    return await withDeliveryInvocationIds(
+      await readAgentChannelDeliveries(state, handlerOptions.limit, `chat:${agentName}:${registration.provider}:`),
+      routeAgentInvocationName(agent, context.agentIdentity),
+    )
   }
   return handler
 }
@@ -9678,7 +9858,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         })
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
-        const secret = await resolveWebhookSecret(registration.secretToken, context)
+        const secret = await resolveWebhookSecret(registration.secret, context)
         const secretHeader = webhookSecretHeader(registration)
         if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
@@ -10217,6 +10397,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
 
         try {
           const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
+          const burst = chatSteerBurst(chatOptions) !== undefined
+          const queued = ["serial", "queue"].includes(chatOptions?.concurrency ?? "")
+          const storeQueuedDelivery = adapter.name === "telegram"
+          let queuedForBurst = false
           const handler = await createChatWebhookHandler(
             agent,
             context,
@@ -10228,28 +10412,48 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             maximumInvocationDeadline,
             chatDeliveryState,
             resolveChannelDelivery,
+            burst || (queued && storeQueuedDelivery) ? async (enqueue) => {
+              const delivery = await resolveChannelDelivery()
+              if (enqueue) queuedForBurst = burst
+              return storeQueuedDelivery ? delivery.delivery.id : undefined
+            } : undefined,
           )
           webhookDeadlineAbort?.signal.throwIfAborted()
-          const response = await handler(request, { waitUntil: context.waitUntil })
+          const chatTasks: Promise<unknown>[] = []
+          const response = await handler(request, {
+            propagateHandlerErrors: true,
+            waitUntil: (task) => {
+              chatTasks.push(task)
+              context.waitUntil(task.catch(() => undefined))
+            },
+          })
           if (response.status === 401 || response.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
           if (!channelDelivery.claimed && !channelDelivery.duplicate) {
-            const queued = ["serial", "queue"].includes(chatSdkOption<string>(chatOptions, "concurrency") || "")
             const ignored =
-              queued &&
+              (queued || burst) &&
               response.ok &&
               (await response
                 .clone()
                 .json()
                 .then((body) => isRecord(body) && body.ignored === true)
                 .catch(() => false))
-            await recordChannelDeliveryEvidence(channelDelivery, {
+            if (!response.ok) {
+              await recordChannelDeliveryEvidence(channelDelivery, { status: response.status, type: response.status >= 500 ? "failed" : "rejected" })
+            } else if (ignored) {
+              // Chat answered that it ignored the webhook, so no message handler runs.
+              await recordChannelDeliveryEvidence(channelDelivery, { reason: "unhandled", status: response.status, type: "rejected" })
+            } else if (queued) {
               // Chat SDK may evict or expire queued entries without exposing
               // their identity. Record transport acceptance until a drain
               // claims this delivery instead of promising durable queue custody.
-              type: response.ok ? (queued && !ignored ? "accepted" : "completed") : response.status >= 500 ? "failed" : "rejected",
-            })
-            if (queued && !ignored && response.ok) detachAgentChannelDelivery(channelDelivery)
+              await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
+              context.waitUntil(settleUnclaimedChatDelivery(channelDelivery, chatTasks, () => true))
+            } else {
+              // The answer only acknowledges the webhook. Chat handles the message after it, so the outcome comes later.
+              await recordChannelDeliveryEvidence(channelDelivery, { status: response.status, type: "acknowledged" })
+              context.waitUntil(settleUnclaimedChatDelivery(channelDelivery, chatTasks, () => queuedForBurst))
+            }
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
@@ -10259,7 +10463,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const response = toHttpErrorResponse(error)
           if (response?.status === 401 || response?.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
-          if (!channelDelivery.duplicate) await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
+          // A handler that claimed the delivery recorded its own outcome. The error can come from another message of the batch.
+          if (!channelDelivery.duplicate && !channelDelivery.claimed) await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           if (response) return response
           throw error
         }
@@ -10394,8 +10599,6 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     return channelIds
   }
   handler.deliveries = async (request, webhook, handlerOptions = {}) => {
-    const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
-    if (webhookId === undefined) return []
     const context = createRuntimeContext(
       request,
       undefined,
@@ -10405,38 +10608,38 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
-    const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
-    if (!match) return []
-    const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
-    const chatState = await resolveChatState(
-      getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
-      context,
-      match.registration,
-      handlerOptions,
-    )
-    const workflowChatState = await resolveChatState(
-      getChannelChatOptions(agent, match.registration.channelId, getAgentChatOptions(agent)),
-      context,
-      match.registration,
-      {},
-    )
-    const fallbackScope = `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(match.registration)}`
-    const sources = [
-      webhookState && { scope: webhookState.keyPrefix, state: webhookState.state },
-      { scope: chatState.titleKeyPrefix || fallbackScope, state: chatState.state },
-      { scope: workflowChatState.titleKeyPrefix || fallbackScope, state: workflowChatState.state },
-    ].filter((source): source is { scope: string; state: StateAdapter } => Boolean(source))
-    const inspections = (
-      await Promise.all(
-        sources.map(async ({ scope, state }) => {
-          await state.connect()
-          return await readAgentChannelDeliveries(state, handlerOptions.limit, scope)
-        }),
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const webhookId = webhook ?? fallbackWebhookFromRequest(request)
+      const matches = handlerOptions.channelId !== undefined
+        ? (await agentWebhookRegistrations(agent, context)).filter(({ registration }) => (registration.channelId || registration.id || registration.provider) === handlerOptions.channelId)
+        : [await findAgentWebhookRegistration(agent, context, request, webhookId)].filter(match => match !== undefined)
+      const sources = new Map<StateAdapter, Set<string>>()
+      const addSource = (state: StateAdapter, scope: string) => {
+        const scopes = sources.get(state) ?? new Set<string>()
+        scopes.add(scope)
+        sources.set(state, scopes)
+      }
+      for (const { registration } of matches) {
+        const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
+        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+        if (webhookState) addSource(webhookState.state, webhookState.keyPrefix)
+        const chatState = await resolveChatState(chatOptions, context, registration, handlerOptions)
+        const workflowChatState = await resolveChatState(chatOptions, context, registration, {})
+        const fallbackScope = `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`
+        addSource(chatState.state, chatState.titleKeyPrefix || fallbackScope)
+        addSource(workflowChatState.state, workflowChatState.titleKeyPrefix || fallbackScope)
+      }
+      const inspections = (await Promise.all([...sources].map(async ([state, scopes]) => {
+        await state.connect()
+        return (await Promise.all([...scopes].map(scope => readAgentChannelDeliveries(state, handlerOptions.limit, scope)))).flat()
+      }))).flat()
+      return await withDeliveryInvocationIds(
+        [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
+          .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+          .slice(0, handlerOptions.limit ?? 100),
+        routeAgentInvocationName(agent, context.agentIdentity),
       )
-    ).flat()
-    return [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
-      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
-      .slice(0, handlerOptions.limit ?? 100)
+    })
   }
   handler.warm = async (handlerOptions = {}) => {
     const context = createRuntimeContext(

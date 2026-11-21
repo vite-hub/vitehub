@@ -40,27 +40,34 @@ Better Auth 1.7.7 has a last-login-method plugin but no local audit log. ViteHub
 
 ## Read events from code
 
-```ts
+This is the body of a handler. Run it only after checking that the caller may read audit events, for example with [`requireAbility()`](/docs/auth/abilities).
+
+```ts fragment
 import { aggregateAuthEvents, listAuthEvents } from 'vite-hub/auth/server'
+import { toResponse } from 'vite-hub/runtime'
 
-const first = await listAuthEvents({
-  type: 'user.signed_in',
-  userId: 'user-id',
-  from: '2026-10-01T00:00:00.000Z',
-  to: '2026-11-01T00:00:00.000Z',
-  limit: 50,
-})
-const next = first.nextCursor
-  ? await listAuthEvents({ userId: 'user-id', type: 'user.signed_in', cursor: first.nextCursor })
-  : undefined
+async function readSignIns() {
+  const [error, page] = await listAuthEvents({
+    type: 'user.signed_in',
+    from: '2026-10-01T00:00:00.000Z',
+    to: '2026-11-01T00:00:00.000Z',
+    limit: 50,
+  })
+  if (error) return toResponse(error)
 
-const overview = await aggregateAuthEvents({
-  from: '2026-10-01T00:00:00.000Z',
-  to: '2026-11-01T00:00:00.000Z',
-})
+  const [overviewError, overview] = await aggregateAuthEvents({
+    from: '2026-10-01T00:00:00.000Z',
+    to: '2026-11-01T00:00:00.000Z',
+  })
+  if (overviewError) return toResponse(overviewError)
+
+  return { events: page.events, nextCursor: page.nextCursor, totals: overview.totals }
+}
 ```
 
-Pass the Auth Definition as the second argument if Vite did not discover it. `getAuthEvents(definition?, request?)` returns its store, or `undefined` when the log is off. Pass a request if the Definition needs request context. `store.list()` and `store.aggregate()` also work. The readers throw `AUTH_R0018` when the log is off.
+Both readers return `[error, data]`. Invalid filters return [`AUTH_EVENT_QUERY_INVALID`](/docs/auth/diagnostics/auth_event_query_invalid), and `toResponse(error)` answers 400. A store failure returns [`AUTH_EVENT_READ_FAILED`](/docs/auth/diagnostics/auth_event_read_failed), with the store error as `error.cause`. To read the next page, pass `cursor: page.nextCursor` with the same filters.
+
+Pass the Auth Definition as the second argument if Vite did not discover it. `getAuthEvents(definition?, request?)` returns its store, or `undefined` when the log is off. Pass a request if the Definition needs request context. `store.list()` and `store.aggregate()` also work, and they throw. The readers throw `AUTH_R0018` when the log is off.
 
 `list()` takes `type`, `userId`, `actor`, `from`, `to`, `cursor`, and `limit`:
 
@@ -111,6 +118,19 @@ vitehub auth events --url http://localhost:5173/api/auth --aggregate \
 ```
 
 Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CLI needs HTTPS except on loopback, does not follow redirects, and times out after 30 seconds. It uses the same readers as server code.
+
+## Run code for each event
+
+`events.onEvent` runs for each event after the store records it. Use it to send the event to another service:
+
+```ts fragment
+events: {
+  store,
+  onEvent: event => fetch('https://example.com/hooks/auth', { method: 'POST', body: JSON.stringify(event) }),
+},
+```
+
+With a host `waitUntil()`, the callback runs after the response. Else Auth waits for it. A thrown error never fails the request. Auth logs it as `AUTH_EVENT_CALLBACK_FAILED`, with the error in `cause`. An event that the store could not record does not reach `onEvent`.
 
 ## Event fields
 

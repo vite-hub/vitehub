@@ -20,9 +20,9 @@ icon: i-lucide-sliders-horizontal
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
 | `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
 | `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
-| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room driver. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
-| `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
+| `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_PLUGINS_PARSE_PLUGIN`. |
 | `markdown` | Comark parser options | Used by each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
 | Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Passed to each instance. ViteHub sets `basePath` to `/api/content`. |
 
@@ -33,13 +33,13 @@ Plugin options are read once. Rebuild the runtime to change them.
 | Input | Behavior |
 | --- | --- |
 | Source definition, such as `glob()` or `defineSource()` | Opens a new Reader per load. Overlapping refreshes, snapshots, and document reads keep their selected revisions. |
-| Registered Source name | Opens `useSource(name)` for each load. |
+| Source name, such as `'docs'` for `server/sources/docs.ts` | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
 | Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
 | `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
-Registered names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
+Source names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
 
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
 
@@ -121,7 +121,7 @@ pages: documents({
 })
 ```
 
-The Console's new-document form offers each glob's folder and builds the path there. An id is the path below the folder all globs share, without extension: `content/news/launch.md` is `news/launch`. With no shared folder, the id is the whole path without extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. If globs of two collections can match the same file, `defineContent()` throws `CONTENT_R0006`. Content lists only each glob's folder when it reads a revision, so it skips other files in a large repository.
+The Console's new-document form offers each glob's folder and builds the path there. An id is the path below the folder all globs share, without extension: `content/news/launch.md` is `news/launch`. With no shared folder, the id is the whole path without extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_DOCUMENT_OUTSIDE_COLLECTION`. If globs of two collections can match the same file, `defineContent()` throws `CONTENT_COLLECTION_PATHS_OVERLAP`. Content lists only each glob's folder when it reads a revision, so it skips other files in a large repository.
 
 ::warning
 Adding a glob can change existing ids. Ids are relative to the folder all globs share, so a glob in another folder moves that folder up: `posts/**/*.md` has ids like `hello`, but `['posts/**/*.md', 'news/*.md']` has ids like `posts/hello`. Schedules, saved `expect` entries, and links with ids then point at other documents. Ids stay the same when the new glob is inside the current folder, such as `['posts/**/*.md', 'posts/archive/**/*.md']`. Otherwise, change the collection `url` so URLs stay the same, publish or cancel pending schedules first, and expect each document's history under its new id.
@@ -274,7 +274,7 @@ export async function renameSite() {
 }
 ```
 
-`content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
+`content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_SINGLETON_ID_MISMATCH`. See [Singletons](/docs/content/server-api#singletons) for every method.
 
 #### Data files
 
@@ -392,7 +392,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { roles: true }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.
@@ -400,7 +400,7 @@ Runtime methods, such as `save()` and `publish()`, are trusted server API and sk
 
 ### Public access
 
-`/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_R0006` until you choose who reads it:
+`/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_PUBLIC_SOURCE_UNDECIDED` until you choose who reads it:
 
 ```diff [server/content.ts]
  export default defineContent({
@@ -423,6 +423,68 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - A `github()` Source is parsed at build only when the build has a GitHub token. The build ships the latest commit of its branch, and the server serves it while the head of the Source is that commit. A head that moved loads its commit from KV or GitHub.
 
 The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
+
+### Content only at build
+
+A site that prerenders every page needs Content only while it builds. Keep Content out of the server bundle:
+
+- Define Content in a file other than `server/content.ts`, such as `server/pages.ts`. ViteHub serves `server/content.ts` at run time, with `/api/content/**`, the Content operations, and the parsed documents.
+- Read it only from routes that the prerender needs, as the two forms below show.
+- List the routes that no page links, such as `/llms.txt`, in the Nitro `prerender.routes` option. In `nuxt.config.ts`, it is `nitro.prerender.routes`.
+
+Install `comark-content` in your app to import `fs()` in both examples:
+
+```bash
+pnpm add comark-content
+```
+
+```ts [server/pages.ts]
+import fs from 'comark-content/sources/fs'
+import { defineContent } from 'vite-hub/content'
+
+export const pages = defineContent({ source: fs('pages') })
+```
+
+A route file with the `.prerender` suffix, such as `server/routes/llms.txt.get.prerender.ts`, is part of the prerender build only. It can import Content directly. The server serves the prerendered file, and the server bundle has no code for the route. `vite dev` does not serve it either:
+
+```ts [server/routes/llms.txt.get.prerender.ts]
+import { defineHandler } from 'h3'
+import { pages } from '../pages'
+
+export default defineHandler(async () => {
+  const home = await pages.get('/')
+  return new Response(`# ${home?.data.title}\n`, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+})
+```
+
+A route that must also work in `vite dev` loads Content behind `import.meta.dev || import.meta.prerender`. Both values are `false` in the server build, so the bundler removes the `import()` and the server bundle leaves out Content, Comark, and their plugins:
+
+```ts [server/routes/search.json.get.ts]
+import { defineHandler, HTTPError } from 'h3'
+
+const loadPages = () => import.meta.dev || import.meta.prerender ? import('../pages') : undefined
+
+export default defineHandler(async () => {
+  const content = await loadPages()
+  if (!content) throw new HTTPError({ status: 404 })
+  return await content.pages.navigation()
+})
+```
+
+`fs()` reads the disk, so the dev server must run in Node. The prerender always runs in Node. With the Nitro `cloudflare-module` preset, `vite dev` runs the server in workerd, where `fs()` finds no files.
+
+Nuxt types `import.meta.dev` and `import.meta.prerender`. A Nitro app declares them once:
+
+```ts [server/import-meta.d.ts]
+declare global {
+  interface ImportMeta {
+    dev: boolean
+    prerender: boolean
+  }
+}
+
+export {}
+```
 
 ## Providers
 
@@ -478,7 +540,7 @@ With the owner packages, use `@vite-hub/ui`. You need no Comark UI install, comp
 
 `markdown.plugins` extends the preset. A plugin with a preset plugin's name replaces it, so an app can set file readers, icon collections, or a private diagram service. The include plugin stays off. Badges and chips load images by URL.
 
-Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for schema, Markdown conversion, and the loss check. Content installs its Comark and Tiptap runtimes, so apps do not configure them. Components need no separate editor node definition. A document that cannot round-trip opens read-only and stays editable in Source.
+Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for schema, Markdown conversion, and the loss check. Content installs its Comark runtime. The editor also needs the Tiptap packages, which are optional peers: install them only when the app edits Content in the browser or live, as [Live editing](/docs/content/editing-together#live-editing) shows. Components need no separate editor node definition. A document that cannot round-trip opens read-only and stays editable in Source.
 
 ### Render HTML on the server
 
@@ -512,6 +574,6 @@ An unknown component renders as an element with its tag name. Pass a document fr
 
 Replace the app's Comark renderer, component map, and stylesheet imports with `Markdown` from `vite-hub/ui`. Pass the parsed page as `value`. Keep only app-specific overrides in `components`.
 
-Remove Comark UI and Tiptap packages you installed only for Content. Keep packages the app imports directly, such as search plugins or custom editor extensions.
+Remove Comark UI packages you installed only for Content. Keep the Tiptap packages when the app uses `vite-hub/content/editor` or live editing. Keep packages the app imports directly, such as search plugins or custom editor extensions.
 
 For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The `contentEditorComponents`, `contentEditorKitOptions`, `contentMarkdownLossOf`, and `describeContentMarkdownLoss` helpers are removed. Use the codec's `verify()` method. There are no compatibility aliases.

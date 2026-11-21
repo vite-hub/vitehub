@@ -7,6 +7,7 @@ import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation
 
 import { consoleErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import { forwardProjectRequest } from "../../src/forward.ts"
+import { consumeForwardBudget, forwardBudget } from "../../src/forward-budget.ts"
 import { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 import { consoleApiKeyOf, createConsoleApiKey, defaultApiKeyDays, maxApiKeyDays, verifyConsoleApiKey } from "../../src/api-keys.ts"
 import { createConsoleProjectStore, listConsoleProjects, scopeConsoleProjectStore } from "../../src/projects.ts"
@@ -19,16 +20,26 @@ import type { ConsoleProjectStore } from "../../src/projects.ts"
 
 export { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 
-const { member, organization, session } = authSqliteSchema
+const { member, organization, session, user: authUser } = authSqliteSchema
 
 export function consoleProblem(status: number, code: string, message: string): Response {
   return Response.json({ code, message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
 }
 
 /** A problem from the Console catalog (src/error-diagnostics.ts): the code, `why` as the message, `fix`, and `docs`. */
-export function consoleDiagnosticProblem(status: number, diagnostic: Diagnostic<unknown>): Response {
+export function consoleDiagnosticProblem(status: number, diagnostic: Diagnostic<unknown>, headers: Record<string, string> = {}): Response {
   const { code, docs, fix, why } = diagnostic
-  return Response.json({ code, docs, fix, message: why, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
+  return Response.json({ code, docs, fix, message: why, ok: false, status }, { headers: { "cache-control": "no-store", ...headers }, status })
+}
+
+/**
+ * Count one signed call of the caller to a project. Over the budget, it returns the `CONSOLE_FORWARD_RATE_LIMITED`
+ * diagnostic and the seconds until the next call can go.
+ */
+export async function spendForwardBudget(caller: ConsoleTeamCaller, id: string): Promise<{ diagnostic: Diagnostic<unknown>, retryAfter: number } | undefined> {
+  const retryAfter = await consumeForwardBudget(useDatabase("default").db, caller.user.id, id)
+  if (retryAfter === undefined) return undefined
+  return { diagnostic: consoleErrorDiagnostics.CONSOLE_FORWARD_RATE_LIMITED({ limit: forwardBudget.limit, retryAfter }), retryAfter }
 }
 
 export function consoleJson(value: unknown, status = 200): Response {
@@ -56,12 +67,13 @@ export async function consoleTeamCaller(user: ConsoleCallerUser, teamId: string)
   const userId = user.id
   const { db } = useDatabase("default")
   const [membership] = teamId
-    ? await db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
+    ? await db.select({ role: member.role, email: authUser.email, emailVerified: authUser.emailVerified }).from(member)
+      .innerJoin(authUser, eq(authUser.id, member.userId)).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
     : []
   if (!membership) return consoleProblem(403, "CONSOLE_TEAM_REQUIRED", "Choose a team that you are a member of.")
   const projects = useConsoleProjects(teamId)
   if (projects instanceof Response) return projects
-  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, user }
+  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, user: consoleCallerUser({ ...user, email: membership.email, emailVerified: membership.emailVerified }) }
 }
 
 /** The caller of an API key: a team caller with the key and the team's name. */
@@ -199,6 +211,15 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
   return consoleJson({ project }, 201)
 }
 
+/** Change the name of a project in the Console: `{ "label": "Docs" }`, or `{ "label": null }` to show the app's own name. */
+export async function renameProject(caller: ConsoleTeamCaller, id: string, body: unknown): Promise<Response> {
+  if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team rename projects.")
+  const label: unknown = body instanceof Object && "label" in body ? Reflect.get(body, "label") : undefined
+  if (label !== null && String(label) !== label) return consoleProblem(400, "CONSOLE_PROJECT_INVALID", "Send { \"label\": \"Docs\" }, or { \"label\": null } to remove the label.")
+  const project = await caller.projects.rename(id, label)
+  return project ? consoleJson({ project }) : consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project.")
+}
+
 /** Unlink a project. The Console deletes the private key of the link, so no call can be signed for it again. */
 export async function unlinkProject(caller: ConsoleTeamCaller, id: string): Promise<Response> {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team unlink projects.")
@@ -242,6 +263,11 @@ export async function callProjectOperation(caller: ConsoleTeamCaller, id: string
 async function signedProjectCall(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
   const target = await caller.projects.target(id)
   if (!target) return undefined
+  const spent = await spendForwardBudget(caller, id)
+  if (spent) {
+    const { code, fix, why } = spent.diagnostic
+    return { error: { code, fix, message: why }, ok: false, status: 429 }
+  }
   const outcome = await callOperationRpc(operation, input, async (body) => {
     const call = new Request("https://console.invalid/", { body, headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
     // The forwarder signs the exact body that birpc wrote, so the signature covers this call.

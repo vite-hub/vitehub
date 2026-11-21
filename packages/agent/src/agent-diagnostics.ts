@@ -10,6 +10,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1042",
   "AGENT_R1043",
   "AGENT_R1044",
+  "AGENT_WEBHOOK_OPTION_RENAMED",
+  "AGENT_WEBHOOK_SECRET_NAME_INVALID",
   "AGENT_STORAGE_PREFIX_INVALID",
   "AGENT_STORAGE_PREFIX_OUTSIDE",
   "AGENT_R1007",
@@ -161,7 +163,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0357",
   "AGENT_R0358",
   "AGENT_R0371",
-  "AGENT_R0372",
   "AGENT_R0373",
   "AGENT_R0374",
   "AGENT_R0375",
@@ -408,10 +409,31 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_BUDGET_USD_INVALID",
   "AGENT_CAPABILITY_EXTEND_ID_CHANGED",
   "AGENT_CAPABILITY_ID_MISSING",
+  "AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID",
+  "AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY",
+  "AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID",
+  "AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID",
+  "AGENT_CHANNEL_PULL_OPTIONS_INVALID",
+  "AGENT_CHANNEL_PULL_PAGE_INVALID",
+  "AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING",
+  "AGENT_CHANNEL_STATE_DURATION_INVALID",
+  "AGENT_CHANNEL_STATE_TRANSACTION_INVALID",
+  "AGENT_CHANNEL_STATE_TRANSACTION_NESTED",
   "AGENT_CHANNEL_TASK_HANDLED",
   "AGENT_CONFIGURED_OPTIONS_INVALID",
   "AGENT_CONFIGURE_RESULT_INVALID",
   "AGENT_CONFIG_KEY_INVALID",
+  "AGENT_CONNECTOR_ADAPTER_UNSUPPORTED",
+  "AGENT_CONNECTOR_RECIPIENT_INVALID",
+  "AGENT_CONNECTOR_RECIPIENT_MISSING",
+  "AGENT_CONNECTOR_REPLACE_INVALID",
+  "AGENT_CONNECTOR_REPLACE_THREAD_ROOT",
+  "AGENT_CONNECTOR_THREAD_KEY_MISSING",
+  "AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID",
+  "AGENT_CONNECTOR_THREAD_UNSUPPORTED",
   "AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING",
   "AGENT_CUSTOM_INSTRUCTIONS_REFERENCE_INVALID",
   "AGENT_CUSTOM_INSTRUCTIONS_SLOT_MISSING",
@@ -422,10 +444,12 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
   "AGENT_DRAIN_MS_INVALID",
   "AGENT_EXTENDS_INVALID",
+  "AGENT_EXTERNAL_DRIVER_RUNTIME",
   "AGENT_INSTRUCTIONS_EXTEND_INVALID",
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
   "AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE",
+  "AGENT_MCP_BEARER_TOKEN_RENAMED",
   "AGENT_MCP_RETRIES_INVALID",
   "AGENT_MCP_TOOLS_LIST_INVALID",
   "AGENT_OBSERVABILITY_INSTALLED",
@@ -451,6 +475,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_PRESET_UNKNOWN",
   "AGENT_QUEUED_INPUT_NOT_JSON",
   "AGENT_SKILL_NAME_INVALID",
+  "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
   "AGENT_TASK_AGENT_NAME_MISSING",
   "AGENT_TIMER_DURATION_INVALID",
   "AGENT_TRIGGER_PREPARE_INVALID",
@@ -486,6 +511,7 @@ const agentDiagnosticHandles = defineDiagnostics({
   codes: {
     // AGENT_R0081, AGENT_R0085, AGENT_R0086, AGENT_R0088, AGENT_R0094, AGENT_R0109, and AGENT_R0153 through AGENT_R0155 are retired. Nothing raised them. AGENT_R0105, AGENT_R0106, and AGENT_R0151 are retired: only a ViteHub bug reached them. Do not reuse them.
     // AGENT_R0038 through AGENT_R0048, AGENT_R0889, and AGENT_R0922 are retired. Nothing raised them. Do not reuse them.
+    // AGENT_R1053 is retired with the old `--url` forms of `vitehub agent invocations`. Do not reuse it.
     AGENT_R0907: {
       ...dynamicError,
       fix: "Set the observations option of the Agent Invocation journal to whole numbers inside the range that the message names, or remove the option to use its default.",
@@ -1809,10 +1835,6 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Pass channelAdapter() a non-empty Channel kind string, such as \"slack\".",
     },
-    AGENT_R0372: {
-      ...dynamicError,
-      fix: "Remove path from http(), and set the route with http({ webhooks: { path } }).",
-    },
     AGENT_R0373: {
       ...dynamicError,
       fix: "Pass telegram() either webhookSecret or webhooks, not both.",
@@ -2221,7 +2243,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object, not a string.",
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
@@ -2249,19 +2271,19 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0497: {
       ...dynamicError,
-      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.",
+      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver.",
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent info --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get --agent support.",
     },
     AGENT_R0499: {
       ...dynamicError,
-      fix: "Remove the unknown option. Run vitehub agent info --help to list the options.",
+      fix: "Remove the unknown option. Run vitehub agent get --help to list the options.",
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent info --agent <name>.",
+      fix: "Remove the extra argument. Pass the Agent with vitehub agent get --agent <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -2269,7 +2291,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0502: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations show <id>.",
+      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations get <id>.",
     },
     AGENT_R0503: {
       ...dynamicError,
@@ -2289,7 +2311,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0507: {
       ...dynamicError,
-      fix: "Pass the invocation ID after the action, such as vitehub agent invocations show <id>. Run vitehub agent invocations list to find it.",
+      fix: "Pass the invocation ID after the action, such as vitehub agent invocations get <id>. Run vitehub agent invocations list to find it.",
     },
     AGENT_R0508: {
       ...dynamicError,
@@ -2353,7 +2375,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0524: {
       ...dynamicError,
-      fix: "Set a webhook secret on the Channel webhook registration, such as secretToken, and make a base64 secret canonical base64.",
+      fix: "Set a webhook secret on the Channel webhook registration with secret, the name of the server variable that holds it, and make a base64 secret canonical base64.",
     },
     AGENT_R0525: {
       ...dynamicError,
@@ -3473,7 +3495,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: {
       ...dynamicError,
-      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/api/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
+      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
     },
     AGENT_B0017: dynamicError,
     // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
@@ -3753,7 +3775,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
     AGENT_INVOCATIONS_NO_DEV_SERVER: {
-      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to call.`,
       fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
     },
     AGENT_R0939: {
@@ -4006,11 +4028,11 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R1044: {
       why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" does not verify requests, and it does not opt out of verification.`,
-      fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
+      fix: "Set secret, the name of the server variable that holds the secret, with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secret: false.",
     },
     AGENT_R1045: {
-      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime room authority.",
-      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
+      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime driver.",
+      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { driver: \"memory\" }` for one process, or Redis or Postgres for more.",
     },
     AGENT_R1046: {
       why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",
@@ -4039,10 +4061,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1052: {
       why: ({ problem }: { problem: string }) => `[vitehub] page() has an invalid rule: ${problem}`,
       fix: "Give each rule in `deny` and `requireApproval` a non-empty `label`, a `component`, or `confirm: true`, such as `{ label: \"Project name\" }`.",
-    },
-    AGENT_R1053: {
-      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
-      fix: ({ use }: { use: string }) => `Pass ${use}.`,
     },
     AGENT_R1054: {
       why: "[vitehub] This page is closed. Its queued calls cannot run.",
@@ -4120,13 +4138,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Export without media, or read the conversation page by page with `vitehub channels conversation`.",
     },
     AGENT_CHANNELS_FORBIDDEN: {
-      why: ({ problem }: { problem: "conversations" | "identity" | "participant" | "status" }) => ({
+      why: ({ problem }: { problem: "conversations" | "deliveries" | "identity" | "participant" | "status" }) => ({
         conversations: "An Agent can read Channel conversations only when its operations() capability sets `conversations`.",
+        deliveries: "An Agent can read Channel deliveries only when its operations() capability sets `conversations: \"all\"`.",
         identity: "The Actor has no identity that can be matched to the people of this thread.",
         participant: "The Actor is not a participant of this thread.",
         status: "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.",
       })[problem],
-      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread and the Channel status with `operations({ conversations: \"all\" })`.",
+      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread, the Channel status, and the deliveries with `operations({ conversations: \"all\" })`.",
     },
     AGENT_CHANNELS_HOST_UNAVAILABLE: {
       why: ({ detail, read }: { detail?: string, read: "admission" | "durable" | "host" | "participants" | "state" | "transcripts" }) => ({
@@ -4172,6 +4191,34 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ agent, channel, channels }: { agent: string, channel: string, channels: string[] }) => `[vitehub] Agent ${agent} lists the Channel "${channel}", but server/channels has no Channel with that name. Channels: ${channels.join(", ") || "none"}.`,
       fix: "Correct the name in `defineAgent({ channels })` to one of the Channels that the message lists, or add the Channel as server/channels/<name>/index.ts.",
     },
+    AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID: {
+      why: "[vitehub] channelDelivery({ channel }) requires a Channel client, for example useChannel(\"teams\").",
+      fix: "Pass a Channel client with a `send()` method to `channelDelivery({ channel })`, such as `useChannel(\"teams\")`.",
+    },
+    AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires formatted text to be non-empty.`,
+      fix: "Return non-empty text from the `channelDelivery({ format })` function.",
+    },
+    AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID: {
+      why: "[vitehub] channelDelivery({ maxCalls }) must be a positive integer.",
+      fix: "Set `channelDelivery({ maxCalls })` to an integer of 1 or more, or omit it to allow one call.",
+    },
+    AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires a non-empty message.`,
+      fix: "The model called the delivery tool that the message names without text. It reads this error and can call the tool again; if it does not, tell it in the Agent instructions to pass the text to send in `message`.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID: {
+      why: "[vitehub] channelDelivery({ reminder: { instruction } }) must be a non-empty string.",
+      fix: "Set `channelDelivery({ reminder: { instruction } })` to non-empty text, or omit it to use the default reminder.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED: {
+      why: "[vitehub] channelDelivery({ reminder }) requires required: true.",
+      fix: "Add `required: true` to `channelDelivery({ reminder })`, or remove `reminder`.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID: {
+      why: "[vitehub] channelDelivery({ reminder: { turns } }) must be a positive integer.",
+      fix: "Set `channelDelivery({ reminder: { turns } })` to an integer of 1 or more.",
+    },
     AGENT_CHANNEL_HOST_NAME_TAKEN: {
       why: ({ agent, channel }: { agent: string, channel: string }) => `[vitehub] Channel ${channel} serves its webhooks as "${agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.`,
       fix: "Rename the Agent that has the name `channel-<name>`, or rename the Channel folder under server/channels/.",
@@ -4179,6 +4226,62 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CHANNEL_IMPORT_CYCLE: {
       why: ({ agent, channel }: { agent: string, channel: string }) => `[vitehub] Agent ${agent} lists the Channel "${channel}", whose static imports lead back to that Agent. Use a lazy task target, agent: () => import('...'), or leave the Channel unlisted. Named Channels cannot statically import their owning Agent.`,
       fix: "In the Channel file, load the Agent with a lazy task target, such as `tasks: { triage: { agent: () => import('../../agents/triage') } }`, or remove the Channel from `defineAgent({ channels })`.",
+    },
+    AGENT_CHANNEL_MESSAGE_ID_MISSING: {
+      why: ({ label, root }: { label: string, root: boolean }) => root
+        ? `[vitehub] ${label} did not return a root message ID, so replies cannot go under it.`
+        : `[vitehub] ${label} posted this message without returning its ID, so it cannot be edited or deleted.`,
+      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created. Edit or delete the original message in the chat client if needed.",
+    },
+    AGENT_CHANNEL_PULL_CURSOR_INVALID: {
+      why: ({ key, cursor, next, kind }: { key: string, cursor: string | number, next: string | number | undefined, kind: "back" | "gap" | "repeated" | "stuck" }) => kind === "gap"
+        ? `[vitehub] context.pull("${key}") has a gap: expected cursor ${cursor}, received ${next}.`
+        : kind === "back"
+          ? `[vitehub] context.pull("${key}") moved its cursor back from ${cursor} to ${next}.`
+          : kind === "stuck"
+            ? `[vitehub] context.pull("${key}") reported more items without advancing its cursor ${cursor}.`
+            : `[vitehub] context.pull("${key}") repeated cursor ${next}.`,
+      fix: "Make the `context.pull()` fetch function start each page at the given cursor, move `next` forward, and return `more: false` on the last page.",
+    },
+    AGENT_CHANNEL_PULL_CURSOR_TYPE_CHANGED: {
+      why: ({ key, cursorType }: { key: string, cursorType: string }) => `[vitehub] The saved cursor of context.pull("${key}") is not a ${cursorType}.`,
+      fix: "Keep `initialCursor` of `context.pull()` the same type as the saved cursor, or pass a new `key` to start a new cursor.",
+    },
+    AGENT_CHANNEL_PULL_OPTIONS_INVALID: {
+      why: ({ key, need }: { key: string, need: "a fetch function" | "a non-empty key" | "a string or finite number initialCursor" | "the trigger that admits its items" }) => key ? `[vitehub] context.pull("${key}") needs ${need}.` : `[vitehub] context.pull() needs ${need}.`,
+      fix: "Pass `key`, `initialCursor` (a string or a number), `fetch`, and `trigger` to `context.pull({ key, initialCursor, fetch, trigger })`.",
+    },
+    AGENT_CHANNEL_PULL_PAGE_INVALID: {
+      why: ({ key, cursorType }: { key: string, cursorType: string }) => `[vitehub] context.pull("${key}") fetch must return { items, next, more } with a ${cursorType} next cursor.`,
+      fix: "Return `{ items, next, more }` from the `context.pull()` fetch function, with `next` of the same type as `initialCursor`.",
+    },
+    AGENT_CHANNEL_PULL_STATE_MISSING: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Channel trigger "${triggerId}" can pull only with the Channel's State. Run it through the Channel's webhook route.`,
+      fix: "Call `context.pull()` only in a trigger that runs from the Channel webhook route, where the Channel State is bound.",
+    },
+    AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires a non-empty reason.`,
+      fix: "The model called the skip reply tool that the message names without a reason. It reads this error and can call the tool again; if it does not, tell it in the Agent instructions to give a short `reason` when it skips a reply.",
+    },
+    AGENT_CHANNEL_STATE_DURATION_INVALID: {
+      why: ({ name, allowZero }: { name: "ttlMs" | "waitMs", allowZero: boolean }) => `[vitehub] channelState.transaction() ${name} must be a ${allowZero ? "non-negative" : "positive"} finite number.`,
+      fix: "Pass `ttlMs` as a number above 0 and `waitMs` as a number of 0 or more to `channelState.transaction(key, run, { ttlMs, waitMs })`.",
+    },
+    AGENT_CHANNEL_STATE_LOCK_BUSY: {
+      why: ({ key, waitMs }: { key: string, waitMs: number }) => `[vitehub] Channel State lock "${key}" is still held after ${waitMs} ms.`,
+      fix: "Retry later: a webhook delivery retries by itself. If the lock stays busy, raise `waitMs` of `channelState.transaction()` or make the work that holds the lock shorter.",
+    },
+    AGENT_CHANNEL_STATE_QUEUE_MISSING: {
+      why: "[vitehub] Channel State writes with a delivery need a queue-capable State.",
+      fix: "Use a queue-capable Agent State, such as `vitehub({ agent: { providers: { state: { driver: \"sqlite\" } } } })`, for Channels that queue deliveries.",
+    },
+    AGENT_CHANNEL_STATE_TRANSACTION_INVALID: {
+      why: ({ need }: { need: "a callback" | "a non-empty key" }) => `[vitehub] channelState.transaction() needs ${need}.`,
+      fix: "Call `channelState.transaction(key, run)` with a non-empty string key and a callback function.",
+    },
+    AGENT_CHANNEL_STATE_TRANSACTION_NESTED: {
+      why: ({ key }: { key: string }) => `[vitehub] Channel State key "${key}" already has a transaction in this trigger call.`,
+      fix: "Use one `channelState.transaction()` per key in a trigger call, and read and write that key inside its callback.",
     },
     AGENT_CHANNEL_TASK_HANDLED: {
       why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
@@ -4207,6 +4310,38 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CONFIG_KEY_INVALID: {
       why: "[vitehub] Agent configKey must be a non-reserved configuration key.",
       fix: "Set `configKey` in `defineAgent({ options, configure, configKey })` to a camelCase name that is not an Agent option, such as `\"babysitter\"`.",
+    },
+    AGENT_CONNECTOR_ADAPTER_UNSUPPORTED: {
+      why: ({ label, action }: { label: string, action: "delete messages" | "open direct messages" | "post channel messages" }) => `[vitehub] The ${label} adapter cannot ${action}.`,
+      fix: "Pass a Chat adapter that has the method that the message names, or send without `replace`, a `user:` recipient, or `thread`.",
+    },
+    AGENT_CONNECTOR_RECIPIENT_INVALID: {
+      why: ({ label }: { label: "Slack" | "Teams" }) => `[vitehub] The ${label} recipient is not a ${label} thread ID.`,
+      fix: "Pass a thread ID that the Chat adapter encodes as `recipient`, such as the `threadId` of a message that the Channel received.",
+    },
+    AGENT_CONNECTOR_RECIPIENT_MISSING: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} send requires a recipient.`,
+      fix: "Pass `recipient` to `send(message, { recipient })`, such as a channel thread ID or `user:<id>`.",
+    },
+    AGENT_CONNECTOR_REPLACE_INVALID: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`,
+      fix: "Pass `idempotencyKey` to `send()` and set `replace` to the `idempotencyKey` of an earlier send, not to the same key.",
+    },
+    AGENT_CONNECTOR_REPLACE_THREAD_ROOT: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`,
+      fix: "Set `thread.root` on the first `send()` of the thread, so the message that `replace` deletes is a reply and not the root.",
+    },
+    AGENT_CONNECTOR_THREAD_KEY_MISSING: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} thread requires a non-empty key.`,
+      fix: "Pass `thread: { key }` with a non-empty key to `send()`, or omit `thread`.",
+    },
+    AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID: {
+      why: ({ label }: { label: string }) => `[vitehub] A ${label} thread requires a channel recipient without a message ID.`,
+      fix: "Pass the channel, not a message thread, as `recipient` when you send with `thread`.",
+    },
+    AGENT_CONNECTOR_THREAD_UNSUPPORTED: {
+      why: ({ name }: { name: string }) => `[vitehub] The ${name}() Channel does not support thread in send().`,
+      fix: "Remove `thread` from `send()` for this Channel. Only the `slack()` and `teams()` Channels support `thread`.",
     },
     AGENT_CONSOLE_DELIVERY_INCOMPLETE: {
       why: "Console delivery requires both url and token.",
@@ -4251,6 +4386,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.",
       fix: "Add a `{{{ context.customInstructions }}}` line outside code blocks to the Agent instructions, or do not pass `context.customInstructions`.",
     },
+    AGENT_DEFINITION_EXPORT_MISSING: {
+      why: ({ file, name }: { file: string, name: string }) => `[vitehub] Agent "${name}" has no default export in ${file}. Every file that Agent discovery finds must export its Agent Definition as default.`,
+      fix: "Export the Agent from the file with `export default defineAgent({ ... })`. If the file holds helpers and not an Agent, move it out of `server/agents/`, or set `agent: false` in `vitehub()` when the app has no Agents.",
+    },
+    AGENT_DEV_LOOP_FAILED: {
+      why: ({ message, status }: { message: string, status: number }) => `The dev server answered the Agent Dev Loop with HTTP ${status}: ${message}`,
+      fix: "Fix the error that the message names, for example an Agent module that does not load, and run the command again.",
+    },
     AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
       why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
       fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
@@ -4279,6 +4422,26 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.",
       fix: "Set `vitehub({ agent: { shutdown: { drainMs } } })` to a number of milliseconds, 0 or more, such as `45_000`.",
     },
+    AGENT_EMULATOR_CLOSED: {
+      why: "[vitehub] The AI emulator of emulateModels() is closed.",
+      fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
+    },
+    AGENT_EMULATOR_DEV_APPS_CONFLICT: {
+      why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
+      fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
+    },
+    AGENT_EMULATOR_PACKAGES_MISSING: {
+      why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
+    },
+    AGENT_EMULATOR_RULES_INVALID: {
+      why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,
+      fix: "Fix the rule field that the message names. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. See https://emulate.dev/docs/ai.",
+    },
+    AGENT_EMULATOR_SCOPE_ACTIVE: {
+      why: "[vitehub] An emulateModels() scope is already active in this test worker.",
+      fix: "Close the active emulator before starting another. Do not use concurrent tests that each call `emulateModels()` in the same worker.",
+    },
     AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED: {
       why: "[vitehub] Execution budgets require AI SDK wrapLanguageModel support.",
       fix: "Upgrade the `ai` package to a version that exports `wrapLanguageModel`, or turn the execution budget off.",
@@ -4287,13 +4450,45 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
     },
+    AGENT_EXTERNAL_DRIVER_RUN: {
+      why: ({ agent }: { agent: string }) => `[vitehub] Agent ${JSON.stringify(agent)} has driver: "external", so a process outside this app runs it. ViteHub does not run it.`,
+      fix: "Run the Agent where it lives, such as Codex or Claude Code on a laptop or a CI runner, and import its session with `importAgentSession()` from `@vite-hub/agent/sessions`. To run the Agent in this app, give it a model, provider, run, or ask Driver.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUNTIME: {
+      why: "[vitehub] defineAgent({ driver: \"external\" }) cannot have a Workflow runtime. A process outside the app runs the Agent, so no Workflow can run it.",
+      fix: "Remove `runtime` from the Agent Definition. An external Agent has no runtime.",
+    },
+    AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
+      why: "GitHub activity session links require an Agent identity.",
+      fix: "Run the GitHub Channel from an Agent Definition so the activity has an Agent identity, or remove `activity.publicUrl` from the GitHub Channel options.",
+    },
     AGENT_GMAIL_CERTIFICATES_FAILED: {
       why: ({ status }: { status: number }) => `Google OAuth certificates request failed with HTTP ${status}.`,
       fix: "Check that the server can reach https://www.googleapis.com/oauth2/v3/certs. A retry helps when Google was only unavailable.",
     },
+    AGENT_GMAIL_DISPATCH_FAILED: {
+      why: ({ count }: { count: number }) => `Gmail message dispatch failed for ${count} message(s); saved for retry.`,
+      fix: "Read the failed Invocations of the Gmail Channel for the cause. The messages are saved, and the next poll retries them.",
+    },
+    AGENT_GMAIL_LOCK_LOST: {
+      why: ({ lock }: { lock: "mailbox" | "skipped messages" }) => lock === "mailbox" ? "Lost ownership of the Gmail mailbox lease." : "Lost the lock of the Gmail skipped messages.",
+      fix: "Poll the Gmail Channel again. Another process took the lock after it expired, which a slow Agent State can cause.",
+    },
+    AGENT_GMAIL_MAILBOX_MISMATCH: {
+      why: "Gmail notification belongs to another mailbox.",
+      fix: "Point the Pub/Sub push subscription of this Gmail Channel only at the mailbox of its refresh token.",
+    },
+    AGENT_GMAIL_OAUTH_REFRESH_FAILED: {
+      why: ({ detail, status }: { detail?: string, status: number }) => status ? `Google OAuth token refresh failed with HTTP ${status}${detail ? `: ${detail}` : ""}.` : `Google OAuth token refresh failed: ${detail}`,
+      fix: "Check the Gmail OAuth client ID, client secret, and refresh token in Server Env `gmail`, and that Google has not revoked the refresh token. Without an HTTP status, read `error.cause` for the network failure and try again.",
+    },
     AGENT_GMAIL_REQUEST_FAILED: {
-      why: ({ method, path, reason, status }: { method: string, path: string, reason?: string, status: number }) => `Gmail ${method} ${path} failed with HTTP ${status}${reason ? `: ${reason}` : ""}.`,
-      fix: "Read the HTTP status: for 401 or 403 give the Gmail account of GMAIL_REFRESH_TOKEN the Gmail API scopes again, for 429 or a 5xx status retry later.",
+      why: ({ reason, request, status }: { reason?: string, request: string, status: number }) => `${request} failed with HTTP ${status}${reason ? `: ${reason}` : ""}.`,
+      fix: "Read the HTTP status and the Google error in the message. For 401 or 403, check the Gmail OAuth client, refresh token, and scopes in Server Env `gmail`. For 429 or a 5xx status, try again later.",
+    },
+    AGENT_GMAIL_SYNC_BUSY: {
+      why: "Gmail mailbox synchronization is already running; retry polling after it completes.",
+      fix: "Poll the Gmail Channel again after the running synchronization completes.",
     },
     AGENT_GMAIL_TOKEN_REFRESH_FAILED: {
       why: ({ reason, status }: { reason?: string, status?: number }) => `Google OAuth token refresh failed${status ? ` with HTTP ${status}` : ""}${reason ? `: ${reason}` : ""}.`,
@@ -4361,6 +4556,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "maxRetries must be a non-negative integer",
       fix: "Set `maxRetries` of the model call settings to an integer of 0 or more.",
     },
+    AGENT_MCP_BEARER_TOKEN_RENAMED: {
+      why: "[vitehub] driver.env sets T3_MCP_BEARER_TOKEN. Codex now reads the token of the ViteHub tools MCP server from VITEHUB_MCP_BEARER_TOKEN, so the old variable has no effect.",
+      fix: "Remove `T3_MCP_BEARER_TOKEN` from `driver.env`. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN`. Update any `launch` wrapper that hard-codes the old name to forward the new one. A wrapper that forwards `requiredEnvironment` needs no change.",
+    },
     AGENT_MCP_RETRIES_INVALID: {
       why: "[vitehub] callMcpTool({ retries }) must be a non-negative integer.",
       fix: "Set `retries` in the `callMcpTool()` options to an integer of 0 or more.",
@@ -4368,6 +4567,48 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MCP_TOOLS_LIST_INVALID: {
       why: "[vitehub] MCP tools/list must return a tools array.",
       fix: "Check that the MCP server answers `tools/list` with a `tools` array, and update the server if it does not.",
+    },
+    AGENT_MEMORY_EVENT_INVALID: {
+      why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
+      fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
+    },
+    AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent asks Jev questions. The AI emulator does not answer Jev questions, and ViteHub does not send them to a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent uses the Claude Code Driver. The AI emulator rejects the `system` turns that Claude Code sends, and ViteHub does not start Claude Code against a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to run Claude Code, or give the Agent a model Driver, such as `driver: { model: 'anthropic/claude-sonnet-4.5' }`, or `codexDriver()` without Capability tools while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED: {
+      why: ({ tools }: { tools: number }) => `[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent has ${tools} Capability ${tools === 1 ? "tool" : "tools"}. Codex sends Capability tools as one \`namespace\` tool, which the AI emulator rejects, and ViteHub does not start Codex against a real provider while the switch is on.`,
+      fix: "Remove the Capabilities that add tools while you run this Agent on the emulator, or give it a model Driver, such as `driver: { model: 'openai/gpt-5.5' }`, which sends Capability tools as function tools. Unset `VITEHUB_MODELS` to run Codex with tools.",
+    },
+    AGENT_MODELS_EMULATE_IN_PRODUCTION: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
+      fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
+    },
+    AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
+      fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
+    },
+    AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED: {
+      why: ({ source, tool }: { source: "gateway" | "switch", tool: string }) => `[vitehub] ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "The Agent model uses the emulate() gateway"}, so the Agent ran without the hosted provider tool "${tool}". The AI emulator rejects hosted tools, such as the web search of webSearch({ mode: "model" }).`,
+      fix: ({ source }: { source: "gateway" | "switch", tool: string }) => source === "switch"
+        ? "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or unset `VITEHUB_MODELS` to run with the hosted tool. The run continues without it."
+        : "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or set the Agent model to one that supports hosted tools, such as `'openai/gpt-5.1'`, instead of `languageModel(emulate(), id)`. The run continues without it.",
+    },
+    AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
+      fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
+    },
+    AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED: {
+      why: ({ choice, source }: { choice: string, source: "gateway" | "switch" }) => `[vitehub] The Agent tool choice is ${choice}, but ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "the Agent model uses the emulate() gateway"} and the AI emulator rejects the hosted tool that it needs. The run uses tool choice "auto".`,
+      fix: "Use `webSearch({ mode: 'tool', provider })`, which gives the emulator a `web_search` tool that the tool choice can name. The run continues with tool choice \"auto\".",
+    },
+    AGENT_MODELS_INVALID: {
+      why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
+      fix: "Set `VITEHUB_MODELS=emulate` to send model requests to the AI emulator, or unset it to call the real providers.",
     },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,
@@ -4515,13 +4756,27 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,
       fix: "Name each Skill in `agentWithSkills(agent, skills)` with letters, digits, `.`, `_`, or `-`.",
     },
+    AGENT_SLACK_CONNECTOR_ADAPTER_MISSING: {
+      why: "[vitehub] Sending with slack() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
+      fix: "Pass the Slack adapter of the app to `slack({ adapter })`, such as `slack({ adapter: createSlackAdapter() })`.",
+    },
     AGENT_STATE_ATOMIC_LOCK_MISSING: {
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
       fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
     },
+    AGENT_STATE_FILE_URL_UNSUPPORTED: {
+      why: ({ url }: { url: string }) => `[vitehub] Agent State cannot open the file: URL ${url} in workerd, which has no file system. Nitro's \`miniflare\` dev runner and Cloudflare Workers run in workerd.`,
+      fix: "Set agent.providers.state.url to a libSQL server URL, such as a Turso URL. If VITEHUB_AGENT_STATE_URL is supplied to the Worker, change or remove that override. To keep using the local file, run `vite dev` on a Node dev runner.",
+    },
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
+      why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,
+      fix: ({ host }: { host: "vercel" | "netlify" }) => host === "netlify"
+        ? "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Netlify Functions scope for the target deploy context."
+        : "Set VITEHUB_AGENT_STATE_URL to a durable libSQL URL in the Vercel runtime environment for this deployment.",
     },
     AGENT_STORAGE_PREFIX_INVALID: {
       why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,
@@ -4593,6 +4848,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ phase, status, reason }: { phase: "delivery" | "rehydration", status: number, reason: string | undefined }) => `[vitehub] Handled webhook ${phase} returned HTTP ${status}${reason ? ` (${reason})` : ""}.`,
       fix: "The webhook queue retries the delivery. Check the trigger handler that answered with 5xx, and answer with 2xx or 4xx to stop the retries.",
     },
+    AGENT_WEBHOOK_OPTION_RENAMED: {
+      why: ({ registration, from, to }: { registration: string, from: string, to: string }) => `[vitehub] Webhook registration "${registration}" sets ${from}, which is now ${to}.`,
+      fix: "Use the names of Webhooks and Channels: `secret` names the server variable that holds the secret, and `signature` is `\"bearer\"`, `\"github\"`, `\"stripe\"`, `{ type: \"hmac-sha256\" }`, `{ type: \"stripe\", tolerance: \"5m\" }`, or `{ verify }`. `vitehub migrate` renames them.",
+    },
     AGENT_WEBHOOK_REHYDRATION_CHANGED: {
       why: ({ kind, resolved, expected }: { kind: "Agent" | "task", resolved: string, expected: string }) => `[vitehub] Persisted webhook delivery resolved ${kind} "${resolved}" instead of "${expected}".`,
       fix: "Keep the task and Agent that a trigger selects for a delivery the same while queued deliveries wait, or let them finish before you deploy the change.",
@@ -4602,6 +4861,10 @@ const agentDiagnosticHandles = defineDiagnostics({
         ? "[vitehub] Webhook aliases currently require a Nitro host."
         : `[vitehub] Channel ${channel} declares its own webhook route. Inbound Channels that no Agent lists currently require a Nitro host.`,
       fix: "Build for a Nitro host, such as `vitehub({ host: \"node\" })`. On Deno or Netlify, remove `routes.aliases` from `vitehub({ agent })` and list each inbound Channel in `defineAgent({ channels })`.",
+    },
+    AGENT_WEBHOOK_SECRET_NAME_INVALID: {
+      why: ({ registration }: { registration: string }) => `[vitehub] Webhook registration "${registration}" sets a \`secret\` string that is not a server variable name.`,
+      fix: "Set `secret` to the name of the server variable that holds the secret, such as `secret: \"GITHUB_WEBHOOK_SECRET\"`, or to a function that returns the secret, such as `secret: () => useServerEnv().github.webhookSecret`.",
     },
     AGENT_WEBHOOK_STATE_SCOPE_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Webhook registration "${id}" stateScope must be a non-empty string.`,
@@ -4821,8 +5084,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass `--table-prefix` with the `tablePrefix` that the app uses, or pass `--database` with the journal that the app writes.",
     },
     AGENT_INVOCATIONS_NODE_SQLITE_MISSING: {
-      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.",
-      fix: "Run the command with Node.js 22.18 or newer, or pass `--url` with the app URL.",
+      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.",
+      fix: "Run the command with Node.js 24.15 or newer, or pass `--url` with the app URL.",
     },
     AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID: {
       why: "--older-than must produce a cutoff within JavaScript's Date range.",

@@ -11,35 +11,36 @@ import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 const rootStepSleep = { code: "WORKFLOW_ROOT_STEP_SLEEP", message: expect.stringContaining("folder Workflow") }
 const calls: string[] = []
 
 /** A single-file Workflow: the handler runs in the root step. */
-const napInRootStep = defineWorkflow("nap", async (_payload: undefined, context) => {
+const napInRootStep = defineWorkflow<undefined>({ handler: async ({ payload: _payload, ...context }) => {
   calls.push("before")
   await context.sleep("1 second")
   calls.push("after")
   return "rested"
-})
+} })
 
 /** A folder Workflow orchestrator: the generated registry entry sets `rootStep: false`. */
-function folderWorkflow<TPayload>(handler: (payload: TPayload, context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
-  return { options: { rootStep: false }, handler }
+function folderWorkflow<TPayload>(handler: (context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
+  return { rootStep: false, handler }
 }
 
-const napInFolder = folderWorkflow<undefined>(async (_payload, context) => {
+const napInFolder = folderWorkflow<undefined>(async (context) => {
   calls.push("before")
   await context.sleep("1 second")
   calls.push("after")
   return "rested"
 })
 
-const napTwiceInFolder = folderWorkflow<{ until: string }>(async (payload, context) => {
+const napTwiceInFolder = folderWorkflow<{ until: string }>(async (context) => {
   calls.push("before")
   await context.sleep(1_000)
   calls.push("middle")
-  await context.sleep(new Date(payload.until))
+  await context.sleep(new Date(context.payload.until))
   calls.push("after")
   return "rested"
 })
@@ -53,12 +54,12 @@ describe("context.sleep() arguments", () => {
   it("rejects a duration that no provider reads the same way", async () => {
     const sleep = vi.fn(async () => {})
     const run = (value: unknown) => runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
       // SAFETY: The test passes invalid input on purpose, as untyped JavaScript would.
-      registry: { nap: async () => ({ default: folderWorkflow(async (_payload, context) => { await context.sleep(value as never); return "rested" }) }) },
+      registry: { nap: async () => ({ default: folderWorkflow(async (context) => { await context.sleep(value as never); return "rested" }) }) },
       step: { do: async (_name, _options, run) => await run(), sleep },
     })
 
@@ -75,7 +76,7 @@ describe("Cloudflare", () => {
     const step: WorkflowProviderStep = { do: vi.fn(async (_name, _options, run) => await run()), sleep }
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -91,7 +92,7 @@ describe("Cloudflare", () => {
     let recorded: unknown
     const record: WorkflowProviderStep = { do: async (_name, _options, run) => recorded = await run(), sleep: async () => {} }
     const run = (step: WorkflowProviderStep) => runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -111,7 +112,7 @@ describe("Cloudflare", () => {
     const until = "2030-01-01T00:00:00.000Z"
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1", payload: { until } },
       name: "nap",
@@ -131,7 +132,7 @@ describe("Cloudflare", () => {
     const sleep = vi.fn(async () => {})
 
     await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -150,31 +151,31 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
   })
 
   it("fails a root step that sleeps with the same code", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ nap: async () => ({ default: napInRootStep }) })
 
-    const started = await startWorkflow("nap")
+    const started = await unwrap(startWorkflow("nap"))
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "failed", error: rootStepSleep })
+      await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "failed", error: rootStepSleep })
     })
     expect(calls).toEqual(["before"])
   })
 
   it("waits with a timer in a folder Workflow, and records the sleep as a dev step", async () => {
     enableWorkflowDevRuns()
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ nap: async () => ({ default: napTwiceInFolder }) })
 
     const startedAt = Date.now()
-    const started = await startWorkflow("nap", { until: new Date(startedAt + 1_200).toISOString() })
+    const started = await unwrap(startWorkflow("nap", { until: new Date(startedAt + 1_200).toISOString() }))
 
     await delay(500)
-    await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "running" })
+    await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "running" })
     expect(calls).toEqual(["before"])
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "completed", result: "rested" })
+      await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "completed", result: "rested" })
     }, { timeout: 3_000 })
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_150)
     expect(calls).toEqual(["before", "middle", "after"])
@@ -184,14 +185,14 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
   it("splits a wait longer than the largest timer, so it does not end at once", async () => {
     vi.useFakeTimers()
     try {
-      setWorkflowRuntimeConfig({ provider: "vercel" })
-      setWorkflowRuntimeRegistry({ nap: async () => ({ default: folderWorkflow<undefined>(async (_payload, context) => { await context.sleep("30 days"); return "rested" }) }) })
-      const started = await startWorkflow("nap")
+      setWorkflowRuntimeConfig({ driver: "vercel" })
+      setWorkflowRuntimeRegistry({ nap: async () => ({ default: folderWorkflow<undefined>(async (context) => { await context.sleep("30 days"); return "rested" }) }) })
+      const started = await unwrap(startWorkflow("nap"))
 
       await vi.advanceTimersByTimeAsync(29 * 24 * 60 * 60 * 1_000)
-      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "running" })
+      await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "running" })
       await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1_000)
-      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "completed", result: "rested" })
+      await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "completed", result: "rested" })
     }
     finally {
       vi.useRealTimers()
@@ -201,7 +202,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
 
 describe("OpenWorkflow (SQLite)", () => {
   beforeEach(() => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       nap: async () => ({ default: napInRootStep }),
       folderNap: async () => ({ default: napInFolder }),
@@ -220,25 +221,25 @@ describe("OpenWorkflow (SQLite)", () => {
   }
 
   it("fails a root step that sleeps at once, without a retry", async () => {
-    const started = await startWorkflow("nap")
+    const started = await unwrap(startWorkflow("nap"))
 
     await tick()
 
-    await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "failed" })
+    await expect(unwrap(getWorkflowRun("nap", started.id))).resolves.toMatchObject({ status: "failed" })
     expect(calls).toEqual(["before"])
   })
 
   it("wakes a folder Workflow after `context.sleep()`", async () => {
-    const started = await startWorkflow("folderNap")
+    const started = await unwrap(startWorkflow("folderNap"))
 
     await tick()
-    const sleeping = await getWorkflowRun("folderNap", started.id)
+    const sleeping = await unwrap(getWorkflowRun("folderNap", started.id))
     expect(sleeping).toMatchObject({ status: "running", steps: [{ name: "sleep-1", status: "running", sleepUntil: expect.any(Date) }] })
 
     await delay(1100)
     await tick()
 
-    await expect(getWorkflowRun("folderNap", started.id)).resolves.toMatchObject({
+    await expect(unwrap(getWorkflowRun("folderNap", started.id))).resolves.toMatchObject({
       status: "completed",
       steps: [{ name: "sleep-1", status: "completed", sleepUntil: sleeping.steps![0]!.sleepUntil }],
     })
@@ -248,12 +249,12 @@ describe("OpenWorkflow (SQLite)", () => {
 
   it("sleeps until a date, and a replay does not sleep again", async () => {
     const until = new Date(Date.now() + 1_500)
-    const started = await startWorkflow("folderNapTwice", { until: until.toISOString() })
+    const started = await unwrap(startWorkflow("folderNapTwice", { until: until.toISOString() }))
 
     await tick()
     await delay(1_100)
     await tick()
-    const sleeping = await getWorkflowRun("folderNapTwice", started.id)
+    const sleeping = await unwrap(getWorkflowRun("folderNapTwice", started.id))
     expect(sleeping).toMatchObject({ status: "running", steps: [{ name: "sleep-1", status: "completed" }, { name: "sleep-2", status: "running" }] })
     // OpenWorkflow keeps a wake time to the millisecond. It is the date, not "now" plus a duration of a later replay.
     expect(Math.abs(sleeping.steps![1]!.sleepUntil!.getTime() - until.getTime())).toBeLessThan(50)
@@ -261,7 +262,7 @@ describe("OpenWorkflow (SQLite)", () => {
     await delay(Math.max(0, until.getTime() - Date.now()) + 100)
     await tick()
 
-    await expect(getWorkflowRun("folderNapTwice", started.id)).resolves.toMatchObject({ status: "completed", result: "rested" })
+    await expect(unwrap(getWorkflowRun("folderNapTwice", started.id))).resolves.toMatchObject({ status: "completed", result: "rested" })
     expect(calls).toEqual(["before", "before", "middle", "before", "middle", "after"])
   })
 })

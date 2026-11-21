@@ -2,7 +2,7 @@
 title: Realtime collaboration
 layout: landing
 navigation.title: Overview
-description: Let several people edit one TipTap document at the same time, and save their changes to a file.
+description: Let several people edit a TipTap document together in real time and save changes to a file.
 navigation.order: 1
 icon: i-lucide-radio
 ---
@@ -18,7 +18,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 // This file defines the docs room.
 export default defineRealtime({
   // Only signed-in users can read and edit
-  auth: true,
+  authorize: true,
   // Save each document to the docs Workspace
   document: { workspace: 'docs' },
   // Let the editor save a version on request
@@ -80,7 +80,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 // The files that the docs room saves to.
 // Memory is for development only.
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },
@@ -151,12 +151,12 @@ checkpoint.snapshot
 ::
 
 ::product-features
-  :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#configure-realtime"}
-  Add a file to `server/realtime`. Your editor connects to its name.
+  :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#define-realtime"}
+  Create a file in `server/realtime`. Your editor connects by file name.
   :::
 
   :::product-feature-item{title="Works with your TipTap editor" icon="i-lucide-code-2" to="/docs/realtime/get-started#connect-a-tiptap-editor"}
-  `useRealtimeTiptap()` gives your editor live sync and its connection state.
+  `useRealtimeTiptap()` gives your TipTap editor live sync and its connection state.
   :::
 
   :::product-feature-item{title="See who is editing" icon="i-lucide-users" to="/docs/realtime/server-api#carets"}
@@ -164,19 +164,19 @@ checkpoint.snapshot
   :::
 
   :::product-feature-item{title="Presence parts in @vite-hub/ui" icon="i-lucide-users" to="/docs/ui/blocks/collaborative-editor"}
-  `people`, `status`, and the save state plug into the avatar stack and status parts.
+  Pass `people`, `status`, and save state straight into the avatar stack and status UI parts.
   :::
 
   :::product-feature-item{title="Saves on its own" icon="i-lucide-save" to="/docs/realtime/configure#control-saves"}
-  Changes save 2 seconds after the last edit, and when the last person leaves.
+  Edits save 2 seconds after typing stops and when the last person leaves.
   :::
 
   :::product-feature-item{title="Decide who can join" icon="i-lucide-lock" to="/docs/realtime/server-api#identity-and-authorization"}
-  `auth: true` allows only signed-in people. `authorize()` decides who reads or edits each document.
+  `authorize: true` allows only signed-in people. `authorize()` decides who reads or edits each document.
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
-  On Node, instances share rooms through Postgres or Redis. On Cloudflare, each document gets its own Durable Object.
+  Node instances share rooms over Postgres or Redis. Cloudflare gives each document its own Durable Object.
   :::
 
   :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
@@ -185,11 +185,11 @@ checkpoint.snapshot
 ::
 
 ::agent-only{skill="realtime"}
-Use Realtime for collaborative state that changes while clients are connected. Realtime keeps room authority, document format, and durable checkpoints explicit.
+Use Realtime for collaborative state that changes while clients are connected. Realtime keeps the driver, document format, and durable checkpoints explicit.
 
-The Configure page describes host authority and persistence.
+The Configure page describes the driver of each host and persistence.
 
-On Cloudflare, rooms use Durable Objects. On Node, `auto` shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
+On Cloudflare, rooms use Durable Objects. On Node, the `auto` driver shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. The `memory` driver is single-process. Vercel, Netlify, and Deno have no Realtime driver.
 
 Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. A presence-only definition sets `document: false` and clients join with `connectRealtimeRoom()`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
 

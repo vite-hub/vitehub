@@ -1,6 +1,6 @@
 {
   "name": "vite-hub",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
@@ -257,6 +257,16 @@
       "import": "./dist/channels/server.js",
       "default": "./dist/channels/server.js"
     },
+    "./choices": {
+      "types": "./dist/choices.d.ts",
+      "import": "./dist/choices.js",
+      "default": "./dist/choices.js"
+    },
+    "./choices/vue": {
+      "types": "./dist/choices/vue.d.ts",
+      "import": "./dist/choices/vue.js",
+      "default": "./dist/choices/vue.js"
+    },
     "./cms": {
       "types": "./dist/cms.d.ts",
       "import": "./dist/cms.js",
@@ -407,15 +417,15 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
-    "./decisions": {
-      "types": "./dist/decisions.d.ts",
-      "import": "./dist/decisions.js",
-      "default": "./dist/decisions.js"
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "import": "./dist/device.js",
+      "default": "./dist/device.js"
     },
-    "./decisions/vue": {
-      "types": "./dist/decisions/vue.d.ts",
-      "import": "./dist/decisions/vue.js",
-      "default": "./dist/decisions/vue.js"
+    "./device/vue": {
+      "types": "./dist/device/vue.d.ts",
+      "import": "./dist/device/vue.js",
+      "default": "./dist/device/vue.js"
     },
     "./docs": {
       "types": "./dist/docs.d.ts",
@@ -697,6 +707,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/register": {
+      "types": "./dist/test/register.d.ts",
+      "import": "./dist/test/register.js",
+      "default": "./dist/test/register.js"
+    },
     "./seo": {
       "types": "./dist/seo.d.ts",
       "import": "./dist/seo.js",
@@ -737,6 +752,36 @@
       "import": "./dist/source/vite.js",
       "default": "./dist/source/vite.js"
     },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js",
+      "default": "./dist/sync.js"
+    },
+    "./sync/client": {
+      "types": "./dist/sync/client.d.ts",
+      "import": "./dist/sync/client.js",
+      "default": "./dist/sync/client.js"
+    },
+    "./sync/database": {
+      "types": "./dist/sync/database.d.ts",
+      "import": "./dist/sync/database.js",
+      "default": "./dist/sync/database.js"
+    },
+    "./sync/operations": {
+      "types": "./dist/sync/operations.d.ts",
+      "import": "./dist/sync/operations.js",
+      "default": "./dist/sync/operations.js"
+    },
+    "./sync/runtime": {
+      "types": "./dist/sync/runtime.d.ts",
+      "import": "./dist/sync/runtime.js",
+      "default": "./dist/sync/runtime.js"
+    },
+    "./sync/vue": {
+      "types": "./dist/sync/vue.d.ts",
+      "import": "./dist/sync/vue.js",
+      "default": "./dist/sync/vue.js"
+    },
     "./ui": {
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
@@ -751,6 +796,11 @@
       "types": "./dist/ui/markdown-editor.d.ts",
       "import": "./dist/ui/markdown-editor.js",
       "default": "./dist/ui/markdown-editor.js"
+    },
+    "./ui/motion": {
+      "types": "./dist/ui/motion.d.ts",
+      "import": "./dist/ui/motion.js",
+      "default": "./dist/ui/motion.js"
     },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",
@@ -791,6 +841,26 @@
       "types": "./dist/web-container/snapshot.d.ts",
       "import": "./dist/web-container/snapshot.js",
       "default": "./dist/web-container/snapshot.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.js",
+      "default": "./dist/webhooks.js"
+    },
+    "./webhooks/database": {
+      "types": "./dist/webhooks/database.d.ts",
+      "import": "./dist/webhooks/database.js",
+      "default": "./dist/webhooks/database.js"
+    },
+    "./webhooks/operations": {
+      "types": "./dist/webhooks/operations.d.ts",
+      "import": "./dist/webhooks/operations.js",
+      "default": "./dist/webhooks/operations.js"
+    },
+    "./webhooks/runtime": {
+      "types": "./dist/webhooks/runtime.d.ts",
+      "import": "./dist/webhooks/runtime.js",
+      "default": "./dist/webhooks/runtime.js"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
@@ -935,12 +1005,12 @@
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",
     "confbox": "^0.2.4",
-    "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
+    "srvx": "catalog:unjs",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
@@ -963,8 +1033,8 @@
     "@iconify-json/lucide": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "catalog:nuxt",
@@ -987,13 +1057,14 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
+    "@vite-hub/choices": "workspace:*",
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
+    "@vite-hub/device": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -1002,8 +1073,6 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@ui-sdk/core": "0.1.0-beta.5",
-    "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/kit": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -1015,8 +1084,10 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
@@ -1028,7 +1099,9 @@
     "comark": "catalog:markdown-ui",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "esbuild": "catalog:tooling",
     "evalite": "catalog:ai",
+    "fuse.js": "7.5.0",
     "happy-dom": "21.0.3",
     "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
@@ -1052,7 +1125,7 @@
     "yjs": "catalog:realtime"
   },
   "peerDependencies": {
-    "@ai-sdk/provider": "catalog:ai",
+    "@ai-sdk/provider": "^4.0.24",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",
@@ -1063,8 +1136,8 @@
     "@cloudflare/workers-types": ">=4",
     "@formisch/vue": "^1.2.0",
     "@google-cloud/storage": "catalog:storage",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
@@ -1074,13 +1147,14 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
+    "@vite-hub/choices": "workspace:*",
     "@vite-hub/cms": "workspace:*",
     "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
-    "@vite-hub/decisions": "workspace:*",
+    "@vite-hub/device": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -1097,8 +1171,10 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
@@ -1181,6 +1257,9 @@
     "@vite-hub/channels": {
       "optional": true
     },
+    "@vite-hub/choices": {
+      "optional": true
+    },
     "@vite-hub/cms": {
       "optional": true
     },
@@ -1199,7 +1278,7 @@
     "@vite-hub/database": {
       "optional": true
     },
-    "@vite-hub/decisions": {
+    "@vite-hub/device": {
       "optional": true
     },
     "@vite-hub/docs": {
@@ -1250,10 +1329,16 @@
     "@vite-hub/shell": {
       "optional": true
     },
+    "@vite-hub/sync": {
+      "optional": true
+    },
     "@vite-hub/ui": {
       "optional": true
     },
     "@vite-hub/web-container": {
+      "optional": true
+    },
+    "@vite-hub/webhooks": {
       "optional": true
     },
     "@vite-hub/workflow": {
@@ -1297,7 +1382,7 @@
     }
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   },
   "vitehub": {
     "agent": {

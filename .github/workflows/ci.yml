@@ -26,16 +26,19 @@ jobs:
     needs:
       - checks
       - workflow-lint
+      - doctor
       - contracts-examples
       - contract-tests
       - package-tests
       - package-tests-success
+      - typecheck
       - ui-sdk
       - service-tests
+      - agent-codex-emulator
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - docs-deploy
@@ -72,18 +75,21 @@ jobs:
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
-            "node-22",
+            "node-floor",
             "prepublish-contracts",
             "verify-providers",
           ])
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
+          // Doctor checks the lines that a pull request changes, so it runs only on pull requests.
+          const pullRequestOnlyJobs = new Set(["doctor"])
           // OS timer checks run only when schedule-os-select says the change can affect them.
           const scheduleOsJobs = new Set(["schedule-os", "schedule-os-success"])
           const scheduleOsSelected = results["schedule-os-select"]?.outputs?.run === "true"
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
+              || (process.env.GITHUB_EVENT_NAME !== "pull_request" && pullRequestOnlyJobs.has(name))
               || (!scheduleOsSelected && scheduleOsJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -138,6 +144,28 @@ jobs:
       - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
+
+  # Doctor reports unsound type evidence on the lines that a pull request
+  # changes. doctor.config.json selects the rules. The agent format gives each
+  # finding its fix and docs link. A push has no pull request base, so it skips
+  # this job.
+  doctor:
+    name: doctor
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check changed lines
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event.pull_request.base.sha }}
+        run: vp run doctor:typescript --format agent
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
@@ -315,6 +343,45 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
+  # Typechecks ran only in `verify` at release, so type errors reached main. A
+  # job of its own keeps fast checks fast: each package typecheck builds the
+  # package and its dependencies first. A pull request checks the packages
+  # that the package test selection names. The docs site imports most
+  # packages, so its typecheck runs on every pull request.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The same heap as `vp run typecheck`. vue-tsc checks the docs site in Node.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changed packages
+        id: changed
+        if: ${{ env.FULL_SUITE != 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs typecheck --affected "$BASE_REF" --list)"
+          echo "Changed packages: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs typecheck
+      - name: Typecheck changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
+      - name: Typecheck the docs site
+        run: vp run --filter vitehub-docs --ignore-depends-on typecheck
+
   # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
   # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
   # by step) and the style check (every part under the kit's style family). They run here on every push, and on a pull
@@ -408,6 +475,65 @@ jobs:
           VITEHUB_TEST_POSTGRES_URL: postgres://postgres:vitehub@127.0.0.1:5432/postgres
           VITEHUB_TEST_REDIS_URL: redis://127.0.0.1:6379
 
+  # Real Codex against the AI emulator, with no AI key or secret. The emulator rejects request shapes that it does not
+  # implement, such as the `namespace` and freeform tools that Codex sends by default, so this job fails when the
+  # emulator launch options in packages/agent/src/internal/codex-emulation.ts stop working with the Codex version that
+  # the docs pin. Keep CODEX_VERSION equal to the `@openai/codex@<version>` in packages/agent/README.md.
+  agent-codex-emulator:
+    name: agent codex on the AI emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CODEX_VERSION: 0.169.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          # The workspace files pin the T3 provider runtime, the AI emulator, and their dependencies. CODEX_VERSION and
+          # the README pin live in this file and in packages/agent.
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/agent packages/gateways package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the Agent package, the gateways, the workspace dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      # Outside the workspace, so the lockfile does not change, as Codex is an optional peer of the Agent package. The
+      # version is exact. The Agent finds this `codex` on PATH.
+      - name: Install Codex
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --prefix "$RUNNER_TEMP/codex" --ignore-scripts --no-audit --no-fund "@openai/codex@$CODEX_VERSION"
+          echo "$RUNNER_TEMP/codex/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Build the Agent package and its workspace dependencies
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --cache -t @vite-hub/agent#build
+      - name: Run real Codex on the AI emulator
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        working-directory: packages/agent
+        env:
+          VITEHUB_TEST_REAL_CODEX: "1"
+        run: |
+          actual="$(codex --version)"
+          if [ "$actual" != "codex-cli $CODEX_VERSION" ]; then
+            echo "::error::Expected codex-cli $CODEX_VERSION on PATH, found: $actual"
+            exit 1
+          fi
+          vp test run test/emulate-codex.test.ts
+
   # Consumer contracts stay on push. Shard 1/3 took a median of 11.7 minutes
   # in successful runs, and pull requests already wait for package tests.
   consumer-contracts:
@@ -441,12 +567,12 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The standalone package floor is Node.js 22.18; Nitro integrations require
-  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
-  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
-  # brand checks, TextDecoder, and structuredClone.
-  node-22:
-    name: node 22.18
+  # The workspace and every package require Node.js 24.15. Other jobs run the
+  # newest Node.js 24. This job runs the tests for built-ins that change between
+  # releases (fs glob, node:sqlite, module hooks, Response brand checks,
+  # TextDecoder, and structuredClone) on the exact floor.
+  node-floor:
+    name: node 24.15
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -455,25 +581,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      # Contributor dependencies require a newer runtime than the standalone
-      # package floor. Install them on Node 24, then test on the exact floor.
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          node-version: "22.18.0"
-          run-install: false
+          node-version: "24.15.0"
 
-      - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
-      # Node 22.18 bundles Corepack 0.33, which expects pnpm's old JS entrypoint.
-      # Bootstrap the exact Corepack version independently of workspace dependencies.
-      - name: Install Corepack with native pnpm support
-        run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
-      # Cached Vite tasks filter environment overrides. Persist this job's
-      # runtime policy so pack-time pnpm subprocesses can use the package floor.
-      - name: Allow the package runtime floor
-        run: corepack pnpm --runtime-on-fail=ignore config set --location=project runtimeOnFail ignore
-      # Install-time builds ran on Node 24. Build the targets together on 22.18
-      # so each dependency runs once, preserving uncached floor validation.
+      - name: Require Node.js 24.15
+        run: node -e 'if (process.version !== "v24.15.0") throw new Error("Expected Node.js v24.15.0, got " + process.version)'
+      # The restored task cache can hold builds from a newer Node.js 24. Build the
+      # targets together on 24.15 so each dependency runs once, preserving
+      # uncached floor validation.
       - name: Clear install-time build cache
         run: vp cache clean
       - name: Build tested packages
@@ -513,6 +628,8 @@ jobs:
       # Snippet checker tests import the built framework and its discovery plugins.
       - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
+      # The same docs typecheck that `vp run verify` runs before a release.
+      - run: vp run --filter vitehub-docs typecheck
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
@@ -559,9 +676,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - verify-providers
@@ -598,6 +716,9 @@ jobs:
               exit 1
             fi
           done
+          # Auth and Comments keep their tables in D1. The Worker secrets (VITEHUB_SECRET and the Console keys) stay on
+          # the Worker between deploys.
+          ./node_modules/.bin/wrangler d1 migrations apply vitehub-docs --remote --config docs/.output/server/wrangler.json
           ./node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
 
       - name: Check the live site
@@ -649,7 +770,7 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - docs-demo
       - verify-providers
@@ -681,6 +802,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DOCS_DEMO_GITHUB_CLIENT_ID: ${{ vars.DOCS_DEMO_GITHUB_CLIENT_ID }}
           DOCS_DEMO_GITHUB_CLIENT_SECRET: ${{ secrets.DOCS_DEMO_GITHUB_CLIENT_SECRET }}
+          # The GitHub account of onmax. Only it gets the admin role on the demo.
+          DOCS_DEMO_VITEHUB_ADMINS: github:22072217
           DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
           DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
           DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
@@ -955,6 +1078,9 @@ jobs:
       - name: Install, run, and remove an OS timer from a moved home folder
         if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
         run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
+      - name: Install, run, and remove an OS timer under a folder with %PATH% in its name
+        if: ${{ matrix.scope == 'user' && runner.os == 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --percent-home
 
   # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
   # partial rerun.
@@ -978,9 +1104,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - console
       - verify-providers

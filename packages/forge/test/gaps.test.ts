@@ -78,6 +78,7 @@ describe("forgeGitCredentials", () => {
     [{ forge: "gitlab", repository: "group/sub/app", token: "t" }, { url: "https://gitlab.com/group/sub/app.git", username: "oauth2", password: "t" }],
     [{ forge: "gitlab", baseUrl: "https://git.example.com/gitlab/", repository: "group/app.git", token: "t" }, { url: "https://git.example.com/gitlab/group/app.git", username: "oauth2", password: "t" }],
     [{ forge: "forgejo", baseUrl: "https://forgejo.example.com", repository: "acme/app", token: "t" }, { url: "https://forgejo.example.com/acme/app.git", username: "oauth2", password: "t" }],
+    [{ forge: "gitea", repository: "acme/app", token: "t" }, { url: "https://gitea.com/acme/app.git", username: "oauth2", password: "t" }],
   ] as const)("builds the remote for %o", (input, expected) => {
     expect(forgeGitCredentials(input)).toEqual(expected)
   })
@@ -202,6 +203,33 @@ describe("forgeCommitFiles", () => {
       "GET /repos/acme/app/git/ref/heads/main": () => Response.json({ object: { sha: movedSha } }),
     })
   }
+
+  it.each(["regular", "executable", "empty"])("preserves the token committer with an author (%s)", async (kind) => {
+    const bot = { name: "App Bot", email: "bot@example.com" }
+    const author = { name: "Ada", email: "ada@example.com" }
+    const fake = githubRoutes({
+      [`GET /repos/acme/app/git/commits/${parentSha}`]: () => Response.json({ tree: { sha: "base-tree" } }),
+      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: "blob" }),
+      "POST /repos/acme/app/git/trees": () => Response.json({ sha: "tree" }),
+      "POST /repos/acme/app/git/commits": (call) => {
+        const body = call.body as { author?: typeof author, committer?: typeof bot }
+        return Response.json({
+          sha: body.author ? "authored-commit" : "default-commit",
+          author: body.author ?? bot,
+          committer: body.committer ?? body.author ?? bot,
+        })
+      },
+      "PATCH /repos/acme/app/git/refs/heads/main": () => Response.json({}),
+    })
+    const provider = await forgeProvider({ forge: "github", token: "installation-token", fetch: fake.fetch })
+    await forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main", expectedHead: parentSha, message: "edit", author,
+      changes: kind === "empty" ? [] : [{ path: "a", content: "a", ...(kind === "executable" ? { mode: "100755" as const } : {}) }],
+    })
+    const writes = fake.calls.filter(call => call.method === "POST" && call.path.endsWith("/git/commits"))
+    expect(writes.at(-1)?.body).toMatchObject({ author, committer: bot, parents: [parentSha], tree: "tree" })
+    expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "authored-commit" })
+  })
 
   it("writes Git file modes through the Git database and moves the branch without force", async () => {
     const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))

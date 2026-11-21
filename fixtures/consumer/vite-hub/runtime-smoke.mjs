@@ -65,7 +65,7 @@ assert.equal(crossOwnerResult.text, "blob owner edge ok")
 
 const workspaceAgent = defineAgent({
   runtime: false,
-  workspace: { mode: "write", store: { provider: "memory" } },
+  workspace: { mode: "write", store: { driver: "memory" } },
   driver: {
     async run({ workspace }) {
       await workspace.fs.writeFile("owner-edge.txt", "workspace owner edge ok")
@@ -109,7 +109,8 @@ const workflowAgentRun = await startAgentInvocation(workflowAgent, {
 }, { prompt: "ok" })
 await Promise.all(workflowTasks)
 assert.equal(typeof workflowAgentRun.id, "string")
-const completedWorkflowAgentRun = await getWorkflowRun("consumer-workflow-agent", workflowAgentRun.id)
+const [workflowAgentRunError, completedWorkflowAgentRun] = await getWorkflowRun("consumer-workflow-agent", workflowAgentRun.id)
+assert.equal(workflowAgentRunError, undefined)
 assert.equal(completedWorkflowAgentRun.status, "completed")
 assert.ok(completedWorkflowAgentRun.result instanceof Response)
 assert.equal(await completedWorkflowAgentRun.result.text(), "workflow owner edge:ok")
@@ -118,15 +119,15 @@ const declaration = env({ default: "runtime" })
 assert.equal(declaration.kind, "env-variable")
 assert.equal(declaration.default, "runtime")
 
-const workspace = defineWorkspace({ store: { provider: "memory" } })
-assert.equal(workspace.store?.provider, "memory")
+const workspace = defineWorkspace({ store: { driver: "memory" } })
+assert.equal(workspace.store?.driver, "memory")
 
 const workspaceTools = createWorkspaceTools({})
 const pwd = await workspaceTools.shell.execute({ command: "pwd" })
 assert.equal(pwd.exitCode, 0)
 assert.equal(pwd.stdout, "/workspace\n")
 
-const workflow = defineWorkflow("runtime", async payload => ({ marker: payload.marker }))
-assert.deepEqual(await workflow.handler({ marker: "runtime" }, { name: "runtime", payload: { marker: "runtime" }, provider: "openworkflow", steps: {} }), { marker: "runtime" })
+const workflow = defineWorkflow({ handler: async ({ payload }) => ({ marker: payload.marker }) })
+assert.deepEqual(await workflow.handler({ name: "runtime", payload: { marker: "runtime" }, provider: "openworkflow", sleep: async () => {}, steps: {} }), { marker: "runtime" })
 
 console.log("vite-hub runtime smoke ok")

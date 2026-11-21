@@ -1,4 +1,4 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { canRetryCloudflareRequest, cloudflareRetryDelays, readCloudflareFailure } from '../../internal/cloudflare-failure.ts'
 import { sleep } from '../internal/shared/utils'
 import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import { executeSandboxTaskDefinition } from './execute'
@@ -8,14 +8,15 @@ import type { ResolvedTaskSandbox } from './provider-loader'
 import {
   assertSandboxTaskDefinitionOptions,
   createCloudflareExecutionSandboxId,
+  DEFAULT_SANDBOX_TASK_TIMEOUT_MS,
   detectSandbox,
   isSandboxAvailable,
   resolveRuntimeProvider,
   resolveTaskSandbox,
   withSandboxTaskProvider,
 } from './provider-resolution'
-import { err, ok } from './result'
-import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
+import { runFailed } from './result'
+import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeLocalProvider, getSandboxTaskRuntimeRegistry, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
 
 import type {
   AgentSandboxTaskConfig,
@@ -23,13 +24,12 @@ import type {
   SandboxTaskRunArguments,
   SandboxTaskRunResult,
 } from '../module-types'
-import { getSandboxTaskFeatureProvider } from '../module-types'
+import { getSandboxTaskFeatureDriver } from '../module-types'
 import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 import type { SandboxTaskDefinitionName, SandboxTaskPayload, SandboxTaskRegistryDefinition, SandboxTaskResult } from './registry-types'
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
-const CLOUDFLARE_EXEC_DEADLINE_RE = /cloudflare sandbox exec timed out after \d+ms/i
 
 async function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
@@ -82,25 +82,31 @@ async function serializeCloudflareRun<TResult>(id: string | undefined, run: () =
   }
 }
 
-function isRetriableCloudflareSandboxError(error: unknown) {
+/**
+ * A new run repeats every command of the failed one. Once a command starts, only the transport
+ * can retry that request on a cold start without replaying earlier work.
+ */
+function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
+  if (commandMayHaveRun)
+    return false
   // A cleanup failure must not decide whether the primary failure can retry.
   if (isSandboxTaskError(error) && error.cause instanceof AggregateError)
     error = error.cause.errors[0]
+  if (error instanceof AggregateError)
+    error = error.errors[0]
   const metadata = readSandboxTaskErrorMetadata(error)
 
   const provider = metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
-  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT')
+  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT' || metadata?.code === 'SANDBOX_TASK_HANDLER_ERROR')
     return false
 
-  const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
-  const messages = collectCloudflareErrorMessages(error, extraMessage)
-  // provider-message-match: an exec deadline has no code. The command reached the Container and may
-  // still have run, such as a package install, so a new attempt could repeat it.
-  if (CLOUDFLARE_EXEC_DEADLINE_RE.test(messages))
-    return false
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
+  const failure = readCloudflareFailure(error)
+  // Before the Task starts a command, its requests are safe to repeat, so a request deadline also reruns it.
+  if (failure.timedOut)
+    return true
+  return canRetryCloudflareRequest(failure, true)
 }
 
 export interface SandboxTaskRunner {
@@ -141,7 +147,15 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
-  const config = getSandboxTaskFeatureProvider(sandboxTaskConfig)
+  // `vite dev` runs Sandbox Tasks on this machine, unless `remote: true` asks for the host's Sandbox.
+  const local = getSandboxTaskRuntimeLocalProvider()
+  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote)) {
+    const policy = sandboxTaskConfig && 'networkPolicy' in sandboxTaskConfig ? sandboxTaskConfig.networkPolicy : undefined
+    if (policy !== undefined && policy !== 'allow-all')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NETWORK_POLICY()
+    return await local()
+  }
+  const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
   return await resolveTaskSandbox(
@@ -171,14 +185,14 @@ async function createSandboxTaskRunner(
       // also after a timeout or an abort. Every other Sandbox ends with its run.
       const closesAfterRun = provider.provider !== 'cloudflare' || !namedSandboxId
       const attempts = provider.provider === 'cloudflare'
-        ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
+        ? cloudflareRetryDelays.length + 1
         : 1
 
       options.signal?.throwIfAborted()
       const run = serializeCloudflareRun(cloudflareSandboxId, async () => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           let taskSandbox: TaskSandbox | undefined
-          let handlerMayHaveStarted = false
+          let commandMayHaveRun = false
           let runError: Error | undefined
           let executionSettled: Promise<void> | undefined
           try {
@@ -190,8 +204,8 @@ async function createSandboxTaskRunner(
               onExecution(execution: Promise<unknown>) {
                 executionSettled = execution.then(() => undefined, () => undefined)
               },
-              onHandlerStart() {
-                handlerMayHaveStarted = true
+              onCommandStart() {
+                commandMayHaveRun = true
               },
             }
             const result = options.signal
@@ -205,18 +219,17 @@ async function createSandboxTaskRunner(
               throw options.signal.reason ?? error
             const sandboxTaskError = toSandboxTaskError(error)
             runError = sandboxTaskError
-            const shouldRetry = !handlerMayHaveStarted
-              && provider.provider === 'cloudflare'
-              && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
-              && isRetriableCloudflareSandboxError(error)
+            const shouldRetry = provider.provider === 'cloudflare'
+              && attempt < cloudflareRetryDelays.length
+              && canRerunCloudflareTask(error, commandMayHaveRun)
 
             if (!shouldRetry)
               throw sandboxTaskError
 
             if (options.signal)
-              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt], options.signal)
+              await sleep(cloudflareRetryDelays[attempt], options.signal)
             else
-              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
+              await sleep(cloudflareRetryDelays[attempt])
           }
           finally {
             await executionSettled
@@ -261,25 +274,31 @@ export async function resolveSandboxTaskRunner(name?: string) {
       : `[vitehub] Unknown Sandbox Task "${name}". Sandbox Tasks are not enabled in this build. Set \`sandboxTask: true\` on a preset that supports Sandbox.` })
   if (!hasValidSandboxTaskBundle(definition))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
+  assertSandboxTaskDefinitionOptions(definition.options ?? {})
 
-  const provider = await resolveSandboxTaskProvider(config, definition)
-  return await createSandboxTaskRunner(name, definition, provider)
+  // Every provider ends a run at the same default, instead of at its own session or command limit.
+  const runDefinition = {
+    ...definition,
+    options: { ...definition.options, timeout: definition.options?.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS },
+  }
+  const provider = await resolveSandboxTaskProvider(config, runDefinition)
+  return await createSandboxTaskRunner(name, runDefinition, provider)
 }
 
 export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknown>(
   name?: string,
   payload?: TPayload,
   options?: SandboxTaskExecutionOptions,
-): Promise<SandboxTaskRunResult> {
+): Promise<SandboxTaskRunResult<TResult>> {
   try {
     options?.signal?.throwIfAborted()
     const sandbox = await resolveSandboxTaskRunner<TPayload | undefined, TResult>(name)
-    return await ok(await sandbox.run(payload, options))
+    return [undefined, await sandbox.run(payload, options)]
   }
   catch (error) {
     if (options?.signal?.aborted)
       throw options.signal.reason ?? error
-    return err(toSandboxTaskError(error), isSandboxTaskRuntimeDevelopment())
+    return [runFailed(name ?? '', toSandboxTaskError(error)), undefined]
   }
 }
 

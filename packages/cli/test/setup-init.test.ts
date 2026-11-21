@@ -54,7 +54,7 @@ describe("vitehub init", () => {
     expect(files[".gitignore"]!.split("\n")).toContain(".vitehub")
 
     // The config is the fixture with the host and one key per feature.
-    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub({ host: \"node\" })", "VITEHUB")
+    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub()", "VITEHUB")
     const config = files["vite.config.ts"]!
     expect(config.replace(/vitehub\(\{.*\}\)/u, "VITEHUB")).toBe(fixture)
     expect(locateViteHubConfig("vite.config.ts", config)).toMatchObject({
@@ -108,11 +108,11 @@ describe("vitehub init", () => {
     expect(status.json.stack).toEqual({ command })
   })
 
-  it("refuses the removed --console flag", async () => {
+  it("refuses an unknown flag before any write", async () => {
     const parent = await createProject()
-    const result = await init(["app", "--host", "node", "--features", "", "--console", "p_1:sha256:abc", "--yes"], parent)
+    const result = await init(["app", "--host", "node", "--features", "", "--nope", "--yes"], parent)
     expect(result.exitCode).not.toBe(0)
-    expect(result.json.error).toMatchObject({ code: "CLI_R0003" })
+    expect(result.json.error).toMatchObject({ code: "CLI_R0003", message: expect.stringContaining('Unknown argument "--nope"') })
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
@@ -154,7 +154,7 @@ describe("vitehub init", () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "vercel", "--features", "email", "--no-install", "--yes"], parent)
     expect(result.exitCode).toBe(2)
-    expect(result.json.missing).toEqual([{ choices: ["resend"], field: "email.driver" }])
+    expect(result.json.missing).toEqual([{ choices: ["resend", "log"], field: "email.driver" }])
     expect(result.json.rerun).toBe("pnpm dlx vite-hub init app --host vercel --features email --option email.driver=resend --no-install --yes --json")
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
@@ -211,7 +211,7 @@ describe("vitehub init", () => {
   })
 
   it.each(["vite", "nuxt"] as const)("leaves host migration of an existing %s stack manual", async (framework) => {
-    for (const options of ["browser: true", 'cache: { driver: "cloudflare-kv-binding" }', "browser: browserOptions"]) {
+    for (const options of ["browser: true", 'cache: { driver: "cloudflare" }', "browser: browserOptions"]) {
       const config = framework === "nuxt"
         ? `export default { modules: [["vite-hub/nuxt", { host: "cloudflare", ${options} }]] }\n`
         : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ host: "cloudflare", ${options} })] }\n`

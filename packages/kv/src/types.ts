@@ -1,14 +1,14 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 import type { GetItemType, GetItemTypeMap } from "unstorage"
 
-export type KVDriver = "cloudflare-kv-binding" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
+export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
 
 /**
  * The atomic operations of each driver. A store returns `KV_UNSUPPORTED_OPERATION` for an atomic operation that its
- * driver does not list. `get`, `set`, `del`, `has`, `keys`, `list`, and `clear` work on every driver.
+ * driver does not list. `get`, `set`, `delete`, `has`, `list`, and `clear` work on every driver.
  */
 export interface KVDriverAtomicOperations {
-  "cloudflare-kv-binding": never
+  "cloudflare": never
   "database": "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
   "deno-kv": "setIfAbsent"
   "fs-lite": "setIfAbsent"
@@ -25,7 +25,7 @@ export type KVDriversWith<TOperation extends KVAtomicOperation> = {
 export type KVAtomicOperation = "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
 
 export interface CloudflareKVStoreConfig {
-  driver: "cloudflare-kv-binding"
+  driver: "cloudflare"
   binding?: string
   /**
    * In `vite dev`, use the real namespace: ViteHub writes `remote: true` on the Wrangler binding and does not fall back
@@ -45,7 +45,7 @@ export interface UpstashKVStoreConfig {
   token?: string
   url?: string
   /**
-   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.keys()`
+   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.list()`
    * stay inside the store. An empty value uses the default.
    */
   base?: string
@@ -174,11 +174,12 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "keys" | "list" | "lock" | "set" | "setIfAbsent" | "setMany"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "list" | "lock" | "set" | "setIfAbsent" | "setMany"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
   | "KV_INVALID_CURSOR"
+  | "KV_INVALID_CLEAR_OPTIONS"
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_OPTION"
   | "KV_INVALID_TTL"
@@ -192,8 +193,19 @@ export type KVErrorCode =
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
   cursor?: string
-  /** Maximum number of keys to read. Must be a positive integer. */
+  /** Maximum number of keys to read. Must be a positive integer. Without it, the page holds every key and no cursor. */
+  limit?: number
+  /** Only keys that start with this text, so `"user"` matches `users:1`. `"users:"` matches the keys below `users`. */
+  prefix?: string
+}
+
+/** One page that a driver reads: `limit` is set. */
+export interface KVPageOptions extends KVListOptions {
   limit: number
+}
+
+export interface KVClearOptions {
+  /** Only keys that start with this text, as in `list()`. Without it, `clear()` deletes every key of the store. */
   prefix?: string
 }
 
@@ -211,17 +223,21 @@ type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
 /** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
 export interface KVSetOptions {
-  /** Seconds until the key expires, a positive number. Every driver expires the key. Cloudflare KV keeps it at least 60 seconds. */
-  ttl?: number
+  /**
+   * How long until the key expires: a number of seconds, or a duration such as `"1h"` or `"7 days"`. Every driver
+   * expires the key. Cloudflare KV keeps it at least 60 seconds.
+   */
+  ttl?: number | Duration
 }
 
 /** Options of `kv.lock()`. */
 export interface KVLockOptions {
   /**
-   * Seconds until the lock expires, so a crashed holder never keeps it. Pick a value longer than the work.
-   * KV does not renew a lock: when the work runs longer than `ttl`, another runner can take the lock.
+   * How long until the lock expires, so a crashed holder never keeps it: a number of seconds, or a duration such as
+   * `"30s"`. Pick a value longer than the work. KV does not renew a lock: when the work runs longer than `ttl`, another
+   * runner can take the lock.
    */
-  ttl: number
+  ttl: number | Duration
   /** Seconds to wait for a held lock, polling with backoff. Default `0`: return `{ acquired: false }` at once. */
   wait?: number
 }
@@ -274,7 +290,7 @@ export interface KVListPage {
  * Config errors, for example an unknown store name, throw.
  */
 export interface KVStorage {
-  clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  clear(options?: KVClearOptions): Promise<Result<void, "KV_INVALID_CLEAR_OPTIONS" | "KV_OPERATION_FAILED">>
   delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.
@@ -305,12 +321,12 @@ export interface KVStorage {
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
-   * Atomically increments a counter. The TTL is applied only when the counter is created.
+   * Atomically increments a counter. The TTL, a number of seconds or a duration such as `"1m"`, is applied only when
+   * the counter is created.
    * The drivers in {@link KVDriversWith}`<"increment">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
-  increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
-  list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
+  increment(key: string, ttl: number | Duration): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  list(options?: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
   /**
    * A lock on `key` that one runner holds at a time, across server processes that share the store. It writes a random
    * owner token with `setIfAbsent()` and a TTL, and frees it with `deleteIfEquals()`, so a runner never deletes a lock
@@ -319,7 +335,8 @@ export interface KVStorage {
    */
   lock(key: string, options: KVLockOptions): KVLock
   /**
-   * Writes a value. `{ ttl }` expires it after that many seconds; without `ttl`, the value stays until you delete or replace it.
+   * Writes a value. `{ ttl }` expires it after a number of seconds or a duration such as `"1h"`; without `ttl`, the
+   * value stays until you delete or replace it.
    * Cloudflare KV stores return `KV_KEY_TOO_LONG` and `KV_VALUE_TOO_LARGE` before a write that Cloudflare rejects.
    */
   set<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
@@ -351,7 +368,7 @@ export interface KVStoreOptions {
 }
 
 /**
- * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, `keys()`, and `list()`.
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, and `list()`.
  * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
  * boundary against code that reads the binding directly.
  */
@@ -359,6 +376,5 @@ export interface ReadonlyKVStorage {
   get: KVStorage["get"]
   getMany: KVStorage["getMany"]
   has: KVStorage["has"]
-  keys: KVStorage["keys"]
   list: KVStorage["list"]
 }

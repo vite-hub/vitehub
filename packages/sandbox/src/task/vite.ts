@@ -6,9 +6,11 @@ import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
 import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName } from './cloudflare'
+import { sandboxTaskErrorDiagnostics } from './error-diagnostics'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
+  sandboxTaskRuntimeLocalProviderSpecifier,
   sandboxTaskRuntimeProviderSpecifiers,
   sandboxTaskRuntimeSpecifier,
   sandboxTaskRuntimeStateSpecifier,
@@ -108,6 +110,7 @@ export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(i
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
+  [sandboxTaskRuntimeLocalProviderSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/local', 'runtime/providers/local.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
   [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }
@@ -253,18 +256,30 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
   let sandboxTaskEnabled = integrationOptions !== false
+  let localDev = false
+  let nitroOptions: Record<string, unknown> | undefined
   let selectedProvider: SandboxTaskHostingProvider | undefined
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
   let cloudflareSandbox: SandboxTaskResourceInspectionOptions | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
+
+  function assertLocalDevRunner() {
+    const devServer = nitroOptions?.devServer
+    const runner = (isPlainRecord(devServer) && devServer.runner) || process.env.NITRO_DEV_RUNNER
+    if (localDev && nitroOptions?.dev && runner === 'miniflare')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NITRO_RUNNER()
+  }
+
   const sandboxTaskNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
     options: object
   }) => {
     // SAFETY: Nitro options are a plain object; the merges below only read and set its alias and noExternals keys.
     const options = nitro.options as Record<string, unknown>
+    nitroOptions = options
+    assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
       mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
@@ -298,6 +313,8 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       writeArtifacts,
     })
     sandboxTaskStateModule = prepared.stateModule
+    localDev = prepared.localDev
+    assertLocalDevRunner()
     return prepared
   }
 
@@ -369,7 +386,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     api: {
       // Without Sandbox Task Definitions, the server opens no Sandbox.
       deploymentEnv: context => sandboxTaskEnabled && definitions.length
-        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.provider : undefined), context)
+        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.driver : undefined), context)
         : [],
     },
     vitehub: {
@@ -490,4 +507,3 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     },
   }
 }
-

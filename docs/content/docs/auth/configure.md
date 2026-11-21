@@ -34,12 +34,13 @@ export default defineAuth({
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
-| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
-| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in. See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
-| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
+| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open, with the Auth route `<basePath>/**`, which is always public. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
+| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
+| `access.signIn` | `string` or `{ provider, errorCallbackURL?, requestSignUp?, scopes? }` | `'/login'` | Where a signed-out visitor signs in. A path is your sign-in page, which the [Nuxt page guard](/docs/auth/protect-pages#choose-where-visitors-go) opens. A provider is also where `withAuth()` and `requireAuth()` send HTML requests, and it serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
+| `access.afterSignIn` | `string` | `'/'` | Where a provider sign-in without `?redirect=` comes back to, and where the page guard sends signed-in users from `'guest'` pages. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes`, `access.public`, `access.signIn`, and `access.afterSignIn` must be static so the Vite integration can register middleware and the page guard.
 
 ### Secret
 
@@ -63,7 +64,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    auth: true,
     env: {
       server: {
         auth: {
@@ -89,7 +89,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -114,7 +113,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -154,7 +152,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The current request's origin. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps need no separate auth URL variable. |
 | `request` | The current request headers and URL, if there is a request. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request origin only when `publicUrl` is unset. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request origin only when `publicUrl` is unset. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
 
 ### Behind a proxy that ends TLS
 
@@ -196,7 +194,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }))
 ```
 
-With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime, in seconds or as `'30m'`, `'12h'`, `'7d'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
+With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime: a number of seconds, or a duration such as `'30m'`, `'12h'`, `'7 days'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
 
 | Better Auth option | Value |
 | --- | --- |
@@ -264,6 +262,68 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 - It does not run with `session.disableSessionRefresh`, or for a session created without "remember me".
 - With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 
+## Let users delete their account
+
+Set `deleteAccount: true`. Better Auth then serves `deleteUser`, and Auth also deletes the rows that ViteHub Server Primitives keep for that user. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so deletion can revoke existing sessions.
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: true,
+})
+```
+
+In the browser, call `useAuthClient().deleteUser({ password })`. Without a password, Better Auth wants a session that started in the last day (`session.freshAge`).
+
+When a user deletes the account, this happens in order:
+
+1. Your `beforeDelete` runs, when you pass one.
+2. Each Server Primitive deletes the rows of the user. The table below lists them.
+3. Auth deletes the rows of the other Better Auth tables that name the user, such as passkeys, two-factor secrets, organization memberships, invitations that the user sent, and MCP tokens. It also deletes database-backed API keys for the user-owned configurations you list.
+4. Better Auth deletes the user, the sessions, and the accounts.
+
+| Owner | Rows that Auth deletes |
+| --- | --- |
+| [Comments](/docs/comments) | The messages of the user. A thread with no message left goes too. A thread that the user started keeps the replies of other people, without the user's name and image. A thread that the user resolved forgets who resolved it. |
+| [Forms](/docs/forms) | The submissions that the user sent while signed in. |
+| Auth | Each row of a Better Auth table with a field that references the user, and matching `apikey` rows in `deleteAccount.userApiKeyConfigIds`. An organization and its API keys stay, also when the user was its last member. |
+
+Set `deleteAccount: { userApiKeyConfigIds: ['personal'] }` if `apiKey()` uses the database and the `personal` configuration references users. Use `'default'` for an unnamed user-owned configuration. Do not list organization-owned configurations: Better Auth does not expose their ownership to Auth, and a user and an organization can have the same ID. With no IDs listed, Auth leaves API keys alone.
+
+Auth does not delete your own tables, files in Blob, or keys in KV, because it cannot know which ones belong to the user. Delete them in `beforeDelete`, one of the Better Auth `user.deleteUser` options supported by `deleteAccount`:
+
+```ts [server/auth.ts] fragment
+import { APIError } from 'better-auth/api'
+import { eq } from 'drizzle-orm'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { db } from 'vite-hub/database'
+import { invoices, teams } from './databases/default'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: {
+    async beforeDelete(user) {
+      const [team] = await db.select().from(teams).where(eq(teams.ownerId, user.id))
+      if (team) throw new APIError('BAD_REQUEST', { message: 'Give your team to someone else first.' })
+      await db.delete(invoices).where(eq(invoices.userId, user.id))
+    },
+  },
+})
+```
+
+- Throw an `APIError` in `beforeDelete` to keep the account. Nothing is deleted then.
+- When a Server Primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. The user can try again. Rows that were deleted before the failure stay deleted.
+- Auth Events keep their `user.removed` event and the earlier events of the user, as an audit log.
+- Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`. Use `deleteAccount`.
+- Removing a user with the `admin()` plugin does not run `beforeDelete`. Then only the `on delete cascade` foreign keys of the Database delete other rows.
+- API keys that `apiKey()` keeps in `secondaryStorage` stay there.
+
 ## Session marker cookie
 
 With the session cookie, Auth also sets `vitehub_session=1`, with the same lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes. Better Auth clears both together, such as on sign-out. It is not `HttpOnly`, so page scripts can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [page tools](/docs/comments/configure#turn-comment-mode-on-and-off) read it to load comment mode right after sign-in.
@@ -294,13 +354,82 @@ pnpm vitehub database migrate
 - `authDatabase()` uses the `default` Database. For a Named Database, pass its name, such as `authDatabase('content')`. Write the call inline in `defineAuth()`, in the object or the object the callback returns, so the Vite integration can read it.
 - Keep one unconditional Database target. A callback must return one object with the inline call. Branches cannot pick another target. Other runtime options still work.
 - The tables use text IDs and references. Use Better Auth's default ID generator or a custom function that returns strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` need another adapter and your own schema. `authDatabase()` rejects them with `AUTH_C0053`.
-- The core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema with those columns. `authDatabase()` rejects them with `AUTH_C0055`, and a Database contribution cannot extend these tables.
-- `admin()`, `jwt()`, `oauthProvider()`, `organization()`, and `passkey()` from `@better-auth/passkey` work with the existing columns. A plugin that adds other columns, such as `username()`, or model and field remapping, fails with `AUTH_C0056` before the adapter opens the Database. Use another adapter and a matching schema instead.
 - The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the [`admin()`](https://www.better-auth.com/docs/plugins/admin) fields (`user.role`, bans, and `session.impersonatedBy`), the `jwks` and `oauth*` tables for [MCP OAuth](#sign-mcp-clients-in), the [`organization()`](https://www.better-auth.com/docs/plugins/organization) tables (`organization`, `member`, `invitation`, and `session.activeOrganizationId`), the [`passkey()`](https://www.better-auth.com/docs/plugins/passkey) table, and the `rate_limit` table of the [limiter](#rate-limiting). Column names follow the Better Auth CLI.
 - The tables use the target Database's dialect: SQLite, libSQL, Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. Server code can read them from `useDatabase(name).schema`.
-- Other plugins that only add tables need those tables in the Database Definition. A missing table fails when Better Auth uses it. `twoFactor()` also adds `user.twoFactorEnabled`, so it needs another adapter and a matching schema.
+- Model and field remapping (`modelName`, `fields`, `fieldName`) fails with `AUTH_C0056`. Each table keeps its Better Auth key.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
+
+### Add fields and plugin tables
+
+Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` and its local imports call:
+
+```ts [server/auth.ts]
+import { twoFactor, username } from 'better-auth/plugins'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  user: {
+    additionalFields: {
+      login: { type: 'string', required: false },
+      language: { type: ['en', 'es'], required: false, defaultValue: 'en' },
+    },
+  },
+  plugins: [twoFactor(), username()],
+})
+```
+
+Run `vitehub database generate` again after you change the fields or the plugins.
+
+Read and write the new columns through the tables of `useDatabase()`. ViteHub types them from `server/auth.ts`:
+
+```ts [server/api/settings.get.ts] fragment
+import { eq } from 'drizzle-orm'
+import { defineHandler } from 'h3'
+import { requireAuth } from 'vite-hub/auth/server'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineHandler(async (event) => {
+  const { user } = await requireAuth(event)
+  const { db, schema } = useDatabase('default')
+  const [settings] = await db
+    .select({ login: schema.user.login, language: schema.user.language })
+    .from(schema.user)
+    .where(eq(schema.user.id, user.id))
+  return settings
+})
+```
+
+`authSqliteSchema` and `authPostgresSchema` from `vite-hub/auth/schema` have only the core tables. Use them for foreign keys to `user` or `organization`, not to read your fields.
+
+- Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. On a new table, `required: true` makes the column `NOT NULL`. On an existing SQLite table, the generated types keep the snapshot's nullability and defaults, and a new required field without a default stays nullable so old rows still work.
+- Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. Auth also finds them in the exports that `server/auth.ts` imports with a relative path, such as `authPlugins()` from `../src/server/auth-plugins.ts`, and in the code those exports use. It does not follow aliases such as `~/` or packages.
+- `genericOAuth()` adds no tables, so it works without a change.
+- For other plugins, add their tables to the Database Definition. When the options need a table or a column that the Database does not have, the adapter fails with `AUTH_C0056` and names it, before it opens the Database.
+
+### Move your own Better Auth tables to `authDatabase()`
+
+An app that wrote the Better Auth tables itself can switch to `authDatabase()`. Delete your tables from the Database Definition, keep their migrations, and import the tables from `vite-hub/auth/schema` where your own tables reference them:
+
+```ts [server/databases/default.ts]
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { authSqliteSchema } from 'vite-hub/auth/schema'
+import { defineDatabase } from 'vite-hub/database'
+
+export const budget = sqliteTable('budget', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => authSqliteSchema.user.id, { onDelete: 'cascade' }),
+})
+
+export default defineDatabase({ schema: { budget } })
+```
+
+Then run `vitehub database generate`. On SQLite, libSQL, and Cloudflare D1, Auth reads its tables from the latest migration and keeps what SQLite changes only with a table rebuild: column defaults, unique keys and indexes, and foreign keys. The migration then adds columns, tables, and indexes. A rebuild drops the old table, and D1 deletes the rows of each table that references it with `ON DELETE CASCADE`. A column that Auth adds to an existing table is nullable, because SQLite adds a `NOT NULL` column only with a default. `vitehub database migrate` refuses a migration that rebuilds a table that other tables reference with an `ON DELETE` action.
+
+The tables of `authSqliteSchema` and `authPostgresSchema` are typed, so queries on them and foreign keys to them type-check.
 
 Better Auth's own adapters still work. To use another database, return one from the Definition callback.
 
@@ -352,6 +481,32 @@ The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "a
 Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
+## Choose who can sign in
+
+By default, anyone can sign up. Set `VITEHUB_MEMBERS` to let only some people sign up and sign in. Separate the entries with commas:
+
+```bash [Terminal]
+VITEHUB_MEMBERS=github:22072217,ada@example.com,@acme.com,github-org:acme pnpm dev
+```
+
+| Entry | Who it lets in |
+| --- | --- |
+| `<provider>:<account id>`, such as `github:22072217` | The user with this linked account. Write it as in `VITEHUB_ADMINS`. |
+| `ada@example.com` | The user with this email, when the sign-in provider verified it. |
+| `@acme.com` | Users with a verified email at this domain. Subdomains do not match. |
+| `github-org:acme` | Active members of this GitHub organization. Auth adds the `read:org` scope to the GitHub provider. |
+
+The accounts in `VITEHUB_ADMINS` and users with the admin role of `admin()` can always sign in.
+
+- Auth refuses to create a user that no entry lets in, so a refused sign-up leaves no row. A refused request answers `403` with the code [`AUTH_NOT_MEMBER`](/docs/auth/diagnostics/auth_not_member). An OAuth sign-in redirects to its `errorCallbackURL` with `?error=AUTH_NOT_MEMBER`.
+- An email that is not verified does not count. With email and password sign-in, turn on `emailAndPassword.requireEmailVerification`, so the person signs in after they open the link.
+- A person you remove from the list cannot sign in again, and loses a running session within five minutes, or the `recheck` of `access.policy`. MCP access tokens stop working too. It works like [`access.policy`](/docs/auth/server-api#decide-who-can-stay-signed-in), and both must allow the user.
+- When GitHub cannot answer the membership check, Auth refuses a sign-in with `AUTH_GITHUB_UNAVAILABLE` and keeps a running session.
+- For a request with a user id but no session, such as an upload link, call [`checkAuthMember()`](/docs/auth/server-api#check-a-member-without-a-session).
+- Auth must store sessions to end them. With `stateless()`, Auth fails with `AUTH_MEMBERS_SESSION_STORE_REQUIRED`. An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`.
+
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_MEMBERS`. The Auth Console shows the list in its access notes, with the number of emails in place of the emails.
 
 ## Sign in through a trusted proxy
 
@@ -405,7 +560,7 @@ export default defineAuth({
 - Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
 - Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
 - The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
-- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- `accessToken` is stored on the account, so server code can use it, for example with [`checkGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
 - Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
 - When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
 
@@ -413,7 +568,7 @@ export default defineAuth({
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `server/auth.ts` and `vitehub({ mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 
@@ -505,7 +660,7 @@ It reads only the request URL and headers, so a Fetchable route's Request, H3's 
 - The OAuth client, which must still exist and be enabled.
 - The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
-A token opens only the resource at the request's origin and path. To accept it on other routes, such as the app API, pass `resource`. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+A token opens only the resource at the request's origin and path. To accept it on the app API too, call [`requireCaller(event)`](/docs/auth/server-api#tell-a-person-from-an-agent) there: it accepts a session or a token. `resource` takes one resource or a list. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 

@@ -5,10 +5,9 @@ import { builtinModules } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
-import { parseCronExpression } from "cron-schedule"
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir, ownModule } from "@vite-hub/internal/build/paths"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -18,8 +17,9 @@ import { findDefaultExportCall, findProperty, scanModule, staticString } from "@
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 import { utcCronForTimeZone } from "./time-zone-cron.ts"
+import { cronWithWeekdayNames } from "../runtime/due.ts"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
@@ -48,14 +48,14 @@ function isVercelCron(value: unknown): value is { path: string, schedule: string
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
 }
 
-export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
+export function resolveSchedulePublicEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
   const packageRoot = dirname(fileURLToPath(resolveImport(`${schedulePackageName}/package.json`)))
-  return resolve(packageRoot, "dist/definition.js")
+  return resolve(packageRoot, "dist/index.js")
 }
 
 // Generated Schedule functions import the static runtime by path. It is not a package export.
 const scheduleRuntimeEntry = ownModule(import.meta.url, "runtime/static")
-const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
+const schedulePublicEntry = resolveSchedulePublicEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -133,7 +133,7 @@ async function publishRetainedProviderSources(artifacts: GeneratedScheduleArtifa
 
 export interface ScheduleWorkflowRuntime {
   bundleAlias: Record<string, string>
-  bundlePlugins?: Plugin[]
+  bundlePlugins?: Rolldown.Plugin[]
   native: boolean
   registryFile: string
   /** File paths of the Workflow runtime modules that the Schedule function imports. */
@@ -249,7 +249,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}isTimeZoneWakeDue, missingScheduleDefinitionError, normalizeCron, ${provider === "vercel" ? "scheduledWakeTime, " : ""}unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
+    `import { ${provider === "cloudflare" ? "cronWithWeekdayNames, " : ""}executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}isTimeZoneWakeDue, missingScheduleDefinitionError, normalizeCron, ${provider === "vercel" ? "scheduledWakeTime, " : ""}unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -303,12 +303,16 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "  },",
           "  async scheduled(event, env, ctx) {",
           "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
+          "    const trigger = normalizeCron(event.cron)",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)) return",
+          "      if (!definition) return",
+          "      const cron = normalizeCron(scheduleCron(name, definition))",
+          "      // wrangler.json has the cron with weekday names, so Cloudflare reads each weekday as declared.",
+          "      if (cronWithWeekdayNames(cron) !== trigger) return",
           "      const scheduledAt = new Date(event.scheduledTime)",
           "      if (!isWakeDue(name, definition, scheduledAt)) return",
-          "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt, waitUntil: (promise) => ctx.waitUntil(promise) })",
+          "      await executeStaticSchedule({ cron, definition, name, scheduledAt, waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
           "  },",
@@ -341,7 +345,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "  }",
           ...(workflowRuntime
             ? [
-                "  setWorkflowRuntimeConfig({ provider: 'vercel' })",
+                "  setWorkflowRuntimeConfig({ driver: 'vercel' })",
                 "  setWorkflowRuntimeRegistry(workflowRegistry)",
               ]
             : []),
@@ -409,13 +413,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
       const cronId = index.toString(36)
       const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
       const cronNamePrefix = `vitehub-${cronId}-`
-      // Deno numbers weekdays 1-7, starting on Sunday. Names preserve the standard cron occurrence set.
-      const fields = cron.trim().split(/\s+/)
-      if (fields[4] !== "*") {
-        const weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-        fields[4] = parseCronExpression(cron).weekdays.map(day => weekdays[day]).join(",")
-      }
-      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: fields.join(" "), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
+      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: cronWithWeekdayNames(cron), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -448,13 +446,12 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
   ].join("\n")
 }
 
-function createScheduleDefinitionAliasPlugin(): Plugin {
+function createSchedulePublicAliasPlugin(): Rolldown.Plugin {
   return {
-    name: "vitehub-schedule-definition-alias",
-    setup(build) {
-      build.onResolve({ filter: /^@vite-hub\/schedule$/ }, () => ({
-        path: scheduleDefinitionEntry,
-      }))
+    name: "vitehub-schedule-public-alias",
+    // `vite-hub/schedule` re-exports `@vite-hub/schedule`. Bundle both, so the output does not need the `vite-hub` package.
+    resolveId(source) {
+      if (source === "@vite-hub/schedule" || source === "vite-hub/schedule") return schedulePublicEntry
     },
   }
 }
@@ -548,10 +545,10 @@ export async function writeVercelScheduleFunctions(options: {
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
       define: options.bundleDefines,
-      external: options.bundleExternal,
+      external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
       format: "esm",
       platform: "node",
-      plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
+      plugins: [createSchedulePublicAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
       workingDir: options.sourceRootDir ?? options.rootDir,
@@ -764,10 +761,10 @@ async function writeNetlifyScheduleFunctions(options: {
           await bundleEsmEntry(wrapperFile, output.file, {
             alias: options.bundleAlias,
             define: options.bundleDefines,
-            external: options.bundleExternal,
+            external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
             format: "esm",
             platform: "node",
-            plugins: [createScheduleDefinitionAliasPlugin()],
+            plugins: [createSchedulePublicAliasPlugin()],
             rootDir: options.sourceRootDir ?? options.rootDir,
             signal: options.signal,
             workingDir: options.sourceRootDir ?? options.rootDir,
@@ -886,7 +883,7 @@ async function writeCloudflareScheduleOutput(options: {
       external: [cloudflareRuntimeExternal, "node:*"],
       format: "esm",
       platform: "neutral",
-      plugins: [createScheduleDefinitionAliasPlugin()],
+      plugins: [createSchedulePublicAliasPlugin()],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
     }),
@@ -1008,7 +1005,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
           format: "esm",
           packages: "external",
           platform: "neutral",
-          plugins: [createScheduleDefinitionAliasPlugin()],
+          plugins: [createSchedulePublicAliasPlugin()],
           rootDir: options.sourceRootDir ?? options.rootDir,
           signal: options.signal,
         })
@@ -1030,7 +1027,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         bundleAlias: options.bundleAlias,
         bundleDefines: options.bundleDefines,
         bundleEntry: artifacts.cloudflareWorkerFile,
-        crons: [...new Set(crons.values())],
+        crons: [...new Set([...crons.values()].map(cronWithWeekdayNames))],
         rootDir: options.rootDir,
         previousStateFile: previousCloudflareStateFile,
         sourceRootDir: options.sourceRootDir,

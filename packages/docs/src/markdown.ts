@@ -20,6 +20,8 @@ import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 import { ELEMENT_NODE, parse as parseHtml, walkSync } from "ultrahtml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { ComarkPlugin, ElementNode, MarkdownDocument, Node as ComarkNode, ParserOptions } from "comark"
 import type { PresetOptions } from "comark-ui/vue"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
@@ -63,7 +65,8 @@ const themes = { light: githubLight, dark: githubDark }
  * and the rest. The site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web
  * link into a chip and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`. Kroki diagrams are
  * off: they send each D2, PlantUML, or Graphviz fence to kroki.io while the page parses. Mermaid stays on, since
- * comark-pele draws it in the process.
+ * comark-pele draws it in the process. Remove the Kroki override when comark-ui turns drawing off by default
+ * (https://github.com/onmax/comark-ui/issues/446).
  *
  * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
  * every plugin the two share.
@@ -93,31 +96,36 @@ const phrasing = /^(?:p|h[1-6]|a|span|em|strong|del|s|mark|sup|sub|small|label)$
 /** Draw the page's HTML-only blocks in one context, so styles, fonts, and scripts are emitted once. */
 async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   const blocks = new Map<ElementNode, ElementNode>()
-  const roots: ElementNode[] = []
-  const visit = (nodes: ComarkNode[], from = 0, parent?: string, insideHtml = false) => {
+  const visit = (nodes: ComarkNode[], from = 0, parent?: string) => {
     for (let at = from; at < nodes.length; at++) {
       const node = nodes[at]!
       if (!isElement(node)) continue
       const tag = node[0]
       const html = drawsAsHtml(node)
-      visit(node as ComarkNode[], 2, tag, insideHtml || html)
+      visit(node as ComarkNode[], 2, tag)
       if (html) {
         // Keep the source props and children for app overrides, search, and heading text.
         const rendered: ElementNode = ["comark-html", { block: tag, blockProps: node[1], ...(parent && phrasing.test(parent) ? { inline: true } : {}) }, ...node.slice(2) as ComarkNode[]]
         blocks.set(rendered, node)
-        if (!insideHtml) roots.push(rendered)
         nodes[at] = rendered
       }
     }
   }
   visit(nodes)
   if (!blocks.size) return
+  // A block reads its children by tag, as `::compare` finds its `::screenshot`s, so it renders from its source tree.
+  const source = (node: ComarkNode): ComarkNode => {
+    if (!isElement(node)) return node
+    const [tag, attributes, ...children] = blocks.get(node) ?? node
+    return [tag, attributes, ...children.map(source)]
+  }
   let assets = ""
-  await renderHtmlFromDocument({ nodes: roots }, {
+  // A block inside another one renders on its own too, for a page that overrides the outer block.
+  await renderHtmlFromDocument({ nodes: [...blocks.keys()].reverse() }, {
     components: {
       ...htmlBlocks,
       "comark-html": async (node, state) => {
-        let html = (await state.render([blocks.get(node)!])).trim()
+        let html = (await state.render([source(node)])).trim()
         const ranges: Array<[number, number]> = []
         walkSync(parseHtml(html), (element) => {
           if (element.type !== ELEMENT_NODE || !/^(style|script|link)$/.test(element.name)) return
@@ -161,6 +169,41 @@ export function docsMarkdown(options: DocsParserOptions = {}): { preset: false, 
   // An example's preview parses without the page step: the page step runs once, over the whole page.
   const parseExample = createMarkdownParser({ autoClose: true, plugins })
   return { preset: false, autoClose: true, plugins: [...plugins, docsPageStep] }
+}
+
+/** The size of a picture, `[width, height]` in pixels, by its URL path, such as `/screenshots/console.png`. */
+export type DocsImageSizes = Record<string, readonly [number, number]>
+
+const pixels = (value: unknown) => {
+  const parsed = Number(value)
+  return parsed > 0 ? parsed : undefined
+}
+
+/**
+ * Gives an image of the app's `public/` folder its `width` and `height`, so the browser keeps its room before the
+ * picture loads and the page does not move. comark-ui measures only data URIs and remote URLs, not a path on the site.
+ * An image with one side keeps it and gets the other at the picture's ratio. A side in other units, like `50%`, is the
+ * author's layout, so the image is left alone.
+ */
+export function docsImageSizes(sizes: DocsImageSizes): ComarkPlugin {
+  const visit = (nodes: ComarkNode[]) => {
+    for (const node of nodes) {
+      if (!isElement(node)) continue
+      const attrs = node[1]
+      const size = node[0] === "img" && typeof attrs.src === "string" ? sizes[attrs.src.split(/[?#]/)[0]!] : undefined
+      if (size && (attrs.width === undefined || attrs.height === undefined)) {
+        const width = pixels(attrs.width)
+        const height = pixels(attrs.height)
+        if ((attrs.width === undefined || width) && (attrs.height === undefined || height)) {
+          const ratio = size[1] / size[0]
+          attrs.width = String(width ?? (height ? Math.round(height / ratio) : size[0]))
+          attrs.height = String(height ?? (width ? Math.round(width * ratio) : size[1]))
+        }
+      }
+      visit(node.slice(2) as ComarkNode[])
+    }
+  }
+  return { name: "docs-image-sizes", post: state => visit(state.tree.nodes) }
 }
 
 /** The last step of a page parse, after every plugin: list items without paragraphs, example anchors, and HTML-only blocks. */
@@ -213,7 +256,7 @@ function examples(parse: (markdown: string) => Promise<MarkdownDocument>, source
       const name = typeof node[1].name === "string" ? node[1].name : undefined
       if (name) {
         const source = sources[name]
-        if (source === undefined) throw new Error(`::example names "${name}", but the examples folder has no ${name}.vue.`)
+        if (source === undefined) throw docsErrorDiagnostics.DOCS_EXAMPLE_MISSING({ name })
         // A fence longer than any run of backticks in the file keeps the file whole.
         const fence = "`".repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(run => run[0].length + 1)))
         const { nodes: code } = await parse(`${fence}vue\n${source.trim()}\n${fence}\n`)

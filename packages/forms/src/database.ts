@@ -1,7 +1,7 @@
-import { and, desc, eq, lt, or } from "drizzle-orm"
+import { and, desc, eq, lt, ne, or, sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
-import { formsDiagnostics } from "./errors.ts"
+import { formsDiagnostics, isFormsDiagnostic } from "./errors.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
@@ -18,7 +18,7 @@ export const formSubmissions = sqliteTable("vitehub_form_submissions", {
   page: text("page"),
   anchor: text("anchor"),
   user: text("user"),
-  status: text("status", { enum: ["open", "done", "spam"] }).notNull(),
+  status: text("status", { enum: ["open", "done", "spam", "pending"] }).notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, table => [
@@ -47,7 +47,8 @@ function parse<T>(value: string | null): T | null {
   return value === null ? null : JSON.parse(value) as T
 }
 
-function toSubmission(row: Row): FormSubmission {
+function toSubmission(row: Row): FormSubmission | undefined {
+  if (row.status === "pending") return undefined
   return {
     id: row.id,
     form: row.form,
@@ -61,12 +62,31 @@ function toSubmission(row: Row): FormSubmission {
   }
 }
 
+function toRow(submission: FormSubmission): Row {
+  return {
+    ...submission,
+    data: JSON.stringify(submission.data),
+    anchor: submission.anchor ? JSON.stringify(submission.anchor) : null,
+    user: submission.user ? JSON.stringify(submission.user) : null,
+  }
+}
+
+/** SQLite, libSQL, and D1 say `no such table`. Drizzle wraps the driver error in `cause`. */
+function isMissingTable(error: unknown): boolean {
+  for (let current = error, depth = 0; current instanceof Error && depth < 5; current = current.cause, depth++) {
+    if (/no such table:?\s*[`"']?vitehub_form_submissions/i.test(current.message)) return true
+  }
+  return false
+}
+
 async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run()
   }
   catch (cause) {
-    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub database generate\` and \`vitehub database migrate\`.`, cause })
+    if (isFormsDiagnostic(cause)) throw cause
+    if (isMissingTable(cause)) throw formsDiagnostics.FORMS_TABLES_MISSING({ action, cause })
+    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}.`, cause })
   }
 }
 
@@ -76,38 +96,55 @@ async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
  */
 export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDatabase)): FormsStore {
   const db = typeof database === "function" ? database : () => database
+  const insertRow = (row: () => Row) => guarded("store a submission", async () => {
+    const rows = await db().insert(formSubmissions).values(row()).onConflictDoNothing().returning({ id: formSubmissions.id })
+    return rows.length > 0
+  })
   return {
-    insert: submission => guarded("store a submission", async () => {
-      await db().insert(formSubmissions).values({
-        id: submission.id,
-        form: submission.form,
-        data: JSON.stringify(submission.data),
-        page: submission.page,
-        anchor: submission.anchor ? JSON.stringify(submission.anchor) : null,
-        user: submission.user ? JSON.stringify(submission.user) : null,
-        status: submission.status,
-        createdAt: submission.createdAt,
-        updatedAt: submission.updatedAt,
+    insert: submission => insertRow(() => toRow(submission)),
+    async insertWith(submission, beforeInsert) {
+      const { id, form, createdAt, updatedAt } = submission
+      if (!await insertRow(() => ({ id, form, createdAt, updatedAt, status: "pending", data: "null", page: null, anchor: null, user: null }))) return false
+
+      const pending = and(eq(formSubmissions.id, id), eq(formSubmissions.status, "pending"))
+      let accepted = false
+      try {
+        accepted = await beforeInsert()
+      }
+      finally {
+        if (!accepted) await guarded("release a submission reservation", async () => {
+          await db().delete(formSubmissions).where(pending)
+        })
+      }
+      if (!accepted) return false
+      return guarded("finish storing a submission", async () => {
+        const rows = await db().update(formSubmissions).set({ ...toRow(submission), id }).where(pending).returning({ id: formSubmissions.id })
+        return rows.length > 0
       })
-    }),
+    },
     list: (options: ListFormSubmissionsOptions = {}) => guarded("list submissions", async () => {
       const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)
       const { before } = options
       const where = and(
+        ne(formSubmissions.status, "pending"),
         options.form ? eq(formSubmissions.form, options.form) : undefined,
         options.status ? eq(formSubmissions.status, options.status) : undefined,
         before ? or(lt(formSubmissions.createdAt, before.createdAt), and(eq(formSubmissions.createdAt, before.createdAt), lt(formSubmissions.id, before.id))) : undefined,
       )
       const rows = await db().select().from(formSubmissions).where(where).orderBy(desc(formSubmissions.createdAt), desc(formSubmissions.id)).limit(limit)
-      return rows.map(toSubmission)
+      return rows.map(toSubmission).filter(row => row !== undefined)
     }),
     get: id => guarded("read a submission", async () => {
       const [row] = await db().select().from(formSubmissions).where(eq(formSubmissions.id, id)).limit(1)
       return row ? toSubmission(row) : undefined
     }),
     setStatus: (id, status: FormStatus, now) => guarded("change a submission", async () => {
-      const [row] = await db().update(formSubmissions).set({ status, updatedAt: now }).where(eq(formSubmissions.id, id)).returning()
+      const [row] = await db().update(formSubmissions).set({ status, updatedAt: now }).where(and(eq(formSubmissions.id, id), ne(formSubmissions.status, "pending"))).returning()
       return row ? toSubmission(row) : undefined
+    }),
+    deleteUser: userId => guarded("delete the submissions of a user", async () => {
+      // `user` holds the JSON of `FormUser`. SQLite, libSQL, and D1 all have `json_extract()`.
+      await db().delete(formSubmissions).where(sql`json_extract(${formSubmissions.user}, '$.id') = ${userId}`)
     }),
   }
 }

@@ -57,8 +57,11 @@ describe("Netlify provider deployment output", () => {
       "function config(newConfig) {",
       "  return newConfig",
       "}",
+      "function vitehubNetlifyFunctionConfig() {",
+      "  return 'ok'",
+      "}",
       "export default async function handler() {",
-      "  return new Response(config(\"ok\"))",
+      "  return new Response(config(vitehubNetlifyFunctionConfig()))",
       "}",
       "",
     ].join("\n"), "utf8")
@@ -83,9 +86,9 @@ describe("Netlify provider deployment output", () => {
 
     const outfile = join(rootDir, ".netlify", "v1", "functions", "vitehub-agent.mjs")
     const generated = await readFile(outfile, "utf8")
-    expect(generated).toContain("export const config = {")
-    expect(generated).toContain("\"path\": \"/api/test\"")
-    expect(generated).not.toContain("function config(")
+    // The bundle keeps its `config` function, so the config export goes through an export list, which Netlify reads.
+    expect(generated).toContain("const vitehubNetlifyFunctionConfig2 = {")
+    expect(generated).toContain("export { vitehubNetlifyFunctionConfig2 as config }")
 
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as {
       config: { name: string, nodeBundler: string, path: string }

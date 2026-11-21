@@ -29,8 +29,8 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
   allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
   /**
    * The roles that give a permission of this tool, such as `comments-write`. Site access in the Console offers them when
-   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin. The tool checks the
-   * roles itself.
+   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin, or to the roles of
+   * the Site access cookie in an app without Auth. The tool checks the roles itself.
    */
   grants?: readonly ViteHubPageGrant[]
 }
@@ -48,6 +48,7 @@ interface PageToolsState {
   installed: WeakSet<object>
   bases: WeakMap<object, string>
   grants?: Map<string, ViteHubPageGrant>
+  siteVisitor?: ViteHubSiteVisitorReader
   // Optional: a copy of this module from an older release may have made the slot without it.
   accounts?: WeakMap<object, ViteHubPageAccountReader>
 }
@@ -123,6 +124,34 @@ export function viteHubPageGrants(): ViteHubPageGrant[] {
   return [...state().grants?.values() ?? []]
 }
 
+/**
+ * A person that Site access in the Console signed in to an app without ViteHub Auth: a Console member, or a guest, with
+ * their roles, such as `console` and `comments-write`. The Console seals them in the `vitehub_site` cookie.
+ */
+export interface ViteHubSiteVisitor {
+  id: string
+  name: string
+  email?: string
+  image?: string
+  roles: string[]
+}
+
+/** Reads the Site access person of a request. It returns undefined without a valid, unrevoked cookie. */
+export type ViteHubSiteVisitorReader = (request: Request) => Promise<ViteHubSiteVisitor | undefined>
+
+/**
+ * Installs the reader of the Site access cookie. The Console installs it when the server starts in an app without Auth,
+ * so page tools, such as Comments, know the person without depending on the Console.
+ */
+export function installViteHubSiteVisitor(reader: ViteHubSiteVisitorReader): void {
+  state().siteVisitor = reader
+}
+
+/** The reader of the Site access cookie, or undefined in an app where the Console did not install one. */
+export function viteHubSiteVisitorReader(): ViteHubSiteVisitorReader | undefined {
+  return state().siteVisitor
+}
+
 /** The path of a URL below the app base. A path outside the base stays as it is. */
 function pathBelow(base: string, pathname: string): string {
   return base && (pathname === base || pathname.startsWith(`${base}/`)) ? pathname.slice(base.length) || "/" : pathname
@@ -167,7 +196,7 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 }
 
 /**
- * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
+ * Answers `GET <base>/_vitehub/page/tools`: the tools whose `allowed` check passes for this visitor, in registration
  * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
  * each tool `script` path gets it. When at least one tool is allowed, the answer also has the `account` of a signed-in
  * visitor, from the reader of `registerViteHubPageAccount()`. An anonymous visitor never gets one. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
@@ -204,8 +233,8 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
 }
 
 /**
- * The route of `GET /_vitehub/page/session`: a Fetchable (https://fetchable.org). Nitro 3 binds each Request to its
- * app in `installViteHubPageTools()`, so the route finds the tools of that app.
+ * The route of `GET /_vitehub/page/tools`: a Fetchable (https://fetchable.org). `installViteHubPageTools()` binds
+ * each Request to its app in Nitro's `request` hook, so the route finds the tools of that app.
  */
 export const viteHubPageSessionHandler: { fetch(request: Request): Promise<Response> } = {
   async fetch(request) {
@@ -338,6 +367,8 @@ export interface ViteHubPageToolsInstallOptions {
  * static assets, still shows the pill. Call it from each owner's Nitro plugin: it installs once per app, whatever the
  * number of calls. It reads that app's registry and configured base on each request, so plugin order does not matter.
  * It wraps `nitroApp.fetch`, the Web entry that every preset and the prerenderer call. The tag uses `options.base`.
+ * It binds each request to the app in Nitro's `request` hook too, since another wrapper of `fetch` may pass a copy of
+ * the request inward, such as the `security` policy of `vite-hub` on Node.js.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
@@ -345,6 +376,15 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
   if (options.base !== undefined) bases.set(nitroApp, viteHubBasePath(options.base))
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
+
+  // The hook gets the `event.req` that the routes get, even when an inner wrapper of `fetch` copied the request.
+  const hooks: unknown = Reflect.get(nitroApp, "hooks")
+  const hook: unknown = hooks && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
+  if (hook instanceof Function) {
+    Reflect.apply(hook, hooks, ["request", (event: { req?: unknown } | undefined) => {
+      if (event?.req instanceof Request) state().apps.set(event.req, nitroApp)
+    }])
+  }
 
   const fetch: unknown = Reflect.get(nitroApp, "fetch")
   if (fetch instanceof Function) {

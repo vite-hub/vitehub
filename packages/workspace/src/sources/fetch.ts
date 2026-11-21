@@ -107,10 +107,10 @@ export type FetchSourceInput<TResponse = unknown, TOutput = TResponse> =
   | FetchSourceOptions<TResponse, TOutput>
   | FetchSourceResolver<TResponse, TOutput>
 
-export function fetch<TResponse = unknown, TOutput = TResponse>(options: ExactOptions<FetchSourceOptions<TResponse, TOutput>, FetchSourceOptions<TResponse, TOutput>>): WorkspaceSource
-export function fetch<const TOptions extends FetchSourceOptions<any, any>>(options: ExactOptions<TOptions, FetchSourceOptions<any, any>>): WorkspaceSource
-export function fetch<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
-export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
+export function url<TResponse = unknown, TOutput = TResponse>(options: ExactOptions<FetchSourceOptions<TResponse, TOutput>, FetchSourceOptions<TResponse, TOutput>>): WorkspaceSource
+export function url<const TOptions extends FetchSourceOptions<any, any>>(options: ExactOptions<TOptions, FetchSourceOptions<any, any>>): WorkspaceSource
+export function url<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
+export function url<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
   if (typeof input === "function") return resolvableFetchSource(input)
   return createFetchSource(input)
 }
@@ -152,7 +152,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
     },
     async getItem(sourcePath, ctx) {
       if (!workspacePath) {
-        throw workspaceErrorDiagnostics.WORKSPACE_R0046({ message: "[vitehub] Request-only fetch source does not expose a default Source-Backed Path." })
+        throw workspaceErrorDiagnostics.WORKSPACE_R0046({ message: "[vitehub] Request-only url() Source does not expose a default Source-Backed Path." })
       }
       if (sourcePath !== key) {
         throw workspaceErrorDiagnostics.WORKSPACE_R0047({ message: `[vitehub] Fetch source item does not exist: ${sourcePath}.` })
@@ -237,7 +237,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
       return []
     },
     async getItem(key) {
-      throw workspaceErrorDiagnostics.WORKSPACE_R0048({ message: `[vitehub] fetch() resolver did not resolve before reading ${JSON.stringify(key)}.` })
+      throw workspaceErrorDiagnostics.WORKSPACE_R0048({ message: `[vitehub] url() resolver did not resolve before reading ${JSON.stringify(key)}.` })
     },
     async getItems() {
       return []
@@ -251,7 +251,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
 
 function normalizePublicResponseType(responseType: string): FetchSourceResponseType {
   if (responseType !== "json" && responseType !== "text") {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0049({ message: `[vitehub] fetch() responseType "${responseType}" is not supported in v1. Use json or text.` })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0049({ message: `[vitehub] url() responseType "${responseType}" is not supported in v1. Use json or text.` })
   }
   return responseType
 }
@@ -264,7 +264,7 @@ function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMeth
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
     const label = typeof method === "string" ? method : typeof method
-    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] url() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
 }
@@ -275,13 +275,13 @@ function normalizeFetchWorkspacePath(options: Pick<FetchSourceOptions, "workspac
 
 function assertRequestShape(options: FetchSourceOptions<any, any>, method: FetchSourceMethod): void {
   if ((options.query !== undefined || urlHasQuery(options.url)) && options.querySchema !== undefined) {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0051({ message: "[vitehub] fetch() accepts either query or querySchema, not both." })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0051({ message: "[vitehub] url() accepts either query or querySchema, not both." })
   }
   if (options.body !== undefined && options.bodySchema !== undefined) {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0052({ message: "[vitehub] fetch() accepts either body or bodySchema, not both." })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0052({ message: "[vitehub] url() accepts either body or bodySchema, not both." })
   }
   if ((method === "GET" || method === "HEAD") && (options.body !== undefined || options.bodySchema !== undefined)) {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0053({ message: `[vitehub] fetch() ${method} requests cannot declare body or bodySchema.` })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0053({ message: `[vitehub] url() ${method} requests cannot declare body or bodySchema.` })
   }
 }
 
@@ -331,7 +331,7 @@ function descriptorCredentials(options: Pick<FetchSourceOptions<any, any>, "cook
 function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: string): Record<string, unknown> {
   const project = schema["~standard"].jsonSchema?.input
   if (typeof project !== "function") {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0054({ message: `[vitehub] fetch() ${option} must expose a Standard JSON Schema-compatible input projection.` })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0054({ message: `[vitehub] url() ${option} must expose a Standard JSON Schema-compatible input projection.` })
   }
   return project({ target: "draft-2020-12" })
 }
@@ -355,12 +355,12 @@ async function defaultFetchSourceRequest(
     ? undefined
     : options.query !== undefined || concreteQueryFromOptions(options)
       ? concreteQueryFromOptions(options)
-      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "url() query default") : undefined
   const defaultBody = overrides.body !== undefined
     ? undefined
     : options.body !== undefined
       ? options.body
-      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "url() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)

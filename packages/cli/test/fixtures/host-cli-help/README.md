@@ -6,6 +6,8 @@
   - `WRANGLER_OUTPUT_FILE_PATH` gets one JSON object per line: `{ type: "deploy", version_id, targets }` or `{ type: "version-upload", version_id, preview_url }`.
 - Wrangler 4.157.0 (the workspace install), recorded on 2026-11-13: `wrangler-d1-migrations-apply.txt`, for the `database.migrateOnDeploy` steps.
   - Without a terminal or with `CI` set, Wrangler skips the confirmation and applies. A failed migration exits with an error and keeps the migrations before it.
+- Wrangler 4.160.1 (the workspace install), recorded on 2026-11-20: `wrangler-d1-execute.txt`, for the migrations table check of a deploy without `database.migrateOnDeploy`.
+  - `--json` prints one `{ results, success, meta }` for each statement and sets the log level to errors only. `--json` also skips the confirmation. Wrangler names applied migrations by file name, `*.sql` in `migrations_dir` relative to the config file (`getD1MigrationFiles` in Wrangler's source). `wrangler deploy` does not compare them with the migrations table.
 - Vercel CLI 65.11.0: `vercel-deploy.txt`, `vercel-env-add.txt`, `vercel-env-ls.txt` (restored from before #4069).
   - `deploy --json` prints `{ id, url, productionUrl }`, or `{ status, deployment }` without a terminal.
   - `env add` reads the value from stdin. ViteHub reads `envs[].key` and `envs[].target` from the last JSON object of `env ls --json`. The help says that output includes readable values, so its stdout never goes into an error. Not checked against a live account.
@@ -19,3 +21,10 @@
 `vitehub deployments` and the `live` line of `vitehub status` read Cloudflare, Vercel, and Netlify through their REST APIs (see `test/fixtures/host-api/README.md`), and Deno through its CLI:
 
 - Deno Deploy CLI 0.0.9909: `deno-deploy-deployments-list.txt` and `deno-deploy-apps-get.txt`. With `--json`, `deployments list` prints `{ items: [{ id, status, prod, createdAt, updatedAt, lastStep }], nextCursor, org, app }` and `apps get` prints `{ id, slug, org, productionUrl, domains, productionRevisionId, ... }` (the CLI source, `deploy/deployments.ts` and `deploy/apps.ts` in `jsr:@deno/deploy@0.0.9909`). Deno Deploy keeps no deploy message, so a Deno deployment has no commit marker.
+
+When a `deploy.check` path fails, `vitehub deploy` prints the command that rolls production back. It runs none of them. Recorded on 2026-11-16:
+
+- Wrangler 4.158.0: `wrangler-rollback.txt`. `wrangler rollback <version-id> --name <worker> --yes` takes the Worker version id.
+- Vercel CLI 65.16.0: `vercel-rollback.txt`. `vercel rollback <deployment> --yes` takes the deployment id or URL.
+- Netlify CLI 27.11.2: `netlify-api.txt`. Netlify has no rollback command; `netlify api restoreSiteDeploy --data '{"deploy_id":…,"site_id":…}'` calls `POST /sites/{site_id}/deploys/{deploy_id}/restore` (`netlify api --list` names it).
+- Deno Deploy CLI 0.0.9909: `deno-deploy.txt` lists no rollback command, so the error names the revision to promote in the dashboard.

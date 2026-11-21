@@ -14,7 +14,7 @@ const secret = "vitehub-access-policy-test-secret-4d1c9b7e2a"
 
 interface MemoryRow { [key: string]: unknown }
 
-function createPolicyAuth(allow: AuthAccessPolicy["allow"], recheck?: number, cookieCache = false, bearerAuth = false) {
+function createPolicyAuth(allow: AuthAccessPolicy["allow"], recheck?: AuthAccessPolicy["recheck"], cookieCache = false, bearerAuth = false) {
   const db: Record<string, MemoryRow[]> = { account: [], session: [], user: [], verification: [] }
   const definition = defineFixedAuth({
     access: { policy: { allow, ...(recheck === undefined ? {} : { recheck }) } },
@@ -66,7 +66,7 @@ describe("access.policy", () => {
 
   it.each([false, true])("ends the session when a recheck refuses the user (cookie cache: %s)", async (cookieCache) => {
     let member = true
-    const { db, definition } = createPolicyAuth(() => member, 0, cookieCache)
+    const { db, definition } = createPolicyAuth(() => member, "0s", cookieCache)
     const cookie = cookieHeader(await signUp(definition))
     expect(await (await getSession(definition, cookie)).json()).toMatchObject({ user: { email: "ada@example.com" } })
 
@@ -82,7 +82,7 @@ describe("access.policy", () => {
 
   it("answers 401 from the ViteHub guards once the policy refuses the user", async () => {
     let member = true
-    const { db, definition } = createPolicyAuth(() => member, 0)
+    const { db, definition } = createPolicyAuth(() => member, "0s")
     const cookie = cookieHeader(await signUp(definition))
     const handler = vi.fn(() => new Response("ok"))
     const guarded = withAuth(handler, definition)
@@ -101,7 +101,7 @@ describe("access.policy", () => {
   ] as const)("revokes a refused bearer-only %s request (signed: %s)", async (kind, signed) => {
     let member = true
     const allow = vi.fn(() => member)
-    const { db, definition } = createPolicyAuth(allow, 0, true, true)
+    const { db, definition } = createPolicyAuth(allow, "0s", true, true)
     const signup = await signUp(definition)
     const token = signed ? signup.headers.get("set-auth-token")! : String(db.session![0]!.token)
     expect(token).toBeTruthy()
@@ -131,10 +131,10 @@ describe("access.policy", () => {
     else expect(replay.status).toBe(401)
   })
 
-  it("keeps an allowed answer for `recheck` milliseconds", async () => {
+  it("keeps an allowed answer for `recheck`", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const allow = vi.fn(() => true)
-    const { definition } = createPolicyAuth(allow, 60_000)
+    const { definition } = createPolicyAuth(allow, "1m")
     const cookie = cookieHeader(await signUp(definition))
     expect(allow).toHaveBeenCalledOnce()
 
@@ -152,7 +152,7 @@ describe("access.policy", () => {
     const { db, definition } = createPolicyAuth(() => {
       if (fail) throw new Error("membership service is down")
       return true
-    }, 0)
+    }, "0s")
     const cookie = cookieHeader(await signUp(definition))
 
     fail = true
@@ -169,7 +169,7 @@ describe("access.policy", () => {
     const { db, definition } = createPolicyAuth(async ({ accessToken }) => {
       tokens.push(await accessToken("github"))
       return true
-    }, 0)
+    }, "0s")
     const cookie = cookieHeader(await signUp(definition))
     db.account!.push({ id: "github-account", accountId: "22072217", providerId: "github", userId: db.user![0]!.id, accessToken: "gho_member", createdAt: new Date(), updatedAt: new Date() })
 
@@ -181,7 +181,8 @@ describe("access.policy", () => {
   it("rejects a policy without an `allow` function or with a negative `recheck`", () => {
     // @ts-expect-error allow is required.
     expect(() => defineAuth({ access: { policy: {} } })).toThrow(expect.objectContaining({ code: "AUTH_C0065" }))
-    expect(() => defineAuth({ access: { policy: { allow: () => true, recheck: -1 } } })).toThrow(expect.objectContaining({ code: "AUTH_C0065" }))
+    expect(() => defineAuth({ access: { policy: { allow: () => true, recheck: "-1s" as never } } })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
+    expect(() => defineAuth({ access: { policy: { allow: () => true, recheck: 300_000 as never } } })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining("\"5m\"") }))
     // @ts-expect-error public takes route strings.
     expect(() => defineAuth({ access: { public: ["/", 1] } })).toThrow(expect.objectContaining({ code: "AUTH_C0064" }))
     expect(() => defineAuth({ access: { public: ["login"] } })).toThrow(expect.objectContaining({ code: "AUTH_C0064" }))

@@ -99,7 +99,7 @@ describe("Console members", () => {
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect(response.headers.getSetCookie()).toEqual([
-      expect.stringMatching(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=604800; HttpOnly; SameSite=Lax$/),
+      expect.stringMatching(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/),
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",
       "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
     ])
@@ -335,7 +335,7 @@ describe("the account in the pill", () => {
   }
 
   async function pageSession(nitroApp: object, cookie = "") {
-    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session`, { headers: { cookie } }))
+    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools`, { headers: { cookie } }))
     return readViteHubPageSession(await response.json())
   }
 

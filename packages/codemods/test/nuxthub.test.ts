@@ -279,7 +279,7 @@ describe("nuxthub", () => {
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
     expect(config).toContain("host: 'cloudflare'")
-    expect(config).toContain("kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
+    expect(config).toContain("kv: { driver: 'cloudflare', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
     expect(run.result.followUps.some(followUp => followUp.message.includes("To keep this namespace"))).toBe(false)
   })
 
@@ -321,7 +321,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": codemodsRange } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "@vite-hub/kv": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": codemodsRange } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",

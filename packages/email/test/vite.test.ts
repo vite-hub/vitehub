@@ -5,7 +5,7 @@ import { dirname, join, posix } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
-import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as rolldown from "@vite-hub/internal/build/rolldown"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -139,7 +139,7 @@ describe("hubEmail", () => {
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
     expect(source).toContain("RESEND_API_KEY")
-    expect(source).toContain("options[\"apiKey\"]?.unseal()")
+    expect(source).toMatch(/options(?:\.apiKey|\[["'`]apiKey["'`]\])\?\.unseal\(\)/)
     expect(source).not.toContain(secret)
   })
 
@@ -161,8 +161,8 @@ describe("hubEmail", () => {
         },
       },
     })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
       bundle(entry, output, {
         ...options,
         alias: { [fileURLToPath(new URL("../src/drivers/resend.ts", import.meta.url))]: driver },
@@ -218,13 +218,13 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     const source = await loadConfiguredDefinition(plugin)
-    expect(source).toMatch(/import\s*\{\s*env as vitehubEmailEnv\s*\}\s*from\s*"cloudflare:workers"/)
-    expect(source).toContain("runWithCloudflareEnv(vitehubEmailEnv,()=>resolveServerEnv(registry))")
+    expect(source).toMatch(/import\s*\{\s*env\s*\}\s*from\s*"cloudflare:workers"/)
+    expect(source).toContain("runWithCloudflareEnv(env,()=>resolveServerEnv(registry))")
   })
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const config = functionHook(plugin.config, "config")
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
@@ -240,7 +240,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("cloudflare:email")
-    expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
+    expect(source).toContain("binding:env.EMAIL")
     expect(source).toContain("EmailMessage")
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })
@@ -250,7 +250,7 @@ describe("hubEmail", () => {
     const serverDir = join(root, ".output", "server")
     const configFile = join(serverDir, "wrangler.json")
     await mkdir(serverDir, { recursive: true })
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
     await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
@@ -275,7 +275,7 @@ describe("hubEmail", () => {
     const serverDir = join(root, ".output", "server")
     const configFile = join(serverDir, "wrangler.json")
     await mkdir(serverDir, { recursive: true })
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
     await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
@@ -287,10 +287,10 @@ describe("hubEmail", () => {
   })
 
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
     const config = functionHook(plugin.config, "config")
 
-    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare-email\" driver needs a Cloudflare host.")
+    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare\" driver needs a Cloudflare host.")
   })
 
   it("loads only discovered Email template modules", async () => {
@@ -317,7 +317,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
     await writeFile(template, "Hello {{name}}")
     await writeFile(nestedTemplate, "Nested detail")
-    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const plugin = hubEmail({ driver: "cloudflare" })
 
     await resolvePlugin(plugin, root)
 
@@ -378,7 +378,7 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
-      driver: "cloudflare-email",
+      driver: "cloudflare",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
     const config = functionHook(plugin.config, "config")
@@ -406,10 +406,10 @@ describe("hubEmail", () => {
 
   it("exposes its generated definition to explicitly selected Vercel Workflows", async () => {
     const root = await createTempProject()
-    // SAFETY: workflowProvider is a test-only internal option accepted by hubEmail.
+    // SAFETY: workflowDriver is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
       driver: "resend",
-      workflowProvider: "vercel",
+      workflowDriver: "vercel",
     } as Parameters<typeof hubEmail>[0])
     const config = functionHook(plugin.config, "config")
 
@@ -423,7 +423,7 @@ describe("hubEmail", () => {
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
     await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
-    const workflow = hubWorkflow({ provider: "vercel" })
+    const workflow = hubWorkflow({ driver: "vercel" })
     const server = await createServer({
       appType: "custom",
       configFile: false,
@@ -487,6 +487,33 @@ describe("hubEmail", () => {
     }
   })
 
+  it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
+    const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(root, "server", "emails", "welcome.md"), "Hello {{ data.name }}"),
+    ])
+
+    const paths = await hubEmail({ driver: "resend" }).api.prepareTypes({ materialize: true, projectRoot: root })
+
+    // SAFETY: prepareTypes materializes each template as a module that exports its renderer.
+    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<string> }
+    await expect(template.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+  })
+
+  it("bundles the Email definition before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    const root = await createTempProject()
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    const plugin = hubEmail({ driver: "cloudflare" })
+    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toMatch(/from\s*"cloudflare:workers"/)
+  })
+
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
     const parentTemplate = join(root, "server", "emails", "monthly.md")
@@ -535,8 +562,8 @@ describe("hubEmail", () => {
     const started = new Promise<void>((resolve) => { signalStarted = resolve })
     let resume!: () => void
     const resumed = new Promise<void>((resolve) => { resume = resolve })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
       const result = await bundle(...args)
       signalStarted()
       await resumed
@@ -796,7 +823,7 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare-email"')
+    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare", or "log"')
   })
 
   it("rejects secret defaults that would be included in build output", () => {
@@ -835,4 +862,24 @@ describe("hubEmail", () => {
     })
   })
 
+})
+
+describe("renamed Email drivers", () => {
+  it("names the new driver for the former cloudflare-email", () => {
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => hubEmail({ driver: "cloudflare-email" } as never)).toThrow(expect.objectContaining({
+      code: "EMAIL_UNKNOWN_DRIVER",
+      fix: expect.stringContaining("email: { driver: \"cloudflare\" }"),
+      why: expect.stringContaining("renamed this driver to \"cloudflare\""),
+    }))
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => hubEmail({ driver: "smtp" } as never)).toThrow(expect.objectContaining({
+      code: "EMAIL_UNKNOWN_DRIVER",
+      fix: expect.stringContaining("driver: 'log'"),
+      why: "The Email `driver` is \"smtp\". It must be \"resend\", \"cloudflare\", or \"log\".",
+    }))
+  })
 })

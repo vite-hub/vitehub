@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -75,6 +75,11 @@
       "import": "./dist/internal/path.js",
       "default": "./dist/internal/path.js"
     },
+    "./internal/workspace": {
+      "types": "./dist/internal/workspace.d.ts",
+      "import": "./dist/internal/workspace.js",
+      "default": "./dist/internal/workspace.js"
+    },
     "./lineage": {
       "types": "./dist/lineage.d.ts",
       "import": "./dist/lineage.js",
@@ -146,12 +151,10 @@
   "dependencies": {
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
@@ -169,9 +172,11 @@
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -185,7 +190,8 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "@vite-hub/forge": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@vite-hub/shell": {
@@ -196,9 +202,12 @@
     },
     "drizzle-orm": {
       "optional": true
+    },
+    "@vite-hub/forge": {
+      "optional": true
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -45,16 +45,16 @@ describe("Cloudflare Workflow step stub", () => {
     })
 
     const result = await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1", payload: { name: "ada" } },
       name: "nap",
       registry: {
         nap: async () => ({
           default: {
-            options: { rootStep: false },
-            handler: async (payload: { name: string }, context: Pick<WorkflowExecutionContext, "sleep"> & { step?: WorkflowProviderStep }) => {
-              const greeting = await context.step!.do!("greet", {}, () => `hello ${payload.name}`)
+            rootStep: false,
+            handler: async (context: Pick<WorkflowExecutionContext<{ name: string }>, "payload" | "sleep"> & { step?: WorkflowProviderStep }) => {
+              const greeting = await context.step!.do!("greet", {}, () => `hello ${context.payload.name}`)
               await context.sleep("1 second")
               await context.sleep(new Date(0))
               return greeting

@@ -14,10 +14,16 @@ describe("runtime-contracts", () => {
   it("moves the runtime, logs, and node imports, and reads checkRateLimit() as a Result", async () => {
     const input = join(fixture, "input")
     const run = await runCodemod("runtime-contracts", { cwd: input, dryRun: true })
+    const ownerEntries = run.result.edits.find(edit => edit.path.endsWith("owner-entries.post.ts"))?.after
+    expect(ownerEntries).toContain('import { resolveRegisteredWorkspaceDefinition } from "vite-hub/workspace/runtime"')
+    expect(ownerEntries).toContain('import { invalidateWorkspaceStore } from "@vite-hub/workspace/runtime"')
     for (const edit of run.result.edits) {
+      const { after } = edit
+      // This codemod edits files and never deletes one.
+      if (after === null) throw new Error(`runtime-contracts deleted ${edit.path}`)
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after).toMatchFileSnapshot(join(fixture, "output", edit.path))
-      expect(() => parseProgram(edit.after, { typescript: true })).not.toThrow()
+      await expect(after).toMatchFileSnapshot(join(fixture, "output", edit.path))
+      expect(() => parseProgram(after, { typescript: true })).not.toThrow()
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixture, "output", "report.txt"))
   })

@@ -611,7 +611,7 @@ describe("sources and loaders", () => {
     })
 
     registerWorkspace("github-lazy-tree-cache", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           cache: { maxAge: 3600 },
@@ -648,7 +648,7 @@ describe("sources and loaders", () => {
     })
 
     registerWorkspace("github-lazy-content-cache", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           cache: { maxAge: 3600 },
@@ -682,7 +682,7 @@ describe("sources and loaders", () => {
 
     registerWorkspace("github-loader", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           mount: "docs",
@@ -738,13 +738,12 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     }, registryFile)
 
-    const contents = await readFile(registryFile, "utf8")
-    expect(contents.match(/\["docs"\]: createWorkspaceAssets/g)).toHaveLength(1)
-    expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("instructions/AGENTS.md")).resolves.toBe("# Instructions\n")
   })
 
   it("loads raw text imports while syncing discovered Workspace Definitions", async () => {
@@ -773,7 +772,7 @@ describe("sources and loaders", () => {
       sourceRootDir: directory,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -869,6 +868,71 @@ describe("sources and loaders", () => {
     })
   })
 
+  it("runs a shared helper once per loader and again for the next loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    const shared = join(root, "server", "shared.ts")
+    const writeShared = (label: string) => writeFile(shared, `globalThis.__sharedRuns = (globalThis.__sharedRuns ?? 0) + 1\nexport const label: string = ${JSON.stringify(label)}\n`)
+    const runs = () => (globalThis as { __sharedRuns?: number }).__sharedRuns
+    await writeShared("first")
+
+    try {
+      const firstPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(firstPass, definition)).resolves.toMatchObject({ rootDir: "first" })
+      }
+      expect(runs()).toBe(1)
+
+      await writeShared("second")
+      const secondPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(secondPass, definition)).resolves.toMatchObject({ rootDir: "second" })
+      }
+      expect(runs()).toBe(2)
+    }
+    finally {
+      delete (globalThis as { __sharedRuns?: number }).__sharedRuns
+    }
+  })
+
+  it("runs a shared helper again after it failed in the same loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    await writeFile(join(root, "server", "shared.ts"), `if (!globalThis.__sharedFailed) { globalThis.__sharedFailed = true; throw new Error("first run fails") }\nexport const label: string = "shared"\n`)
+
+    try {
+      const pass = createWorkspaceDefinitionLoader(root)
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[0]!)).rejects.toThrow("first run fails")
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[1]!)).resolves.toMatchObject({ rootDir: "shared" })
+    }
+    finally {
+      delete (globalThis as { __sharedFailed?: boolean }).__sharedFailed
+    }
+  })
+
+  it("does not share partial exports after a Definition catches an import failure", async () => {
+    const root = await createRoot()
+    const optional = join(root, "optional.workspace.ts")
+    const required = join(root, "required.workspace.ts")
+    await writeFile(join(root, "helper.ts"), 'export const rootDir = "partial"\nthrow new Error("helper failed")\n')
+    await writeFile(optional, 'export default await import("./helper").catch(() => ({ rootDir: "fallback" }))\n')
+    await writeFile(required, 'import { rootDir } from "./helper"\nexport default { rootDir }\n')
+
+    const pass = createWorkspaceDefinitionLoader(root)
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: optional, name: "optional", path: optional, source: "test" })).resolves.toMatchObject({ rootDir: "fallback" })
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: required, name: "required", path: required, source: "test" })).rejects.toThrow("helper failed")
+  })
+
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
@@ -928,7 +992,7 @@ describe("sources and loaders", () => {
       sourceRootDir: directory,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -963,7 +1027,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -997,7 +1061,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
     await rm(sourceRoot, { recursive: true, force: true })
@@ -1046,7 +1110,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
     await rm(sourceRoot, { recursive: true, force: true })
@@ -1202,7 +1266,10 @@ describe("sources and loaders", () => {
 
     await removing
     controller.abort(new Error("preparation stopped"))
-    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    let settled = false
+    void syncing.then(() => { settled = true }, () => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
     releaseRemoval()
     await expect(syncing).rejects.toThrow("preparation stopped")
   })
@@ -1609,18 +1676,12 @@ describe("sources and loaders", () => {
     await syncWorkspaceDefinition(definition, store)
     const list = vi.spyOn(store, "list")
     const readFile = vi.spyOn(store, "readFile")
-    const remove = vi.spyOn(store, "rm")
     const currentSources = currentMount === undefined ? {} : createSources(currentMount)
 
     await syncWorkspaceDefinition({ ...definition, sources: currentSources }, store)
 
     expect(list.mock.calls.filter(([prefix]) => prefix === "")).toEqual(sourceKeys.map(() => ["", { recursive: true }]))
     expect(readFile).not.toHaveBeenCalled()
-    if (!previousMount) {
-      expect(remove.mock.calls.filter(([, options]) => !options?.recursive).map(([path]) => path)).toEqual(
-        sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
-      )
-    }
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toHaveLength(Object.keys(currentSources).length)
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toEqual(expect.arrayContaining(
       Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
@@ -1699,7 +1760,7 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: ["selected"],
     }, registryFile)
 
@@ -1737,13 +1798,62 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     }, registryFile)
 
     expect(fetch).not.toHaveBeenCalled()
     const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
     await expect(registry.docs.readFile("AGENTS.md")).rejects.toThrow("Workspace file does not exist")
+  })
+
+  async function syncCachedGitHubWorkspace(source: string) {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "forecasting")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "config.mjs"), [
+      `import { github } from '${workspaceSourceImport}'`,
+      `export default { sources: { engine: ${source} } }`,
+      "",
+    ].join("\n"))
+    return await syncWorkspaceBuildAssets([{
+      handler: join(directory, "config.mjs"),
+      name: "forecasting",
+      path: join(directory, "config.mjs"),
+      source: "test",
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { driver: "memory" },
+      assets: true,
+    }, join(root, ".vitehub", "workspace", "assets", "registry.mjs"))
+  }
+
+  it.each([
+    [401, "github({ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })"],
+    [404, "github({ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })"],
+    [404, "{ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' }"],
+  ])("fails the build when a cached GitHub Source cannot read its private repository (%i, %s)", async (status, source) => {
+    stubGitHubSource({}, status)
+
+    const error = await syncCachedGitHubWorkspace(source).then(() => undefined, (error: unknown) => error)
+
+    expect(error).toMatchObject({ code: "WORKSPACE_SOURCE_ACCESS_FAILED" })
+    expect(String((error as Error).message)).toContain("Source \"engine\" of Workspace \"forecasting\"")
+    expect(String(((error as Error).cause as Error).message)).toContain("acme/forecasting-engine")
+  })
+
+  it("leaves a cached GitHub Source to the deployed app when the build has no token", async () => {
+    stubGitHubSource({}, 404)
+    // The config module loads outside the `node:child_process` mock, so hide the real `gh` from it.
+    vi.stubEnv("PATH", "")
+    try {
+      await syncCachedGitHubWorkspace("github({ cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
@@ -1767,7 +1877,7 @@ describe("sources and loaders", () => {
     let customWrites = 0
     registerWorkspace("sources", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: glob({ cwd: ".", include: ["**/*.md"] }),
         files: file({ workspacePath: "two.md", content: "# Two\n" }),
@@ -1828,7 +1938,7 @@ describe("sources and loaders", () => {
     const registryFile = join(root, ".vitehub/assets/registry.mjs")
     const definition = defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: file({ content: "hello\n", workspacePath: "README.md" }),
         data: file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),

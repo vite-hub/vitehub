@@ -1,9 +1,9 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
-export type QueueProvider = "cloudflare" | "local" | "postgres" | "vercel"
+export type QueueDriver = "cloudflare" | "local" | "postgres" | "vercel"
 
-/** The Queue providers that run jobs in a Node server process. */
-export type NodeQueueProvider = "local" | "postgres"
+/** The Queue drivers that run jobs in a Node server process. */
+export type NodeQueueDriver = "local" | "postgres"
 
 type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
 
@@ -18,6 +18,14 @@ interface CloudflareQueueSendBatchOptions {
 
 interface CloudflareQueueSendBatchMessage<T = unknown> extends CloudflareQueueSendOptions {
   body: T
+}
+
+/** One job in `sendBatch()` of a Cloudflare QueueClient. */
+export interface CloudflareQueueSendBatchItem<T = unknown> {
+  body: T
+  contentType?: CloudflareQueueContentType
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
 }
 
 interface CloudflareQueueRetryOptions {
@@ -45,10 +53,11 @@ export interface CloudflareQueueMessageBatch<T = unknown> {
   retryAll: (options?: CloudflareQueueRetryOptions) => void
 }
 
+/** What `onError` returns: `"ack"`, `"retry"`, or `{ retry: { delay: "30s" } }` to retry after a time. */
 export type CloudflareQueueBatchErrorAction =
   | "ack"
   | "retry"
-  | { retry: CloudflareQueueRetryOptions }
+  | { retry: { delay?: Duration } }
 
 export interface CloudflareQueueBatchHandlerOptions<T = unknown> {
   concurrency?: number
@@ -95,15 +104,17 @@ export type VercelQueueBatchSendResult =
  */
 export interface VercelQueueSendBatchMessage<T = unknown> {
   body: T
-  delaySeconds?: number
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
   idempotencyKey?: string
-  retentionSeconds?: number
+  /** How long Vercel keeps the job: a duration such as `"1h"`, or a number of seconds. */
+  retention?: Duration | number
 }
 
 /** Options that apply to every job of a Vercel `sendBatch()` unless the job sets its own. */
 export interface VercelQueueSendBatchOptions {
-  delaySeconds?: number
-  retentionSeconds?: number
+  delay?: Duration
+  retention?: Duration | number
 }
 
 type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unknown) => unknown | Promise<unknown>
@@ -121,126 +132,136 @@ export interface QueueSharedOptions {
   cache?: boolean
 }
 
-export interface CloudflareQueueProviderOptions extends QueueSharedOptions {
+export interface CloudflareQueueDriverOptions extends QueueSharedOptions {
   binding?: string | CloudflareQueueBinding
-  provider: "cloudflare"
+  driver: "cloudflare"
 }
 
-interface CloudflareQueueModuleProviderOptions extends QueueSharedOptions {
+interface CloudflareQueueModuleDriverOptions extends QueueSharedOptions {
   binding?: string
   namePrefix?: string
-  provider: "cloudflare"
+  driver: "cloudflare"
 }
 
-export interface VercelQueueProviderOptions extends QueueSharedOptions {
+export interface VercelQueueDriverOptions extends QueueSharedOptions {
   client?: VercelQueueSDK
-  provider: "vercel"
+  driver: "vercel"
   region?: string
   topic?: string
 }
 
-interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
-  provider: "vercel"
+interface VercelQueueModuleDriverOptions extends QueueSharedOptions {
+  driver: "vercel"
   region?: string
 }
 
 /**
- * The local provider keeps jobs in files under `base` and runs the Queue Definitions in this process.
+ * The local driver keeps jobs in files under `base` and runs the Queue Definitions in this process.
  * The jobs survive a restart on the same host. They do not move to another host or container.
  */
-export interface LocalQueueProviderOptions extends QueueSharedOptions {
+export interface LocalQueueDriverOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
-  provider: "local"
+  driver: "local"
   /** Queue Definition that receives the jobs. `useQueue()` sets it. */
   queue?: string
-  /** The provider whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the provider of the build. */
+  /** The driver whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the driver of the build. */
   rules?: LocalQueueRules
 }
 
 /**
- * The provider whose documented delivery rules the local provider follows: attempts, retry delay, the largest delay,
+ * The driver whose documented delivery rules the local driver follows: attempts, retry delay, the largest delay,
  * payload, and batch, and the enqueue options it accepts. In `vite dev`, a Cloudflare or Vercel app runs its jobs
- * with the local provider and the rules of its provider.
+ * with the local driver and the rules of its hosted driver.
  */
-export type LocalQueueRules = QueueProvider
+export type LocalQueueRules = QueueDriver
 
-interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
+interface LocalQueueModuleDriverOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
-  provider: "local"
+  driver: "local"
 }
 
 /**
- * The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database. Every server process
+ * The postgres driver keeps jobs in the `vitehub_queue_jobs` table of a Postgres database. Every server process
  * that runs the app takes jobs from the table, so the jobs survive a restart and spread over all instances.
  * It uses the connection of the Default Database. `QUEUE_POSTGRES_URL` overrides it at runtime.
  */
-export interface PostgresQueueProviderOptions extends QueueSharedOptions {
+export interface PostgresQueueDriverOptions extends QueueSharedOptions {
   /** The Database whose Postgres connection Queue uses. The build sets `default` when the Default Database is on Postgres. */
   database?: string
-  provider: "postgres"
+  driver: "postgres"
   /** Queue Definition that receives the jobs. `getQueue()` sets it. */
   queue?: string
 }
 
-interface PostgresQueueModuleProviderOptions extends QueueSharedOptions {
-  provider: "postgres"
+interface PostgresQueueModuleDriverOptions extends QueueSharedOptions {
+  driver: "postgres"
 }
 
 /** Postgres options after resolution. The build adds `database` when the Default Database is on Postgres. */
-export interface ResolvedPostgresQueueOptions extends PostgresQueueModuleProviderOptions {
+export interface ResolvedPostgresQueueOptions extends PostgresQueueModuleDriverOptions {
   database?: string
 }
 
-export type QueueProviderOptions =
-  | CloudflareQueueProviderOptions
-  | LocalQueueProviderOptions
-  | PostgresQueueProviderOptions
-  | VercelQueueProviderOptions
+export type QueueDriverOptions =
+  | CloudflareQueueDriverOptions
+  | LocalQueueDriverOptions
+  | PostgresQueueDriverOptions
+  | VercelQueueDriverOptions
 
-export type QueueModuleProviderOptions =
-  | CloudflareQueueModuleProviderOptions
-  | LocalQueueModuleProviderOptions
-  | PostgresQueueModuleProviderOptions
-  | VercelQueueModuleProviderOptions
+export type QueueModuleDriverOptions =
+  | CloudflareQueueModuleDriverOptions
+  | LocalQueueModuleDriverOptions
+  | PostgresQueueModuleDriverOptions
+  | VercelQueueModuleDriverOptions
 
 export type QueueOptions =
   | false
-  | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
-  | QueueModuleProviderOptions
+  | (QueueSharedOptions & { base?: string; namePrefix?: string; driver?: undefined })
+  | QueueModuleDriverOptions
 
 /** Local options after resolution. `vite dev` adds `rules` for a Cloudflare or Vercel app. */
-export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptions {
+export interface ResolvedLocalQueueOptions extends LocalQueueModuleDriverOptions {
   rules?: LocalQueueRules
 }
 
 export type ResolvedQueueOptions =
-  | CloudflareQueueModuleProviderOptions
+  | CloudflareQueueModuleDriverOptions
   | ResolvedLocalQueueOptions
   | ResolvedPostgresQueueOptions
-  | VercelQueueModuleProviderOptions
+  | VercelQueueModuleDriverOptions
 
+/** The one object that a Queue handler receives: the `payload` that was sent, and the delivery details. */
 export interface QueueJob<TPayload = unknown> {
+  /** Delivery count of this job, from 1. */
   attempts: number
+  /** Message ID of this job. */
   id: string
+  /** Delivery metadata of the provider, when it gives some. */
   metadata?: unknown
   payload: TPayload
 }
 
 export type QueueHandler<TPayload = unknown, TResult = unknown> = (job: QueueJob<TPayload>) => TResult
 
+/** Options of `defineQueue()`, next to `handler`. */
 export interface QueueDefinitionOptions {
   cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
   concurrency?: number
+  /**
+   * Cloudflare: the most messages in one batch, from 1 to 100. Cloudflare's default is 10. Write it as a number literal,
+   * because the build reads it from the file to configure the consumer.
+   */
+  maxBatchSize?: number
   onDispatchError?: (error: unknown, context: { name: string }) => unknown | Promise<unknown>
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
 
-export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
+/** A Queue Definition: `defineQueue({ handler, ...options })`. */
+export interface QueueDefinition<TPayload = unknown, TResult = unknown> extends QueueDefinitionOptions {
   handler: QueueHandler<TPayload, TResult>
-  options?: QueueDefinitionOptions
 }
 
 /**
@@ -249,10 +270,12 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
  */
 export interface QueueEnqueueOptions {
   contentType?: CloudflareQueueContentType
-  delaySeconds?: number
+  /** Time before delivery, such as `"30s"`, `"5m"`, or `"1 day"`. A number fails with `RUNTIME_DURATION_INVALID`. */
+  delay?: Duration
   idempotencyKey?: string
   region?: string
-  retentionSeconds?: number
+  /** How long the provider keeps the job: a duration such as `"1h"`, or a number of seconds. */
+  retention?: Duration | number
 }
 
 export type QueueSendResult = {
@@ -271,27 +294,29 @@ export type QueueErrorCode =
   | "QUEUE_PROVIDER_FAILED"
   | "QUEUE_PROVIDER_INVALID_RESPONSE"
   | "QUEUE_UNSUPPORTED_OPTION"
+  | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a Cloudflare QueueClient return. */
-export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a local QueueClient return. */
-export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** Codes that `send()` and `sendBatch()` of a postgres QueueClient return. */
-export type PostgresQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+export type PostgresQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"
 
 /** One job in `sendBatch()` of a local or postgres QueueClient. */
 export interface LocalQueueSendBatchMessage<T = unknown> {
   body: T
-  delaySeconds?: number
+  /** Time before delivery, such as `"1m"`. */
+  delay?: Duration
   idempotencyKey?: string
 }
 
 /** Codes that `send()` and `sendBatch()` of a Vercel QueueClient return. */
 export type VercelQueueErrorCode = QueueErrorCode
 
-interface QueueClientBase<P extends QueueProvider = QueueProvider> {
+interface QueueClientBase<P extends QueueDriver = QueueDriver> {
   readonly native: unknown
   readonly provider: P
 }
@@ -303,7 +328,7 @@ export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBa
   readonly binding: CloudflareQueueBinding
   createBatchHandler: <TMessage = unknown>(options: CloudflareQueueBatchHandlerOptions<TMessage>) => (batch: CloudflareQueueMessageBatch<TMessage>) => Promise<void>
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, CloudflareQueueErrorCode>>
-  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
+  sendBatch: (items: CloudflareQueueSendBatchItem<TPayload>[], options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
 }
 
 /**
@@ -329,7 +354,7 @@ export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"
 export interface LocalQueueClient<TPayload = unknown> extends QueueClientBase<"local"> {
   readonly queue: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, LocalQueueErrorCode>>
-  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delay?: Duration }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
 }
 
 /**
@@ -340,7 +365,7 @@ export interface PostgresQueueClient<TPayload = unknown> extends QueueClientBase
   readonly queue: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, PostgresQueueErrorCode>>
   /** Inserts all jobs in one transaction. When one insert fails, no job of the batch is stored. */
-  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], PostgresQueueErrorCode>>
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delay?: Duration }) => Promise<Result<QueueSendResult[], PostgresQueueErrorCode>>
 }
 
 interface QueueClientMap<TPayload> {
@@ -350,7 +375,7 @@ interface QueueClientMap<TPayload> {
   vercel: VercelQueueClient<TPayload>
 }
 
-export type QueueClient<P extends QueueProvider = QueueProvider, TPayload = unknown> = QueueClientMap<TPayload>[P]
+export type QueueClient<P extends QueueDriver = QueueDriver, TPayload = unknown> = QueueClientMap<TPayload>[P]
 
 /** Discovered Queue Definitions. Generated declarations extend this interface. */
 export interface QueueRegistry {}
@@ -365,9 +390,13 @@ export interface QueueDefinitionRegistry {
 }
 
 export interface DiscoveredQueueDefinition {
+  /** Plugin that contributed this Definition through `vitehub.queues`, when it was not found in the app. */
+  contributor?: string
   handler: string
   name: string
-  source?: "server-queues" | "vite-suffix"
+  /** Why the contributing plugin adds this Definition. */
+  reason?: string
+  source?: "server-queues" | "vite-plugin-contribution" | "vite-suffix"
 }
 
 /** The last delivery error of a stored job, as `vitehub queue jobs` shows it. */
@@ -385,7 +414,7 @@ export interface QueueDeliveryErrorDetails {
 export interface LocalQueueDeliveryRules {
   /** Deliveries before a failing job becomes a dead job. `Infinity` retries until the job expires. */
   maxAttempts: number
-  /** Largest `delaySeconds` that a send accepts. */
+  /** Largest `delay`, in seconds, that a send accepts. */
   maxDelaySeconds?: number
   /** Largest number of jobs in one `sendBatch()`. */
   maxBatchJobs?: number
@@ -393,14 +422,14 @@ export interface LocalQueueDeliveryRules {
   maxBatchBytes?: number
   /** Largest JSON size in bytes of one payload. */
   maxPayloadBytes?: number
-  /** Accepted `retentionSeconds`. A job expires at the end of its retention, whether it ran or not. */
+  /** Accepted `retention`, in seconds. A job expires at the end of its retention, whether it ran or not. */
   retention?: { defaultSeconds: number, maxSeconds: number, minSeconds: number }
   /** Milliseconds before the next delivery after `attempts` failed deliveries. */
   retryDelayMs: (attempts: number) => number
   /** The provider whose documented rules these are. */
   rules: LocalQueueRules
   /** Enqueue options that fail with `QUEUE_UNSUPPORTED_OPTION`. */
-  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retentionSeconds")[]
+  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retention")[]
 }
 
 export interface LocalQueueStatus {
@@ -434,7 +463,7 @@ export interface LocalQueueJob {
   state: "dead" | "pending" | "running"
 }
 
-/** One stored job with its payload, as `vitehub queue jobs show` shows it. */
+/** One stored job with its payload, as `vitehub queue jobs get` shows it. */
 export interface LocalQueueJobDetail extends LocalQueueJob {
   /** The local provider only: the file of the job. */
   file?: string

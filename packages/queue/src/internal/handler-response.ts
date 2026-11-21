@@ -1,4 +1,4 @@
-import { toResponse } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 
 /** Queue deliveries use the handler's status and discard its response body. */
 export function checkQueueHandlerResponse(value: unknown): void {

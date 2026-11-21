@@ -27,6 +27,8 @@ import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolv
 import { Readable, Writable } from "node:stream";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
+import { isTrustedHostReservedCommandEnvironmentKey } from "./trusted-host-environment.ts";
 
 import type {
   SandboxFileEntry,
@@ -90,17 +92,6 @@ const baseEnvironmentKeys = [
   "TMPDIR",
   "USER",
 ] as const;
-
-const runtimeEnvironmentKeys = new Set([
-  "CODEX_HOME",
-  "HOME",
-  "INIT_CWD",
-  "OLDPWD",
-  "PWD",
-  "XDG_CACHE_HOME",
-  "XDG_CONFIG_HOME",
-  "XDG_STATE_HOME",
-]);
 
 const trustedHostExecutionAuthority = {
   credentials: "unknown",
@@ -463,6 +454,8 @@ async function resolveEnvironment(
   return env;
 }
 
+const sessionEnvironmentKey = "VITEHUB_SANDBOX_SESSION";
+
 async function createTrustedHostSession(options: {
   env: Record<string, string>;
   home: string;
@@ -604,7 +597,8 @@ async function createTrustedHostSession(options: {
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
-        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
+        // The marker finds commands that leave their process group, for example with setsid.
+        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, [sessionEnvironmentKey]: options.root },
         shell: true,
       });
       processes.add(child);
@@ -651,6 +645,7 @@ async function createTrustedHostSession(options: {
         if (timeout) clearTimeout(timeout);
       }
       if (timedOut) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_KILL_TIMED_OUT();
+      await stopMarkedProcesses(sessionEnvironmentKey, options.root);
       processes.clear();
       processGroups.clear();
     },
@@ -680,7 +675,7 @@ async function createTrustedHostSession(options: {
 function assertCommandEnvironment(env: Record<string, string> | undefined) {
   const name = Object.keys(env || {}).find((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
   if (name) throw sandboxErrorDiagnostics.SANDBOX_R0112({ message: `[vitehub] Invalid Sandbox environment variable: ${name}` });
-  const reservedName = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
+  const reservedName = Object.keys(env || {}).find(isTrustedHostReservedCommandEnvironmentKey);
   if (reservedName) throw sandboxErrorDiagnostics.SANDBOX_R0137({ message: `[vitehub] Sandbox commands cannot override ${reservedName}.` });
 }
 

@@ -1,5 +1,7 @@
 import { createBirpc } from "birpc"
 
+import { invariant } from "./invariant.ts"
+
 import { isRecord } from "./object.ts"
 
 import type { OperationFailure } from "./operations.ts"
@@ -135,8 +137,7 @@ export async function answerOperationRpc<Operation>(call: OperationRpcCall, serv
     timeout: -1,
   })
   await receive!(call)
-  // Internal invariant: birpc posts one reply for each request message that it receives.
-  if (!posted) throw new Error("birpc did not reply to the operation call.")
+  invariant(posted, "birpc posts one reply for each request message that it receives")
   if (!Object.hasOwn(posted, "e")) return { t: "s", i: call.i, r: posted.r }
   // birpc refuses a name that the resolver does not return with its own error. The caller names the failure.
   const error = rejection ? rejection.reason : resolved ? posted.e : server.unknown(call.m)

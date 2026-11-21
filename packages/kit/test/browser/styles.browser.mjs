@@ -115,11 +115,16 @@ async function slotsOutsideScope(page) {
     .map(element => element.dataset.slot))])
 }
 
-// The number of pixels that differ between two screenshots of the same size, counted in the browser.
+// Chromium on CI draws the anti-aliased edge of a rounded corner up to three levels lighter or darker from one page load
+// to the next, with the same CSS. A changed rule moves a color by much more than that.
+const rasterNoise = 3
+
+// The number of pixels that differ by more than raster noise in a channel between two screenshots of the same size,
+// counted in the browser.
 async function changedPixels(a, b) {
   const context = await browser.newContext()
   const page = await context.newPage()
-  const count = await page.evaluate(async (urls) => {
+  const count = await page.evaluate(async ([urls, noise]) => {
     const images = await Promise.all(urls.map(async url => createImageBitmap(await (await fetch(url)).blob())))
     if (images[0].width !== images[1].width || images[0].height !== images[1].height) return Infinity
     const data = images.map((image) => {
@@ -130,10 +135,15 @@ async function changedPixels(a, b) {
     })
     let changed = 0
     for (let index = 0; index < data[0].length; index += 4) {
-      if (data[0][index] !== data[1][index] || data[0][index + 1] !== data[1][index + 1] || data[0][index + 2] !== data[1][index + 2] || data[0][index + 3] !== data[1][index + 3]) changed++
+      for (let channel = 0; channel < 4; channel++) {
+        if (Math.abs(data[0][index + channel] - data[1][index + channel]) > noise) {
+          changed++
+          break
+        }
+      }
     }
     return changed
-  }, [a, b].map(png => `data:image/png;base64,${png.toString("base64")}`))
+  }, [[a, b].map(png => `data:image/png;base64,${png.toString("base64")}`), rasterNoise])
   await context.close()
   return count
 }
@@ -152,10 +162,11 @@ async function render(name, query, options, { fullPage = true, ready = async () 
   }
   if (screenshots) writeFileSync(join(screenshots, `${name}.png`), shots[0])
   if (shots[0].equals(shots[1])) return
+  const changed = await changedPixels(...shots)
+  if (changed === 0) return
   mkdirSync(differences, { recursive: true })
   writeFileSync(join(differences, `${name}.png`), shots[0])
   writeFileSync(join(differences, `${name}-scoped.png`), shots[1])
-  const changed = await changedPixels(...shots)
   assert.fail(`${name}: the scoped family ${changed === Infinity ? "changes the page size" : `changes ${changed} pixels`}. See ${differences}.`)
 }
 

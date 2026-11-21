@@ -16,6 +16,7 @@ export default defineConfig({
     ...packDefaults,
     alias: {
       // Transform the ESM entry below so Workers never receive its optional createRequire probe.
+      // Remove when fdir drops the probe from its ESM entry (https://github.com/thecodrr/fdir/pull/164#issuecomment-6930366263).
       fdir: fdirEntry,
     },
     plugins: [
@@ -51,6 +52,7 @@ try {
       "src/client.ts",
       "src/drizzle.ts",
       "src/index.ts",
+      "src/internal/registry.ts",
       "src/mcp.ts",
       "src/server.ts",
       "src/vite.ts",

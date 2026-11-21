@@ -1,15 +1,21 @@
 <script setup lang="ts">
+import { Command, CommandGroup, CommandGroupLabel, CommandInput, CommandItem, CommandList, CommandPage, createCommandController } from "@ui-sdk/vue/command";
+import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@ui-sdk/vue/dialog";
+import { useShortcut, useShortcutHint } from "@ui-sdk/vue/shortcuts";
 import { Status } from "@vite-hub/ui";
 import { useCollection } from "vite-hub/source/client";
-import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
+import type { CommandActionDetails, CommandPagesChangeReason, CommandQueryChangeReason } from "@ui-sdk/vue/command"
+import type { ConsoleCommand, ConsoleCommandGroup } from "../client/command-search"
+import { filterConsoleCommandGroups } from "../client/command-search"
 import type { Collection } from "@vite-hub/source"
 import type { ConsoleDocumentOverview, ConsoleDocumentSearchResult, ConsoleDocumentState } from "../client/documents"
 import type { ConsoleContributedSection, ConsoleDocumentCollection } from "../definitions"
 import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add-primitive"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
 import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
@@ -24,6 +30,7 @@ import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route
 import { parseConsoleSectionContent } from "../definitions"
 import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionPageRouteName, consoleSectionRouteName, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import Icon from "./console-icon.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import { resolveConsoleAgentCatalog } from "./console-agent-list";
 import { invocationStatusLabel } from "./invocation/agent-invocation-list";
@@ -88,7 +95,7 @@ declare global {
 
 const props = defineProps<{
   /** Commands of the current page. Search lists them first, in an "Actions" group. */
-  actions?: CommandPaletteItem[]
+  actions?: ConsoleCommand[]
   agentNames?: string[]
   /** Agent names that appear only in invocation history. Search lists them apart from the Agents. */
   historicalAgentNames?: string[]
@@ -100,7 +107,7 @@ const props = defineProps<{
 }>()
 const route = useRoute()
 const router = useRouter()
-// The standalone Console provides its appearance. In a Nuxt host, UDashboardSearch shows the host color mode instead.
+// The standalone Console provides its appearance. Without it, search has no theme actions.
 const appearance = inject(consoleAppearanceKey, undefined)
 // console-search.vue mounts the palette open, the first time search opens.
 const open = defineModel<boolean>("open", { default: false })
@@ -158,7 +165,7 @@ const sessionSearch = useCollection("vitehub-console-search", {
     }
   },
 });
-const sessionItems = computed<CommandPaletteItem[]>(() =>
+const sessionItems = computed<ConsoleCommand[]>(() =>
   sessionSearch.pending.value
     ? []
     : sessionSearch.items.value.map((item) => ({
@@ -169,22 +176,20 @@ const sessionItems = computed<CommandPaletteItem[]>(() =>
         onSelect: () => selectSession(item),
       })),
 )
-const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
+const definitionSearchItems = computed<ConsoleCommand[]>(() =>
   definitionItems.value.map(item => ({
     description: `${item.details.label.slice(0, -1)} · ${item.file}`,
     icon: item.details.icon,
     label: item.name,
-    section: item.section,
-    slot: "section",
+    kind: "section",
     onSelect: () => selectDefinition(item),
   })),
 )
-const kvSearchItems = computed<CommandPaletteItem[]>(() =>
+const kvSearchItems = computed<ConsoleCommand[]>(() =>
   kvItems.value.map(item => ({
     description: item.store,
     icon: consoleSectionDetails.kv.icon,
-    section: "kv",
-    slot: "section",
+    kind: "section",
     label: item.key || "(empty key)",
     onSelect: () => selectKVKey(item),
   })),
@@ -215,11 +220,11 @@ async function openLocation(location: Parameters<typeof router.push>[0], event?:
   await router.push(location)
 }
 
-function documentItem(item: ConsoleDocumentSearchItem): CommandPaletteItem {
+function documentItem(item: ConsoleDocumentSearchItem): ConsoleCommand {
   return {
     label: item.title,
     suffix: `${item.collection.label} · ${item.id}`,
-    slot: "document",
+    kind: "document",
     state: item.state,
     stateLabel: item.state ? consoleDocumentStateLabel(item.state) : undefined,
     onSelect: (event: Event) => void openLocation(documentRoute(item), event),
@@ -270,8 +275,8 @@ async function publishAll(): Promise<void> {
   }
 }
 
-const contentActions = computed<CommandPaletteItem[]>(() => [
-  ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write && collection.kind !== "singleton").map((collection): CommandPaletteItem => {
+const contentActions = computed<ConsoleCommand[]>(() => [
+  ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write && collection.kind !== "singleton").map((collection): ConsoleCommand => {
     const noun = consoleSingularLabel(collection)
     return {
       icon: "i-lucide-plus",
@@ -297,7 +302,7 @@ const contentActions = computed<CommandPaletteItem[]>(() => [
           ...pendingPublish.value.map(({ change, collection, section }) => ({
             label: change.title,
             suffix: `${collection.label} · ${change.id}`,
-            slot: "document",
+            kind: "document",
             state: change.state,
             stateLabel: consoleDocumentStateLabel(change.state),
             onSelect: (event: Event) => void openLocation(change.state === "deleted"
@@ -314,7 +319,7 @@ const contentActions = computed<CommandPaletteItem[]>(() => [
     : []),
 ])
 
-const themeActions = computed<CommandPaletteItem[]>(() => appearance
+const themeActions = computed<ConsoleCommand[]>(() => appearance
   ? [
       {
         icon: "i-lucide-sun-moon",
@@ -342,7 +347,7 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
 
 // An `account` Console switches between the projects of the team.
 const projects = useConsoleProjects()
-const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "embedded"
+const projectActions = computed<ConsoleCommand[]>(() => projects.mode !== "embedded"
   ? [{
       children: [
         ...projects.projects.value.map(project => ({
@@ -363,8 +368,31 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "e
     }]
   : [])
 
+// "Add a primitive" opens the dialog at its list. With a query, "Set up <Primitive>" opens it at one primitive, so
+// search finds a primitive that the app does not use yet.
+const addPrimitiveItems = computed<ConsoleCommand[]>(() => {
+  if (!installedNavigation.value) return []
+  const add = (choice?: ConsoleSectionId) => {
+    open.value = false
+    openConsoleAddPrimitive(choice)
+  }
+  return [
+    { icon: "i-lucide-plus", keywords: ["add", "enable", "install", "primitive", "vitehub add"], label: "Add a primitive…", onSelect: () => add() },
+    ...(searchTerm.value.trim()
+      ? consoleAddablePrimitives(sections.value).map(entry => ({
+          description: entry.pitch,
+          icon: entry.icon,
+          keywords: ["add", "enable", entry.id, ...(entry.feature ? [entry.feature] : [])],
+          label: `Set up ${entry.label}`,
+          kind: "section" as const,
+          onSelect: () => add(entry.id),
+        }))
+      : []),
+  ]
+})
+
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
-function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
+function documentSectionItems(section: ConsoleSectionId): ConsoleCommand[] {
   const entry = documentSections.value.find(candidate => candidate.details.id === section)
   const details = installedNavigation.value?.contributions[section]
   if (!details) return []
@@ -392,7 +420,7 @@ function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
     })),
   ]
 }
-const groups = computed<CommandPaletteGroup[]>(() => [
+const groups = computed<ConsoleCommandGroup[]>(() => [
   ...(paletteError.value
     ? [{
         id: "error",
@@ -432,8 +460,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
               icon: details.icon,
               ...(shortcut ? { kbds: [...shortcut] } : {}),
               label: details.label,
-              section,
-              slot: "section",
+              kind: "section",
               onSelect: () => selectPage(details.routeName),
             }, ...documentSectionItems(section)]
           : []
@@ -441,6 +468,9 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ],
     label: "Go to",
   },
+  ...(addPrimitiveItems.value.length
+    ? [{ id: "add-primitive", items: addPrimitiveItems.value, label: "Add to this app" }]
+    : []),
   ...(!debouncedSearchTerm.value && recentDocumentItems.value.length
     ? [{ id: "documents", ignoreFilter: true, items: recentDocumentItems.value.map(documentItem), label: "Recent documents" }]
     : []),
@@ -450,8 +480,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         items: availableAgentNames.value.map(name => ({
           icon: consoleSectionDetails.agents.icon,
           label: name,
-          section: "agents",
-          slot: "section",
+          kind: "section",
           onSelect: () => selectAgent(name),
         })),
         label: "Agents",
@@ -498,7 +527,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     : []),
 ])
 // Server-side matches, so the palette does not filter them again.
-const documentGroup = computed<CommandPaletteGroup>(() => ({
+const documentGroup = computed<ConsoleCommandGroup>(() => ({
   id: "documents",
   ignoreFilter: true,
   items: documentSearchPending.value && !documentResults.value.length
@@ -757,17 +786,125 @@ watch(open, async (value) => {
   else if (!searchChanged) await sessionSearch.refresh()
 }, { immediate: true });
 
+// The palette filters with the ranking of the Nuxt UI palette it replaced: 100 ms after typing stops, at most 12 matches.
+const filterTerm = ref(searchTerm.value)
+let filterTimer: ReturnType<typeof setTimeout> | undefined
+watch(searchTerm, (value) => {
+  if (filterTimer) clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => {
+    filterTimer = undefined
+    filterTerm.value = value
+  }, 100)
+})
+
+const command = createCommandController()
+// The stack of nested pages, by the value of the command that opened each one. Closing search drops it.
+const pages = ref<string[]>([])
+// An element inside the dialog: the ⌘K shortcut that closes search belongs to the dialog through it.
+const inputRow = useTemplateRef<HTMLElement>("inputRow")
+
+/** Gives each command a value that stays the same while the query filters it, and finds a command by its value. */
+const commandValues = computed(() => {
+  const values = new Map<ConsoleCommand, string>()
+  const commands = new Map<string, ConsoleCommand>()
+  const add = (item: ConsoleCommand, value: string) => {
+    values.set(item, value)
+    commands.set(value, item)
+    item.children?.forEach((child, index) => add(child, `${value}/${index}`))
+  }
+  for (const group of groups.value) group.items.forEach((item, index) => add(item, `${group.id}:${index}`))
+  return { commands, values }
+})
+const valueOf = (item: ConsoleCommand) => commandValues.value.values.get(item) ?? item.label
+const currentPage = computed(() => {
+  const value = pages.value.at(-1)
+  return value === undefined ? undefined : commandValues.value.commands.get(value)
+})
+const shownGroups = computed<ConsoleCommandGroup[]>(() => {
+  const page = currentPage.value
+  const source = page ? [{ id: valueOf(page), items: page.children ?? [], label: page.label }] : groups.value
+  return filterConsoleCommandGroups(source, filterTerm.value, { keywords: true, preserveGroupOrder: true, tokens: true })
+})
+const shownCommands = computed(() => shownGroups.value.flatMap(group => group.items))
+const placeholder = computed(() => currentPage.value?.placeholder ?? "Search the Console…")
+
+// New results highlight their first command, as the palette did before, so Enter runs the best match.
+watch(shownGroups, () => {
+  void nextTick(() => {
+    const first = shownCommands.value.find(item => !item.disabled)
+    if (first) command.setValue(valueOf(first))
+  })
+})
+
+/** Runs a command with the click or key press, so ⌘-click opens a page in a new tab, then closes search. */
+function runCommand(value: string, details: CommandActionDetails): void {
+  const item = commandValues.value.commands.get(value)
+  if (!item || item.disabled || item.children?.length) return
+  item.onSelect?.(details.event)
+  open.value = false
+  searchTerm.value = ""
+}
+
+// Escape closes search at once, with or without a query, as before. Leaving a page clears the query and does not
+// bring back the one typed on the page before.
+function onQueryChange(_query: string, details: { reason: CommandQueryChangeReason, cancel: () => void }): void {
+  if (details.reason === "escape-key") {
+    details.cancel()
+    open.value = false
+  }
+  else if (details.reason === "back") details.cancel()
+}
+
+function onPagesChange(_pages: string[], details: { reason: CommandPagesChangeReason, cancel: () => void }): void {
+  if (details.reason !== "escape-key") return
+  details.cancel()
+  open.value = false
+}
+
+function back(): void {
+  command.pop()
+  command.setQuery("")
+  command.focus()
+}
+
+// Home and End move the highlight to the first and the last command, as in the palette before.
+function onInputKeydown(event: KeyboardEvent): void {
+  if ((event.key !== "Home" && event.key !== "End") || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+  const enabled = shownCommands.value.filter(item => !item.disabled)
+  const target = event.key === "Home" ? enabled[0] : enabled.at(-1)
+  if (!target) return
+  event.preventDefault()
+  command.setValue(valueOf(target))
+}
+
+// The page shortcut of console-search.vue opens search. While search is open, ⌘K or Ctrl K closes it.
+useShortcut("mod+k", () => { open.value = false }, () => ({ allowInInput: true, layer: inputRow.value }))
+
+// Focus goes back to where it was when search opened, such as the Search row.
+let returnFocus: Element | null = null
+watch(open, (value) => {
+  if (value) returnFocus = "document" in globalThis ? document.activeElement : null
+  else pages.value = []
+}, { flush: "sync", immediate: true })
+const finalFocus = () => (returnFocus instanceof HTMLElement && returnFocus.isConnected ? returnFocus : undefined)
+
 /**
- * The listbox ignores Enter with a modifier, so ⌘ Enter and Ctrl Enter click the highlighted item with that modifier.
- * The item then opens its page in a new tab.
+ * The command list runs Enter without its modifiers, so ⌘ Enter and Ctrl Enter click the highlighted command with that
+ * modifier. The command then opens its page in a new tab.
  */
 function openHighlightedInNewTab(event: KeyboardEvent): void {
   if (!open.value || event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.isComposing) return
-  const highlighted = document.querySelector('[role="dialog"] [role="option"][data-highlighted]')
+  const highlighted = inputRow.value?.closest('[data-slot="command"]')?.querySelector('[role="option"][data-highlighted]')
   if (!(highlighted instanceof HTMLElement)) return
   event.preventDefault()
+  event.stopPropagation()
   highlighted.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: event.ctrlKey, metaKey: event.metaKey }))
 }
+
+// The keys of the rows and the footer, drawn like Nuxt UI's Kbd in the palette before.
+const kbdClass = "inline-flex items-center justify-center rounded-sm border-0 bg-default px-1 py-0 font-sans text-xs font-medium text-default uppercase ring ring-inset ring-accented"
+const footerKbdClass = [kbdClass, "h-4 min-w-[16px]"]
+const { text: modKey } = useShortcutHint("mod")
 
 // Server rendering and component tests mount search without a window.
 const browserWindow = (): Window | undefined => ("window" in globalThis ? window : undefined)
@@ -782,55 +919,113 @@ onBeforeUnmount(() => {
   sessionRequest?.abort();
   documentRequest?.abort();
   if (searchTimer) clearTimeout(searchTimer);
+  if (filterTimer) clearTimeout(filterTimer);
 });
 </script>
 
 <template>
-  <!-- Results use the 16px icons of the rail and section lists, so section icons and action icons match. -->
-  <UDashboardSearch
-    v-model:open="open"
-    v-model:search-term="searchTerm"
-    :groups="groups"
-    :loading="loading"
-    :fuse="{ fuseOptions: { keys: ['label', 'description', 'suffix', 'keywords'] } }"
-    description="Run actions and search pages, documents, Agents, definitions, KV keys, and sessions."
-    placeholder="Search the Console…"
-    preserve-group-order
-    title="Search console"
-    :ui="{ root: 'flex-1', content: 'flex-1', footer: 'px-3 py-2', itemLeadingIcon: 'size-4' }"
-  >
-    <template #empty="{ searchTerm: value }">
-      <UEmpty
-        variant="naked"
-        size="sm"
-        icon="i-lucide-search-x"
-        title="No matches"
-        :description="value.trim() ? 'Try a page, document, Agent, definition, key, or session.' : 'No Console results are available yet.'"
-        class="py-10"
-      />
-    </template>
-    <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
-    <template #section-leading="{ item, ui }">
-      <ConsoleSectionIcon :icon="item.icon" :class="ui.itemLeadingIcon()" />
-    </template>
-    <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
-    <template #document-leading="{ item }">
-      <span class="flex size-5 shrink-0 items-center justify-center">
-        <Status :tone="consoleDocumentStateColor(item.state ?? 'draft')" />
-        <span v-if="item.stateLabel" class="sr-only">{{ item.stateLabel }}</span>
-      </span>
-    </template>
-    <template #footer>
-      <div class="vitehub-console__search-footer">
-        <span><UKbd value="arrowup" size="sm" /><UKbd value="arrowdown" size="sm" /> Navigate</span>
-        <span><UKbd value="enter" size="sm" /> Select</span>
-        <span><UKbd value="meta" size="sm" /><UKbd value="enter" size="sm" /> New tab</span>
-        <span><UKbd value="backspace" size="sm" /> Back</span>
-        <span><UKbd value="escape" size="sm" /> Close</span>
-        <span class="vitehub-console__search-footer-end"><UKbd value="g" size="sm" /> then a key to go to a page</span>
-      </div>
-    </template>
-  </UDashboardSearch>
+  <!-- A ui-sdk scope root. The dialog renders here, in the top layer, so the kit styles reach it. -->
+  <div class="ui-sdk contents">
+    <Dialog v-model:open="open">
+      <DialogBackdrop class="fixed inset-0 bg-black/40 transition-opacity duration-200 ease-out data-starting-style:opacity-0 data-ending-style:opacity-0 dark:bg-black/60" />
+      <DialogContent
+        :final-focus="finalFocus"
+        initial-focus="input"
+        class="fixed top-1/2 left-1/2 m-0 flex h-full max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border-0 bg-default p-0 text-sm/6 text-default shadow-(--vh-shadow-dialog) transition-[opacity,scale] duration-200 ease-out data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0 sm:h-[28rem] sm:max-h-[calc(100dvh-4rem)] sm:max-w-3xl"
+      >
+        <DialogTitle class="sr-only">Search console</DialogTitle>
+        <DialogDescription class="sr-only">Run actions and search pages, documents, Agents, definitions, KV keys, and sessions.</DialogDescription>
+        <Command
+          v-model:query="searchTerm"
+          v-model:pages="pages"
+          :controller="command"
+          :filter="false"
+          :loop="false"
+          class="flex min-h-0 w-auto max-w-none flex-1 flex-col divide-y divide-default rounded-none border-0 bg-transparent text-sm"
+          :on-action="runCommand"
+          @query-change="onQueryChange"
+          @pages-change="onPagesChange"
+        >
+          <div ref="inputRow" class="relative m-0 inline-flex items-center p-0">
+            <span class="absolute inset-y-0 start-0 flex items-center ps-2.5">
+              <button v-if="pages.length" type="button" aria-label="Back" class="inline-flex items-center rounded-md p-0 text-xs text-muted hover:text-default" @click="back">
+                <Icon name="i-lucide-arrow-left" class="size-4 shrink-0 opacity-80" />
+              </button>
+              <Icon v-else-if="loading" name="i-lucide-loader-circle" class="size-4 shrink-0 animate-spin text-dimmed opacity-80" />
+              <Icon v-else name="i-lucide-search" class="size-4 shrink-0 text-dimmed opacity-80" />
+            </span>
+            <CommandInput
+              aria-label="Search the Console"
+              :placeholder="placeholder"
+              autocomplete="off"
+              class="h-12 w-full appearance-none rounded-md border-0 bg-transparent px-2.5 py-1.5 ps-8 pe-8 text-sm/4 text-highlighted placeholder:text-dimmed pointer-coarse:text-base"
+              @keydown="onInputKeydown"
+            />
+            <span class="absolute inset-y-0 end-0 flex items-center pe-2.5">
+              <DialogClose aria-label="Close" class="inline-flex h-auto items-center gap-1.5 rounded-md border-0 bg-transparent p-1.5 text-xs font-medium text-default transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-elevated active:bg-elevated motion-safe:active:scale-[.97] motion-reduce:transition-none">
+                <Icon name="i-lucide-x" class="size-4 shrink-0 opacity-80" />
+              </DialogClose>
+            </span>
+          </div>
+          <div class="relative flex flex-1 flex-col overflow-hidden">
+            <CommandList v-show="shownGroups.length" aria-label="Results" class="relative max-h-none flex-1 scroll-py-1 divide-y divide-default overflow-y-auto p-0">
+              <CommandPage :key="pages.at(-1) ?? ''" :value="pages.at(-1)">
+                <CommandGroup v-for="group in shownGroups" :key="group.id" class="isolate p-1">
+                  <CommandGroupLabel class="p-1.5 text-xs font-semibold text-highlighted">{{ group.label }}</CommandGroupLabel>
+                  <CommandItem
+                    v-for="item in group.items"
+                    :key="valueOf(item)"
+                    :value="valueOf(item)"
+                    :label="item.label"
+                    :disabled="item.disabled"
+                    :page="item.children?.length ? valueOf(item) : undefined"
+                    class="group relative isolate flex min-h-0 w-full items-start gap-1.5 rounded-none bg-transparent p-1.5 text-sm outline-none select-none before:absolute before:inset-px before:z-[-1] before:rounded-md data-disabled:cursor-not-allowed data-disabled:opacity-75 data-highlighted:bg-transparent"
+                    :class="item.active ? 'text-highlighted before:bg-elevated' : 'text-default transition-colors before:transition-colors data-highlighted:not-data-disabled:text-highlighted data-highlighted:not-data-disabled:before:bg-elevated/50'"
+                  >
+                    <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
+                    <span v-if="item.kind === 'document'" class="flex size-5 shrink-0 items-center justify-center">
+                      <Status :tone="consoleDocumentStateColor(item.state ?? 'draft')" />
+                      <span v-if="item.stateLabel" class="sr-only">{{ item.stateLabel }}</span>
+                    </span>
+                    <Icon v-else-if="item.loading" name="i-lucide-loader-circle" class="size-4 shrink-0 animate-spin text-dimmed" />
+                    <!-- Section commands show the same section icon as the rail and the Overview. -->
+                    <ConsoleSectionIcon v-else-if="item.kind === 'section' && item.icon" :icon="item.icon" class="size-4 shrink-0" />
+                    <Icon v-else-if="item.icon" :name="item.icon" class="size-4 shrink-0 transition-colors" :class="item.active ? 'text-default' : 'text-dimmed group-data-highlighted:not-group-data-disabled:text-default'" />
+                    <span class="flex min-w-0 flex-1 flex-col text-start">
+                      <span class="truncate space-x-1 text-dimmed">
+                        <span class="text-highlighted">{{ item.label }}</span>
+                        <span v-if="item.suffix" class="text-dimmed">{{ item.suffix }}</span>
+                      </span>
+                      <span v-if="item.description" class="truncate text-muted">{{ item.description }}</span>
+                    </span>
+                    <span class="ms-auto inline-flex items-center gap-1.5">
+                      <Icon v-if="item.children?.length" name="i-lucide-chevron-right" class="size-5 shrink-0" />
+                      <span v-else-if="item.kbds?.length" class="hidden shrink-0 items-center gap-0.5 lg:inline-flex">
+                        <kbd v-for="key in item.kbds" :key="key" :class="[kbdClass, 'h-5 min-w-[20px]']">{{ key }}</kbd>
+                      </span>
+                    </span>
+                  </CommandItem>
+                </CommandGroup>
+              </CommandPage>
+            </CommandList>
+            <div v-if="!shownGroups.length" data-slot="vh-empty" data-size="sm" role="status" class="py-10">
+              <span data-slot="vh-empty-icon"><Icon name="i-lucide-search-x" aria-hidden="true" /></span>
+              <h2 data-slot="vh-empty-title">No matches</h2>
+              <p data-slot="vh-empty-description">{{ searchTerm.trim() ? "Try a page, document, Agent, definition, key, or session." : "No Console results are available yet." }}</p>
+            </div>
+          </div>
+          <div class="vitehub-console__search-footer px-3 py-2">
+            <span><kbd :class="footerKbdClass">↑</kbd><kbd :class="footerKbdClass">↓</kbd> Navigate</span>
+            <span><kbd :class="footerKbdClass">↵</kbd> Select</span>
+            <span><kbd :class="footerKbdClass">{{ modKey }}</kbd><kbd :class="footerKbdClass">↵</kbd> New tab</span>
+            <span><kbd :class="footerKbdClass">⌫</kbd> Back</span>
+            <span><kbd :class="footerKbdClass">Esc</kbd> Close</span>
+            <span class="vitehub-console__search-footer-end"><kbd :class="footerKbdClass">g</kbd> then a key to go to a page</span>
+          </div>
+        </Command>
+      </DialogContent>
+    </Dialog>
+  </div>
 </template>
 
 <style>

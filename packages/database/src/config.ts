@@ -52,7 +52,7 @@ const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
-/** The seed file of `vitehub database seed`, in the folder of a Database. */
+/** The seed file of `vitehub seed`, in the folder of a Database. */
 const seedFilePattern = /^seed\.m?[jt]s$/i
 const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
@@ -963,6 +963,12 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
   })
 }
 
+/** Fails for a `database.driver` other than "cloudflare", such as the former "d1", which ViteHub would ignore. */
+export function assertDatabaseOptionsDriver(options: { driver?: unknown } | false | undefined): void {
+  if (!options || options.driver === undefined || options.driver === "cloudflare") return
+  throw databaseErrorDiagnostics.DATABASE_UNKNOWN_DRIVER({ driver: JSON.stringify(options.driver) ?? String(options.driver) })
+}
+
 export function resolveDBViteConfig(
   options?: DatabaseOptions,
   rootDir = process.cwd(),
@@ -978,6 +984,7 @@ export function resolveDBViteConfig(
   } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
+  assertDatabaseOptionsDriver(options)
 
   const definitions = discoverDatabaseDefinitions(rootDir, {
     contributions: context.contributions,
@@ -1058,7 +1065,7 @@ export function resolveDBViteConfig(
   const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
   const migrationContributionsByDatabase = selectMigrationContributions(tableContributionsByDatabase, usesByDatabase)
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
-  if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
+  if (options && options.driver === "cloudflare") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
   const bindingOwners = new Map<string, string>()
   for (const definition of definitions) {

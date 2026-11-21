@@ -22,7 +22,7 @@ it("keeps defineWorkflow loadable in the Vercel Workflow sandbox", async () => {
   // Same options as the flow bundle of `@workflow/builders`.
   const result = await build({
     stdin: {
-      contents: `import { defineWorkflow } from ${JSON.stringify(entry)}\nexport default defineWorkflow("roundtrip", async () => "ok")\n`,
+      contents: `import { defineWorkflow } from ${JSON.stringify(entry)}\nexport default defineWorkflow({ handler: async () => "ok" })\n`,
       loader: "js",
       resolveDir: fileURLToPath(new URL(".", import.meta.url)),
     },

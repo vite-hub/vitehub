@@ -603,10 +603,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "server/queues/welcome.ts"), [
           'import { blob } from "vite-hub/blob"',
           'import { defineQueue } from "vite-hub/queue"',
-          "export default defineQueue<{ name: string }>(async ({ payload }) => {",
+          "export default defineQueue<{ name: string }>({ handler: async ({ payload }) => {",
           "  const [error] = await blob.put(`welcome/${payload.name}.txt`, payload.name)",
           "  if (error) throw error",
-          "})",
+          "} })",
           "",
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
@@ -949,10 +949,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         // `defineQueue<...>()` does not compile when `defineQueue` is untyped (TS2347).
         writeFile(join(appDir, "server/queues/welcome.ts"), `
-          export default defineQueue<{ id: string }>(async ({ payload }) => {
+          export default defineQueue<{ id: string }>({ handler: async ({ payload }) => {
             const [error] = await kv.set(\`welcome:\${payload.id}\`, "done")
             if (error) throw error
-          })
+          } })
         `),
         writeFile(join(appDir, "server/api/welcome.post.ts"), `
           import { defineEventHandler, getQuery } from "nitro/h3"
@@ -1161,9 +1161,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           headers: { "content-type": "application/json" },
           method: "POST",
         } as const
-        const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
+        const response = await fetch(`${origin}/_vitehub/agents/contract/chat`, request)
         const body = await response.text()
-        const disabledResponse = await fetch(`${origin}/api/_vitehub/agents/disabled/chat`, request)
+        const disabledResponse = await fetch(`${origin}/_vitehub/agents/disabled/chat`, request)
         const disabledBody = await disabledResponse.text()
         await new Promise(resolve => setTimeout(resolve, 50))
         return {
@@ -1304,7 +1304,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             nitro: { cloudflare: { deployConfig: true }, preset: "cloudflare_module" },
             vitehub: {
               database: {
-                driver: "d1",
+                driver: "cloudflare",
                 databaseId: "00000000-0000-0000-0000-000000000000",
                 databaseName: "portable-db",
               },
@@ -1345,7 +1345,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["run", "build"], appDir)
 
       const middleware = await readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8")
-      expect(middleware).toContain("from '@vite-hub/database/runtime/state'")
+      // The middleware imports the Database runtime of the app's own @vite-hub/database by path (#4887).
+      expect(middleware).toMatch(/ from "[^"]*@vite-hub\+database@[^"]*\/runtime\/state[^"]*"/u)
       expect(middleware).not.toContain("from 'nitro'")
 
       const artifactDir = join(root, "artifact")
@@ -1377,6 +1378,37 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await rm(root, { recursive: true, force: true })
     }
   }, 600_000)
+
+  it("imports packed Channels without the Agent peer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-channels-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([mkdir(appDir), mkdir(packDir)])
+      const specs = await packWorkspacePackages(packDir, new Set(["vite-hub", "@vite-hub/channels"]))
+      await Promise.all([
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: { "@vite-hub/channels": specs["@vite-hub/channels"], "vite-hub": specs["vite-hub"] },
+          private: true,
+          type: "module",
+        })),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs)),
+      ])
+      await installApp(appDir, "--no-strict-peer-dependencies")
+      const installed = await readdir(join(appDir, "node_modules/.pnpm"))
+      expect(installed.some(entry => entry.startsWith("@vite-hub+agent@"))).toBe(false)
+      await run(process.execPath, ["--input-type=module", "-e", `
+        import assert from 'node:assert/strict'
+        import { defineChannel } from 'vite-hub/channels'
+        const channel = defineChannel({ adapter: { kind: 'log', send: text => ({ id: text }) } })
+        assert.deepEqual(await channel.adapter.send('sent'), { id: 'sent' })
+      `], appDir)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
 
   it("publishes Browser actions without installing Playwright by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))

@@ -42,7 +42,6 @@ import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
-import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -112,8 +111,9 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
-  // Pages read it as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
+  // Pages read these as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
   "@vite-hub/ui/comment-marks.css",
+  "@vite-hub/ui/icon-swap.css",
   "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
@@ -192,7 +192,7 @@ const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operation
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
   const renamed = renamedForwarders.get(subpath);
   if (renamed) return renamed;
-  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
+  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 
@@ -258,7 +258,6 @@ describe("framework package contract", () => {
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
     expect(ownerCloudflareEnvSetter).toBe(ownerDatabaseStateSetter);
-    expect(frameworkDatabaseStateSetter).toBe(ownerDatabaseStateSetter);
   });
 
   it("keeps every source forwarder owned by its matching package export", () => {
@@ -310,6 +309,7 @@ describe("framework package contract", () => {
       "./seo",
       "./skills",
       "./test",
+      "./test/register",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
@@ -377,6 +377,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-workers.d.ts`, "utf8")).toContain(
+      'declare module "cloudflare:workers"',
+    );
     const consolePage = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-app.vue`,
       "utf8",
@@ -423,7 +426,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
-    expect(consolePage).not.toContain("ConsoleHealth");
     const consoleSessionCss = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session.css`,
       "utf8",
@@ -655,7 +657,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
-    expect(consolePage).not.toContain("groupConsoleSessions");
     expect(consolePage).not.toContain("<UApp");
     expect(consolePage).toContain(".vitehub-console");
     // Nuxt serves the standalone Console page, so the package ships no Nuxt pages.
@@ -783,7 +784,7 @@ describe("framework package contract", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

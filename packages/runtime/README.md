@@ -1,14 +1,14 @@
 # @vite-hub/runtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Runtime" src="https://comark-ui.onmax.me/badge.svg?label=Runtime&amp;value=context+%7C+policy+%7C+trace">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Runtime" src="https://img.shields.io/static/v1?label=Runtime&amp;message=context+%7C+policy+%7C+trace&amp;color=blue">
 </p>
 
 `@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,
 policy, approval, trace, error, lease, and execution-authority contracts used by
-ViteHub packages and custom host integrations.
+ViteHub packages and custom host integrations. User docs: [Runtime](https://vitehub.dev/docs/runtime).
 
 ## Choose an import
 
@@ -29,7 +29,7 @@ or Agent Definitions.
 pnpm add @vite-hub/runtime
 ```
 
-The package declares Node.js 22.18 or newer. Import the root entry for portable
+The package declares Node.js 24.15 or newer. Import the root entry for portable
 Runtime contracts. The `/operations` entry exports `defineOperation()`, its types,
 and the `vitehub: { operations }` contribution types of a Vite plugin.
 
@@ -128,7 +128,7 @@ binding is `unknown`.
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)
-if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+if (error) throw new HTTPError({ status: 503, message: error.why })
 await email.send(message)
 ```
 
@@ -312,6 +312,8 @@ A lease gives one caller at a time a key, such as one Schedule occurrence or one
 | `createMemoryLeaseStore()` | One process and tests | One process |
 | `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
 
+In a ViteHub app, `useLeases()` from `@vite-hub/database` returns a SQL store on the app's Database, on every driver including D1. Use `createSqlLeaseStore()` for a SQL client outside ViteHub Database.
+
 ```ts fragment
 import { createSqlLeaseStore } from '@vite-hub/runtime'
 import postgres from 'postgres'
@@ -389,9 +391,10 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
 ## Go deeper
 
-- [Runtime Context](https://vitehub.dev/docs/reference/runtime-context)
+- [Runtime Context](https://vitehub.dev/docs/runtime/context)
 - [Runtime policy, approvals, and traces](https://vitehub.dev/docs/agents/runtime-policy)
-- [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
+- [Runtime events](https://vitehub.dev/docs/runtime/events)
+- [Runtime error contract](https://vitehub.dev/docs/runtime/errors)
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/agents/capabilities/diagnostics)
 - [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)

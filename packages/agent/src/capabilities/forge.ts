@@ -6,8 +6,10 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import { pullRequest } from "../channels.ts"
 import { forgeConnection } from "../internal/forge-access.ts"
-import { forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
-import type { ForgeKind } from "@vite-hub/forge"
+import { forgeErrorStatus } from "@vite-hub/internal/forge"
+import { loadForge } from "../internal/forge-module.ts"
+import { agentForges } from "../internal/forge-kind.ts"
+import type { ForgeKind } from "../internal/forge-kind.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool } from "./internal.ts"
 
@@ -211,7 +213,7 @@ const policySchema = v.union([
   v.custom<(context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>>(value => v.is(v.function(), value)),
 ])
 const optionsSchema = v.strictObject({
-  forge: v.optional(v.picklist(["github", "gitlab", "forgejo"]), "github"),
+  forge: v.optional(v.picklist(agentForges), "github"),
   baseUrl: v.optional(v.pipe(v.string(), v.url())),
   repositories: v.optional(v.pipe(v.array(text), v.minLength(1))),
   maxOutputLength: v.optional(v.pipe(number, v.maxValue(Number.MAX_SAFE_INTEGER)), 20_000),
@@ -501,6 +503,7 @@ export function forge(options: ForgeCapabilityOptions = {}): AgentCapabilityDefi
       }
       const allowedRepositories = repositories
       // Capability discovery does not need credentials or a repository request.
+      const { forgeProvider } = await loadForge()
       const support = await forgeProvider({
         forge: kind,
         baseUrl,

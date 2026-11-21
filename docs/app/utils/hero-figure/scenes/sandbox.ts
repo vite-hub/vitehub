@@ -1,6 +1,6 @@
 // Sandbox: your app on the left, a separate machine on the right. The route sends the input to the pixels task.
 // The provider starts an isolated machine, installs the task's dependencies there, runs the entry point, and sends
-// the result back as a Response. The network policy allows only the npm registry, so a fetch to another host is blocked.
+// the result back as [error, data]. The network policy allows only the npm registry, so a fetch to another host is blocked.
 // Then the session closes, its files go away, and the machine is gone.
 import { defineScene, ease, lerp, snap, rng, pick, fs, val, TL, icon, h, q, cls, put, type Timed, type TimelinePlan } from "../engine";
 
@@ -84,13 +84,13 @@ export default defineScene<TimelinePlan<SandboxExtra>>({
 css,
   key: "sandbox",
   name: "Sandbox",
-  label: "Your app and a separate cloud machine. A route calls runSandboxTask with the pixels task and an input. Vercel starts an isolated machine. The task's dependencies install there from the npm registry. The network policy allows only that registry, so when the task code fetches another host, the call is blocked. The entry point returns, and the result comes back to the route as a Response. Then the session closes, its files go away, and the machine is gone.",
+  label: "Your app and a separate cloud machine. A route calls runSandboxTask with the pixels task and an input. Vercel starts an isolated machine. The task's dependencies install there from the npm registry. The network policy allows only that registry, so when the task code fetches another host, the call is blocked. The entry point returns, and the result comes back to the route as [error, data]. Then the session closes, its files go away, and the machine is gone.",
   H: 236,
   steps: p => [
     "A route calls runSandboxTask('pixels') with the input. The task is a folder in server/sandbox-tasks.",
     "Vercel starts an isolated machine. The task's dependencies install there, not in your app.",
     `The network policy allows only the npm registry. The fetch to ${p.host} is blocked.`,
-    "The entry point returns. Its result comes back to the route as a Response.",
+    "The entry point returns. Its result comes back to the route as [error, data].",
     "The session closes and its files go away. Your app keeps only the result.",
   ],
   summary: "runSandboxTask() runs a task in an isolated cloud machine. Its network policy blocks hosts that it does not allow. The result comes back to your route, and the machine closes after the run.",
@@ -122,9 +122,9 @@ css,
     const sp = `<span class="sp"></span>`;
     return (t, p, still) => {
       const A = p.at;
-      put(l1, fs("const res = await runSandboxTask(", "await runSandboxTask("));
+      put(l1, fs("const [err, res] = await runSandboxTask(", "await runSandboxTask("));
       put(l2, fs(`  'pixels', { w: ${p.w}, h: ${p.hh} })`, `  'pixels', input)`));
-      put(l3, fs("return res.json()", "res.json()"));
+      put(l3, fs("return err ? toResponse(err) : res", "return res"));
       cls(l1, "on", t >= A.call && t < A.ret); cls(l2, "on", t >= A.call && t < A.ret); cls(l3, "on", t >= A.arr);
       put(res, fs(`→ 200 { pixels: ${p.px} }`, `→ 200 ✓`));
       cls(res, "on", t >= A.arr);

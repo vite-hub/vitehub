@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { encodeRouteSegment } from "@vite-hub/runtime"
+import { encodeRouteSegment } from "@vite-hub/runtime/internal/console"
 import { resetPublicUrlAgentNames } from "@vite-hub/runtime/internal/public-url"
 
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -1257,9 +1257,9 @@ describe("agent channels", () => {
         throw new Error("Expected Telegram webhook registration.")
       }
       expect(webhooks.secretHeader).toBe("x-telegram-bot-api-secret-token")
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (typeof webhooks.secret !== "function") throw new Error("Expected webhook secret resolver.")
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-      await expect(Promise.resolve(webhooks.secretToken({} as never))).resolves.toBe("webhook-secret")
+      await expect(Promise.resolve(webhooks.secret({} as never))).resolves.toBe("webhook-secret")
     }
     finally {
       vi.doUnmock("@chat-adapter/telegram")
@@ -1295,11 +1295,11 @@ describe("agent channels", () => {
       if (!webhooks || typeof webhooks !== "object" || Array.isArray(webhooks)) {
         throw new Error("Expected Telegram webhook registration.")
       }
-      if (typeof webhooks.secretToken !== "function") throw new Error("Expected webhook secret resolver.")
+      if (typeof webhooks.secret !== "function") throw new Error("Expected webhook secret resolver.")
       vi.stubGlobal("process", undefined)
-      await expect(Promise.resolve(webhooks.secretToken(context))).resolves.toBe("webhook-secret")
+      await expect(Promise.resolve(webhooks.secret(context))).resolves.toBe("webhook-secret")
       // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
-      await expect(Promise.resolve(webhooks.secretToken({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
+      await expect(Promise.resolve(webhooks.secret({ cloudflare: { env: {} } } as never))).resolves.toBeUndefined()
     }
     finally {
       vi.unstubAllGlobals()
@@ -1341,7 +1341,7 @@ describe("agent channels", () => {
     const { telegram } = await import("../src/channels.ts")
     expect(() => telegram({
       webhookSecret: "provider-secret",
-      webhooks: { secretToken: "route-secret" },
+      webhooks: { secret: () => "route-secret" },
     })).toThrow("accepts webhookSecret or webhooks, not both")
   })
 
@@ -1636,7 +1636,6 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
     for (const line of expected) expect(result.input.prompt).toContain(line)
     expect(result.input.prompt).not.toContain(absent)
-    expect(result.input.prompt).not.toContain("Make sure CI is green.")
   })
 
   it.each([

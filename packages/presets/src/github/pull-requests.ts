@@ -4,7 +4,8 @@ import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import { invariantError } from "@vite-hub/internal/invariant";
-import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console";
 import type { GitHubHost } from "./host.ts";
 
 export type PullRequestFeedback = {
@@ -305,6 +306,11 @@ export function pullRequestCheckState(
 }
 
 /** Derive stable PR thread identity, inspection annotations, and a session link. */
+/** The Agent run thread of a pull request. A Babysitter pass adds `:<session>` to it. */
+export function pullRequestThreadId(repository: string, number: number): string {
+  return `github:${repository.toLowerCase()}:pull-request:${number}`
+}
+
 export async function createGitHubPullRequestRun(
   repository: string,
   pullRequest: Pick<PullRequest, 'number' | 'headRefOid' | 'title' | 'url'>,
@@ -317,7 +323,7 @@ export async function createGitHubPullRequestRun(
   return {
     runId: options.runId,
     channelId: 'github',
-    threadId: `github:${repository.toLowerCase()}:pull-request:${pullRequest.number}`,
+    threadId: pullRequestThreadId(repository, pullRequest.number),
     annotations: { 'github.head': pullRequest.headRefOid, 'github.pullRequest': pullRequest.number, 'github.repository': repository, 'github.title': pullRequest.title, 'github.url': pullRequest.url },
     activity: { target: { repository, issue: pullRequest.number }, links: sessionUrl ? [{ label: 'Current session', url: sessionUrl }] : [] },
   }

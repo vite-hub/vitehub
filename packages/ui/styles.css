@@ -8,6 +8,8 @@
 @import "./theme-focus-ring.css";
 /* Comment pins, areas, and highlights. The ViteHub pill and Drop's page frame load the same file without a framework. */
 @import "./comment-marks.css" layer(components);
+/* The cross-fade of CopyButton's icons. Drop's page frame loads the same file without a framework. */
+@import "./icon-swap.css" layer(components);
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
@@ -19,6 +21,7 @@
   /* Nuxt UI's --ui-radius is its smallest step (rounded-sm). Every radius here derives from rounded-lg, twice that step, so a part follows the app's --ui-radius. */
   --vh-radius: var(--vh-ui-radius, calc(var(--ui-radius, 0.25rem) * 2));
   --vh-border: var(--vh-ui-border, var(--ui-border, color-mix(in oklab, currentColor 14%, transparent)));
+  --vh-border-accented: var(--vh-ui-border-accented, var(--ui-border-accented, color-mix(in oklab, currentColor 24%, transparent)));
   --vh-muted: var(--vh-ui-muted, var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent)));
   --vh-dimmed: var(--vh-ui-dimmed, var(--ui-text-dimmed, color-mix(in oklab, currentColor 68%, transparent)));
   --vh-text: var(--vh-ui-text, var(--ui-text, currentColor));
@@ -440,6 +443,10 @@
   --vh-primitive-icon-motion: translateX(1.5px);
 }
 
+.vh-primitive-icon[data-icon="cli"] {
+  --vh-primitive-icon-opacity: 0;
+}
+
 .vh-primitive-icon[data-icon="cms"] {
   --vh-primitive-icon-motion: translate(-1px, -1px);
 }
@@ -460,6 +467,10 @@
   --vh-primitive-icon-motion: translateY(1.5px);
 }
 
+.vh-primitive-icon[data-icon="console"] {
+  --vh-primitive-icon-motion: translateX(1px);
+}
+
 .vh-primitive-icon[data-icon="content"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }
@@ -468,7 +479,7 @@
   --vh-primitive-icon-motion: translateY(-1.5px);
 }
 
-.vh-primitive-icon[data-icon="decisions"] {
+.vh-primitive-icon[data-icon="choices"] {
   --vh-primitive-icon-motion: translate(1px, -1px);
 }
 
@@ -526,6 +537,14 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+.vh-primitive-icon[data-icon="markdown-template"] {
+  --vh-primitive-icon-motion: translateY(1.5px);
+}
+
+.vh-primitive-icon[data-icon="presets"] {
+  --vh-primitive-icon-motion: translate(-1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="queue"] {
   --vh-primitive-icon-motion: translateX(2px);
 }
@@ -542,6 +561,10 @@
 
 .vh-primitive-icon[data-icon="reference"] {
   --vh-primitive-icon-motion: translateX(1.5px);
+}
+
+.vh-primitive-icon[data-icon="runtime"] {
+  --vh-primitive-icon-motion: scale(0.6);
 }
 
 .vh-primitive-icon[data-icon="sandbox"] {
@@ -580,6 +603,10 @@
 
 .vh-primitive-icon[data-icon="web-container"] {
   --vh-primitive-icon-motion: translateY(-1px);
+}
+
+.vh-primitive-icon[data-icon="webhooks"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
 }
 
 .vh-primitive-icon[data-icon="workflow"] {
@@ -1856,6 +1883,11 @@
     }
   }
 
+  /* RelativeTime, and the time of a comment reply that renders it. Digits keep one width, so the label does not jump when the clock moves. */
+  :is([data-slot="relative-time"], [data-slot="comment-reply-time"]) {
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Status: a 6px dot in the brighter status color and a label. A colored label uses the darker text shade of theme.css. */
   [data-slot="status"] {
     align-items: center;
@@ -2120,8 +2152,107 @@
     top: -0.4rem;
   }
 
+  /* The bar over selected text: a flat surface in the ink color, so it is dark on a light page and light on a dark one.
+     It floats over any page, such as in the ViteHub pill's shadow root, so its sizes are in px and do not follow the
+     page's root font size: the page places it by its fixed 38px height. */
+  [data-slot="comment-selection-bar"] {
+    --vh-selection-bar-text: color-mix(in oklab, var(--vh-inverted) 82%, var(--vh-highlighted));
+    align-items: center;
+    animation: vh-comment-selection-bar-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
+    background: var(--vh-highlighted);
+    border: 1px solid color-mix(in oklab, var(--vh-inverted) 12%, transparent);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px color-mix(in oklab, black 25%, transparent);
+    display: flex;
+    font-size: 12px;
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    gap: 4px;
+    line-height: 1;
+    padding: 4px;
+    transform-origin: 50% 100%;
+    width: max-content;
+  }
+
+  [data-slot="comment-selection-bar"][data-side="bottom"] {
+    transform-origin: 50% 0;
+  }
+
+  [data-slot="comment-selection-bar-action"] {
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: 8px;
+    color: var(--vh-selection-bar-text);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    position: relative;
+    touch-action: manipulation;
+    transition-duration: 150ms;
+    transition-property: background-color, color, scale;
+    transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+    white-space: nowrap;
+  }
+
+  /* 28px to sit in the bar, with a 44px hit area for fingers. The 4px gap keeps the hit areas of two buttons apart. */
+  [data-slot="comment-selection-bar-action"]::before {
+    content: "";
+    inset: -8px -2px;
+    position: absolute;
+  }
+
+  [data-slot="comment-selection-bar-action"] > :first-child {
+    flex: none;
+    height: 14px;
+    width: 14px;
+  }
+
+  /* Only a real pointer hovers, so a tap does not leave the button lit. */
+  @media (hover: hover) and (pointer: fine) {
+    [data-slot="comment-selection-bar-action"]:hover {
+      background: color-mix(in oklab, var(--vh-inverted) 8%, transparent);
+      color: var(--vh-inverted);
+    }
+  }
+
+  [data-slot="comment-selection-bar-action"]:active {
+    scale: 0.96;
+  }
+
+  [data-slot="comment-selection-bar-kbd"] {
+    font: inherit;
+    margin-inline-start: 6px;
+    opacity: 0.6;
+  }
+
+  @keyframes vh-comment-selection-bar-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-selection-bar"] {
+      animation: none;
+    }
+
+    [data-slot="comment-selection-bar-action"] {
+      transition-property: background-color, color;
+    }
+
+    [data-slot="comment-selection-bar-action"]:active {
+      scale: none;
+    }
+  }
+
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
   [data-slot="comment-layer-popover"] {
+    --vh-comment-card-width: 22.5rem;
     background: var(--vh-bg);
     border-radius: calc(var(--vh-radius) * 1.5);
     box-shadow: var(--vh-shadow-floating, 0 0 0 1px var(--vh-border));
@@ -2133,18 +2264,96 @@
     overflow: visible;
     position: absolute;
     top: 0.5rem;
-    width: 22.5rem;
+    width: var(--vh-comment-card-width);
   }
 
   /* `--vh-comment-x` is the x of the spot on the screen. On a narrow screen the card moves so that it stays on screen. */
   [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     left: auto;
-    right: clamp(calc(var(--vh-comment-x, 0px) + 0.5rem - 100vw), 0.5rem, calc(var(--vh-comment-x, 100vw) - min(22.5rem, 100vw - 1rem) - 0.5rem));
+    right: clamp(calc(var(--vh-comment-x, 0px) + 0.5rem - 100vw), 0.5rem, calc(var(--vh-comment-x, 100vw) - min(var(--vh-comment-card-width), 100vw - 1rem) - 0.5rem));
   }
 
   [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
     bottom: 2.5rem;
     top: auto;
+  }
+
+  /* An sm thread beside its pin is Drop's card: 340px wide, and its messages fill the card up to its height before they
+     scroll, so the reply box stays in view. The corner nearest the pin is small, so the card points at it. */
+  [data-slot="comment-layer-popover"]:not([data-margin], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
+    --vh-comment-card-radius: 1rem;
+    --vh-comment-card-width: 21.25rem;
+    display: flex;
+    flex-direction: column;
+    max-height: min(28rem, 60dvh);
+
+    & > [data-slot="comment-thread"] {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    & [data-slot="comment-thread-messages"] {
+      flex: 1 1 auto;
+      max-height: none;
+      min-height: 0;
+    }
+  }
+
+  [data-slot="comment-layer-item"] > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
+    border-radius: 0.375rem var(--vh-comment-card-radius) var(--vh-comment-card-radius);
+  }
+
+  [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
+    border-radius: var(--vh-comment-card-radius) 0.375rem var(--vh-comment-card-radius) var(--vh-comment-card-radius);
+  }
+
+  [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
+    border-radius: var(--vh-comment-card-radius) var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem;
+  }
+
+  [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
+    border-radius: var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem;
+  }
+
+  /* With CSS anchor positioning, the browser puts a thread's card and its preview on the side of the spot that has
+     room for their real size: under it to the right, then to the left, then above the pin, then under or above it,
+     moved inside the screen. Without it, `data-flip-x` and `data-flip-y` guess the side from the card's usual size.
+     The box of a new comment keeps its own placement, because its corners point at the pin. The `@position-try`
+     rules stay outside `@supports`, where Firefox ignores them. */
+  @position-try --vh-comment-above {
+    margin: 0 0 2.5rem 0.5rem;
+    position-area: top right;
+  }
+
+  @position-try --vh-comment-above-left {
+    margin: 0 0.5rem 2.5rem 0;
+    position-area: top left;
+  }
+
+  @position-try --vh-comment-below-inside {
+    margin: 0.5rem 0.5rem 0;
+    position-area: bottom span-all;
+  }
+
+  @position-try --vh-comment-above-inside {
+    margin: 0 0.5rem 2.5rem;
+    position-area: top span-all;
+  }
+
+  @supports (anchor-name: --a) {
+    [data-slot="comment-layer-item"] {
+      anchor-name: --vh-comment-spot;
+      anchor-scope: --vh-comment-spot;
+    }
+
+    [data-slot="comment-layer-item"]:not([data-draft]) > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating]) {
+      inset: auto;
+      margin: 0.5rem 0 0 0.5rem;
+      position: fixed;
+      position-anchor: --vh-comment-spot;
+      position-area: bottom right;
+      position-try-fallbacks: flip-inline, --vh-comment-above, --vh-comment-above-left, --vh-comment-below-inside, --vh-comment-above-inside;
+    }
   }
 
   [data-slot="comment-layer-popover"][data-preview="true"] {
@@ -2163,18 +2372,28 @@
   /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
      of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
      button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
-     corner. The bubble is the field, so the field draws no ring of its own while it has the focus. */
+     corner. The bubble is the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
   [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
+    --vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 8%, transparent);
     --vh-bubble-radius: 1.4375rem;
     animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
     border: 0;
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
     box-shadow:
-      0 0 0 1px color-mix(in oklab, var(--vh-highlighted) 8%, transparent),
+      0 0 0 1px var(--vh-bubble-edge),
       0 2px 4px color-mix(in oklab, var(--vh-highlighted) 6%, transparent),
       0 10px 24px -6px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
     transform-origin: top left;
     width: 18rem;
+  }
+
+  /* The sm box has 28px buttons, so its bubble has 18px corners, as Drop's. */
+  [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"]:has(> [data-slot="comment-composer"][data-size="sm"]) {
+    --vh-bubble-radius: 1.125rem;
+  }
+
+  [data-slot="comment-layer-popover"]:has([data-slot="comment-composer"][data-frame="none"] [data-slot="prompt-input-textarea"]:focus-visible) {
+    --vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);
   }
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
@@ -2667,6 +2886,22 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.5rem;
+
+    /* A comment's image keeps its own shape, up to 10rem tall, so a wide screenshot shows whole instead of a 4:3 crop. */
+    & .vh-image-preview {
+      aspect-ratio: auto;
+      max-height: 10rem;
+      max-width: 100%;
+      width: auto;
+    }
+
+    & .vh-image-preview img {
+      height: auto;
+      max-height: 10rem;
+      max-width: 100%;
+      object-fit: contain;
+      width: auto;
+    }
   }
 
   [data-slot="comment-thread-actions"] {
@@ -2833,6 +3068,18 @@
     margin-top: 0.5rem;
   }
 
+  /* The sm reply box is a soft filled field with no divider above it: the card's edge already bounds it, and a line over
+     a field read as two borders. Its border shows only while it has the focus, in theme-focus-ring.css. */
+  [data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"] {
+    border-block-start: 0;
+
+    & [data-slot="prompt-input-group"] {
+      background: var(--vh-bg-elevated);
+      border-color: transparent;
+      box-shadow: none;
+    }
+  }
+
   [data-slot="comment-reply"][data-size="sm"] {
     padding: 0.5rem 0.75rem;
     position: relative;
@@ -2879,14 +3126,30 @@
       border-radius: calc(0.875rem + 0.125rem + 1px);
     }
 
+    /* 14px text on a 21px line, with 3.5px above and below, so one line sits on the center line of the 28px buttons. */
     & [data-slot="prompt-input-textarea"] {
+      line-height: 1.3125rem;
       min-height: 1.75rem;
-      padding: 0.125rem 0.25rem;
+      padding: 0.21875rem 0.25rem;
     }
 
     & [data-slot="prompt-input-toolbar"] > button {
       height: 1.75rem;
       min-width: 1.75rem;
+    }
+  }
+
+  /* Once the text of a row box wraps, the text takes the full width and attach and send move to a row under it, at its
+     two ends. Without this, every line of a narrow box starts after the attach button. */
+  [data-slot="comment-composer"][data-layout="row"][data-multiline="true"] {
+    & [data-slot="prompt-input-textarea"] {
+      flex-basis: 100%;
+      order: 0;
+      padding-inline: 0.5rem;
+    }
+
+    & [data-slot="prompt-input-spacer"] {
+      display: block;
     }
   }
 
@@ -3631,6 +3894,71 @@
 }
 
 /*
+ * The editor parts of the ui-sdk set (`uiSdkComponents`). The kit style family draws their ui-sdk parts, and these
+ * rules give them the shape of Nuxt UI's editor parts. Nuxt UI's parts carry none of these classes.
+ */
+@layer components {
+  /* The bubble toolbar floats as a popup does: a ring and a soft shadow, no border. */
+  .vh-editor-toolbar[data-layout="bubble"] {
+    background: var(--popover, var(--vh-bg));
+    border-width: 0;
+    box-shadow: var(--shadow-popover, 0 0 0 1px var(--vh-border));
+    color: var(--popover-foreground, var(--vh-text));
+    padding: 0.25rem;
+  }
+  .vh-editor-toolbar-root { z-index: 50; }
+
+  /* The "/" list is one popup: Nuxt UI's width, and at most 24rem tall. */
+  .vh-editor-suggestion-menu {
+    max-height: min(24rem, var(--available-height));
+    max-width: 15rem;
+    min-width: 12rem;
+  }
+  /* web.css styles a menu's group labels and separators, but not a trigger menu's. These match the menu's. */
+  .vh-editor-suggestion-menu [data-slot="trigger-menu-group-label"] {
+    color: var(--ui-muted-foreground, var(--vh-muted));
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem 0.25rem;
+  }
+  .vh-editor-suggestion-menu [data-slot="trigger-menu-separator"] {
+    background: var(--ui-border, var(--vh-border));
+    height: 1px;
+    margin: 0.25rem -0.25rem;
+  }
+  [data-slot="editor-suggestion-text"] { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  :is([data-slot="editor-suggestion-label"], [data-slot="editor-suggestion-description"]) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-slot="editor-suggestion-description"] { color: var(--muted-foreground, var(--vh-muted)); font-size: 0.75rem; }
+  /* Screen readers hear the count from the status. It takes no room. */
+  .vh-editor-suggestion-menu__status {
+    block-size: 1px;
+    clip-path: inset(50%);
+    inline-size: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+  }
+
+  /* The handle glides to the block under the pointer. A narrow screen has no room beside the text, as in Nuxt UI. */
+  .vh-editor-drag-handle {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    transition: top 200ms ease-out, left 200ms ease-out;
+  }
+  .vh-editor-drag-handle__handle { cursor: grab; padding-inline: 0.25rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .vh-editor-drag-handle { transition: none; }
+  }
+  @media (max-width: 639.98px) {
+    .vh-editor-drag-handle { display: none; }
+  }
+}
+
+/*
  * AgentSession: T3 Code's thread layout (MIT, T3 Tools Inc.). A 52px header, a timeline lane of at most 46rem, a 17.5rem
  * details card at the top right (flat, not T3's glass, like every Console surface), and a right panel of surface tabs whose toggle stays in the top right corner.
  */
@@ -3741,6 +4069,30 @@
     position: absolute;
     width: var(--vh-agent-details-width);
     z-index: 20;
+  }
+  /* On a narrow column the card is a native popover in the top layer. CSS anchor positioning puts it where the inline
+     card goes, over the top end corner of the body. Where that fails, AgentSession places it from the body's box. */
+  .vh-agent-session__details[popover] {
+    background: none;
+    border: 0;
+    color: inherit;
+    max-height: calc(100dvh - 2rem);
+    overflow: visible;
+    padding: 0;
+    position: fixed;
+    z-index: auto;
+  }
+  @supports (anchor-name: --a) {
+    .vh-agent-session { anchor-scope: --vh-agent-session-body; }
+    .vh-agent-session__body { anchor-name: --vh-agent-session-body; }
+    .vh-agent-session__details[popover] {
+      inset: auto;
+      inset-block-start: anchor(start);
+      inset-inline-end: calc(anchor(end) + 0.75rem);
+      margin: 0;
+      max-height: calc(anchor-size(block) - 0.75rem);
+      position-anchor: --vh-agent-session-body;
+    }
   }
   .vh-agent-session__details-card {
     background: var(--vh-bg-elevated);

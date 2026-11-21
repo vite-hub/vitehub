@@ -84,6 +84,7 @@ export interface ConsoleOperationView {
 export type ConsoleSectionView =
   | ConsoleOperationView
   | { kind: "auth-management"; notice: string }
+  | { kind: "webhooks", notice: string }
   | { kind: "definition-catalog", notice: string }
   | { kind: "workspace-browser", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
@@ -188,6 +189,7 @@ export interface ConsoleContributedSection {
 export type ConsoleSectionContent =
   | { kind: "operation-view" }
   | { kind: "auth-management" }
+  | { kind: "webhooks" }
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
   | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
@@ -201,6 +203,8 @@ export interface ConsoleDocumentHint {
 
 /** What the project lacks for some editor features. It mirrors `ViteHubConsoleDocumentSetup`. */
 export interface ConsoleDocumentSetup {
+  /** The project has GitHub Sources but no document collections. */
+  sourceHeadsOnly?: true
   /** No user can read anything because the owner has no access policy. */
   access?: ConsoleDocumentHint
   /** Nothing runs scheduled publishes. */
@@ -307,6 +311,7 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (!text(view?.notice)) return undefined
   if (
     view.kind === "auth-management" ||
+    view.kind === "webhooks" ||
     view.kind === "definition-catalog" ||
     view.kind === "document-editor" ||
     view.kind === "workspace-browser"
@@ -419,6 +424,7 @@ function parseConsoleDocumentHint(value: unknown): ConsoleDocumentHint | undefin
 export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup | undefined {
   const source = record(value)
   const setup: ConsoleDocumentSetup = {}
+  if (source?.sourceHeadsOnly === true) setup.sourceHeadsOnly = true
   for (const key of ["access", "schedule"] as const) {
     const hint = parseConsoleDocumentHint(source?.[key])
     if (hint) setup[key] = hint
@@ -466,6 +472,7 @@ export function parseConsoleSectionContent(value: unknown, section: string): Con
   const source = record(value)
   if (source?.section !== section) return undefined
   if (source.kind === "auth-management") return { kind: "auth-management" };
+  if (source.kind === "webhooks") return { kind: "webhooks" }
   if (source.kind === "document-editor") {
     if (!Array.isArray(source.collections)) return undefined
     const setup = parseConsoleDocumentSetup(source.setup)

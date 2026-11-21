@@ -17,7 +17,7 @@ You start with an offline Driver, the part of the Agent that makes a fixed reply
 
 The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) has the app, a sample environment, and tests. It follows the finished app of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat) with the [ViteHub chat components](/docs/ui/blocks/chat-app).
 
-You need Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
+You need Node.js 24.15 or newer on 24.x, or 26 or newer, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
 
 ::warning
 Provider calls can cost money. Check model prices and set a provider budget before you use model mode.
@@ -74,19 +74,17 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "typescript": "6.0.3",
     "vue-tsc": "3.3.12"
   },
-  "engines": { "node": "^22.22.0 || ^24.11.0 || >=26.0.0" }
+  "engines": { "node": "^24.15.0 || >=26.0.0" }
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node host once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 - The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
-- `host: "node"` builds for a Node.js server.
-- `workflow: false` runs each short reply (an Invocation) inside the request.
+- Each short reply (an Invocation) runs inline by default.
 - Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
 - `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
 - `buildDir: ".nuxt"` keeps generated TypeScript in the project.
-- The Shiki aliases inline its WebAssembly for the Nuxt 5 server build.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -94,22 +92,10 @@ import viteHub from "vite-hub/nuxt";
 export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: ["@nuxt/ui", [viteHub, {
-    host: "node",
     agent: true,
-    workflow: false,
     console: false,
   }]],
   css: ["~/assets/main.css"],
-  vite: {
-    resolve: {
-      alias: [
-        // Inline Shiki's WebAssembly for the Nuxt 5 server build.
-        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-      ],
-    },
-  },
   ui: { fonts: false },
   devtools: { enabled: false },
 });
@@ -284,7 +270,7 @@ Every write request, including sign-in and sign-out, must send the configured Or
 
 ```ts [server/utils/session.ts]
 import { createHash, timingSafeEqual } from "node:crypto";
-import { createError, getHeader, useSession, type H3Event } from "h3";
+import { getHeader, HTTPError, type H3Event, useSession } from "h3";
 
 export function appOrigin() {
   return process.env.CHAT_ORIGIN || "http://127.0.0.1:4318";
@@ -292,14 +278,14 @@ export function appOrigin() {
 
 export function checkOrigin(event: H3Event) {
   if (getHeader(event, "origin") !== appOrigin()) {
-    throw createError({ statusCode: 403, statusMessage: "Use the app's own origin." });
+    throw new HTTPError({ status: 403, message: "Use the app's own origin." });
   }
 }
 
 export function ownerSession(event: H3Event) {
   const password = process.env.CHAT_SESSION_SECRET;
   if (!password || password.length < 32) {
-    throw createError({ statusCode: 503, statusMessage: "Set CHAT_SESSION_SECRET to at least 32 characters." });
+    throw new HTTPError({ status: 503, message: "Set CHAT_SESSION_SECRET to at least 32 characters." });
   }
   return useSession<{ owner?: string }>(event, {
     name: "chat-owner",
@@ -313,7 +299,7 @@ export function ownerSession(event: H3Event) {
 export async function requireOwner(event: H3Event) {
   const session = await ownerSession(event);
   if (session.data.owner !== "owner") {
-    throw createError({ statusCode: 401, statusMessage: "Sign in first." });
+    throw new HTTPError({ status: 401, message: "Sign in first." });
   }
   return session.data.owner;
 }
@@ -321,7 +307,7 @@ export async function requireOwner(event: H3Event) {
 export function validPassword(value: string) {
   const expected = process.env.CHAT_PASSWORD;
   if (!expected || expected.length < 24) {
-    throw createError({ statusCode: 503, statusMessage: "Set CHAT_PASSWORD to at least 24 random characters." });
+    throw new HTTPError({ status: 503, message: "Set CHAT_PASSWORD to at least 24 random characters." });
   }
   const digest = (text: string) => createHash("sha256").update(text).digest();
   return timingSafeEqual(digest(value), digest(expected));
@@ -331,14 +317,14 @@ export function validPassword(value: string) {
 The middleware blocks ViteHub's generated endpoints. Only the app's `/api/chat` route runs the Agent, so no second route can skip its history, owner, and limit checks.
 
 ```ts [server/middleware/access.ts]
-import { createError, defineEventHandler, setHeader } from "h3";
+import { defineEventHandler, HTTPError, setHeader } from "h3";
 import { checkOrigin, requireOwner } from "../utils/session";
 
 export default defineEventHandler(async (event) => {
   const path = event.path.split("?")[0] || "/";
   // The app owns its chat API. Generated Agent endpoints must not bypass it.
   if (/^\/(?:api\/)?_+vitehub(?:\/|$)/.test(path)) {
-    throw createError({ statusCode: 404 });
+    throw new HTTPError({ status: 404 });
   }
   if (!path.startsWith("/api/")) return;
   setHeader(event, "cache-control", "no-store");
@@ -350,7 +336,7 @@ export default defineEventHandler(async (event) => {
 The session route handles status, sign-in, and sign-out, with 10 sign-in attempts per minute per process. A public service needs shared limits in the reverse proxy.
 
 ```ts [server/api/session.ts]
-import { createError, defineEventHandler, readValidatedBody } from "h3";
+import { defineEventHandler, HTTPError, readValidatedBody } from "h3";
 import { z } from "zod";
 import { ownerSession, validPassword } from "../utils/session";
 
@@ -361,14 +347,14 @@ export default defineEventHandler(async (event) => {
   const session = await ownerSession(event);
   if (event.method === "POST") {
     if (Date.now() - windowStart > 60_000) { attempts = 0; windowStart = Date.now(); }
-    if (++attempts > 10) throw createError({ statusCode: 429, statusMessage: "Wait a minute before signing in." });
+    if (++attempts > 10) throw new HTTPError({ status: 429, message: "Wait a minute before signing in." });
     const { password } = await readValidatedBody(event, z.object({ password: z.string().max(256) }).parse);
-    if (!validPassword(password)) throw createError({ statusCode: 401, statusMessage: "Incorrect password." });
+    if (!validPassword(password)) throw new HTTPError({ status: 401, message: "Incorrect password." });
     await session.update({ owner: "owner" });
   } else if (event.method === "DELETE") {
     await session.clear();
   } else if (event.method !== "GET") {
-    throw createError({ statusCode: 405 });
+    throw new HTTPError({ status: 405 });
   }
   return { signedIn: session.data.owner === "owner", mode: process.env.CHAT_MODE || "offline" };
 });
@@ -444,7 +430,7 @@ Checkpoint: `CHAT_MODE=offline` selects the offline Agent. Keep `AI_GATEWAY_API_
 The list route returns the owner's chats, up to 100. The detail route reads or deletes one owned chat, but not while it writes a reply.
 
 ```ts [server/api/chats/index.ts]
-import { createError, defineEventHandler } from "h3";
+import { defineEventHandler, HTTPError } from "h3";
 import { requireOwner } from "../../utils/session";
 import { chatStore } from "../../utils/store";
 
@@ -452,16 +438,16 @@ export default defineEventHandler(async (event) => {
   const owner = await requireOwner(event);
   const store = chatStore();
   if (event.method === "GET") return store.list(owner);
-  if (event.method !== "POST") throw createError({ statusCode: 405 });
+  if (event.method !== "POST") throw new HTTPError({ status: 405 });
   if (store.list(owner).length >= 100) {
-    throw createError({ statusCode: 409, statusMessage: "Delete a chat before creating another." });
+    throw new HTTPError({ status: 409, message: "Delete a chat before creating another." });
   }
   return store.create(owner);
 });
 ```
 
 ```ts [server/api/chats/[id].ts]
-import { createError, defineEventHandler, getRouterParam } from "h3";
+import { defineEventHandler, getRouterParam, HTTPError } from "h3";
 import { requireOwner } from "../../utils/session";
 import { activeChats, chatStore } from "../../utils/store";
 
@@ -470,10 +456,10 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id") || "";
   const store = chatStore();
   const thread = store.get(owner, id);
-  if (!thread) throw createError({ statusCode: 404 });
+  if (!thread) throw new HTTPError({ status: 404 });
   if (event.method === "GET") return thread;
-  if (event.method !== "DELETE") throw createError({ statusCode: 405 });
-  if (activeChats.has(id)) throw createError({ statusCode: 409, statusMessage: "Wait for the reply to finish." });
+  if (event.method !== "DELETE") throw new HTTPError({ status: 405 });
+  if (activeChats.has(id)) throw new HTTPError({ status: 409, message: "Wait for the reply to finish." });
   store.remove(owner, id);
   return { deleted: true };
 });
@@ -487,7 +473,7 @@ The app calls `streamAgent`, which returns typed Agent events by default. It for
 
 ```ts [server/api/chat.post.ts]
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { createError, defineEventHandler, readValidatedBody } from "h3";
+import { defineEventHandler, HTTPError, readValidatedBody } from "h3";
 import { createMessage, streamAgent } from "vite-hub/agent";
 import { getRuntimeContext } from "vite-hub/runtime";
 import { z } from "zod";
@@ -510,17 +496,17 @@ export default defineEventHandler(async (event) => {
   const { id, revision, text } = await readValidatedBody(event, requestSchema.parse);
   const store = chatStore();
   const thread = store.get(owner, id);
-  if (!thread) throw createError({ statusCode: 404 });
+  if (!thread) throw new HTTPError({ status: 404 });
   if (thread.revision !== revision || activeChats.has(id)) {
-    throw createError({ statusCode: 409, statusMessage: "Chat changed. Reload its saved history." });
+    throw new HTTPError({ status: 409, message: "Chat changed. Reload its saved history." });
   }
-  if (thread.messages.length >= 40) throw createError({ statusCode: 409, statusMessage: "Start a new chat after 20 turns." });
+  if (thread.messages.length >= 40) throw new HTTPError({ status: 409, message: "Start a new chat after 20 turns." });
   if (Date.now() - windowStart > 60_000) { requests = 0; windowStart = Date.now(); }
-  if (activeChats.size >= 2 || ++requests > 20) throw createError({ statusCode: 429, statusMessage: "Wait before sending another message." });
+  if (activeChats.size >= 2 || ++requests > 20) throw new HTTPError({ status: 429, message: "Wait before sending another message." });
   const mode = process.env.CHAT_MODE || "offline";
-  if (!["offline", "model"].includes(mode)) throw createError({ statusCode: 503, statusMessage: "Invalid CHAT_MODE." });
+  if (!["offline", "model"].includes(mode)) throw new HTTPError({ status: 503, message: "Invalid CHAT_MODE." });
   if (mode === "model" && !process.env.AI_GATEWAY_API_KEY) {
-    throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
+    throw new HTTPError({ status: 503, message: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
   const user = textMessage("user", text);
@@ -842,7 +828,7 @@ Set `CHAT_MODE` back to `offline` and restart to get the fixed reply again.
 ::tutorial-step{title="Run on a persistent Node server"}
 ## Run on a persistent Node server
 
-Deploy to a self-hosted Node.js server with one process and a persistent local disk. Keep `host: 'node'` and set no Nitro preset.
+Deploy to a self-hosted Node.js server with one process and a persistent local disk. Set no `host` and no Nitro preset, so ViteHub builds for Node.
 
 ```sh [commands/build-node]
 corepack pnpm build

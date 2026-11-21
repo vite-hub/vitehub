@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs"
 import { registerHooks } from "node:module"
 import { fileURLToPath } from "node:url"
+import { inspect } from "node:util"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { assertFeaturePackages, hostFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning, unsupportedViteHubPackagesError } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, hostFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning, unsupportedPeerPackagesError, unsupportedViteHubPackagesError } from "../src/internal/optional-owners.ts"
 
 const sha = "52e6aba01356ffd6c5f1d0d6e8dafc3d63788b82"
 
@@ -85,7 +86,7 @@ describe("unsupportedViteHubPackagesError", () => {
 
 describe("unsupportedPackageVersionsWarning", () => {
   const manifest = {
-    peerDependencies: { "@vite-hub/database": "0.2.0", "ai": "^6.0.0 || ^7.0.0-0", "drizzle-orm": "^0.45.0", "evlog": "catalog:runtime" },
+    peerDependencies: { "@libsql/client": "^0.18.0", "@vite-hub/database": "0.2.0", "ai": "^6.0.0 || ^7.0.0-0", "drizzle-orm": "^0.45.0", "evlog": "catalog:runtime" },
     version: "0.2.0",
   }
   const versions = (installed: Record<string, string>) => (name: string): string | undefined => installed[name]
@@ -95,18 +96,22 @@ describe("unsupportedPackageVersionsWarning", () => {
   })
 
   it("names each installed version outside its range and one install command", () => {
-    expect(unsupportedPackageVersionsWarning(["ai", "drizzle-orm"], versions({ "ai": "5.0.0", "drizzle-orm": "0.44.0" }), manifest))
-      .toBe("[vitehub] ai 5.0.0 is installed, but vite-hub 0.2.0 supports ai@^6.0.0 || ^7.0.0-0. drizzle-orm 0.44.0 is installed, but vite-hub 0.2.0 supports drizzle-orm@^0.45.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'ai@^6.0.0 || ^7.0.0-0' 'drizzle-orm@^0.45.0'")
+    expect(unsupportedPackageVersionsWarning(["ai", "@libsql/client"], versions({ "ai": "5.0.0", "@libsql/client": "0.14.0" }), manifest))
+      .toBe("[vitehub] ai 5.0.0 is installed, but vite-hub 0.2.0 supports ai@^6.0.0 || ^7.0.0-0. @libsql/client 0.14.0 is installed, but vite-hub 0.2.0 supports @libsql/client@^0.18.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'ai@^6.0.0 || ^7.0.0-0' '@libsql/client@^0.18.0'")
+  })
+
+  it("leaves drizzle-orm to the error", () => {
+    expect(unsupportedPackageVersionsWarning(["drizzle-orm"], versions({ "drizzle-orm": "0.44.0" }), manifest)).toBeUndefined()
   })
 
   it("quotes a range that the shell would split", () => {
-    const warning = unsupportedPackageVersionsWarning(["drizzle-orm"], versions({ "drizzle-orm": "0.45.2" }), { peerDependencies: { "drizzle-orm": ">=1.0.0-rc.5 <2.0.0" }, version: "0.2.0" })
-    expect(warning).toContain("pnpm add 'drizzle-orm@>=1.0.0-rc.5 <2.0.0'")
+    const warning = unsupportedPackageVersionsWarning(["ai"], versions({ ai: "5.0.0" }), { peerDependencies: { ai: ">=6.0.0 <8.0.0" }, version: "0.2.0" })
+    expect(warning).toContain("pnpm add 'ai@>=6.0.0 <8.0.0'")
   })
 
   it("accepts a prerelease of a supported release line and warns for one of an unsupported line", () => {
     expect(unsupportedPackageVersionsWarning(["ai"], versions({ ai: "7.1.0-canary.2" }), manifest)).toBeUndefined()
-    expect(unsupportedPackageVersionsWarning(["drizzle-orm"], versions({ "drizzle-orm": "0.45.3-beta.1" }), manifest)).toBeUndefined()
+    expect(unsupportedPackageVersionsWarning(["@libsql/client"], versions({ "@libsql/client": "0.18.1-pre.1" }), manifest)).toBeUndefined()
     expect(unsupportedPackageVersionsWarning(["ai"], versions({ ai: "8.0.0-beta.1" }), manifest)).toContain("ai 8.0.0-beta.1 is installed, but vite-hub 0.2.0 supports ai@^6.0.0 || ^7.0.0-0.")
   })
 
@@ -122,11 +127,32 @@ describe("unsupportedPackageVersionsWarning", () => {
   })
 
   it("does not check a package without a version, or a range that is not semver", () => {
-    const versionOf = vi.fn(versions({ "drizzle-orm": "not-a-version" }))
-    expect(unsupportedPackageVersionsWarning(["drizzle-orm", "evlog", "vite"], versionOf, manifest)).toBeUndefined()
+    const versionOf = vi.fn(versions({ "ai": "not-a-version", "drizzle-orm": "not-a-version" }))
+    expect(unsupportedPackageVersionsWarning(["ai", "evlog", "vite"], versionOf, manifest)).toBeUndefined()
+    expect(unsupportedPeerPackagesError(["drizzle-orm"], versionOf, manifest)).toBeUndefined()
     expect(unsupportedViteHubPackagesError(["@vite-hub/database"], versionOf, manifest)).toBeUndefined()
     // `catalog:runtime` is a range of a source checkout, and this manifest has no range for `vite`.
-    expect(versionOf.mock.calls.map(([name]) => name)).toEqual(["drizzle-orm", "@vite-hub/database"])
+    expect(versionOf.mock.calls.map(([name]) => name)).toEqual(["ai", "drizzle-orm", "@vite-hub/database"])
+  })
+})
+
+describe("unsupportedPeerPackagesError", () => {
+  const manifest = { peerDependencies: { "ai": "^7.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0" }, version: "0.3.1" }
+  const versions = (installed: Record<string, string>) => (name: string): string | undefined => installed[name]
+
+  it("names drizzle-orm 0.x, the supported range, and the quoted install", () => {
+    // pnpm satisfies the optional peer with the 0.44.7 that the lockfile or another dependency has, and only warns.
+    expect(unsupportedPeerPackagesError(["ai", "drizzle-orm"], versions({ "ai": "5.0.0", "drizzle-orm": "0.44.7" }), manifest)).toMatchObject({
+      code: "VITE_HUB_PEER_VERSION_UNSUPPORTED",
+      fix: expect.stringContaining("pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'"),
+      why: expect.stringMatching(/^drizzle-orm 0\.44\.7 is installed, but vite-hub 0\.3\.1 supports drizzle-orm@1\.0\.0-rc\.5 \|\| \^1\.0\.0\. .*drizzle-orm\/libsql\/codecs/),
+    })
+  })
+
+  it("accepts drizzle-orm in range and leaves other packages to the warning", () => {
+    expect(unsupportedPeerPackagesError(["drizzle-orm"], versions({ "drizzle-orm": "1.0.0-rc.5" }), manifest)).toBeUndefined()
+    expect(unsupportedPeerPackagesError(["drizzle-orm"], versions({ "drizzle-orm": "1.0.2" }), manifest)).toBeUndefined()
+    expect(unsupportedPeerPackagesError(["ai"], versions({ ai: "5.0.0" }), manifest)).toBeUndefined()
   })
 })
 
@@ -197,18 +223,58 @@ describe("assertFeaturePackages version check", () => {
     }
   })
 
+  it("lets Vite print an unsupported version once with the fix last", async () => {
+    await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@vite-hub/kv": "9.9.9" }, version: "9.9.9" }))
+    const { vitehub } = await import("../src/index.ts")
+    const printed = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const configure = () => vitehub({ kv: true, console: false })
+      expect(configure).toThrow(expect.objectContaining({ code: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED" }))
+      expect(printed).not.toHaveBeenCalled()
+      try {
+        configure()
+      }
+      catch (error) {
+        const lines = inspect(error).split("\n")
+        expect(lines).toHaveLength(3)
+        expect(lines[1]).toContain("see: ")
+        expect(lines[2]).toContain("fix: ")
+      }
+    }
+    finally {
+      printed.mockRestore()
+    }
+  })
+
   it("warns one time for another package outside its range and keeps the build going", async () => {
-    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "drizzle-orm": "^99.0.0" }, version: "9.9.9" }))
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@libsql/client": "^99.0.0" }, version: "9.9.9" }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      assertFeaturePackages(["database"])
-      assertFeaturePackages(["database"])
+      assertFeaturePackages(["console agents"])
+      assertFeaturePackages(["console agents"])
       expect(warn.mock.calls.map(([message]) => String(message).replace(/ Other versions.*/, ""))).toEqual([
-        `[vitehub] drizzle-orm ${installedPackageVersion("drizzle-orm")} is installed, but vite-hub 9.9.9 supports drizzle-orm@^99.0.0.`,
+        `[vitehub] @libsql/client ${installedPackageVersion("@libsql/client")} is installed, but vite-hub 9.9.9 supports @libsql/client@^99.0.0.`,
       ])
     }
     finally {
       warn.mockRestore()
+    }
+  })
+
+  it("stops the database build for drizzle-orm outside its range, every time it checks", async () => {
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "drizzle-orm": "^99.0.0" }, version: "9.9.9" }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const printed = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const error = { code: "VITE_HUB_PEER_VERSION_UNSUPPORTED", why: expect.stringContaining(`drizzle-orm ${installedPackageVersion("drizzle-orm")} is installed, but vite-hub 9.9.9 supports drizzle-orm@^99.0.0.`) }
+      expect(() => assertFeaturePackages(["database"])).toThrow(expect.objectContaining(error))
+      expect(() => assertFeaturePackages(["database"])).toThrow(expect.objectContaining(error))
+      expect(warn).not.toHaveBeenCalled()
+      expect(String(printed.mock.calls[0]![0])).toContain("pnpm add 'drizzle-orm@^99.0.0'")
+    }
+    finally {
+      warn.mockRestore()
+      printed.mockRestore()
     }
   })
 
@@ -331,8 +397,8 @@ describe("host packages", () => {
       sandboxTask: ["@vercel/sandbox"],
       workflow: ["@vercel/functions"],
     })
-    expect(hostFeaturePackages(["queue"], "node", { queue: { provider: "postgres" } })).toEqual({ queue: ["postgres"] })
-    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { provider: "openworkflow" } })).toEqual({})
+    expect(hostFeaturePackages(["queue"], "node", { queue: { driver: "postgres" } })).toEqual({ queue: ["postgres"] })
+    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { driver: "openworkflow" } })).toEqual({})
     expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
   })
 

@@ -11,9 +11,10 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
+import { parseDuration } from "@vite-hub/runtime"
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
@@ -29,6 +30,25 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
+
+const blobStorageHealthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
+
+export function registerBlobStorageHealthCheck(storage: BlobStorage, check: () => Promise<void>): void {
+  blobStorageHealthChecks.set(storage, check)
+}
+
+export async function checkBlobStorageHealth(storage: BlobStorage): Promise<void> {
+  const check = blobStorageHealthChecks.get(storage)
+  if (check) return check()
+  const [error] = await storage.head("vitehub-health-check")
+  if (error) throw error
+}
+
+export async function checkBlobDriverHealth(driver: BlobDriverAdapter<unknown>): Promise<void> {
+  if (driver.checkHealth) await driver.checkHealth()
+  else if (driver.name === "s3") await driver.list({ limit: 1 })
+  else await driver.head("vitehub-health-check")
+}
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
 export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
@@ -50,7 +70,7 @@ export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: 
 }
 
 function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
-  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
+  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare, or vercel driver.` })
 }
 
 
@@ -123,6 +143,9 @@ async function hashBlob(body: Blob): Promise<string> {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
+// One driver call deletes at most this many objects, so a large prefix does not open thousands of requests at once.
+const deleteBatchSize = 100
+
 async function derivedCachePrefix(pathname: string): Promise<string> {
   return `${vitehubOwnedPrefix}derived/${await hashCacheKey(pathname)}/`
 }
@@ -147,17 +170,28 @@ function guessContentType(pathname: string): string {
   const dotIndex = filename.lastIndexOf(".")
   const extension = dotIndex > 0 ? filename.slice(dotIndex).toLowerCase() : ""
   const known: Record<string, string> = {
+    ".avif": "image/avif",
+    ".css": "text/css; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
     ".gif": "image/gif",
     ".html": "text/html; charset=utf-8",
+    ".ico": "image/x-icon",
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
     ".pdf": "application/pdf",
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".txt": "text/plain; charset=utf-8",
+    ".vtt": "text/vtt; charset=utf-8",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
     ".webp": "image/webp",
+    ".woff2": "font/woff2",
   }
   return known[extension] || "application/octet-stream"
 }
@@ -180,9 +214,9 @@ export interface BlobStorageOptions {
 function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
   if (options?.remote !== true) return
   const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
-  const target = options.driver === "vercel-blob"
+  const target = options.driver === "vercel"
     ? "Vercel Blob store"
-    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+    : options.driver === "cloudflare" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
   console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
 }
 
@@ -206,6 +240,44 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       console.error("[vitehub/blob] Derived cache cleanup failed", error)
     }
   }
+  // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
+  async function deletePrefix(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>> {
+    // Check after decoding, so `/` or `%2F` cannot become the empty prefix that matches the whole store.
+    const normalizedPrefix = typeof options.prefix === "string" ? normalizePathname(options.prefix, { prefix: true }) : ""
+    if (!normalizedPrefix) {
+      throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: "Blob delete({ prefix }) needs a non-empty prefix. Use list() and delete() to empty a whole store." }))
+    }
+    // `_vitehub` alone is reserved as a pathname, but as a prefix it also matches app objects such as `_vitehub-notes.txt`.
+    const reservedPrefix = resolvedParts(normalizedPrefix).length > 1 && isReservedPath(normalizedPrefix)
+    return blobResult("delete", store, async () => {
+      const paths: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await driver.list({ prefix: normalizedPrefix, cursor })
+        for (const object of page.blobs) {
+          if (isInternalPath(object.pathname) || (!reservedPrefix && isReservedPath(object.pathname))) continue
+          paths.push(object.pathname)
+        }
+        cursor = page.hasMore ? page.cursor : undefined
+      } while (cursor)
+      for (let index = 0; index < paths.length; index += deleteBatchSize) {
+        const batch = paths.slice(index, index + deleteBatchSize)
+        await driver.delete(batch)
+        await Promise.all(batch.map(clearDerived))
+      }
+      return { deleted: paths.length }
+    })
+  }
+  function deleteObjects(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  function deleteObjects(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
+  async function deleteObjects(target: string | string[] | BlobDeletePrefixOptions): Promise<Result<void | BlobDeletePrefixResult, BlobErrorCode>> {
+    if (typeof target === "object" && !Array.isArray(target)) return deletePrefix(target)
+    const normalizedPathnames = toArray(target).map(value => normalizePathname(value))
+    return blobResult("delete", store, async () => {
+      await driver.delete(normalizedPathnames)
+      await Promise.all(normalizedPathnames.map(clearDerived))
+    })
+  }
   const media = createBlobMedia({
     clearDerived,
     derivedPrefix: derivedCachePrefix,
@@ -216,7 +288,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
       copy: (from, to, copyOptions) => storage.copy(from, to, copyOptions),
-      delete: pathnames => storage.delete(pathnames),
+      delete: deleteObjects,
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
     },
@@ -273,13 +345,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         store,
       ))
     },
-    async delete(pathnames: string | string[]) {
-      const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
-      return blobResult("delete", store, async () => {
-        await driver.delete(normalizedPathnames)
-        await Promise.all(normalizedPathnames.map(clearDerived))
-      })
-    },
+    delete: deleteObjects,
     // A `.vitehub/` pathname reads as a missing object, as in `serve()`, on every driver.
     async get(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
@@ -298,19 +364,35 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         prefix: normalizedPrefix,
       }))
     },
-    async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
+    async put(pathname, body, options = {}) {
       assertNoPutAccess(options)
-      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
+      const { ifMatch, overwrite, ...putOptions } = options
+      const condition: BlobDriverPutCondition | undefined = overwrite === false
+        ? { type: "create" }
+        : ifMatch === undefined ? undefined : { etag: ifMatch, type: "replace" }
+      if (condition && !driver.putIf) throw blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED({ driver: driver.name })
+      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), putOptions)
       assertWritablePath(normalizedPath)
-      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
-      return blobResult("put", store, () => driver.put(normalizedPath, body, {
-        ...options,
-        contentType,
-      }))
+      const contentType = putOptions.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
+      const [error, object] = await blobResult("put", store, async () => condition
+        ? driver.putIf!(normalizedPath, body, { ...putOptions, contentType }, condition)
+        : driver.put(normalizedPath, body, { ...putOptions, contentType }))
+      // A driver that finds at write time that it cannot check the condition throws, like the check above.
+      if (blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED.is(error?.cause)) throw error.cause
+      if (error) return [error, undefined]
+      if (!object) {
+        return [blobError("BLOB_CONFLICT", "put", store, {
+          detail: condition?.type === "create"
+            ? `Blob ${normalizedPath} already exists in the "${store}" store, and the put() had \`overwrite: false\`.`
+            : `Blob ${normalizedPath} in the "${store}" store does not have the \`ifMatch\` ETag of the put(). Another writer changed or deleted it.`,
+        }), undefined]
+      }
+      return [undefined, object]
     },
     async sign(pathname, options) {
-      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
-        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
+      const expiresIn = typeof options.expiresIn === "string" ? parseDuration(options.expiresIn) / 1000 : options.expiresIn
+      if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive whole number of seconds or a duration such as \"15m\"." })
       }
       if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
@@ -320,7 +402,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, { ...options, expiresIn }, { store }))
     },
     async serve(request, pathname, options = {}) {
       // Like a static file server, answer every other method without reading storage, so a POST to a file URL does
