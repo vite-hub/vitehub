@@ -38,9 +38,10 @@ export default defineAuth({
 | `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
 | `access.signIn` | `string` or `{ provider, errorCallbackURL?, requestSignUp?, scopes? }` | `'/login'` | Where a signed-out visitor signs in. A path is your sign-in page, which the [Nuxt page guard](/docs/auth/protect-pages#choose-where-visitors-go) opens. A provider is also where `withAuth()` and `requireAuth()` send HTML requests, and it serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
 | `access.afterSignIn` | `string` | `'/'` | Where a provider sign-in without `?redirect=` comes back to, and where the page guard sends signed-in users from `'guest'` pages. |
+| `access.pages` | `Record<string, 'user' \| 'guest' \| false>` | None | Nuxt pages that the [page guard](/docs/auth/protect-pages#guard-pages-from-one-route-map) protects, by route pattern, such as `{ '/dashboard/**': 'user' }`. Nuxt only. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes`, `access.public`, `access.signIn`, and `access.afterSignIn` must be static so the Vite integration can register middleware and the page guard.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes`, `access.public`, `access.signIn`, `access.afterSignIn`, and `access.pages` must be static so the Vite integration can register middleware and the page guard.
 
 ### Secret
 
@@ -51,6 +52,31 @@ When the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret), you need no B
 - With no secret at all, Better Auth uses a development default and throws in production.
 - A root secret shorter than 32 characters throws `AUTH_R0016`.
 - Rotating `VITEHUB_SECRET` signs out every session.
+
+### Type the Definition in a composite project
+
+A `tsconfig.json` with `composite: true`, such as the `tsconfig.node.json` of a Vite app, writes declarations. TypeScript cannot write the inferred type of a Definition with some Better Auth plugins, such as `apiKey()`, and fails with `TS7056`. Pass an explicit options type to `defineAuth()` and default-export the Definition:
+
+```ts [server/auth.ts] fragment
+import { apiKey } from '@better-auth/api-key'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+type Options = {
+  database: ReturnType<typeof authDatabase>
+  plugins: [ReturnType<typeof apiKey>]
+}
+
+const auth = defineAuth<Options>(({ requestOrigin }) => ({
+  baseURL: requestOrigin,
+  database: authDatabase(),
+  plugins: [apiKey()],
+}))
+
+export default auth
+```
+
+The type keeps the plugin endpoints, such as `useAuth(event).api.createApiKey`. The Vite plugin reads the `defineAuth()` call of the exported `const` like an inline `export default defineAuth(...)`.
 
 ## Runtime options
 
@@ -702,6 +728,10 @@ export default defineAuth({
 ```
 
 `true`, `{ name }`, and `{ store }` do not create storage. Auth rejects them at build time (`AUTH_C0014`, `AUTH_C0017`), when the Definition loads (`AUTH_C0021`, `AUTH_C0024`), and when a callback returns them (`AUTH_C0061`, `AUTH_C0062`).
+
+## Protect Nuxt pages
+
+Use [`access.pages` or page meta](/docs/auth/protect-pages) to guard Nuxt pages. Protect the data that they call with `access.routes` in the Auth Definition.
 
 ## Vite Integration options
 

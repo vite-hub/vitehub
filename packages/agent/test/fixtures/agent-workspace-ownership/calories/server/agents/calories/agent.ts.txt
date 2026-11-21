@@ -10,7 +10,7 @@ import {
   transcribe,
   usage,
 } from "vite-hub/agent/capabilities";
-import { telegram } from "vite-hub/agent/channels";
+import { telegram } from "vite-hub/channels/adapters";
 import {
   createCloudflareAgentState,
   getActiveCloudflareEnv,

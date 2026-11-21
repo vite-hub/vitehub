@@ -910,7 +910,6 @@ jobs:
       - name: Select the check
         id: changed
         env:
-          BASE_REF: origin/${{ github.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" != "pull_request" ]; then
@@ -918,7 +917,9 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          base_sha="$(git rev-parse HEAD^1)"
+          echo "base-sha=$base_sha" >> "$GITHUB_OUTPUT"
+          files="$(git diff --name-only "$base_sha" HEAD)"
           if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
@@ -943,13 +944,13 @@ jobs:
       - name: Capture the base
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
-          BASE_REF: origin/${{ github.base_ref }}
+          BASE_SHA: ${{ steps.changed.outputs.base-sha }}
         run: |
           oracle=packages/vite-hub/test/console-pixels.browser.mjs
           cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
           install=false
-          git diff --quiet HEAD "$BASE_REF" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
-          git checkout --quiet --detach "$BASE_REF"
+          git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_SHA"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
           if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
           for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
@@ -1215,3 +1216,45 @@ jobs:
         run: npm install -g netlify-cli@23.15.1 # zizmor: ignore[adhoc-packages]
       - name: Netlify end-to-end
         run: vp run e2e:netlify
+
+  # Publishes the pkg.pr.new previews after the ci gate passes, so a red pull request does not spend a runner on it.
+  # Branch protection requires this job's name. When the gate fails, this job reports skipped.
+  # Fork pull requests get no preview, as before this job moved here from a push workflow.
+  publish-preview:
+    name: publish preview packages
+    needs:
+      - ci
+    if: >-
+      ${{ !cancelled() && needs.ci.result == 'success' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # On main, a new push waits for the running publish instead of cancelling it.
+    # GitHub keeps only the newest pending run, so main always gets a preview.
+    concurrency:
+      group: pkg-pr-new-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+    env:
+      # A pull request run checks out its merge commit. The preview is the pull request head, as pkg.pr.new names it.
+      PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+
+      # Published packages come from a fresh build, not from task cache
+      # fingerprints. The root build task always enables the cache.
+      - run: vp run --no-cache --filter "./packages/*" build
+
+      # Gives the previews a version that npm does not have, so pnpm resolves
+      # ViteHub peers to the previews and not to npm releases.
+      - run: node .github/scripts/preview-packages.mjs "$PREVIEW_SHA"
+
+      - name: Publish preview packages
+        run: |
+          corepack enable pnpm
+          ./node_modules/.bin/pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm

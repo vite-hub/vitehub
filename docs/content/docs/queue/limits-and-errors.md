@@ -213,7 +213,7 @@ The local driver is the Node host's driver when the app has no Postgres Database
 
 ## Postgres delivery
 
-The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
+The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. When the Database sets `driver: 'node-postgres'`, it opens its own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides the connection. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
 
 - The first server to start creates the table and its indexes under a transaction lock, so servers that start at once do not race.
 - A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so instances cannot take a job while its claim is held. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.

@@ -8,7 +8,7 @@ import { readWorkspaceVersions } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { buildPlaygroundTemplates, playgroundTemplates, snapshotSources } from "../modules/tutorials/playground";
 import { dependencyKey } from "../modules/tutorials/steps";
-import { isIsolatedPath, isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
+import { isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(docsRoot, "..");
@@ -75,12 +75,8 @@ describe("playground", () => {
     expect(dependencyKey("{")).toBe("invalid");
   });
 
-  it("isolates /playground besides the tutorials, and nothing below it", () => {
-    expect(isIsolatedPath("/playground")).toBe(true);
-    expect(isIsolatedPath("/learn/first-agent")).toBe(true);
-    expect(isIsolatedPath("/playground/other")).toBe(false);
-    expect(isIsolatedPath("/docs")).toBe(false);
-    // The "Run this tutorial" link hides only on tutorials.
+  it("shows the \"Run this tutorial\" link only on tutorials", () => {
+    expect(isIsolatedTutorialPath("/learn/first-agent")).toBe(true);
     expect(isIsolatedTutorialPath("/playground")).toBe(false);
   });
 

@@ -32,6 +32,7 @@ import type { ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import type { ViteHubInspectionPluginMetadata, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
+import type { ScheduleDurabilityInput } from "./durability.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -400,7 +401,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
-          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
+          `import { logScheduleRuntimeError, normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
           `import { ${runStoreFactory} } from ${JSON.stringify(scheduleRuntimeModule)}`,
           `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
           ...(leaseDatabaseImport ? [`import { useLeases } from ${JSON.stringify(leaseDatabaseImport)}`] : []),
@@ -460,7 +461,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "      return",
           "    }",
           "    try {",
-          "      console.error('[vitehub:schedule]', runtimeError)",
+          "      logScheduleRuntimeError(error, runtimeError)",
           "    }",
           "    catch {}",
           "    try {",
@@ -547,6 +548,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   const crons = Object.fromEntries(netlify.schedules.map(schedule => [schedule.name, schedule.cron]))
   const timeZoneNames = netlify.schedules.filter(schedule => schedule.inTimeZone).map(schedule => schedule.name)
   const netlifyEntryRuntime = [
+    'import { useNitroApp } from "nitro/app"',
     `import scheduleRegistry from ${JSON.stringify(netlify.registryFile)}`,
     `import { executeStaticSchedule, isTimeZoneWakeDue, missingScheduleDefinitionError, scheduledWakeTime, unwrapScheduleDefinition } from ${JSON.stringify(netlify.runtimeImport)}`,
     "",
@@ -554,10 +556,11 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     `const timeZoneNames = new Set(${JSON.stringify(timeZoneNames)})`,
     "",
     "export async function runViteHubNetlifySchedule(name) {",
+    "  const scheduledAt = scheduledWakeTime(crons[name])",
+    "  await useNitroApp().ready",
     "  const loader = scheduleRegistry[name]",
     "  const definition = loader ? unwrapScheduleDefinition(await loader()) : undefined",
     "  if (!definition) throw missingScheduleDefinitionError(name)",
-    "  const scheduledAt = scheduledWakeTime(crons[name])",
     "  if (timeZoneNames.has(name) && !isTimeZoneWakeDue(definition, name, scheduledAt)) return",
     "  await executeStaticSchedule({ cron: crons[name], definition, name, scheduledAt })",
     "}",
@@ -741,7 +744,7 @@ async function inspectScheduleResources(definitions: DiscoveredScheduleDefinitio
     definition,
     host: "cloudflare",
     kind: "cloudflare-cron",
-    name: cron,
+    name: cronWithWeekdayNames(cron),
     note: inStandalone
       ? "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config of the standalone Schedule Worker."
       : "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",
@@ -890,10 +893,15 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   let command: "build" | "serve" | undefined
-  const processStorageOptions = (hasPlugin: (name: string) => boolean) => ({
-    ...(hasPlugin(databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
-    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
-  })
+  // Set by the `config` hook too, because the Nuxt Nitro-only replay can skip this plugin's configResolved.
+  let leaseDatabase = false
+  const processStorageOptions = (hasPlugin: (name: string) => boolean) => {
+    leaseDatabase = hasPlugin(databaseVitePluginName)
+    return {
+      ...(leaseDatabase ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
+      memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
+    }
+  }
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
     return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
@@ -1150,9 +1158,15 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   }
   inspectable.api = { deploymentEnv: context => scheduleDeploymentEnv(discoverRegistrySchedules().length, context) }
   inspectable.vitehub = {
-    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
+    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron. The generated
+    // runtime keeps its leases in the Default Database when the app has the Database plugin.
     durability: () => options.runtime?.driver === "process"
-      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url), primitive: "schedule" }]
+      ? [{
+          export: "scheduleDurability",
+          input: { driver: "process", leases: leaseDatabase } satisfies ScheduleDurabilityInput,
+          module: durabilityModuleFile(import.meta.url),
+          primitive: "schedule",
+        }]
       : [],
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: ownModule(import.meta.url, "operations") }],

@@ -34,11 +34,11 @@ async function resolvePlugin(root: string, preset: string, options?: Parameters<
 
 describe("hubSchedule resources", () => {
   it("lists one Cloudflare cron trigger per Schedule, with the crons the build writes", async () => {
-    const { config, plugin } = await resolvePlugin(await project(), "cloudflare_module", { cron: { cleanup: "0 4 * * *" } })
+    const { config, plugin } = await resolvePlugin(await project(), "cloudflare_module", { cron: { cleanup: "0 4 * * 1-5" } })
 
     const resources = await collectViteHubResourceSummaries([plugin])
     expect(resources).toEqual([
-      expect.objectContaining({ definition: "cleanup", host: "cloudflare", kind: "cloudflare-cron", name: "0 4 * * *", owner: "schedule" }),
+      expect.objectContaining({ definition: "cleanup", host: "cloudflare", kind: "cloudflare-cron", name: "0 4 * * MON,TUE,WED,THU,FRI", owner: "schedule" }),
       expect.objectContaining({ definition: "daily", host: "cloudflare", kind: "cloudflare-cron", name: "0 6,7 * * *", owner: "schedule" }),
       expect.objectContaining({ definition: "vitehub/started-schedules", host: "cloudflare", kind: "cloudflare-cron", name: "* * * * *", owner: "schedule" }),
     ])

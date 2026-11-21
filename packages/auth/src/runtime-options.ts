@@ -16,6 +16,7 @@ import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
+import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
@@ -24,7 +25,7 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
-import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
+import { assertNoRuntimeOption, validateAuthAccessPolicy, validateAuthComponents } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
 import { createDeleteAccount, validateDeleteAccount } from "./delete-account.ts"
 import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
@@ -139,6 +140,7 @@ function stripViteHubOptions(
   const {
     access,
     adminClaim: _adminClaim,
+    components,
     console: _console,
     database,
     deleteAccount,
@@ -165,6 +167,7 @@ function stripViteHubOptions(
     assertAuthDatabaseNames(rest)
   }
   validateAuthEvents(events)
+  validateAuthComponents(components)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   // `stateless()` keeps everything in cookies and must stay without a database.
   if (!storage.database && options.preset === undefined) {
@@ -208,7 +211,9 @@ function stripViteHubOptions(
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
-    plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
+    plugins: [...plugins, ...(eventPlugin ? [eventPlugin] : []), createRequestLogPlugin()],
+    // Better Auth's warnings and errors also go on the request's wide event, when the app registers evlog.
+    logger: withRequestLogger(rest.logger),
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,
     ...(eventPlugin ? {

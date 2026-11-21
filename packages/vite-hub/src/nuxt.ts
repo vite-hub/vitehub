@@ -177,6 +177,7 @@ type NuxtLike = {
     dev?: boolean
     experimental?: {
       emitRouteChunkError?: unknown
+      extraPageMetaExtractionKeys?: string[]
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{
@@ -499,6 +500,34 @@ export default defineNuxtPlugin({
     // Hydration does not wait for IndexedDB. A read that hydrates renders what the server rendered either way.
     if (nuxtApp.payload.serverRendered) nuxtApp.hooks.hookOnce("app:suspense:resolve", () => void ${open})
     else await ${open}
+  },
+})
+`)
+  const plugins = (nuxt.options.plugins ??= [])
+  if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
+}
+
+/**
+ * The `webContainer` pages are cross-origin isolated and other pages are not. The headers come with the document, so a
+ * client-side navigation across that line would keep the headers of the page it left. A global route middleware loads
+ * a new document instead.
+ */
+async function addWebContainerBoundaryPlugin(nuxt: NuxtLike, projectRoot: string, routes: readonly string[]): Promise<void> {
+  const src = join(projectRoot, ".vitehub/web-container/nuxt-boundary.mjs")
+  await writeFileIfChanged(src, `import { addRouteMiddleware, defineNuxtPlugin, navigateTo, useRouter } from "#imports"
+import { matchesWebContainerRoute } from "vite-hub/web-container"
+
+const routes = ${JSON.stringify(routes)}
+const isolated = path => matchesWebContainerRoute(path, routes)
+
+export default defineNuxtPlugin({
+  name: "vitehub:web-container",
+  setup() {
+    const router = useRouter()
+    addRouteMiddleware("vitehub-web-container", (to, from) => {
+      // The first navigation of a page load has nothing to leave.
+      if (from.matched.length > 0 && isolated(to.path) !== isolated(from.path)) return navigateTo(router.resolve(to.fullPath).href, { external: true })
+    }, { global: true })
   },
 })
 `)
@@ -1680,6 +1709,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     addVueImports(nuxt, "vite-hub/device", ["setDeviceAccount", "clearDevice", "inspectDevice"])
     await addDevicePlugin(nuxt, projectRoot, { version: options.device?.version, auth: Boolean(effectiveAuth) && options.device?.account !== false })
   }
+  if (options.webContainer) await addWebContainerBoundaryPlugin(nuxt, projectRoot, options.webContainer.routes)
   // `server/sync/` turns Sync on, so `useSync()` is imported only then.
   if (isPackageInstalled("@vite-hub/sync") && hasSyncDirectory(projectRoot, resolveNuxtServerDirs(nuxt.options))) {
     addVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])

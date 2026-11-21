@@ -79,6 +79,15 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+`lifecycle.approval: true` also selects a pull request that the author allow
+lists leave out, such as an outside contributor's, once a reviewer with write
+access approves its current head. Approving is then the only step: the
+Babysitter repairs the PR and merges it. The approval carries over to heads the
+Babysitter builds on the approved commit, so its own repairs need no new
+review. A push by anyone else drops the PR until the next approval. The
+Babysitter pushes to a fork's branch with its base repository's App
+installation, which GitHub allows when the author lets maintainers edit the PR.
+
 With only `filter.repository.allow`, the Babysitter serves pull requests whose
 author is an owner, member, or collaborator, skips those labelled
 `babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
@@ -149,7 +158,8 @@ reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
 other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
 PR from an author without write access only after a reviewer with write access
-approves its current head and no such reviewer's latest review requests changes.
+approves its current head, or a head that the Babysitter built on the approved
+commit, and no such reviewer's latest review requests changes.
 `trustedAuthors`, such as `["renovate[bot]"]`, lets those authors through that
 gate without an approval. A bot entry needs its `[bot]` suffix and matches only a
 bot account.
@@ -412,7 +422,7 @@ still revoke further repair operations.
 
 ## Babysitter GitHub host
 
-`createGitHubHost()` from `@vite-hub/presets/babysitter/server` is the GitHub host that `createBabysitterRuntime()` takes. Use it to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+`createGitHubHost()` from `@vite-hub/presets/babysitter/server` is the GitHub host that `createBabysitterRuntime()` takes. Use it to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. With App credentials, the host commits and comments as the App's bot, such as `my-app[bot]` with its noreply email. The host resolves the identity from the credentials it uses for that repository. Set `identity: { login, email, appId }` only for a token without an App. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts fragment
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {

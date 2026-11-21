@@ -40,7 +40,7 @@ async function folder(dir: string, tag: string, sql: string) {
 
 function startupMigrations(dir: string) {
   const entries = readMigrations(dir)
-  return entries.map(entry => ({ ...readPendingMigration(dir, entry.tag, entries), hash: entry.hash, when: entry.when }))
+  return entries.map(entry => ({ ...readPendingMigration(dir, entry.tag, entries, "sqlite"), hash: entry.hash, when: entry.when }))
 }
 
 it.each([false, true])("checks the execution order for shared-file migrations of the same second (reverse: %s)", async (reverse) => {

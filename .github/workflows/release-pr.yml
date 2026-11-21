@@ -114,8 +114,8 @@ jobs:
           )
           git worktree remove "$release_directory"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
-          # ci.yml reports "ci" and pkg-pr-new.yml reports "publish preview packages".
-          for workflow in ci.yml pkg-pr-new.yml; do
+          # ci.yml reports "ci" and "publish preview packages".
+          for workflow in ci.yml; do
             successful_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=100" \
               --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
             if [[ "$successful_runs" == "0" ]]; then

@@ -102,7 +102,15 @@ export function addSecurityHeadersToHeadersFile(contents: string, headers: Secur
   const missing = headers.filter(([name]) => !present.has(name.toLowerCase()))
   if (missing.length === 0) return contents
   const base = baseURL.endsWith("/") ? baseURL : `${baseURL}/`
-  const rule = [`${base}*`, ...missing.map(([name, value]) => `  ${name}: ${value}`)].join("\n")
+  const path = `${base}*`
+  const lines = missing.map(([name, value]) => `  ${name}: ${value}`)
+  const blocks = contents.trimEnd().split(/\r?\n(?=\S)/)
+  const existing = blocks.findLastIndex(block => block.split(/\r?\n/, 1)[0] === path)
+  if (existing !== -1) {
+    blocks[existing] = [blocks[existing]!.trimEnd(), ...lines].join("\n")
+    return `${blocks.join("\n")}\n`
+  }
+  const rule = [path, ...lines].join("\n")
   return contents.trim() ? `${contents.trimEnd()}\n${rule}\n` : `${rule}\n`
 }
 

@@ -2,7 +2,7 @@ import type { TraceEventLogEntry } from "@vite-hub/runtime"
 
 /** One change the Agent made on a person's page, as the journal recorded it from `page_act`. */
 export interface InvocationPageChange {
-  /** The change id: `page.undo(id)` on the page, or `vitehub invocations undo <invocation> --change <id>`. */
+  /** The change id: `page.undo(id)` on the page, or `vitehub agent invocations undo <invocation> --change <id>`. */
   id: string
   /** The page id. */
   page: string
@@ -21,7 +21,7 @@ export interface InvocationPageChange {
   /** The journal omitted the values. Keep them with `content: "content"` or `metadataContent: ["page.change.content"]`. */
   valuesOmitted?: true
   at: string
-  /** An operator's undo put `before` back, with `vitehub invocations undo` or the Console. */
+  /** An operator's undo put `before` back, with `vitehub agent invocations undo` or the Console. */
   undone?: { at: string, by?: string }
 }
 

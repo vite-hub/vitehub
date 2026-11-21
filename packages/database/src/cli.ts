@@ -727,6 +727,11 @@ async function runDrizzleKit(
       continue
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
+    if (feature === "migrate" && run.database?.dialect === "sqlite") {
+      const result = await migrateSplitSqliteDatabase(run.database, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
+      if (result === 0) continue
+      if (result !== undefined) return result
+    }
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
     if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && await hasUnrecordedUniques(migrationsDir)) {
       // A folder that `drizzle-kit up` or an older ViteHub converted still lists each `.unique()` column as an index.
@@ -1068,6 +1073,38 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     for (const loss of migration.dataLoss) lines.push(`    ! Data loss: ${loss.reason}.`)
   }
   context.stdout.write(`${lines.join("\n")}\n`)
+}
+
+async function migrateSplitSqliteDatabase(
+  database: ResolvedDrizzleDatabaseConfig,
+  args: string[],
+  context: ViteHubCliContext,
+  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+): Promise<number | undefined> {
+  const { migrateSplitSqlite } = await import("./internal/migration-plan.ts")
+  const env = context.env ?? process.env
+  try {
+    return await migrateSplitSqlite(
+      { ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) },
+      { env, projectRoot },
+      async () => {
+        const result = await context.spawn(process.execPath, [bin, "check", "--config", configFile, ...forwardDrizzleArgs(args)], {
+          cwd: projectRoot,
+          env: withDrizzleKitErrorExit(env),
+          stderr: "inherit",
+          stdout: "inherit",
+        })
+        if (result.exitCode === 0) return true
+        context.stderr.write(`[vitehub] drizzle-kit check failed for ${configFile} (exit code ${result.exitCode ?? 1}). See the drizzle-kit output above.\n`)
+        return false
+      },
+      name => context.stdout.write(`[vitehub] Database "${database.name}": applied ${name}.\n`),
+    )
+  }
+  catch (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    return 1
+  }
 }
 
 /** Reads the pending migrations before `migrate` and refuses the ones that lose data. Returns the exit code. */

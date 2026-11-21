@@ -195,7 +195,7 @@ describe.skipIf(!adminUrl)("driver: \"node-postgres\" on Postgres", () => {
     expect(log.mock.calls.flat().filter(line => String(line).includes("applied"))).toEqual(["[vitehub] Database \"default\": applied 20260101000000_init."])
 
     let stats: unknown
-    await runWithDatabaseRequestStats({ req: { context: { log: { set: (fields: Record<string, unknown>) => { stats = fields.database } } } } }, async () => {
+    await runWithDatabaseRequestStats({ req: { context: { log: { set: (fields: Record<string, unknown>) => { stats = fields.database }, warn: vi.fn(), error: vi.fn() } } } }, async () => {
       await db.insert(notes).values({ id: 1, title: "Ada" })
       await db.transaction(async (transaction) => {
         await transaction.insert(notes).values({ id: 2, title: "Grace" })

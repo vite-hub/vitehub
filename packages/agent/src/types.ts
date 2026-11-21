@@ -1871,6 +1871,13 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /**
+   * Set when `VITEHUB_MODELS=emulate` is on and the Driver of this Agent runs on the AI emulator. Under the switch, the
+   * check reads no credentials. A Driver that the emulator cannot run is `unavailable` with a `code` instead.
+   */
+  emulated?: { url: string }
+  /** The diagnostic code that an Invocation fails with, when the check knows it, such as `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. */
+  code?: string
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
@@ -3038,7 +3045,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
-/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/channels/adapters`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 

@@ -12,5 +12,6 @@ it("exports the Sandbox Task owner options", () => {
 it("lists every feature key of ViteHubOptions", () => {
   // `device` configures the Nuxt plugin of `@vite-hub/device`, which installing the package turns on, as with Forms.
   // `vitehub add` writes `<feature>: true`, and `logs: true` fails a production build, so `logs` is set by hand.
-  expectTypeOf<FeatureId>().toEqualTypeOf<Exclude<keyof ViteHubOptions, "bundle" | "cloudflare" | "dataDir" | "deploy" | "device" | "docker" | "health" | "logs" | "name" | "node" | "host" | "publicUrl" | "redirects" | "sameOriginWrites" | "security" | "seo" | "systemd" | "trustProxy">>()
+  // `webContainer` needs its routes, so it is set by hand too.
+  expectTypeOf<FeatureId>().toEqualTypeOf<Exclude<keyof ViteHubOptions, "bundle" | "cloudflare" | "dataDir" | "deploy" | "device" | "docker" | "health" | "logs" | "name" | "node" | "host" | "publicUrl" | "redirects" | "sameOriginWrites" | "security" | "seo" | "systemd" | "trustProxy" | "webContainer">>()
 })

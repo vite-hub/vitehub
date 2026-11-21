@@ -83,6 +83,25 @@ The module reads the `.md` and `.navigation.yml` files of every source through V
 
 `sources` configures the site pages, search, Markdown resources, and the pages that the docs assistant reads.
 
+A page that the build generates, such as a list of the skills in a repository, is a `files()` Source. Its loader runs when the build reads the pages, so nothing writes the page into the content folder first:
+
+```ts
+import { readdir } from "node:fs/promises"
+import { files } from "vite-hub/source"
+
+async function skillCatalog() {
+  const skills = await readdir("../skills")
+  return ["---", "title: All skills", "---", ...skills.map(name => `- \`${name}\``)].join("\n")
+}
+
+export default defineNuxtConfig({
+  docs: {
+    base: "/",
+    sources: ["content", { source: files({ "catalog.md": skillCatalog }), mount: "/skills" }],
+  },
+})
+```
+
 ```ts
 import { github, glob } from "vite-hub/source"
 
@@ -167,7 +186,7 @@ navigation.panel: true
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
 - `home` is a product home page under the site header, with no title, actions, sidebar, or outline. Your `components/content/` blocks, such as a `::product-hero`, take the full width. The Markdown between them, such as a heading, a list, or a code group, gets the prose styles and the width of a docs page. The page keeps its search entry, Markdown copy, and share image.
 
-The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. A code panel tutorial starts collapsed too.
+The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. That page fills the viewport under the header and the window does not scroll: the root element of the page is exactly as tall as the viewport, so `height: 100%` inside it fills the screen, and content that is taller scrolls inside the page. A code panel tutorial starts collapsed too.
 
 ````md
 ---

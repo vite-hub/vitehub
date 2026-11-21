@@ -101,8 +101,6 @@ type Wave = "W2" | "W3" | "W4" | "W5"
  * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
  */
 const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W4: the Progress helper replaces the upload bar.
-  "packages/vite-hub/src/console/runtime/components/console-media-uploads.vue": { count: 1, wave: "W4" },
   // W5: the docs site and @vite-hub/docs.
   "docs/app/assets/main.css": { count: 2, wave: "W5" },
   "docs/app/components/content/HeroFigure.vue": { count: 2, wave: "W5" },
@@ -110,18 +108,15 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "docs/app/components/landing/AgentStory.vue": { count: 2, wave: "W5" },
   "docs/app/components/landing/Closing.vue": { count: 4, wave: "W5" },
   "docs/app/components/landing/Hero.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/InstallCommand.vue": { count: 1, wave: "W5" },
   "docs/app/components/landing/Portability.vue": { count: 4, wave: "W5" },
   "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
   "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },
   // W5: the Console.
-  "packages/vite-hub/src/console/runtime/client/styles.css": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-app.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-auth-chart.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-auth.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-search-palette.vue": { count: 3, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-sidebar.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-toaster.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-usage-chart.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
   "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },

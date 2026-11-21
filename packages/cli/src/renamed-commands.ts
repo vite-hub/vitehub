@@ -13,7 +13,18 @@ interface RenamedCommand {
 }
 
 const renamedCommands: readonly RenamedCommand[] = [
-  { from: ["agent", "info"], now: "vitehub agent get" },
+  { from: ["agents", "list"], now: "vitehub agent list" },
+  { from: ["agents", "invoke"], now: "vitehub agent invoke" },
+  { from: ["agents", "status"], now: "vitehub agent get <name>", migration: "Pass the Agent name instead of --agent and select the Console app with --url." },
+  { from: ["conversations", "export"], now: "vitehub agent conversations export" },
+  { from: ["invocations", "list"], now: "vitehub agent invocations list", migration: "Check --help for supported filters; the CLI JSON no longer includes a Console cursor." },
+  { from: ["invocations", "get"], now: "vitehub agent invocations get", migration: "Pass the Invocation ID; JSON is a flat record, and observation paging options are no longer supported by the CLI." },
+  { from: ["invocations", "cancel"], now: "vitehub agent invocations cancel", migration: "Pass the Invocation ID and --url <app> to use the same Console." },
+  { from: ["invocations", "undo"], now: "vitehub agent invocations undo", migration: "Pass the Invocation ID, --change <id>, and --url <app>." },
+  { from: ["invocations", "delete"], now: "vitehub agent invocations delete", migration: "Pass the Invocation ID and --url <app> to delete from the same Console. Without --url this deletes from the journal file." },
+  { from: ["invocations", "capabilities"], now: "vitehub agent invocations capabilities" },
+  { from: ["invocations", "workspace"], now: "vitehub agent invocations workspace" },
+  { from: ["agent", "info"], now: "vitehub agent get", migration: "Pass the name instead of --agent and use --dev --url for an explicit Dev Loop URL." },
   { from: ["agent", "invocations", "show"], now: "vitehub agent invocations get" },
   { from: ["content", "show"], now: "vitehub content get" },
   { from: ["definitions", "list"], now: "vitehub inspect definitions", migration: "Use --kind <kind> for local definitions, or the Console for runtime records. The old section and URL arguments do not carry over." },
