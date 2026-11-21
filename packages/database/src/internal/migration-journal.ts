@@ -63,7 +63,7 @@ export function readMigrations(migrationsDir: string, database?: string, options
 }
 
 /** Reads the table columns and the foreign keys with an ON DELETE action from the Drizzle snapshot of a migration folder. */
-export function readSnapshotTables(migrationsDir: string, tag: string): { columns: TableColumns, references: TableReferences } | undefined {
+function readSnapshotTables(migrationsDir: string, tag: string): { columns: TableColumns, references: TableReferences } | undefined {
   const file = join(migrationsDir, tag, "snapshot.json")
   if (!existsSync(file)) return
   let snapshot: unknown

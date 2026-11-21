@@ -306,8 +306,12 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `cloudflare.binding` to a different name for each Database Definition.",
     },
     DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED: {
-      why: ({ databases, missing }: { databases: readonly string[], missing: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList(missing)}\nA new version of the plugin changed them, or no migration added them yet. Requests that use them would fail after the deploy.`,
-      fix: "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy. Then build again.",
+      why: ({ databases, missing, restore }: { databases: readonly string[], missing: readonly string[], restore: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList([...missing, ...restore.map(file => `the SQL file ${file}`)])}\nRequests that use them could fail after the deploy.`,
+      fix: ({ missing, restore }: { missing: readonly string[], restore: readonly string[] }) => [
+        restore.length ? "Restore the missing `migration.sql` files from the original migrations and commit them." : "",
+        missing.length ? "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy." : "",
+        "Then build again.",
+      ].filter(Boolean).join(" "),
     },
     DATABASE_DUPLICATE_DEFINITION: {
       why: ({ database, files }: { database: string, files: readonly string[] }) => `${database === "default" ? "Only one default Database Definition is allowed." : `Only one definition is allowed for the database "${database}".`}${fileList(files)}`,

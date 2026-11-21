@@ -182,14 +182,14 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
 }
 
 /**
- * The SQL columns of each contributed table, by SQL table name. It loads the contribution module even when the
+ * The exact SQL names and columns of each contributed table. It loads the contribution module even when the
  * contribution lists its `tables`, because the list has no columns. `parent` resolves the module as below.
  */
 export async function loadContributedTableColumns(
   contribution: CollectedDatabaseContribution,
   parent: string,
   options: Pick<DatabaseTableNameOptions, "alias"> = {},
-): Promise<Map<string, string[]>> {
+): Promise<Array<{ name: string, schema?: string, columns: string[] }>> {
   let module: Record<string, unknown>
   try {
     module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
@@ -199,11 +199,13 @@ export async function loadContributedTableColumns(
   }
   const schema = module[contribution.definition.export]
   const { getColumns, getTableName, is, Table } = await import("drizzle-orm")
-  const columns = new Map<string, string[]>()
+  const { getTableConfig, PgTable } = await import("drizzle-orm/pg-core")
+  const tables: Array<{ name: string, schema?: string, columns: string[] }> = []
   for (const value of isRecord(schema) ? Object.values(schema) : []) {
-    if (is(value, Table)) columns.set(getTableName(value), Object.values(getColumns(value)).map(column => column.name))
+    if (!is(value, Table)) continue
+    tables.push({ name: getTableName(value), schema: is(value, PgTable) ? getTableConfig(value).schema ?? "public" : undefined, columns: Object.values(getColumns(value)).map(column => column.name) })
   }
-  return columns
+  return tables
 }
 
 /**

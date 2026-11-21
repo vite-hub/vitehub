@@ -5,6 +5,8 @@ import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { commentsSchema } from "@vite-hub/comments/database"
+import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
 import { build } from "esbuild"
 import ts from "typescript"
 import { resolveConfig } from "vite"
@@ -2591,9 +2593,15 @@ describe("ViteHub Nuxt integration", () => {
 
   it("turns the Database on for comments and installs the comments Nitro plugin", async () => {
     const entry = `${tmp}/vitehub-nuxt/custom-server/comments.ts`
+    const migration = `${tmp}/vitehub-nuxt/custom-server/databases/default/migrations/20261120000000_comments`
     await mkdir(resolve(entry, ".."), { recursive: true })
     await writeFile(entry, `import { defineComments } from "vite-hub/comments"\nexport default defineComments({ authorize: () => true })\n`)
     try {
+      const snapshot = await generateDrizzleJson(commentsSchema)
+      const statements = await generateMigration(await generateDrizzleJson({}), snapshot)
+      await mkdir(migration, { recursive: true })
+      await writeFile(`${migration}/snapshot.json`, JSON.stringify(snapshot))
+      await writeFile(`${migration}/migration.sql`, statements.join("\n--> statement-breakpoint\n"))
       mocks.vitehub.mockReturnValue([hubComments()])
       const { nuxt, runNitroConfigHook } = createNuxt()
       await viteHubNuxtModule({ host: "node" }, nuxt)
@@ -2608,6 +2616,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: false })
     }
     finally {
+      await rm(migration, { force: true, recursive: true })
       await rm(entry, { force: true })
     }
   })
