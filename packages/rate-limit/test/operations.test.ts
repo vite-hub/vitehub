@@ -79,7 +79,7 @@ describe("rate-limit operations", () => {
   })
 
   it("marks peek as a read and reset as destructive, in the rate-limit CLI namespace", () => {
-    expect(registry.list().map(operation => [operation.name, operation.kind, operation.cli?.namespace])).toEqual([
+    expect(registry.list().map(operation => [operation.name, operation.kind, (operation.cli || undefined)?.namespace])).toEqual([
       ["rate-limit.peek", "read", "rate-limit"],
       ["rate-limit.reset", "destructive", "rate-limit"],
     ])

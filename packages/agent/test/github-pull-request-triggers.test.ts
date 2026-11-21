@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { sendChannelTrigger } from "@vite-hub/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { github, githubPullRequestTrigger, ignored } from "../src/channels.ts"
@@ -35,11 +36,16 @@ async function stateFile() {
   return state
 }
 
-function reviewerAgent(invoke: Invoke, options: { debounceMs?: number } = {}) {
+function reviewerAgent(invoke: Invoke, options: { debounceMs?: number, state?: "open" | "closed" } = {}) {
   const fetcher = vi.fn(async (url: string | URL | Request) => Response.json(String(url).endsWith("/pulls/42") ? {
     base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
     head: { ref: "feature", repo: { full_name: "acme/app" }, sha: "head-sha" },
-    state: "open",
+    html_url: "https://github.test/acme/app/pull/42",
+    number: 42,
+    state: options.state ?? "open",
+    title: "Improve app",
+    url: "https://api.github.test/repos/acme/app/pulls/42",
+    user: { login: "onmax", type: "User" },
   } : []))
   const calls = vi.fn(invoke)
   const run = vi.fn(async (_context: { prompt?: string }) => "ok")
@@ -58,7 +64,7 @@ function reviewerAgent(invoke: Invoke, options: { debounceMs?: number } = {}) {
             invoke: (_context, event) => calls(event),
           }),
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },
@@ -257,6 +263,66 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     ])))
   })
 
+  it("runs a trigger sent from server code in the pull request's queue slot", async () => {
+    const state = await stateFile()
+    const { agent, calls, run } = reviewerAgent(event => ({ input: { prompt: `Handle: ${event.body ?? event.actor.login}` } }))
+    const { completed, send } = serve(agent, state)
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    cleanups.push(async () => release())
+    run.mockImplementationOnce(async () => {
+      await blocked
+      return "ok"
+    })
+
+    // A review run holds the pull request's queue slot.
+    await send("review-1", "pull_request_review", review(67))
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 5_000 })
+
+    // GitHub spells the repository "acme/app". The send shares its queue slot with any other spelling.
+    const input = { pullRequest: { repository: "Acme/App", number: 42 }, id: "wake-1", body: "Rebase on main." }
+    await expect(sendChannelTrigger("github", "reviewFeedback", input)).resolves.toEqual([undefined, { deliveryId: "reviewFeedback:wake-1", queued: true }])
+    await expect(sendChannelTrigger("github", "reviewFeedback", input)).resolves.toEqual([undefined, { deliveryId: "reviewFeedback:wake-1", queued: false }])
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(calls).toHaveBeenCalledOnce()
+
+    release()
+    await vi.waitFor(() => expect(completed("reviewFeedback:wake-1")).toBe(true), { timeout: 10_000 })
+    expect(calls).toHaveBeenCalledTimes(2)
+    expect(calls.mock.calls[1]![0]).toMatchObject({
+      body: "Rebase on main.",
+      deliveryId: "reviewFeedback:wake-1",
+      event: "server",
+      pullRequest: { author: "onmax", headRef: "feature", headSha: "head-sha", number: 42, repository: "acme/app", title: "Improve app", url: "https://github.test/acme/app/pull/42" },
+    })
+    expect(run).toHaveBeenCalledTimes(2)
+    const prompt = run.mock.calls[1]![0].prompt ?? ""
+    expect(prompt).toContain("Work on PR #42 in acme/app.")
+    expect(prompt).toContain("The pull request head is commit head-sha")
+    expect(prompt).toContain("Request: Handle: Rebase on main.")
+    await vi.waitFor(async () => expect(await journal(state, "dispatch:reviewFeedback:wake-1")).toEqual(expect.arrayContaining([
+      { outcome: "input", trigger: "reviewFeedback", type: "trigger.completed" },
+      expect.objectContaining({ type: "invocation.started" }),
+    ])))
+  })
+
+  it("rejects a server send without a pull request and skips a closed pull request", async () => {
+    const state = await stateFile()
+    const open = reviewerAgent(() => ignored("unused"))
+    const openServer = serve(open.agent, state)
+    const [error] = await sendChannelTrigger("github", "reviewFeedback", { pullRequest: { repository: "acme", number: 42 } })
+    expect(error).toMatchObject({ code: "CHANNEL_TRIGGER_FAILED", cause: { code: "AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID" } })
+    await openServer.stop()
+
+    const closedState = await stateFile()
+    const closed = reviewerAgent(() => ignored("unused"), { state: "closed" })
+    serve(closed.agent, closedState)
+    const [closedError, receipt] = await sendChannelTrigger("github", "reviewFeedback", { pullRequest: { repository: "acme/app", number: 42 } })
+    expect(closedError).toBeUndefined()
+    expect(receipt).toMatchObject({ queued: false })
+    expect(closed.calls).not.toHaveBeenCalled()
+  })
+
   it("runs invoke for a teammate's approval with Quiver's GitHub Channel", async () => {
     const state = await stateFile()
     const events: GitHubPullRequestTriggerEvent[] = []
@@ -305,7 +371,7 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
               },
             }),
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },

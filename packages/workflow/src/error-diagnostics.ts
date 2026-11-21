@@ -7,7 +7,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
+// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_C0018, WORKFLOW_C0019, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
@@ -54,15 +54,11 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_RUNS_UNAVAILABLE: {
       why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
-      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.",
+      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow runs get <runId> --workflow <name>`, or use the provider dashboard.",
     },
     WORKFLOW_RUN_AMBIGUOUS: {
       why: ({ id, workflows }: { id: string, workflows: string }) => `Runs of ${workflows} have the id ${id}.`,
       fix: "Pass the name of the Workflow with `--workflow <name>`.",
-    },
-    WORKFLOW_RUN_NOT_FOUND: {
-      why: ({ id }: { id: string }) => `No recorded run has the id ${id}.`,
-      fix: "Run `vitehub workflow runs list` for the ids. The dev server keeps the newest 200 runs until it restarts or `vitehub workflow runs clear` empties the history.",
     },
     WORKFLOW_RUN_UNKNOWN: {
       why: ({ runId }: { runId: string }) => `Run ${runId} was not started by \`workflow.start\` in this runtime.`,
@@ -124,27 +120,19 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0014: {
       ...dynamicError,
-      fix: "Pass a function as the second argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", async (payload, { steps }) => { ... })`.",
+      fix: "Set `handler` to a function in the object that you pass to `defineWorkflow()`, such as `defineWorkflow({ handler: async ({ payload, steps }) => { ... } })`.",
     },
     WORKFLOW_C0015: {
       ...dynamicError,
-      fix: "Pass the options of `defineWorkflow()` as an object, such as `{ native: durableOnboard }`, or remove the third argument.",
+      fix: "Pass one object to `defineWorkflow()`, such as `defineWorkflow({ handler, native })`, with only `handler`, `native`, and `rootStep`. The file path is the Workflow name, so do not pass a name.",
     },
     WORKFLOW_C0016: {
       ...dynamicError,
-      fix: "Set `native` in the `defineWorkflow()` options to a function, or remove it.",
+      fix: "Set `native` in the object that you pass to `defineWorkflow()` to a function, or remove it.",
     },
     WORKFLOW_C0017: {
       ...dynamicError,
       fix: "Remove `workflow.database`, and set `workflow.sqlite.path` or `workflow.postgres.url`.",
-    },
-    WORKFLOW_C0018: {
-      ...dynamicError,
-      fix: "Pass the Workflow name as the first argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", handler)`.",
-    },
-    WORKFLOW_C0019: {
-      ...dynamicError,
-      fix: "Pass the name that the message gives to `defineWorkflow()`, or rename the Workflow file or folder to the name that the definition uses.",
     },
     WORKFLOW_C0020: {
       ...dynamicError,
@@ -169,6 +157,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT: {
       why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
       fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
+    },
+    WORKFLOW_PAYLOAD_JSON_INVALID: {
+      why: "[vitehub] The request has the `application/json` content type, but its body is not valid JSON.",
+      fix: "Send a JSON body with `content-type: application/json`, or send another content type to read the body as text. Read `error.cause` for the parse error.",
     },
     WORKFLOW_R0001: {
       ...dynamicError,
@@ -294,9 +286,31 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `\`workflow.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Workflow would not use the driver you chose.`,
       fix: ({ value }: { value: string }) => `Set \`workflow: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
+    WORKFLOW_ROOT_STEP_SIGNAL: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`signal.wait()\` in its root step. Only a folder Workflow can wait for a signal: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after the wait would run the code before the wait again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.request-transcript.ts`, and call `signal.wait()` between the steps.",
+    },
     WORKFLOW_ROOT_STEP_SLEEP: {
       why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
       fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.sleep()` between the steps.",
+    },
+    WORKFLOW_SIGNAL_NOT_WAITING: {
+      why: ({ run }: { run: string }) => `[vitehub] No run waits for this signal token. The run ${JSON.stringify(run)} has not reached \`signal.wait()\` yet, it got the signal already, or it ended.`,
+      fix: "Retry later when the run can still be before its `signal.wait()`, for example by answering a webhook with a 5xx status so the sender retries. Check the run with `getWorkflowRun()`. An inline run in `vite dev` waits in memory, so a restart of the dev server loses it.",
+      data: ({ run }: { run: string }): { run: string } => ({ run }),
+    },
+    WORKFLOW_SIGNAL_TIMEOUT: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} waited one year for a signal, and no \`resumeWorkflow()\` call sent it.`,
+      fix: "Call `resumeWorkflow(signal.token, value)` within one year. To stop waiting sooner, cancel the run with `cancelWorkflow()`.",
+    },
+    WORKFLOW_SIGNAL_TOKEN_INVALID: {
+      why: ({ provider }: { provider: string }) => `[vitehub] \`resumeWorkflow()\` got a token that \`context.createSignal()\` did not make for the ${provider} Workflow provider of this app.`,
+      fix: "Pass the `token` of `context.createSignal()` from a run of this app, as it is. A token from another provider, such as an inline run in `vite dev`, does not resume a deployed run.",
+      data: ({ provider }: { provider: string }): { provider: string } => ({ provider }),
+    },
+    WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.createSignal()\`. Signals do not work on Vercel yet.`,
+      fix: "Run the Workflow on Cloudflare or OpenWorkflow to wait for a signal. On Vercel, a `native` entry can wait with `defineHook()` from the Workflow DevKit, and `resumeWorkflow()` resumes its hook token.",
     },
     WORKFLOW_SLEEP_DURATION_INVALID: {
       why: ({ name, value }: { name: string, value: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep(${value})\`. A sleep takes a duration such as \`'30 seconds'\` or \`'1 day'\`, a number of milliseconds that is 0 or more, or a valid \`Date\`.`,

@@ -16,7 +16,7 @@ beforeEach(() => {
   // The same shape that the generated registry gives a folder Workflow with two step files.
   setWorkflowRuntimeRegistry({
     "onboard-user": async () => ({
-      handler: async (payload: unknown, context: Parameters<typeof createWorkflowSteps>[0]) => {
+      handler: async (context: Parameters<typeof createWorkflowSteps>[0] & { payload: unknown }) => {
         const steps = createWorkflowSteps(context, [
           {
             name: "01.create-user.ts",
@@ -27,11 +27,11 @@ beforeEach(() => {
           },
           { name: "02.send-welcome.ts", run: input => ({ sent: true, userId: (input as { id: string }).id }) },
         ])
-        let value = payload
+        let value = context.payload
         for (const step of Object.values(steps)) value = await step(value)
         return value
       },
-      options: { rootStep: false },
+      rootStep: false,
     }),
   })
 })

@@ -13,7 +13,7 @@ icon: i-lucide-code-2
 | `vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
 | `vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
 | `@vite-hub/docs/navigation` | Only the navigation helpers. `vite-hub/docs` exports them too. |
-| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
+| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. `checkDocsLinks()` runs the built-HTML link check on an output folder. |
 | `vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
 
 Each `vite-hub/docs/*` path re-exports the same path of `@vite-hub/docs`. A site without `vite-hub` imports `@vite-hub/docs/*`, as [Use without ViteHub](/docs/docs-site#use-without-vitehub) shows.
@@ -26,7 +26,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | --- | --- | --- | --- |
 | `dir` | `string` | `'content'` | Folder of Markdown pages, relative to the app root. |
 | `sources` | `Array<string \| Source \| { source, mount?, exclude?, frontmatter? }>` | None | Pages from more than one place, in place of `dir`: folders relative to the app root, or Sources such as `glob()` and `github()` from `vite-hub/source`. See [Pages from other places](/docs/docs-site/configure#pages-from-other-places). |
-| `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. |
+| `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. With `sources`, the default is always `'/docs'`. If all pages are outside the default base, setup warns with [`DOCS_BASE_EMPTY`](/docs/docs-site/diagnostics/docs_base_empty). Set `base: '/docs'` to keep them standalone without the warning. |
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
 | `site.description` | `string` | `''` | llms.txt description. |
@@ -44,8 +44,8 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
 | `llms` | `{ details?, sections? }` | None | More text for `/llms.txt`: `details` under the site description, and `sections` of links, `[{ title, description?, links }]`, before the page sections. |
-| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes here, the search check reports it, and the build stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
-| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DOCS_SEO_FAILED`](/docs/docs-site/diagnostics/docs_seo_failed), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out of the page checks. Every page must stay below 2 MB of HTML and must not link to a redirect page or to `/mcp`. |
+| `linkChecker` | `false` or `{ excludeLinks?, excludePages?, ignoreFragments?, redirect? }` | On | First, `vitehub content check` checks links in Markdown, including pages that are not prerendered, and reports broken links by file and line. Then `nuxt-link-checker` checks the prerendered pages. Finally, `checkDocsLinks()` checks same-site `href` and `src` targets in the built HTML. A target needs an output file or a known runtime route. Fragments targeting built HTML must match an `id` or `name`, including on other pages. A link with a trailing slash, such as `/docs/kv/`, fails when the page is `/docs/kv`, because the site and static hosts redirect it. The Markdown and built-HTML checks stop the build with [`DOCS_LINKS_BROKEN`](/docs/docs-site/diagnostics/docs_links_broken). |
+| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` reports one hint for each kind of problem, such as [`DOCS_SEO_TITLE_INVALID`](/docs/docs-site/diagnostics/docs_seo_title_invalid), in the build output and in `.vitehub/hints.json`. `"error"` or `true` stops the build with [`DOCS_SEO_FAILED`](/docs/docs-site/diagnostics/docs_seo_failed), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out of the page checks. Every page must stay below 2 MB of HTML and must not link to a redirect page or to `/mcp`. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
@@ -54,6 +54,14 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`: `{ comarkUi, examples, plugins }`. The page route, search, and Console drafts parse with it. See [Configure the parser](/docs/docs-site/configure#configure-the-parser). |
 
 The module also configures the modules it installs: `llms` from `site`, and `agentDiscovery` with the page routes and MCP server card. Your own `llms` and `agentDiscovery` options win.
+
+### Link checker options
+
+`docs.linkChecker.excludeLinks` and the app's top-level `linkChecker.excludeLinks` are combined for all three checks. Use paths or regular expressions for exclusions that apply to all three; glob patterns such as `/assets/*.svg` work in the Markdown and built-HTML checks but not in `nuxt-link-checker`. The other top-level `linkChecker` options affect only `nuxt-link-checker`, which does not fetch remote URLs by default.
+
+Under `docs.linkChecker`, `excludePages`, `ignoreFragments`, and `redirect` apply only to the built-HTML check. `excludePages` skips pages matching paths, globs, or regular expressions. `ignoreFragments` skips fragment validation for target paths where fragments represent app state. If `redirect(url)` returns a destination, links to that URL fail the check.
+
+Separately, when link checking is on, Nitro validates exact redirect rules during initialization, even if no page links to them. Invalid rules stop the build with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken). See [Moved pages](/docs/docs-site/configure#moved-pages) for which targets are allowed.
 
 ## Frontmatter
 
@@ -106,8 +114,8 @@ A `.navigation.yml` in a section folder, validated by `docsSectionSchema`.
 | `/.well-known/skills/index.json`, `/.well-known/skills/<name>/SKILL.md` | `nuxt-agent-discovery` | Agent Skills from the `skills/` folder, if the app has one. |
 | `/mcp` | Content | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
 | `/.well-known/mcp/server-card.json` | `nuxt-agent-discovery` | The MCP server card. Not added with `mcp: false`. |
-| `/api/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
-| `/api/_vitehub/comments/**`, `/_vitehub/page/session` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
+| `/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
+| `/_vitehub/comments/**`, `/_vitehub/page/tools` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
 
 A production build prerenders every page, its page JSON and agent copy, the search index, `/sitemap.xml`, `/sitemap.md`, `/llms.txt`, and `/llms-full.txt`, and follows links between pages.
 

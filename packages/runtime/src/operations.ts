@@ -1,6 +1,6 @@
 /**
  * Define operations that the Console, the CLI, MCP, and Agents call. A Vite plugin contributes them with
- * `vitehub: { operations: [{ module, export }] }`. Read https://vitehub.dev/docs/development/operations.
+ * `vitehub: { operations: [{ module, export }] }`. Read https://vitehub.dev/docs/console/operations.
  */
 export { defineOperation } from "@vite-hub/internal/operation-definition"
 export type {

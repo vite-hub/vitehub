@@ -1,5 +1,6 @@
 import type { TraceEventLogEntry } from "@vite-hub/runtime";
 import type { AgentInvocationView, AgentToolInspection } from "../types.ts";
+import { inputAttachmentsBody, inputAttachmentsObservation, inputAttachmentsTitle } from "./input-attachments.ts";
 import { payloadText } from "./payload-text.ts";
 
 type InvocationActivityKind =
@@ -71,6 +72,8 @@ const truncatedContentLabels: Readonly<Record<string, string>> = {
   content: "Details",
   "error.message": "Error",
   input: "Input",
+  "input.attachments.sent": "Sent attachments",
+  "input.attachments.skipped": "Skipped attachments",
   "input.messages": "Conversation history",
   "input.prompt": "Conversation history",
   "message.content": "Message",
@@ -128,6 +131,17 @@ function messageText(value: unknown): string | undefined {
     return [];
   });
   return parts.length ? parts.join("") : undefined;
+}
+
+/** The header line that ViteHub adds to a chat message for the model, such as its time and author, without brackets. */
+function chatMessageHeader(message: Record<string, unknown> | undefined): string | undefined {
+  if (!Array.isArray(message?.parts)) return;
+  for (const part of message.parts) {
+    const item = record(part);
+    if (item?.type !== "data-chat-message-header") continue;
+    const text = stringAttribute(record(item.data) ?? {}, "modelText");
+    return text?.replace(/^\[(.*)\]$/s, "$1") || undefined;
+  }
 }
 
 function messageRole(value: unknown): InvocationActivity["role"] {
@@ -358,6 +372,17 @@ function activityKey(observation: TraceEventLogEntry, anonymousMessageKey?: stri
   );
 }
 
+/**
+ * Provider Drivers record model reasoning with `message.phase: "reasoning"`. Invocations recorded
+ * before that phase existed stored it as commentary with a `reasoning_text:` or
+ * `reasoning_summary_text:` message id, so those ids still read as reasoning.
+ */
+function isReasoningMessage(attributes: Record<string, unknown>): boolean {
+  if (attributes["message.phase"] === "reasoning") return true;
+  const id = attributes["message.id"];
+  return attributes["message.phase"] === "commentary" && typeof id === "string" && /^reasoning(?:_summary)?_text:/.test(id);
+}
+
 function activityKind(
   observation: TraceEventLogEntry,
   attributes: Record<string, unknown>,
@@ -377,9 +402,8 @@ function activityKind(
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
+  if (isReasoningMessage(attributes) || observation.name.includes(".reasoning.")) return "reasoning";
   if (attributes["message.phase"] === "commentary") return "message";
-  if (attributes["message.phase"] === "reasoning") return "reasoning";
-  if (observation.name.includes(".reasoning.")) return "reasoning";
   if (observation.name.includes(".model.")) return "model";
   if (attributes["message.role"] || attributes["message.content"] || attributes["input.prompt"] || attributes["input.messages"] || attributes["result.text"]) return "message";
   if (observation.name.includes(".invocation.")) return "run";
@@ -433,27 +457,47 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       : Array.isArray(originalAttributes["input.prompt"])
         ? originalAttributes["input.prompt"]
         : undefined;
-    if (Array.isArray(inputMessages)) {
+    const trigger = record(originalAttributes["input.trigger.message"]);
+    const triggerId = trigger && stringAttribute(trigger, "id");
+    const recoveredTrigger = trigger && triggerId && !inputMessages?.some(message => record(message)?.id === triggerId) ? trigger : undefined;
+    const inputs = recoveredTrigger ? [recoveredTrigger, ...(inputMessages ?? [])] : inputMessages;
+    if (inputs) {
       let lastInputKey: string | undefined;
-      inputMessages.forEach((message, index) => {
+      let firstInputKey: string | undefined;
+      inputs.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
+        const id = value ? stringAttribute(value, "id") : undefined;
+        const header = chatMessageHeader(value);
+        firstInputKey ??= key;
         lastInputKey = key;
         groups.set(key, [{
           ...observation,
           attributes: {
             "message.content": body,
+            ...(header ? { "message.header": header } : {}),
             "message.origin": "invocation-input",
-            "message.id": value ? stringAttribute(value, "id") ?? key : key,
+            "message.id": id ?? key,
             "message.role": role,
+            ...(triggerId && id === triggerId ? { "message.trigger": true } : {}),
           },
           name: "agent.input.message",
-          sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
+          sequence: observation.sequence - (inputs.length - index) / (inputs.length + 1),
         }]);
       });
+      const omitted = originalAttributes["input.messages.omitted"];
+      const firstInput = firstInputKey === undefined ? undefined : groups.get(firstInputKey)?.[0];
+      if (firstInput && typeof omitted === "number" && omitted > 0) {
+        firstInput.attributes = {
+          ...firstInput.attributes,
+          ...(recoveredTrigger
+            ? { "input.messages.omittedUnplaced": omitted - 1 }
+            : { "input.messages.omitted": omitted }),
+        };
+      }
       // One note after the history says it was shortened; repeating it on every message adds noise.
       const historyTruncation = truncatedContent(observation) === undefined
         ? { "vitehub.observation.truncated": true }
@@ -463,10 +507,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const lastInput = lastInputKey === undefined ? undefined : groups.get(lastInputKey)?.[0];
       if (lastInput && historyTruncation) lastInput.attributes = { ...lastInput.attributes, ...historyTruncation };
     }
-    const attributes = inputMessages === undefined
+    const attributes = inputs === undefined
       ? originalAttributes
-      : Object.fromEntries(Object.entries(originalAttributes).filter(([key]) => key !== "input.messages" && key !== "input.prompt"));
-    if (inputMessages !== undefined && Object.keys(attributes).length === 0) continue;
+      : Object.fromEntries(Object.entries(originalAttributes).filter(([key]) => key !== "input.messages" && key !== "input.prompt" && key !== "input.messages.omitted"));
+    if (inputs !== undefined && Object.keys(attributes).length === 0) continue;
     const isAnonymousMessage = stringAttribute(attributes, "message.content") !== undefined
       && !attributes["message.id"];
     const messagePhase = stringAttribute(attributes, "message.phase") ?? "message";
@@ -498,7 +542,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (observations.some(cutsContent)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
-      && item.attributes?.["message.phase"] !== "commentary")) continue;
+      && item.attributes?.["message.phase"] !== "commentary"
+      && item.attributes?.["message.phase"] !== "reasoning")) continue;
     const text = observations.map(item => {
       const content = item.attributes?.["message.content"];
       return typeof content === "string" ? content : "";
@@ -527,7 +572,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name))
         || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")))
-        || attributes["agent.capability.outcome"] === "error";
+        || attributes["agent.capability.outcome"] === "error"
+        || attributes["input.steer.outcome"] === "failed";
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -565,7 +611,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
       const draft = {
         attributes,
-        body: patches.join("") || messageBody || activityBody(attributes),
+        body: patches.join("") || messageBody || (first.name === inputAttachmentsObservation ? inputAttachmentsBody(attributes) : activityBody(attributes)),
         command,
         ...(durationMs !== undefined ? { durationMs } : {}),
         ...(endedAt ? { endedAt } : {}),
@@ -656,7 +702,9 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   const explicit = activity.attributes["vitehub.activity.title"];
   if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
+  if (activity.name === "agent.input.steer") return steerTitle(activity);
   if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
+  if (activity.name === inputAttachmentsObservation) return inputAttachmentsTitle(activity.attributes);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
@@ -681,6 +729,13 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "run") return activity.name.endsWith(".finish") ? "Finished session" : "Started session";
   if (activity.kind === "error" && activity.name.startsWith("agent.invocation.")) return "Session failed";
   return normalizedTitle(activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " "));
+}
+
+/** A follow-up chat message that tried to reach this run: `Steer deferred: unsupported`. */
+function steerTitle(activity: InvocationActivity): string {
+  const outcome = stringAttribute(activity.attributes, "input.steer.outcome") ?? "attempted";
+  const reason = stringAttribute(activity.attributes, "input.steer.reason");
+  return `Steer ${outcome}${reason ? `: ${reason}` : ""}`;
 }
 
 function agentConfigurationTitle(activity: InvocationActivity): string {

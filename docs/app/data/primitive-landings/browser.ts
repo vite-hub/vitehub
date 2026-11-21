@@ -17,7 +17,9 @@ export default defineBrowser(async (input: { url: string }, { browser }) => {
 
 // Call from trusted server code after the host generates the Browser registry.
 export async function renderPage() {
-  return await runBrowser("page-html", { url: "https://example.com" })
+  const [error, html] = await runBrowser("page-html", { url: "https://example.com" })
+  if (error) throw error
+  return html
 }`,
   },
 ];

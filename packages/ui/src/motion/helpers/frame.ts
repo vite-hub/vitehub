@@ -18,18 +18,20 @@ export function isOwnNode(node: Node): boolean {
 // A moving letter draws its character with `::before`, so the letters add nothing to `textContent`: the element's text
 // is the hidden copy, the final text, at all times. One rule per document or shadow root.
 const glyphRule = "[data-motion-glyph]::before{content:attr(data-motion-glyph)}";
-const styledRoots = new WeakSet<Node>();
+const glyphStyles = new WeakMap<Node, HTMLStyleElement>();
 
-function addGlyphRule(element: Element): void {
+function hasGlyphRule(element: Element): boolean {
   const root = element.getRootNode();
-  if (styledRoots.has(root)) return;
-  const target = root instanceof ShadowRoot ? root : document.head;
-  if (!target) return;
-  styledRoots.add(root);
-  const style = own(document.createElement("style"));
+  const target = root instanceof ShadowRoot ? root : element.ownerDocument.head;
+  if (!target) return false;
+  const existing = glyphStyles.get(root);
+  if (existing?.parentNode === target) return !!existing.sheet;
+  const style = own(element.ownerDocument.createElement("style"));
   style.dataset.motionGlyphs = "";
   style.textContent = glyphRule;
   target.append(style);
+  glyphStyles.set(root, style);
+  return !!style.sheet;
 }
 
 /** A span that draws one character, or a run of them, without adding to `textContent`. */
@@ -43,6 +45,10 @@ export function glyphNode(text: string): HTMLSpanElement {
 /** True when the helpers must set the change at once: no layout, or `data-motion="none"`. */
 export function motionSkipped(element: Element): boolean {
   return !element.isConnected || typeof requestAnimationFrame !== "function" || isMotionOff(element);
+}
+
+export function glyphMotionSkipped(element: HTMLElement): boolean {
+  return motionSkipped(element) || !element.getClientRects().length || !hasGlyphRule(element);
 }
 
 export function reduced(): boolean {
@@ -74,6 +80,7 @@ export interface GlyphFrame {
   restore(): void;
   /** Puts plain text back and the inline styles of the app. */
   collapse(text: string): void;
+  discard(): void;
 }
 
 const frames = new WeakMap<HTMLElement, GlyphFrame>();
@@ -96,7 +103,6 @@ export function openFrame(element: HTMLElement, layout: "inline" | "end", onWidt
   element.style.boxSizing = "border-box";
   // A label that truncates clips its blur. The letters fit when the morph ends.
   element.style.overflow = "visible";
-  addGlyphRule(element);
   const copy = own(document.createElement("span"));
   copy.dataset.motionCopy = "";
   copy.style.cssText = "position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0";
@@ -126,14 +132,20 @@ export function openFrame(element: HTMLElement, layout: "inline" | "end", onWidt
       const current = element.style.width;
       element.style.width = "max-content";
       const style = getComputedStyle(element);
-      const value = Number.parseFloat(style.width);
+      const computedWidth = Number.parseFloat(style.width);
+      const value = Number.isFinite(computedWidth) ? computedWidth : element.offsetWidth;
       element.style.width = current;
       return value;
     },
     collapse(text) {
+      frame.discard();
+      element.replaceChildren(own(document.createTextNode(text)));
+    },
+    discard() {
       width.stop();
       frames.delete(element);
-      element.replaceChildren(own(document.createTextNode(text)));
+      copy.remove();
+      holder.remove();
       for (const [property, value, priority] of saved) {
         if (value) element.style.setProperty(property, value, priority);
         else element.style.removeProperty(property);

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ring, ringing } from "../src/motion/helpers/ring.ts";
 import { createHoldToDelete, type HoldToDeleteOptions } from "../src/motion/hold-to-delete.ts";
 import { createMotionList } from "../src/motion/list.ts";
 import { forceReducedMotion } from "../src/motion/reduced-motion.ts";
@@ -69,6 +70,20 @@ function list(count: number): { container: HTMLElement; items: HTMLElement[] } {
   document.body.append(container);
   return { container, items };
 }
+
+it("cleans up a running ring when reduced motion turns on", () => {
+  const button = document.createElement("button");
+  button.style.boxShadow = "0 0 1px black";
+  document.body.append(button);
+  const shadow = button.style.boxShadow;
+  ring(button);
+  tick(3);
+  expect(ringing(button)).toBe(true);
+  forceReducedMotion(true);
+  tick();
+  expect(ringing(button)).toBe(false);
+  expect(button.style.boxShadow).toBe(shadow);
+});
 
 describe("createMotionList", () => {
   it("starts a moved item where it was, then springs it to its new place and clears what it wrote", () => {
@@ -202,6 +217,54 @@ describe("createMotionList", () => {
     expect(items[2]!.style.translate).toBe("");
   });
 
+  it("keeps an entering duplicate in place across another layout change", () => {
+    const { container, items } = list(2);
+    const motion = createMotionList(container);
+    const copy = document.createElement("li");
+    motion.measure();
+    place(copy, { x: 0, y: 80 });
+    container.append(copy);
+    motion.play({ origin: items[0] });
+    tick(4);
+
+    const before = copy.getBoundingClientRect().top;
+    motion.measure();
+    place(copy, { x: 0, y: 120 });
+    motion.play();
+    expect(copy.getBoundingClientRect().top).toBeCloseTo(before, 1);
+    motion.destroy();
+  });
+
+  it("settles a targeted exit when reduced motion turns on", async () => {
+    const { container, items } = list(2);
+    const motion = createMotionList(container);
+    motion.measure();
+    items[0]!.remove();
+    motion.play({ target: items[1] });
+    tick(3);
+    expect(container.querySelector("[data-motion-ghost]")).not.toBeNull();
+    forceReducedMotion(true);
+    tick();
+    await Promise.resolve();
+    expect(container.querySelector("[data-motion-ghost]")).toBeNull();
+    motion.destroy();
+  });
+
+  it("does not submit inputs from a removed row's copy", () => {
+    const { container, items } = list(1);
+    const form = document.createElement("form");
+    document.body.append(form);
+    form.append(container);
+    items[0]!.innerHTML = '<input name="authors" value="Ada">';
+    const motion = createMotionList(container);
+    motion.measure();
+    items[0]!.remove();
+    motion.play();
+    expect(container.querySelector("[data-motion-ghost]")).not.toBeNull();
+    expect(new FormData(form).has("authors")).toBe(false);
+    motion.destroy();
+  });
+
   it("does not move items that are off screen before and after the change", () => {
     const { container, items } = list(2);
     place(items[0]!, { x: 0, y: 2000 });
@@ -267,6 +330,51 @@ describe("createHoldToDelete", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     forceReducedMotion(true);
+  });
+
+  it("cancels a keyboard hold on blur", () => {
+    const { button, events, hold } = setup();
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    tick(10);
+    button.blur();
+    tick(80);
+    expect(events).toEqual([]);
+    expect(hold.state).toBe("idle");
+    hold.destroy();
+  });
+
+  it("ignores confirmation that resolves after destroy", async () => {
+    const confirmation = Promise.withResolvers<boolean>();
+    const { button, events, hold } = setup({ confirm: () => confirmation.promise });
+    button.click();
+    hold.destroy();
+    confirmation.resolve(true);
+    await confirmation.promise;
+    expect(events).toEqual([]);
+  });
+
+  it("keeps the exit copy out of its form and offers Undo if reduced motion turns on", async () => {
+    forceReducedMotion(false);
+    const form = document.createElement("form");
+    form.id = "authors-form";
+    const input = document.createElement("input");
+    input.setAttribute("form", form.id);
+    input.name = "authors";
+    input.value = "Ada";
+    document.body.append(form, input);
+    const { button, hold, press } = setup({ item: () => input, onDelete: () => input.remove() });
+    press();
+    tick(75);
+    expect(hold.state).toBe("leaving");
+    expect(document.querySelector("input[aria-hidden=true]")).not.toBeNull();
+    expect(new FormData(form).has("authors")).toBe(false);
+    forceReducedMotion(true);
+    await Promise.resolve();
+    expect(document.querySelector("input[aria-hidden=true]")).toBeNull();
+    expect(hold.state).toBe("undo");
+    expect(button.textContent).toBe("Undo");
+    hold.destroy();
   });
 
   it("commits once, after the Undo window", async () => {

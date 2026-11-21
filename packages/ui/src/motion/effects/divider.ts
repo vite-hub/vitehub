@@ -12,6 +12,8 @@ const reach = 60;
 const inset = 40;
 
 const svgNamespace = "http://www.w3.org/2000/svg";
+export const rekaHandleSelector = "[role=separator][data-panel-resize-handle-id]";
+export const rekaDragAttribute = "data-resize-handle-active";
 
 type Axis = "x" | "y";
 
@@ -132,6 +134,7 @@ export const divider: MotionEffect = {
   selector: "[role=separator]",
   press(handle, event) {
     if (!(event instanceof PointerEvent) || !draggable(handle)) return;
+    if (handle.matches(rekaHandleSelector) && handle.getAttribute(rekaDragAttribute) !== "pointer") return;
     const rect = handle.getBoundingClientRect();
     const axis = axisOf(handle, rect);
     const along = (pointer: PointerEvent) => axis === "x" ? pointer.clientX : pointer.clientY;

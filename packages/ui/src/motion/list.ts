@@ -1,4 +1,5 @@
 import { cubicBezier, playTween } from "./helpers/tween.ts";
+import { visualCopy } from "./helpers/visual-copy.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
 import { writeMotionStyle } from "./registry.ts";
@@ -154,12 +155,8 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
     if (!onScreen(before)) return;
     const box = container.getBoundingClientRect();
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
-    // SAFETY: cloneNode of an HTMLElement returns an HTMLElement.
-    const ghost = element.cloneNode(true) as HTMLElement;
+    const ghost = visualCopy(element);
     ghost.setAttribute(ghostAttribute, "");
-    ghost.setAttribute("aria-hidden", "true");
-    ghost.inert = true;
-    ghost.removeAttribute("id");
     Object.assign(ghost.style, {
       boxSizing: "border-box",
       height: `${before.height}px`,
@@ -252,15 +249,13 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
         if (off) return stopItem(element);
         const old = before.get(element);
         if (old) {
-          // From where the item is now: its old place and the motion it still has.
-          const shift = offset(motions.get(element));
-          const dx = old.x + shift.x - layout.x;
-          const dy = old.y + shift.y - layout.y;
+          const dx = old.x - layout.x;
+          const dy = old.y - layout.y;
           if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
           if (!onScreen(old.rect) && !onScreen(rect)) return stopItem(element);
           const motion = motionOf(element);
-          travel(motion.x, dx);
-          travel(motion.y, dy);
+          travel(motion.x, motion.x.value + dx);
+          travel(motion.y, motion.y.value + dy);
           return;
         }
         if (!onScreen(rect) || options.movesOnly) return;

@@ -1,5 +1,5 @@
 {
-  // The page tools loader and the page pill run in the browser. The DOM types conflict with the Node stream types of the other sources.
+  // The page tools loader, the page pill, and the browser environment of client stores run in the browser. The DOM types conflict with the Node stream types of the other sources.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
@@ -7,6 +7,6 @@
     // The page pill takes the motion layer from the `@vite-hub/ui` sources, as the build does (see vite.config.ts).
     "paths": { "@vite-hub/ui/motion/core": ["../ui/src/motion-core.ts"] }
   },
-  "include": ["src/runtime/page-account.ts", "src/runtime/page-pill.ts", "src/runtime/page-tools-loader.ts"],
+  "include": ["src/browser-environment.ts", "src/runtime/page-account.ts", "src/runtime/page-pill.ts", "src/runtime/page-tools-loader.ts"],
   "exclude": ["dist", "node_modules"]
 }

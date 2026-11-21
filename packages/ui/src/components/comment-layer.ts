@@ -2,9 +2,12 @@ import type { AnchorPoint, CommentsClient, ResolvedAnchor, CommentSubject, Comme
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUpdated, type PropType, reactive, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { useCommentAttachments } from "../internal/comment-attachments.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
+import { commentThreadKey } from "../internal/comment-selection.ts";
+import { commentTitle, deliveryAttributes } from "../internal/comment-status.ts";
 import { createMotionList, type MotionList } from "../motion/list.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
@@ -88,8 +91,10 @@ export const CommentLayer = defineComponent({
     navigate: { type: Function as PropType<(href: string) => void> },
     /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
     can: { type: Function as PropType<CommentCan> },
-    /** Turns attached files into attachment keys. Without it the boxes take no files. */
+    /** Turns attached files into attachment keys before the comment is saved or sent. */
     upload: { type: Function as PropType<CommentUpload> },
+    /** Save raw files with outbox entries. Set only when the server accepts file uploads. `upload` takes precedence. */
+    queueFiles: { default: false, type: Boolean },
     /** The file types that the boxes take, such as `image/*`. */
     accept: { type: String },
     /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
@@ -137,8 +142,7 @@ export const CommentLayer = defineComponent({
     watch(() => state.draft.value, (next, previous) => {
       if (next !== previous) draftFiles.value = next?.files ? [...next.files] : [];
     });
-    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
-    const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
+    const { enabled: attachmentsOn, prepare } = useCommentAttachments(state, props);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => state.threads.value.filter(thread =>
@@ -198,13 +202,13 @@ export const CommentLayer = defineComponent({
     // Opening a thread moves the focus into it. Closing it gives the focus back to its pin, unless the reader already went elsewhere.
     let returnTo: string | null = null;
     let restoring = false;
+    watch(() => state.opened.value && commentThreadKey(state.opened.value), key => {
+      if (key) void nextTick(() => layer.value?.querySelector<HTMLElement>("[data-slot='comment-thread']:not([data-preview])")?.focus());
+    });
     watch(
       () => state.openId.value,
       (id, previous) => {
-        if (id) {
-          void nextTick(() => layer.value?.querySelector<HTMLElement>("[data-slot='comment-thread']:not([data-preview])")?.focus());
-          return;
-        }
+        if (id) return;
         returnTo = null;
         const active = uiRoot().activeElement;
         const thread = layer.value?.querySelector("[data-slot='comment-thread']:not([data-preview])");
@@ -384,11 +388,11 @@ export const CommentLayer = defineComponent({
           const body = draft.body;
           const mentions = draft.mentions;
           try {
-            const attachments = await keys(submit.files);
+            const { attachments, files } = await prepare(submit.files);
             // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
             if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
             draft.attachments = attachments;
-            if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
+            if (await state.send({ files }) && draftFiles.value === submitted) draftFiles.value = [];
           } catch (error) {
             draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
           } finally {
@@ -405,12 +409,16 @@ export const CommentLayer = defineComponent({
       });
 
     // Margin placement: the width of the screen decides whether there is room for it.
-    const screenWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
+    // The server has no screen, so the first render matches it and the width is read once mounted.
+    const screenWidth = ref(0);
     const onResize = () => {
       screenWidth.value = window.innerWidth;
       measureDraft();
     };
-    onMounted(() => window.addEventListener("resize", onResize, { passive: true }));
+    onMounted(() => {
+      screenWidth.value = window.innerWidth;
+      window.addEventListener("resize", onResize, { passive: true });
+    });
     onBeforeUnmount(() => window.removeEventListener("resize", onResize));
     const inMargin = computed(() => props.placement === "margin" && screenWidth.value >= marginMinWidth);
     // Each card in the margin is measured, so the cards under it move down when it grows, such as when it opens.
@@ -435,6 +443,8 @@ export const CommentLayer = defineComponent({
       } else cards.delete(key);
     };
 
+    // The `status` slot goes to every thread, for comments that wait in the outbox.
+    const statusSlot = () => (slots.status ? { status: slots.status } : undefined);
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
@@ -442,7 +452,7 @@ export const CommentLayer = defineComponent({
         attachmentUrl: props.attachmentUrl,
         attachments: attachmentsOn.value,
         can: props.can,
-        key: thread.id,
+        key: commentThreadKey(thread),
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
         size: props.size,
@@ -450,7 +460,10 @@ export const CommentLayer = defineComponent({
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
         onReopen: () => state.reopen(thread.id),
-        onReply: async (body: string, mentions: string[], files: File[]) => state.reply(thread.id, body, mentions, await keys(files)),
+        onReply: async (body: string, mentions: string[], list: File[]) => {
+          const { attachments, files } = await prepare(list);
+          return state.reply(thread.id, body, mentions, attachments, files);
+        },
         // Resolving puts the thread away, as in Figma.
         onResolve: async () => {
           await state.resolve(thread.id);
@@ -458,7 +471,7 @@ export const CommentLayer = defineComponent({
         },
         thread,
         user: user.value,
-      });
+      }, statusSlot());
 
     // The margin: where each card goes, level with its pin and below the card above it. The open thread and the new
     // comment's box take their place in the column too, but stay inside the screen, so their reply box is never below it.
@@ -496,10 +509,11 @@ export const CommentLayer = defineComponent({
         return [h(
           "button",
           {
-            "aria-label": `Comment ${thread.n}: ${excerpt(thread.messages[0]?.body ?? "")}`,
+            "aria-label": `${commentTitle(thread)}: ${excerpt(thread.messages[0]?.body ?? "")}`,
             "data-margin-key": entry.key,
             "data-slot": "comment-margin-card",
             "data-status": thread.status,
+            ...deliveryAttributes(thread.delivery),
             key: entry.key,
             onClick: () => state.open(thread),
             onPointerenter: () => {
@@ -561,7 +575,8 @@ export const CommentLayer = defineComponent({
                 "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
-                n: thread.n,
+                // A comment in the outbox has no number yet, as a draft.
+                ...(thread.n ? { n: thread.n } : {}),
                 onHover: () => {
                   if (!open && !restoring && !state.draft.value) state.hoverId.value = thread.id;
                 },
@@ -572,7 +587,7 @@ export const CommentLayer = defineComponent({
                 status: thread.status,
               }),
               hover
-                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, size: props.size, thread }))
+                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, size: props.size, thread }, statusSlot()))
                 : null,
             ],
           ),

@@ -74,7 +74,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
-- A thread opens in a small card, as in Drop: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
+- A thread opens in a small card: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
 - The card opens under its pin and to the right. Near the right edge it opens to the left, and near the bottom it opens above the pin. The browser picks the side from the card's real size with [CSS anchor positioning](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_anchor_positioning). A browser without it guesses from a 360 by 420 px card.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
@@ -99,7 +99,7 @@ CommentPanel
 └── CommentComposer (a comment on the whole page)
 ```
 
-Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
+Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-selection-bar`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Build your own layout
 
@@ -273,7 +273,9 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `v-model:files` lets the parent clear the files after a send.
 - In the box, the pictures sit in one stack beside the text, with their count. Hover, focus, or a tap fans them out above the box, where each one opens full size and has a round Remove button. A new picture comes out of the text for a paste, the box for a drop, and the attach button for a pick. Other files show their name.
 
-`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
+`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` accept an `upload` function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`, even when the client has an outbox.
+
+If the server accepts raw file uploads, set `queue-files` on the layer or panel with a client [outbox](/docs/comments/offline). The outbox saves the files with the comment and the transport uploads them when it sends. An `upload` callback takes precedence if both are set. The outbox alone does not enable file controls.
 
 Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
@@ -300,6 +302,31 @@ const uploads = new Map<string, File>();
 const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: uploads.get(key)?.name, type: uploads.get(key)?.type });
 ```
 
+## Waiting and refused comments
+
+With the [outbox](/docs/comments/offline) of `createCommentsClient()`, a new comment or reply shows at once, before the server has it, and its box empties as soon as it is saved. Until the server answers, the thread has `data-pending="true"`, or `data-failed="true"` when the server refused it, and so does each message that waits. A waiting thread has no number yet, so its title is "Comment".
+
+The parts draw no words for it. The `status` slot renders below each waiting message, with what the reader can do:
+
+```vue
+<template>
+  <CommentLayer :client="client" :subject="{ kind: 'page', id: '/pricing' }">
+    <template #status="{ delivery, retry, dismiss }">
+      <p v-if="delivery.status === 'failed'">
+        {{ delivery.error?.why }}
+        <button v-if="retry" @click="retry()">Retry</button>
+        <button v-if="dismiss" @click="dismiss()">Discard</button>
+      </p>
+      <p v-else class="text-muted">Waiting to send</p>
+    </template>
+  </CommentLayer>
+</template>
+```
+
+In read-only threads and previews, the slot receives the delivery state but no actions. In a writable thread, `retry` and `edit` require edit permission and `dismiss` requires delete permission for that message.
+
+`comments.outbox` holds the same in code: `queued` and `failures` (computed lists of entries), `delivery(threadId, messageId?)`, and `retry`, `dismiss`, and `edit`.
+
 ## Slots
 
 | Part | Slot | Scope | Where it renders |
@@ -309,13 +336,15 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: upload
 | `CommentThread` | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `CommentReply` | `body` | `{ message }` | Instead of the Markdown body. |
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
+| `CommentReply` | `status` | `{ message, delivery, retry, dismiss, edit }` | Below a message that waits in the outbox. Nothing renders without it. |
 | `CommentComposer` | `extra` | | Above the text field, such as a suggested-change field. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
 | `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
+| `CommentLayer` | `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each thread and hover card. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
 
-`CommentThread` passes `body`, `attachments`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
+`CommentThread` passes `body`, `attachments`, `status`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 
 ::example{name="CommentThreadSlotsExample" height=8}
 ::
@@ -406,6 +435,18 @@ A thread passes its size on to its messages, its reply box, and its edit box. Fo
 
 `data-size` is on `comment-thread`, `comment-reply`, and `comment-composer`, so a stylesheet can change one size only.
 
+## Selected text
+
+`CommentSelectionBar` is the bar that shows over selected text, as in Drop and the ViteHub pill. It has a Comment button, and a Suggest button with `suggest`. Your page places it, listens for `C` and `E`, and starts the comment. A press on the bar keeps the selection on the page.
+
+```vue
+<template>
+  <div v-if="selection" class="fixed -translate-x-1/2 -translate-y-full" :style="{ left: `${selection.x}px`, top: `${selection.y - 8}px` }">
+    <CommentSelectionBar suggest @comment="commentOnSelection()" @suggest="commentOnSelection(true)" />
+  </div>
+</template>
+```
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -422,6 +463,7 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
+- The bar over selected text is a `group` named "Selected text". Its buttons have `aria-keyshortcuts`, `C` for Comment and `E` for Suggest.
 - Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
 - A pin that stops showing is `inert` during its pop-out.
 
@@ -445,11 +487,12 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | | The page URL of a subject, for links of non-page threads. |
 | `can` | `(action, { thread, message }) => boolean` | | What the user may do in a thread. Defaults to the state's `can`. See [Permissions](#permissions). |
 | `navigate` | `(href: string) => void` | | Opens the page of a listed thread. Defaults to `location.assign`. |
-| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
+| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Takes precedence over `queueFiles`. |
+| `queueFiles` | `boolean` | `false` | With an outbox, saves raw files with the comment for later upload. Set only if the server accepts file uploads. |
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
-| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards and of the box for a new comment. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
+| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards and of the box for a new comment. `"sm"` is the small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
 
 ### CommentPin
 
@@ -473,6 +516,24 @@ Renders a `button` with `data-slot="comment-pin"`, with the author's avatar and 
 | `select` | The pin was clicked. |
 | `hover` | The pointer or the focus came to the pin. |
 | `leave` | The pointer or the focus left the pin. |
+
+### CommentSelectionBar
+
+The bar over selected text. Renders a `div` with `data-slot="comment-selection-bar"`. Each button has `data-slot="comment-selection-bar-action"` and `data-action="comment"` or `data-action="suggest"`. Inside Nuxt UI's `UApp`, each button has a tooltip with its key. Elsewhere the button has a `title`.
+
+#### Props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `suggest` | `boolean` | `false` | Show the Suggest button. |
+| `side` | `"top" \| "bottom"` | `"top"` | The side of the text that the bar is on. The bar grows from that side. |
+
+#### Events
+
+| Event | Description |
+| --- | --- |
+| `comment` | Comment was clicked. |
+| `suggest` | Suggest was clicked. |
 
 ### CommentThread
 
@@ -522,6 +583,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 | `anchor` | `{ thread }` | What the thread is about. Replaces the selected-text quote. |
 | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `body`, `attachments` | `{ message }` | Passed on to each `CommentReply`. |
+| `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each `CommentReply`. |
 | `extra`, `mention-item`, `mention-empty` | | Passed on to the reply box. |
 
 ### CommentReply
@@ -553,6 +615,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | --- | --- | --- |
 | `body` | `{ message }` | Replaces the Markdown body. |
 | `attachments` | `{ message }` | Replaces the default attachment list. |
+| `status` | `{ message, delivery, retry, dismiss, edit }` | Below the message while it waits in the outbox. `delivery` has `status` (`pending` or `failed`) and `error`. |
 | `mention-item` | `{ person, active }` | Passed on to the edit box. |
 | `mention-empty` | `{ query, failed }` | Passed on to the edit box. |
 
@@ -624,7 +687,8 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 | `title` | `string` | `"Comments"` | The heading of the list. |
 | `readOnly` | `boolean` | `false` | Hide the page box and all reply, edit, delete, and status controls. |
 | `can` | `(action, { thread, message }) => boolean` | | What the user may do in a thread. Defaults to the state's `can`. |
-| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Without it, boxes take no files. |
+| `upload` | `(files: File[]) => Promise<string[]>` | | Stores files and returns their keys. Takes precedence over `queueFiles`. |
+| `queueFiles` | `boolean` | `false` | With an outbox, saves raw files with the comment for later upload. Set only if the server accepts file uploads. |
 | `accept` | `string` | | File types the boxes take. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `allowEmpty` | `boolean` | `false` | Allow a new page comment with files and no text. |

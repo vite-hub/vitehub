@@ -1,4 +1,5 @@
-import { getCapability, resolveRuntimeValue } from "@vite-hub/runtime"
+import { getCapability } from "@vite-hub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 
 import { agentInvocationId } from "../invocations.ts"
 import { defineCapability } from "../capability-runtime.ts"

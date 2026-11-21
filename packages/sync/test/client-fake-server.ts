@@ -2,6 +2,8 @@
 // entries for rows that leave a scope, list values in `where`, subsets, a ledger of mutation ids, 409 for another
 // account, table versions and defaults, actions with results, resets below the compaction floor, and live streams of
 // several stores at `syncLiveRoute`.
+import { createHash } from "node:crypto"
+
 import { syncLiveRoute, syncRoute } from "../src/protocol.ts"
 
 import type { SyncKey, SyncLivePull, SyncLiveRequest, SyncMutation, SyncMutationResult, SyncPullResponse, SyncPushRequest, SyncRow, SyncScope, SyncValues, SyncWireError } from "../src/protocol.ts"
@@ -21,6 +23,7 @@ export interface FakeActionContext {
 export interface FakeSyncServer {
   /** The signed-in user, as the cookie would tell. `null` is a visitor without a session. */
   user: string | null
+  authUser?: string | null
   /** The `where` of the definition for a user. Default: `{ ownerId: user }`. */
   where: (user: string) => SyncValues
   /** The fingerprint of the table. A client with another one gets a reset. */
@@ -39,6 +42,12 @@ export interface FakeSyncServer {
   refuse: ((mutation: SyncMutation) => SyncWireError | undefined) | undefined
   /** The most changes in one pull. */
   pageSize: number
+  /** The most mutations that one push applies, as a server that stops at its call budget. The answer has their results only. */
+  pushSize: number
+  /** The most rows in one page of a paged snapshot. */
+  snapshotPageSize: number
+  /** `false` ignores `paged` and `after`, as a server without paged snapshots. */
+  paging: boolean
   readonly rows: Map<SyncKey, SyncRow>
   /** Every request that reached the server, in order. */
   readonly requests: { method: string, url: URL, body?: SyncPushRequest, live?: SyncLiveRequest }[]
@@ -58,7 +67,7 @@ export interface FakeSyncServer {
 }
 
 export function accountOf(user: string): string {
-  return `account-${user}`
+  return createHash("sha256").update(`account\n${user}`).digest("hex").slice(0, 32)
 }
 
 /** The scope id of resolved values. */
@@ -103,6 +112,9 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     failWith: undefined,
     refuse: undefined,
     pageSize: 500,
+    pushSize: Number.POSITIVE_INFINITY,
+    snapshotPageSize: 500,
+    paging: true,
     rows,
     requests: [],
     applied: [],
@@ -146,12 +158,16 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       if (init?.method !== "POST") {
         const query = url.searchParams
         const cursor = query.has("cursor") ? Number(query.get("cursor")) : undefined
-        return json(pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined))
+        const answer = pull(scope, account, cursor, query.get("scope") ?? undefined, query.get("version") ?? undefined, query.get("paged") === "1", query.get("after") ?? undefined)
+        if (query.get("claim") === "1" && server.authUser !== undefined) {
+          answer.authAccount = server.authUser === null ? null : accountOf(server.authUser)
+        }
+        return json(answer)
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
       if (body.account !== account) return error(409, { code: "SYNC_ACCOUNT_CHANGED", message: "The writes were made for another account." })
-      const results = body.mutations.map(mutation => apply(mutation, scope.values, user))
-      const answer = json({ results, pull: pull(scope, account, body.cursor, body.scope, body.version) })
+      const results = body.mutations.slice(0, server.pushSize).map(mutation => apply(mutation, scope.values, user))
+      const answer = json({ results, pull: pull(scope, account, body.cursor, body.scope, body.version, body.paged === true, body.after) })
       if (server.loseNextResponse) {
         server.loseNextResponse = false
         throw new TypeError("Failed to fetch")
@@ -172,11 +188,20 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     return { id: scopeIdOf({ name, ...values }), values }
   }
 
-  function pull(scope: SyncScope, account: string, cursor: number | undefined, scopeId: string | undefined, version: string | undefined): SyncPullResponse {
+  function pull(scope: SyncScope, account: string, cursor: number | undefined, scopeId: string | undefined, version: string | undefined, paged = false, after?: SyncKey): SyncPullResponse {
     const base = { key: "id", scope, account, version: server.version, defaults: server.defaults }
-    if (cursor === undefined || scopeId !== scope.id || version !== server.version || cursor < floor) {
+    paged = paged && server.paging
+    const reset = cursor === undefined || scopeId !== scope.id || version !== server.version || cursor < floor
+    if (reset && !paged) {
       return { ...base, cursor: seq, reset: true, rows: [...rows.values()].filter(row => matches(row, scope.values)), deleted: [], more: false }
     }
+    if (paged && (reset || after !== undefined)) {
+      const sorted = [...rows.values()].filter(row => matches(row, scope.values) && (reset || String(row.id) > after!)).sort((a, b) => String(a.id) < String(b.id) ? -1 : 1)
+      const page = sorted.slice(0, server.snapshotPageSize)
+      const next = sorted.length > page.length ? String(page.at(-1)!.id) : null
+      return { ...base, cursor: reset ? seq : cursor!, reset, rows: page, deleted: [], more: next !== null || (!reset && seq > cursor!), after: next }
+    }
+    cursor = cursor!
     const later = log.filter(change => change.seq > cursor)
     const page = later.slice(0, server.pageSize)
     const changed = new Map<SyncKey, SyncRow>()
@@ -196,14 +221,14 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     const format = (type: string, data: object) => encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`)
     const user = server.user
     const refusals: Uint8Array[] = []
-    const entries: { store: { name: string, where?: SyncValues }, scope: SyncScope, account: string, at?: number | undefined, held?: string | undefined, heldVersion?: string | undefined }[] = []
+    const entries: { store: { name: string, where?: SyncValues }, scope: SyncScope, account: string, at?: number | undefined, held?: string | undefined, heldVersion?: string | undefined, paged?: boolean }[] = []
     for (const item of pulls) {
       const store = { name: item.name, ...(item.where ? { where: item.where } : {}) }
       const scope = !user ? { code: "SYNC_UNAUTHORIZED" as const, message: "Sign in to sync." }
         : item.name !== name || !server.live ? { code: "SYNC_BAD_REQUEST" as const, message: "This Sync definition has no live stream." }
           : resolve(server.where(user), item.where)
       if ("code" in scope) refusals.push(format("error", { ...store, error: scope }))
-      else entries.push({ store, scope, account: accountOf(user!), at: item.cursor, held: item.scope, heldVersion: item.version })
+      else entries.push({ store, scope, account: accountOf(user!), at: item.cursor, held: item.scope, heldVersion: item.version, paged: item.paged === true })
     }
     let closed = false
     let woken = false
@@ -216,7 +241,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
           if (closed) return
           for (const entry of entries) {
             if (entry.at !== undefined && entry.at >= seq && entry.held === entry.scope.id && entry.heldVersion === server.version) continue
-            const next = pull(entry.scope, entry.account, entry.at, entry.held, entry.heldVersion)
+            const next = pull(entry.scope, entry.account, entry.at, entry.held, entry.heldVersion, entry.paged)
             entry.at = next.cursor
             entry.held = next.scope.id
             entry.heldVersion = next.version

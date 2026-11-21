@@ -16,11 +16,12 @@ import { createHash, randomUUID } from "node:crypto"
 import { forgeEnv, forgeErrorStatus } from "@vite-hub/internal/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { invariant } from "@vite-hub/internal/invariant"
-import type { Forge, ForgeKind, ForgeProvider } from "@vite-hub/forge"
+import type { Forge, ForgeProvider } from "@vite-hub/forge"
+import type { ForgeKind } from "./internal/forge-kind.ts"
 import { loadForge } from "./internal/forge-module.ts"
 import { agentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
+import { channelDeliveryFinishEffectsContextKey, defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import { isResponse } from "./internal/response.ts"
@@ -75,7 +76,7 @@ import type {
   AgentTriggerRunInvokeResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
-  AgentWebhookSecretToken,
+  AgentWebhookSecret,
   MaybePromise,
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
@@ -121,7 +122,11 @@ import {
 import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, parseDuration, resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl, encodeRouteSegment } from "@vite-hub/runtime/internal/console"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
+import type { Duration } from "@vite-hub/runtime"
+import { serverVariable } from "./internal/server-variable.ts"
 import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -129,6 +134,12 @@ import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { ChannelAdapter, ChannelDefinition, ChannelEvent, ChannelHandler, WebhookChannelAdapter } from "@vite-hub/channels"
+// The answers need no Agent, so `vite-hub/channels` exports them. Agent code reads the same ones.
+import { ignored } from "@vite-hub/channels"
+export { ignored, rejected, retryLater } from "@vite-hub/channels"
+// `vite-hub/channels/adapters` re-exports this entry, so it holds every adapter, also the ones of `@vite-hub/channels`.
+export { stripe, webhook } from "@vite-hub/channels/adapters"
+export type { StripeAdapterOptions, StripeEvent } from "@vite-hub/channels/adapters"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 
@@ -508,7 +519,7 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
   if (!isRecord(input)) return
   const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
   if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Required records are structurally validated above; optional fields are normalized before use.
+  // SAFETY: Required records are structurally validated above; optional fields are normalized before use.
   return value as unknown as GitHubPullRequestRunContext
 }
 
@@ -616,11 +627,16 @@ export type GitHubPullRequestTriggerEventName = "issue_comment" | "pull_request_
 
 /** The GitHub delivery that a pull request trigger matched. */
 export interface GitHubPullRequestTriggerEvent {
-  event: GitHubPullRequestTriggerEventName
-  /** The GitHub delivery ID from `x-github-delivery`. The queue runs each delivery ID once. */
+  /** `"server"` when server code started the trigger with `sendChannelTrigger()`. */
+  event: GitHubPullRequestTriggerEventName | "server"
+  /**
+   * The GitHub delivery ID from `x-github-delivery`. The queue runs each delivery ID once.
+   * For `"server"`, the trigger name and the `id` of the send, such as `"upkeep:wake-1"`.
+   */
   deliveryId?: string
+  /** For `"server"`, the GitHub App from `app.identity`, or an empty `login` without it. */
   actor: { login: string, id?: number, type?: string, association?: string }
-  /** The comment or review body. */
+  /** The comment or review body, or the `body` of a server send. */
   body?: string
   /** The comment or review page. */
   url?: string
@@ -675,6 +691,10 @@ export type GitHubPullRequestTriggerDefinition<TRuntimeConfig extends AgentRunti
 /**
  * A trigger of the `github()` Channel that runs on comments and reviews of pull requests. Put it in the Channel's
  * `triggers`. The webhook queue runs `invoke` once per matching delivery.
+ *
+ * Server code starts it on one pull request with
+ * `sendChannelTrigger("github", name, { pullRequest: { repository: "owner/repo", number }, id?, body? })`.
+ * The run waits for the pull request's queue slot, as a delivery does, and `invoke` gets `event: "server"`.
  */
 export function githubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
@@ -927,7 +947,8 @@ export type TeamsChatMessage = ChatMessage | TeamsAdaptiveCardMessage
 
 /** An outbound connector that sends through a Chat SDK adapter. */
 export interface ChatConnector<TMessage = ChatMessage> {
-  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
+  /** Resolves without `id` when the platform posted the message but returned no ID. Such a message cannot be edited or deleted. */
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id?: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -1970,11 +1991,13 @@ function staticGithubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>
   return cleanSecret(secret)
 }
 
-function githubAppWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
+/** The registration `secret` of a GitHub App. A static secret is a value, so it goes in a function: a string names a variable. */
+function githubAppWebhookSecretResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig>,
-): AgentWebhookSecretToken<TRuntimeConfig> {
+): AgentWebhookSecret<TRuntimeConfig> {
   const staticSecret = staticGithubAppWebhookSecret(app)
-  if (staticSecret !== undefined) return staticSecret
+  if (staticSecret === false) return false
+  if (staticSecret !== undefined) return () => staticSecret
   return context => githubAppWebhookSecret(app, context)
 }
 
@@ -2916,8 +2939,8 @@ function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
 ): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
   const defaults = {
     secretHeader: "x-hub-signature-256",
-    ...(app ? { secretToken: githubAppWebhookSecretToken(app) } : {}),
-    signature: "github-sha256" as const,
+    ...(app ? { secret: githubAppWebhookSecretResolver(app) } : {}),
+    signature: "github" as const,
   }
   if (webhooks === undefined || webhooks === true) return defaults
   if (webhooks === false) return false
@@ -2930,7 +2953,7 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
 ): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
   const defaults = {
     secretHeader: "x-telegram-bot-api-secret-token",
-    secretToken: async (context: AgentCallbackContext<TRuntimeConfig>) =>
+    secret: async (context: AgentCallbackContext<TRuntimeConfig>) =>
       cleanSecret(await channelEnvValue("telegram", "webhookSecret", context)),
   }
   if (webhooks === undefined || webhooks === true) return defaults
@@ -2978,7 +3001,7 @@ function telegramAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
 
 function telegramWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
   secret: NonNullable<TelegramChannelOptions<TRuntimeConfig>["webhookSecret"]>,
-): AgentWebhookSecretToken<TRuntimeConfig> {
+): AgentWebhookSecret<TRuntimeConfig> {
   return async context => {
     const resolved = await resolveRuntimeValue(secret, context)
     return resolved === undefined || resolved === false ? false : cleanSecret(resolved) || false
@@ -3097,9 +3120,35 @@ async function connectorKVGet(kv: ConnectorKV, key: string): Promise<Record<stri
   return isRecord(value) ? value : undefined
 }
 
-async function connectorKVSet(kv: ConnectorKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
+async function connectorKVSet(kv: ConnectorKV, key: string, value: ConnectorReceipt | { threadId: string }): Promise<void> {
   const [error] = await kv.set(key, value)
   if (error) throw error
+}
+
+/**
+ * The stored result of a send with `idempotencyKey`. `{ posted: true }` is a message that the platform posted without
+ * returning its ID, such as a Teams message with an image URL that Teams cannot load. A repeated key does not post it again.
+ */
+type ConnectorReceipt = { id: string } | { posted: true }
+
+function storedReceipt(value: Record<string, unknown> | undefined): ConnectorReceipt | undefined {
+  if (typeof value?.id === "string") return postReceipt({ id: value.id })
+  if (value?.posted === true) return { posted: true }
+  return undefined
+}
+
+/** A post that resolved is in the conversation, with or without an ID. */
+function postReceipt(sent: { id?: string }): ConnectorReceipt {
+  return sent.id ? { id: sent.id } : { posted: true }
+}
+
+function sendResult(receipt: ConnectorReceipt): { id?: string } {
+  return "id" in receipt ? { id: receipt.id } : {}
+}
+
+function requireReceiptId(receipt: ConnectorReceipt, label: string): string {
+  if ("id" in receipt) return receipt.id
+  throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
 }
 
 /** What a Chat connector must know about one platform. Everything else uses the Chat SDK adapter API. */
@@ -3122,10 +3171,11 @@ interface ChatConnectorPlatform {
 
 /** Deletes the message stored under `receiptKey`, then its receipt. Without a stored receipt, it does nothing. */
 async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: Adapter, kv: ConnectorKV, receiptKey: string, threadId: string): Promise<void> {
-  const stored = await connectorKVGet(kv, receiptKey)
-  if (typeof stored?.id !== "string") return
+  const stored = storedReceipt(await connectorKVGet(kv, receiptKey))
+  if (!stored) return
+  const id = requireReceiptId(stored, platform.label)
   try {
-    await adapter.deleteMessage(threadId, stored.id)
+    await adapter.deleteMessage(threadId, id)
   }
   catch (error) {
     // The Chat SDK reports a missing resource as a ResourceNotFoundError with code NOT_FOUND.
@@ -3175,16 +3225,16 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (!chat.openDM) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "open direct messages" })
           return await chat.openDM(recipient.slice(5))
         }
-        const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
-        if (!idempotencyKey) return await post()
+        const post = async () => postReceipt(await chat.postMessage(await target(), chatPostable(message)))
+        if (!idempotencyKey) return sendResult(await post())
         const kv = await connectorKV(name)
         const receiptKeyFor = (key: string) => `${name}:messages:${connectorHash(`${recipient}\0${key}`)}`
         const receiptKey = receiptKeyFor(idempotencyKey)
         const receipt = await withConnectorLock(receiptKey, async () => {
-          const stored = await connectorKVGet(kv, receiptKey)
-          if (typeof stored?.id === "string") {
-            if (update) await chat.editMessage(await target(), stored.id, chatPostable(message))
-            return { id: stored.id }
+          const stored = storedReceipt(await connectorKVGet(kv, receiptKey))
+          if (stored) {
+            if (update) await chat.editMessage(await target(), requireReceiptId(stored, label), chatPostable(message))
+            return stored
           }
           const receipt = await post()
           await connectorKVSet(kv, receiptKey, receipt)
@@ -3194,7 +3244,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           const replacedKey = receiptKeyFor(replace)
           await withConnectorLock(replacedKey, async () => await deleteConnectorReceipt(platform, chat, kv, replacedKey, await target()))
         }
-        return receipt
+        return sendResult(receipt)
       }
       const threads = platform.thread
       if (!threads) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_UNSUPPORTED({ name })
@@ -3208,7 +3258,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
       const receiptKey = idempotencyKey ? `${key}:messages:${connectorHash(idempotencyKey)}` : undefined
       const replacedKey = replace ? `${key}:messages:${connectorHash(replace)}` : undefined
       const receipt = await withConnectorLock(key, async () => {
-        const stored = receiptKey ? await connectorKVGet(kv, receiptKey) : undefined
+        const stored = receiptKey ? storedReceipt(await connectorKVGet(kv, receiptKey)) : undefined
         const savedRoot = await connectorKVGet(kv, `${key}:root`)
         let threadId = typeof savedRoot?.threadId === "string" ? savedRoot.threadId : undefined
         if (replacedKey && threadId) {
@@ -3217,10 +3267,10 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_THREAD_ROOT({ label })
           }
         }
-        if (typeof stored?.id === "string") {
+        if (stored) {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await chat.editMessage(threadId, stored.id, chatPostable(message))
-          return { id: stored.id }
+          if (update && threadId) await chat.editMessage(threadId, requireReceiptId(stored, label), chatPostable(message))
+          return stored
         }
         if (!threadId) {
           const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
@@ -3232,10 +3282,9 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             return { id: root.id }
           }
         }
-        const sent = await chat.postMessage(threadId, chatPostable(message))
-        if (!sent.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
-        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
-        return { id: sent.id }
+        const sent = postReceipt(await chat.postMessage(threadId, chatPostable(message)))
+        if (receiptKey) await connectorKVSet(kv, receiptKey, sent)
+        return sent
       })
       if (replacedKey) {
         await withConnectorLock(key, async () => {
@@ -3244,14 +3293,14 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (typeof savedRoot?.threadId === "string") await deleteConnectorReceipt(platform, chat, kv, replacedKey, savedRoot.threadId)
         })
       }
-      return receipt
+      return sendResult(receipt)
     },
   }
 }
 
 /** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
 export type ChatChannelAdapter<TChannel, TMessage = ChatMessage> = TChannel & {
-  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id?: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
@@ -3414,31 +3463,6 @@ function isAdapter(value: unknown): value is AgentChatPlatformAdapter {
 
 function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<AgentChatPlatformAdapter> } {
   return isRecord(value) && typeof value.resolve === "function"
-}
-
-/**
- * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
- * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
- */
-export function ignored(reason: string): Response {
-  return Response.json({ accepted: false, ok: true, reason })
-}
-
-/**
- * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
- * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
- * when a queued delivery's trigger returns it on replay.
- */
-export function retryLater(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
-}
-
-/**
- * Refuses a webhook that the Channel will never handle, such as a malformed payload.
- * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
- */
-export function rejected(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
 }
 
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
@@ -3608,12 +3632,8 @@ async function githubPullRequestTriggerEvent<TRuntimeConfig extends AgentRuntime
   if (!head?.sha) {
     // Comment deliveries do not include the head commit.
     try {
-      const appOptions = app ? githubAppOptions(app) || {} : {}
-      const token = await githubPullRequestMetadataToken(app, context, command.installationId, command.repository)
-      const { forgeProvider } = await loadForge()
-      const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
-      const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository: command.repository, number: command.issueNumber })
-      if (isRecord(read.raw) && isRecord(read.raw.head)) head = read.raw.head
+      const read = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+      if (isRecord(read.head)) head = read.head
     }
     catch (error) {
       console.error(`[vitehub] Could not read the head commit of ${command.repository}#${command.issueNumber}.`, error)
@@ -3654,8 +3674,7 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   context: AgentChannelTriggerContext<TRuntimeConfig>,
   pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>>,
   command: GitHubPullRequestCommand & { trigger: string },
-  input: unknown,
-  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  readEvent: () => Promise<GitHubPullRequestTriggerEvent>,
 ): Promise<Response | GitHubPullRequestTriggerInput> {
   if (!Object.hasOwn(pullRequestTriggers, command.trigger)) return ignored(`pull request trigger "${command.trigger}" no longer exists`)
   // The Channel delivery journal records which trigger ran and how it answered.
@@ -3663,7 +3682,7 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   const record = (event: Omit<AgentChannelDeliveryEventInput, "trigger">) => delivery?.event({ ...event, trigger: command.trigger }).catch(() => undefined)
   await record({ type: "trigger.started" })
   try {
-    const event = await githubPullRequestTriggerEvent(input, command, app, context)
+    const event = await readEvent()
     const triggerContext = {
       ...context,
       trigger: { ...context.trigger, id: `${context.trigger.channelId}.${command.trigger}` as const, name: command.trigger },
@@ -3687,6 +3706,231 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
 /** The command whose request is the trigger's `prompt`, when it returned one. */
 function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, input: GitHubPullRequestTriggerInput | undefined): GitHubPullRequestCommand {
   return input?.prompt ? { ...command, body: input.prompt } : command
+}
+
+/** What server code passes to `sendChannelTrigger()` for a GitHub pull request trigger. */
+interface GitHubPullRequestTriggerSend {
+  pullRequest: { repository: string, number: number }
+  id?: string
+  body?: string
+}
+
+function githubPullRequestTriggerSend(trigger: string, value: unknown): GitHubPullRequestTriggerSend {
+  const pullRequest = isRecord(value) && isRecord(value.pullRequest) ? value.pullRequest : undefined
+  const repository = maybeString(pullRequest?.repository)
+  const number = pullRequest?.number
+  const id = isRecord(value) ? value.id : undefined
+  const body = isRecord(value) ? value.body : undefined
+  if (
+    !repository || !/^[^/\s]+\/[^/\s]+$/.test(repository)
+    || typeof number !== "number" || !Number.isSafeInteger(number) || number < 1
+    || (id !== undefined && (typeof id !== "string" || !id.trim()))
+    || (body !== undefined && typeof body !== "string")
+  ) {
+    throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID({ trigger })
+  }
+  return {
+    pullRequest: { repository, number },
+    ...(typeof id === "string" ? { id } : {}),
+    ...(typeof body === "string" ? { body } : {}),
+  }
+}
+
+/** Reads a pull request from the GitHub API with the Channel's App token. */
+async function readGitHubPullRequest<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: AgentCallbackContext<TRuntimeConfig>,
+  repository: string,
+  number: number,
+  installationId?: number,
+): Promise<Record<string, unknown>> {
+  const appOptions = app ? githubAppOptions(app) || {} : {}
+  const token = await githubPullRequestMetadataToken(app, context, installationId, repository)
+  const { forgeProvider } = await loadForge()
+  const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+  const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository, number })
+  return isRecord(read.raw) ? read.raw : {}
+}
+
+/** The webhook payload shape of a pull request read, so the run context and the trigger event read it as from a delivery. */
+function githubPullRequestServerPayload(command: GitHubPullRequestCommand, pullRequest: Record<string, unknown>): GitHubIssueCommentPayload {
+  return {
+    issue: {
+      html_url: pullRequest.html_url,
+      labels: pullRequest.labels,
+      number: command.issueNumber,
+      pull_request: { html_url: pullRequest.html_url, url: command.pullRequestUrl },
+      title: pullRequest.title,
+    },
+    number: command.issueNumber,
+    // SAFETY: The payload type lists GitHub pull request fields as unknown, and this is GitHub's pull request object.
+    pull_request: asUnknownBoundary(pullRequest) as GitHubIssueCommentPayload["pull_request"],
+    repository: { full_name: command.repository, name: command.repo, owner: { login: command.owner } },
+  }
+}
+
+function githubPullRequestServerEvent(command: GitHubPullRequestCommand, pullRequest: Record<string, unknown>): GitHubPullRequestTriggerEvent {
+  const head = isRecord(pullRequest.head) ? pullRequest.head : undefined
+  const url = maybeString(pullRequest.html_url)
+  const title = maybeString(pullRequest.title)
+  const author = isRecord(pullRequest.user) ? maybeString(pullRequest.user.login) : undefined
+  const headSha = maybeString(head?.sha)
+  const headRef = maybeString(head?.ref)
+  const baseRef = isRecord(pullRequest.base) ? maybeString(pullRequest.base.ref) : undefined
+  return {
+    event: "server",
+    ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+    actor: command.actor,
+    ...(command.body ? { body: command.body } : {}),
+    pullRequest: {
+      repository: command.repository,
+      number: command.issueNumber,
+      ...(url ? { url } : {}),
+      apiUrl: command.pullRequestUrl,
+      ...(title ? { title } : {}),
+      ...(author ? { author } : {}),
+      ...(headSha ? { headSha } : {}),
+      ...(headRef ? { headRef } : {}),
+      ...(baseRef ? { baseRef } : {}),
+    },
+    payload: githubPullRequestServerPayload(command, pullRequest),
+  }
+}
+
+/** Input context key of the time a server send entered the queue, in milliseconds since the epoch. */
+const githubServerSendAcceptedAtKey = "githubServerSendAcceptedAt"
+
+/**
+ * The Channel definition of a `githubPullRequestTrigger()`. Webhook deliveries reach it through the Channel's `webhook`
+ * trigger. Server code reaches it with `sendChannelTrigger()`: `invoke` admits the send to the pull request's queue
+ * slot, and `prepare` runs the trigger's `invoke` when the slot is free, as for a queued delivery.
+ */
+function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
+  name: string,
+  trigger: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
+  options: GitHubPullRequestCommentEventOptions<TRuntimeConfig>,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  activity: GitHubChannelActivityOptions<TRuntimeConfig> | undefined,
+): AgentChannelTriggerDefinition<TRuntimeConfig> & { [githubPullRequestTriggerKey]: GitHubPullRequestTriggerOptions<TRuntimeConfig> } {
+  const closed = () => options.ignored?.("pull_request_closed") || ignored("pull_request_closed")
+  return {
+    webhooks: [],
+    [githubPullRequestTriggerKey]: trigger,
+    async invoke(context, value): Promise<AgentTriggerInvokeResult> {
+      const send = githubPullRequestTriggerSend(name, value)
+      const { number } = send.pullRequest
+      const pullRequest = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
+      if (pullRequest.state === "closed") return closed()
+      // Webhook deliveries name the repository as GitHub spells it. The send uses the same spelling, so both share
+      // the pull request's queue slot and branch events.
+      const base = isRecord(pullRequest.base) && isRecord(pullRequest.base.repo) ? pullRequest.base.repo : undefined
+      const repository = maybeString(base?.full_name) ?? send.pullRequest.repository
+      const appOptions = app ? githubAppOptions(app) : undefined
+      const login = appOptions?.identity?.login ?? ""
+      const [owner = "", repo = ""] = repository.split("/")
+      const command: GitHubPullRequestCommand = {
+        action: "server",
+        actor: { login, ...(login ? { type: "Bot" } : {}) },
+        args: "",
+        body: send.body ?? "",
+        command: "",
+        commentId: maybeNumber(pullRequest.id) ?? number,
+        deliveryId: `${name}:${send.id ?? randomUUID()}`,
+        event: "pull_request",
+        issueNumber: number,
+        owner,
+        pullRequestUrl: maybeString(pullRequest.url) ?? `${(appOptions?.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "")}/repos/${repository}/pulls/${number}`,
+        repo,
+        repository,
+        trigger: name,
+      }
+      const pullRequestContext = githubPullRequestRunContext(command, {
+        ...options,
+        // Webhook runs on this pull request use its page as the thread.
+        threadId: options.threadId || maybeString(pullRequest.html_url) || command.pullRequestUrl,
+      }, githubPullRequestServerPayload(command, pullRequest))
+      const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
+      if (activity) {
+        run.activity = {
+          links: [await githubActivitySessionLink(context, run.runId, activity)].filter(link => link !== undefined),
+          target: { issue: number, repository },
+        }
+      }
+      return {
+        // Branch events after `acceptedAt` stop or annotate the run, as for a queued webhook delivery.
+        input: { context: { github: command, pullRequest: pullRequestContext, [githubServerSendAcceptedAtKey]: Date.now() } },
+        run,
+        // The same slot as a webhook delivery on this pull request, so runs on one pull request do not overlap.
+        webhook: {
+          concurrencyGroup: `${repository}#${number}`,
+          concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
+          deliveryId: command.deliveryId!,
+        },
+      }
+    },
+    async prepare(context, accepted) {
+      const command = githubCommandFromUnknown(accepted.input.context?.github)
+      const stored = githubPullRequestRunContextFromUnknown(accepted.input.context?.pullRequest)
+      if (!command || !stored) throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID({ trigger: name })
+      const pullRequestKey = `${command.repository}#${command.issueNumber}`
+      // A close webhook, or a push with `headMoves: 'cancel'`, aborts the run through this signal, as for a queued
+      // webhook delivery. The webhook queue releases it when the delivery ends.
+      let abortSignal: AbortSignal | undefined
+      if (options.reconcile && context.channelState) {
+        const { agentInvocationId } = await import("./invocations.ts")
+        const agentName = context.agentName || context.agentIdentity?.name
+        abortSignal = trackReconcileRun(context.channelState, pullRequestKey, () => agentInvocationId(accepted.run?.runId ?? command.deliveryId!, agentName))
+      }
+      const settle = (response: Response) => {
+        releaseReconcileRun(abortSignal)
+        return response
+      }
+      try {
+        const branch = options.reconcile ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, maybeNumber(accepted.input.context?.[githubServerSendAcceptedAtKey])) : {}
+        if (branch.closed) return settle(closed())
+        if (branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel") return settle(options.ignored?.("head_moved") || ignored("head_moved"))
+        const pullRequest = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+        if (pullRequest.state === "closed") return settle(closed())
+        const triggerInput = await runGitHubPullRequestTrigger(context, { [name]: trigger }, { ...command, trigger: name }, async () => githubPullRequestServerEvent(command, pullRequest))
+        if (isResponse(triggerInput)) return settle(triggerInput)
+        const metadata = await githubPullRequestMetadata(app, context, command, options)
+        const refreshed = {
+          ...stored,
+          pullRequest: {
+            apiUrl: stored.pullRequest.apiUrl,
+            htmlUrl: stored.pullRequest.htmlUrl,
+            labels: stored.pullRequest.labels,
+            number: stored.pullRequest.number,
+            source: stored.pullRequest.source,
+            title: stored.pullRequest.title,
+            ...metadata,
+          },
+        }
+        const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(command, triggerInput), refreshed, options.ci)
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        return {
+          ...accepted.input,
+          ...triggerInput,
+          ...commandInput,
+          ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
+          // The queue adds its own abort signal to the run.
+          ...(abortSignal ? { abortSignal } : {}),
+          context: {
+            ...accepted.input.context,
+            ...triggerInput.context,
+            github: command,
+            pullRequest: refreshed,
+            // The queue does not store finish effects with a delivery, so the prepared input adds them again.
+            ...(finishEffects ? { [channelDeliveryFinishEffectsContextKey]: [finishEffects] } : {}),
+          },
+        }
+      }
+      catch (error) {
+        releaseReconcileRun(abortSignal)
+        throw error
+      }
+    },
+  }
 }
 
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -3716,7 +3960,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           }
           let triggerInput: GitHubPullRequestTriggerInput | undefined
           if (acceptedCommand.trigger) {
-            const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, input, app)
+            const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, () => githubPullRequestTriggerEvent(input, acceptedCommand, app, context))
             if (isResponse(result)) return { ...accepted, webhook: { ...ownership, rehydrate: () => result } }
             triggerInput = result
           }
@@ -3844,7 +4088,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         } : undefined
         let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger && !ownership) {
-          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, () => githubPullRequestTriggerEvent(pullRequestInput, command, app, context))
           if (isResponse(result)) return result
           triggerInput = result
         }
@@ -3929,7 +4173,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger) {
-          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, () => githubPullRequestTriggerEvent(pullRequestInput, command, app, context))
           if (isResponse(result)) return result
           triggerInput = result
         }
@@ -4071,7 +4315,7 @@ function validateChannelHistoryDefinition(kind: string, history: unknown, trigge
 
 /**
  * The adapter of a platform that has no built-in one, such as your own Chat SDK adapter, for
- * `defineChannel({ adapter })` from `vite-hub/channels`. `message.methods` become calls on `event.message` in Agent
+ * `defineChannel({ adapter })`, from `vite-hub/channels/adapters`. `message.methods` become calls on `event.message` in Agent
  * hooks. A method receives the Channel context first; `context.message` is the data that the trigger returned.
  *
  * @example
@@ -4132,14 +4376,14 @@ function simulatedChannelOptions<
     ...rest,
     adapter: () => createSimulatedChatAdapter(kind),
     webhooks: Array.isArray(webhooks)
-      ? webhooks.map(registration => ({ ...registration, secretToken: false }))
-      : webhooks && typeof webhooks === "object" ? { ...webhooks, secretToken: false } : { secretToken: false },
+      ? webhooks.map(registration => ({ ...registration, secret: false }))
+      : webhooks && typeof webhooks === "object" ? { ...webhooks, secret: false } : { secret: false },
   }
 }
 
 /**
  * Every webhook registration of a Channel that ViteHub verifies must declare how: a secret, a secret header, or a
- * signature. `secretToken: false` accepts unsigned requests on purpose. A Chat SDK adapter verifies its own message
+ * signature. `secret: false` accepts unsigned requests on purpose. A Chat SDK adapter verifies its own message
  * webhooks, so the Channel's `webhooks` are checked only with `messages: false`. A trigger's own `webhooks` never
  * reach a Chat SDK adapter, so they are always checked.
  */
@@ -4151,15 +4395,51 @@ function assertChannelWebhookVerification<TRuntimeConfig extends AgentRuntimeCon
     if (webhooks === undefined || webhooks === false) return
     const registrations: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[] = webhooks === true ? [{}] : Array.isArray(webhooks) ? webhooks : [webhooks]
     for (const registration of registrations) {
-      if (registration.secretToken !== undefined || registration.signature !== undefined || registration.secretHeader !== undefined) continue
+      if (registration.secret !== undefined || registration.signature !== undefined || registration.secretHeader !== undefined) continue
       throw agentDiagnostics.AGENT_R1044({ registration: registration.id || owner })
     }
   }
+  // An old option name explains more than "does not verify", so it fails first.
+  assertWebhookRegistrationNames(kind, options.webhooks)
+  for (const [name, trigger] of Object.entries(options.triggers || {})) assertWebhookRegistrationNames(`${kind}.${name}`, trigger.webhooks)
   if (options.messages === false) check(kind, options.webhooks)
   for (const [name, trigger] of Object.entries(options.triggers || {})) check(`${kind}.${name}`, trigger.webhooks)
 }
 
-/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
+/** A server variable name, as Webhooks and Channels accept it in `secret`. */
+const webhookSecretVariableName = /^[A-Z_][A-Z0-9_]*$/i
+
+/** Signature names before they followed `defineWebhook({ signature })`. */
+const renamedWebhookSignatures: Record<string, string> = { "github-sha256": "`signature: \"github\"`", "stripe-sha256": "`signature: \"stripe\"`" }
+
+/**
+ * Webhook registrations use the names of Webhooks and Channels. An old name fails when the Channel or trigger is
+ * defined, with the new name in the error, and a `secret` string must be a server variable name.
+ */
+function assertWebhookRegistrationNames(owner: string, webhooks: unknown): void {
+  if (!isRecord(webhooks) && !Array.isArray(webhooks)) return
+  for (const registration of Array.isArray(webhooks) ? webhooks : [webhooks]) {
+    if (!isRecord(registration)) continue
+    const id = typeof registration.id === "string" && registration.id ? registration.id : owner
+    const renamed = (from: string, to: string) => agentDiagnostics.AGENT_WEBHOOK_OPTION_RENAMED({ registration: id, from, to })
+    if (Object.hasOwn(registration, "secretToken")) throw renamed("`secretToken`", "`secret`, the name of the server variable that holds the secret or a function that returns it")
+    const signature = registration.signature
+    if (typeof signature === "string" && Object.hasOwn(renamedWebhookSignatures, signature)) throw renamed(`\`signature: "${signature}"\``, renamedWebhookSignatures[signature]!)
+    if (isRecord(signature) && Object.hasOwn(signature, "preset")) throw renamed("`signature: { preset }`", "`signature: { type }`")
+    if (isRecord(signature) && Object.hasOwn(signature, "toleranceSeconds")) throw renamed("`toleranceSeconds`", "`tolerance`, a duration such as `\"5m\"`")
+    if (isRecord(signature) && signature.type === "stripe" && signature.tolerance !== undefined) parseDuration(signature.tolerance as Duration, "signature.tolerance")
+    // Do not print the string: it can be a secret value from before `secret` named a variable.
+    if (typeof registration.secret === "string" && !webhookSecretVariableName.test(registration.secret)) {
+      throw agentDiagnostics.AGENT_WEBHOOK_SECRET_NAME_INVALID({ registration: id })
+    }
+  }
+}
+
+/**
+ * A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. It is the same
+ * trigger as `defineChannelTrigger()` from `vite-hub/channels`, typed without the module augmentation, so Agent code
+ * and presets get these types also when a program loads two copies of the Agent types.
+ */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -4171,6 +4451,7 @@ export function defineChannelTrigger<
   CALL_OPTIONS = unknown,
 >(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false }): typeof definition
 export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDefinition {
+  if (isRecord(definition)) assertWebhookRegistrationNames("trigger", definition.webhooks)
   return definition
 }
 
@@ -4191,21 +4472,23 @@ function isAgentChannelAdapter(adapter: ChannelAdapter<never, never>): adapter i
   return "messages" in adapter
 }
 
-const defaultSignatureHeaders: Record<string, string> = {
-  "github-sha256": "x-hub-signature-256",
-  "stripe-sha256": "stripe-signature",
+/** The header that each signature reads when `header` is unset. */
+function defaultSignatureHeader(signature: WebhookChannelAdapter["webhook"]["signature"]): string | undefined {
+  if (signature === "github") return "x-hub-signature-256"
+  if (signature === "stripe" || (isRecord(signature) && "type" in signature && signature.type === "stripe")) return "stripe-signature"
+  return undefined
 }
 
+/** `webhook()` and Agent webhook registrations share `secret` and the signature names, so they pass through. */
 function webhookAdapterRegistration<TRuntimeConfig extends AgentRuntimeConfig>(webhook: WebhookChannelAdapter["webhook"]): AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> {
   const signature = webhook.signature
-  const preset = typeof signature === "string" ? signature : isRecord(signature) && "preset" in signature ? signature.preset : undefined
-  const header = webhook.header ?? (preset ? defaultSignatureHeaders[preset] : undefined)
+  const header = webhook.header ?? defaultSignatureHeader(signature)
   return {
     ...(webhook.path === undefined ? {} : { path: webhook.path }),
     ...(webhook.aliases === undefined ? {} : { aliases: [...webhook.aliases] }),
     // `token` compares the header with the secret, which a registration without `signature` does.
     ...(signature === undefined || signature === "token" ? {} : { signature }),
-    ...(webhook.secret === undefined ? {} : { secretToken: webhook.secret as AgentWebhookSecretToken<TRuntimeConfig> }),
+    ...(webhook.secret === undefined ? {} : { secret: webhook.secret as AgentWebhookSecret<TRuntimeConfig> }),
     ...(header === undefined ? {} : { secretHeader: header }),
     ...(webhook.stateScope === undefined ? {} : { stateScope: webhook.stateScope }),
     ...(webhook.durableState === undefined ? {} : { durableState: webhook.durableState }),
@@ -4280,6 +4563,8 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const handlers: Record<string, ChannelHandler> = {}
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
+    // `defineChannelTrigger()` from `vite-hub/channels` does not check the webhook option names, so they are checked here.
+    if (typeof target !== "function") assertWebhookRegistrationNames(`${adapter.kind}.${name}`, (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks)
     if (typeof target === "function") handlers[name] = target as ChannelHandler
     else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
       // Event names can contain dots and other characters that Agent trigger IDs cannot use.
@@ -4380,6 +4665,10 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     triggers: {
       ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, activity && activity !== true ? activity : undefined, undefined, pullRequestTriggers),
       ...options.triggers,
+      ...Object.fromEntries(Object.entries(pullRequestTriggers).map(([name, trigger]) => [
+        name,
+        githubPullRequestServerTrigger(name, trigger, pullRequestOptions, appOptions, activity ? activity === true ? {} : activity : undefined),
+      ])),
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
   })
@@ -4520,7 +4809,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
     }),
     triggers: { ...triggers, ...channelOptions.triggers },
     webhooks: forgeWebhookRegistrations(channelOptions.webhooks, {
-      secretToken: secret,
+      secret,
       signature: {
         async verify({ context, rawBody, request, secret: verifiedSecret }) {
           invariant(context, "the webhook route passes a runtime context to Forge signature verification")
@@ -4548,7 +4837,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
 
 function forgeWebhookRegistrations<TRuntimeConfig extends AgentRuntimeConfig>(
   webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"],
-  verification: Pick<AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>, "secretToken" | "signature">,
+  verification: Pick<AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>, "secret" | "signature">,
 ): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
   if (webhooks === false) return false
   if (webhooks === undefined || webhooks === true) return verification
@@ -5012,15 +5301,6 @@ export async function gmailClient(channel: AgentChannelDefinition, options: Gmai
   return await resolveClient(createExecutionContext(runtime))
 }
 
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods> {
-  if ("path" in options) {
-    throw agentDiagnostics.AGENT_R0372({ message: "[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path." })
-  }
-  return channelAdapter("http", options)
-}
-
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>>
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>>
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>> {
@@ -5062,7 +5342,7 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
     ...channelOptions
   } = options
   const webhookOptions = webhookSecret !== undefined
-    ? { secretToken: telegramWebhookSecretToken(webhookSecret) }
+    ? { secret: telegramWebhookSecretToken(webhookSecret) }
     : webhooks
   const channel = withChatSend(defineMessageChannelInstructions(channelAdapter("telegram", {
     ...channelOptions,
@@ -5106,12 +5386,13 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
       const registration = Array.isArray(resolvedWebhooks)
         ? resolvedWebhooks.length === 1 ? resolvedWebhooks[0] : undefined
         : resolvedWebhooks && typeof resolvedWebhooks === "object" ? resolvedWebhooks : undefined
-      const secret = registration?.secretToken
+      const secret = registration?.secret
       const [apiBaseUrl, apiUrl, botToken, secretToken] = await Promise.all([
         options.apiBaseUrl === undefined ? undefined : resolveRuntimeValue(options.apiBaseUrl, context),
         options.apiUrl === undefined ? undefined : resolveRuntimeValue(options.apiUrl, context),
         options.botToken === undefined ? undefined : resolveRuntimeValue(options.botToken, context),
-        secret === undefined ? undefined : resolveRuntimeValue(secret, context),
+        // A string `secret` names the server variable that holds the secret.
+        secret === undefined ? undefined : typeof secret === "string" ? serverVariable(secret) : resolveRuntimeValue(secret, context),
       ])
       const resolvedBotToken = cleanSecret(botToken) || cleanSecret(await channelEnvValue("telegram", "botToken", context))
       if (!resolvedBotToken) {

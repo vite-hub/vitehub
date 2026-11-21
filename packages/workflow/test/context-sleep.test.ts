@@ -17,30 +17,30 @@ const rootStepSleep = { code: "WORKFLOW_ROOT_STEP_SLEEP", message: expect.string
 const calls: string[] = []
 
 /** A single-file Workflow: the handler runs in the root step. */
-const napInRootStep = defineWorkflow("nap", async (_payload: undefined, context) => {
+const napInRootStep = defineWorkflow<undefined>({ handler: async ({ payload: _payload, ...context }) => {
   calls.push("before")
   await context.sleep("1 second")
   calls.push("after")
   return "rested"
-})
+} })
 
 /** A folder Workflow orchestrator: the generated registry entry sets `rootStep: false`. */
-function folderWorkflow<TPayload>(handler: (payload: TPayload, context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
-  return { options: { rootStep: false }, handler }
+function folderWorkflow<TPayload>(handler: (context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
+  return { rootStep: false, handler }
 }
 
-const napInFolder = folderWorkflow<undefined>(async (_payload, context) => {
+const napInFolder = folderWorkflow<undefined>(async (context) => {
   calls.push("before")
   await context.sleep("1 second")
   calls.push("after")
   return "rested"
 })
 
-const napTwiceInFolder = folderWorkflow<{ until: string }>(async (payload, context) => {
+const napTwiceInFolder = folderWorkflow<{ until: string }>(async (context) => {
   calls.push("before")
   await context.sleep(1_000)
   calls.push("middle")
-  await context.sleep(new Date(payload.until))
+  await context.sleep(new Date(context.payload.until))
   calls.push("after")
   return "rested"
 })
@@ -59,7 +59,7 @@ describe("context.sleep() arguments", () => {
       event: { instanceId: "run-1" },
       name: "nap",
       // SAFETY: The test passes invalid input on purpose, as untyped JavaScript would.
-      registry: { nap: async () => ({ default: folderWorkflow(async (_payload, context) => { await context.sleep(value as never); return "rested" }) }) },
+      registry: { nap: async () => ({ default: folderWorkflow(async (context) => { await context.sleep(value as never); return "rested" }) }) },
       step: { do: async (_name, _options, run) => await run(), sleep },
     })
 
@@ -186,7 +186,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
     vi.useFakeTimers()
     try {
       setWorkflowRuntimeConfig({ driver: "vercel" })
-      setWorkflowRuntimeRegistry({ nap: async () => ({ default: folderWorkflow<undefined>(async (_payload, context) => { await context.sleep("30 days"); return "rested" }) }) })
+      setWorkflowRuntimeRegistry({ nap: async () => ({ default: folderWorkflow<undefined>(async (context) => { await context.sleep("30 days"); return "rested" }) }) })
       const started = await unwrap(startWorkflow("nap"))
 
       await vi.advanceTimersByTimeAsync(29 * 24 * 60 * 60 * 1_000)

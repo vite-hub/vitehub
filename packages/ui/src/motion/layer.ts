@@ -1,3 +1,5 @@
+import { rekaDragAttribute, rekaHandleSelector } from "./effects/divider.ts";
+import { isMotionOff, optOut } from "./opt-out.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { claimMotionLayer, defineOwnEffect, handOffMotionEffects, listMotionEffects, motionEffectRegistrations, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionRoot, MotionStateAttribute } from "./registry.ts";
@@ -5,11 +7,14 @@ import { settleSprings } from "./spring.ts";
 
 export type { MotionRoot } from "./registry.ts";
 
-const optOut = "[data-motion=\"none\"]";
+export { isMotionOff } from "./opt-out.ts";
+
+type PressItem = { element: HTMLElement; press: MotionPress; leave?: () => void; splitter?: true };
 const roots = new Map<MotionRoot, { installs: number; watchers: Map<MotionEffect, () => void> }>();
 let observer: MutationObserver | undefined;
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
-const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
+const presses = new Map<number | "key", PressItem[]>();
+let splitterPointer: { event: PointerEvent; path: EventTarget[] } | undefined;
 let stopWatching: Array<() => void> = [];
 // A page can load more than one copy of this module, such as the app's and the one in the bundle of the page pill. The
 // copy that starts an effect marks that effect and element, so other effects can still read the same press.
@@ -21,17 +26,6 @@ const eventPresses = (event: Event): Map<Element, Set<string>> => {
   Reflect.set(event, pressedBy, effects);
   return effects;
 };
-
-/** True when the element or one of its ancestors, also across shadow roots, has `data-motion="none"`. */
-export function isMotionOff(element: Element): boolean {
-  let node: Element | null = element;
-  while (node) {
-    if (node.closest(optOut)) return true;
-    const root = node.getRootNode();
-    node = root instanceof ShadowRoot ? root.host : null;
-  }
-  return false;
-}
 
 // The selectors of effects that this browser cannot read, such as `:has()` before Firefox 121. Their effects do not apply.
 const unreadable = new Set<string>();
@@ -75,9 +69,9 @@ function find(path: EventTarget[], selector: string): HTMLElement | undefined {
 }
 
 function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: EventTarget[]): void {
-  end(id);
+  end(id, true);
   const claimed = eventPresses(event);
-  const started: Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }> = [];
+  const started: PressItem[] = [];
   for (const { effect, isReduced } of motionEffectRegistrations()) {
     if (!effect.press || isReduced()) continue;
     const element = find(path, effect.selector);
@@ -89,10 +83,10 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
     if (!press) continue;
     if (previous) previous.add(effect.name);
     else claimed.set(element, new Set([effect.name]));
-    const item: { element: HTMLElement; press: MotionPress; leave?: () => void } = { element, press };
+    const item: PressItem = { element, press };
     // A drag goes on outside the element, as a slider thumb or a resize handle stays behind the pointer at its limit.
     if (id !== "key" && !press.move) {
-      item.leave = () => end(id);
+      item.leave = () => endItem(id, item, true);
       element.addEventListener("pointerleave", item.leave, { once: true });
     }
     started.push(item);
@@ -102,14 +96,31 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
   if (started.some(item => item.press.move)) document.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
 }
 
-function end(id: number | "key"): void {
+function end(id: number | "key", cancelled = false): void {
   const items = presses.get(id);
   if (!items) return;
   presses.delete(id);
   for (const { element, press, leave } of items) {
     if (leave) element.removeEventListener("pointerleave", leave);
-    press.release();
+    if (cancelled && press.cancel) press.cancel();
+    else press.release();
   }
+  stopPointerMoveIfIdle();
+}
+
+function endItem(id: number | "key", item: PressItem, cancelled = false): void {
+  const items = presses.get(id);
+  const index = items?.indexOf(item) ?? -1;
+  if (!items || index === -1) return;
+  if (item.leave) item.element.removeEventListener("pointerleave", item.leave);
+  items.splice(index, 1);
+  if (!items.length) presses.delete(id);
+  if (cancelled && item.press.cancel) item.press.cancel();
+  else item.press.release();
+  stopPointerMoveIfIdle();
+}
+
+function stopPointerMoveIfIdle(): void {
   if (![...presses.values()].some(list => list.some(item => item.press.move))) {
     document.removeEventListener("pointermove", onPointerMove, { capture: true });
   }
@@ -117,11 +128,14 @@ function end(id: number | "key"): void {
 
 function onPointerDown(event: PointerEvent): void {
   if (event.button !== 0) return;
-  begin(event.pointerId, event, event.composedPath());
+  const path = event.composedPath();
+  if (event.isPrimary) splitterPointer = { event, path };
+  begin(event.pointerId, event, path);
 }
 
 function onPointerUp(event: PointerEvent): void {
-  end(event.pointerId);
+  if (splitterPointer?.event.pointerId === event.pointerId) splitterPointer = undefined;
+  end(event.pointerId, event.type === "pointercancel");
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -178,6 +192,25 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
   }
 }
 
+function onSplitterDrag(handle: HTMLElement): void {
+  if (!splitterPointer || !handle.matches(rekaHandleSelector)) return;
+  const registration = motionEffectRegistrations().find(({ effect }) => effect.name === "divider");
+  if (!registration || registration.isReduced()) return;
+  const { event, path } = splitterPointer;
+  const items = presses.get(event.pointerId) ?? [];
+  const current = items.find(item => item.splitter && item.element === handle);
+  if (handle.getAttribute(rekaDragAttribute) !== "pointer") {
+    if (current) endItem(event.pointerId, current);
+    return;
+  }
+  if (current || !path.includes(handle.getRootNode()) || !covered(handle) || isMotionOff(handle)) return;
+  const press = registration.effect.press?.(handle, event);
+  if (!press) return;
+  items.push({ element: handle, press, splitter: true });
+  presses.set(event.pointerId, items);
+  document.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+}
+
 function onMutations(batch: MutationRecord[]): void {
   const records = [...new Set(batch)];
   const effects = listMotionEffects();
@@ -188,6 +221,10 @@ function onMutations(batch: MutationRecord[]): void {
     if (record.type === "attributes") {
       const element = record.target;
       if (!(element instanceof HTMLElement)) continue;
+      if (record.attributeName === rekaDragAttribute) {
+        onSplitterDrag(element);
+        continue;
+      }
       const attribute = record.attributeName as MotionStateAttribute;
       const value = element.getAttribute(attribute);
       if (value === record.oldValue) continue;
@@ -222,7 +259,7 @@ function observe(root: MotionRoot, observer: MutationObserver): void {
   const content = listMotionEffects().some(effect => effect.content);
   observer.observe(root, {
     attributes: true,
-    attributeFilter: [...motionStateAttributes],
+    attributeFilter: [...motionStateAttributes, ...(listMotionEffects().some(effect => effect.name === "divider") ? [rekaDragAttribute] : [])],
     attributeOldValue: true,
     childList: content || listMotionEffects().some(effect => effect.enter),
     characterData: content,
@@ -257,10 +294,13 @@ function startDocument(): void {
       document.removeEventListener("pointercancel", onPointerUp, options);
       document.removeEventListener("keydown", onKeyDown, options);
       document.removeEventListener("keyup", onKeyUp, options);
-      for (const id of presses.keys()) end(id);
+      splitterPointer = undefined;
+      for (const id of presses.keys()) end(id, true);
     },
     onReducedMotionChange((reduced) => {
-      if (reduced) settleSprings();
+      if (!reduced) return;
+      splitterPointer = undefined;
+      for (const id of presses.keys()) end(id, true);
     }),
   ];
 }

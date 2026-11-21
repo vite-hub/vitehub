@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-simple-icons-slack
 ---
 
-Create a Slack app with the `app_mentions:read`, `chat:write`, and history scopes. Install `@chat-adapter/slack` and pass `createSlackAdapter()` to `slack()` from `vite-hub/agent/channels` in a `defineAgent()` file. Set the **Event Subscriptions** Request URL to `https://<your-app>/api/_vitehub/agents/<agent>/webhooks/slack`. The Agent answers direct messages and channel mentions in a thread.
+Create a Slack app with the `app_mentions:read`, `chat:write`, and history scopes. Install `@chat-adapter/slack` and pass `createSlackAdapter()` to `slack()` from `vite-hub/channels/adapters` in a `defineAgent()` file. Set the **Event Subscriptions** Request URL to `https://<your-app>/_vitehub/agents/<agent>/webhooks/slack`. The Agent answers direct messages and channel mentions in a thread.
 
 ## What a ViteHub Slack bot is
 
@@ -43,7 +43,7 @@ oauth_config:
       - users:read
 settings:
   event_subscriptions:
-    request_url: https://bot.example.com/api/_vitehub/agents/assistant/webhooks/slack
+    request_url: https://bot.example.com/_vitehub/agents/assistant/webhooks/slack
     bot_events:
       - app_mention
       - message.channels
@@ -93,7 +93,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -109,7 +108,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -126,7 +124,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -134,7 +131,7 @@ export default defineConfig({
 :::
 ::
 
-`workflow: false` runs each reply inline in the server process.
+The Agent runs each reply inline in the server process.
 
 ### Define the Agent
 
@@ -142,7 +139,7 @@ export default defineConfig({
 import { createSlackAdapter } from '@chat-adapter/slack'
 import { defineAgent } from 'vite-hub/agent'
 import { access } from 'vite-hub/agent/capabilities'
-import { slack } from 'vite-hub/agent/channels'
+import { slack } from 'vite-hub/channels/adapters'
 
 const allowedUsers = new Set(['slack:U0123456789'])
 
@@ -169,7 +166,7 @@ export default defineAgent({
 })
 ```
 
-- The file name is the Agent name (`assistant`), and the `channels` key is the webhook name (`slack`). Together they make the Request URL `/api/_vitehub/agents/assistant/webhooks/slack`.
+- The file name is the Agent name (`assistant`), and the `channels` key is the webhook name (`slack`). Together they make the Request URL `/_vitehub/agents/assistant/webhooks/slack`.
 - `adapter` is a function, so ViteHub creates the adapter and reads the environment when a request arrives.
 - `access()` admits only the invoker IDs in the set. Each ID is `slack:<member ID>`. Return `false` and the Agent does not start and posts nothing. To copy a member ID, open a profile in Slack and select **Copy member ID**.
 
@@ -208,7 +205,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
   vite: {
     server: { allowedHosts: ['.trycloudflare.com'] },
@@ -228,7 +224,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -246,7 +241,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -257,12 +251,12 @@ export default defineConfig({
 Check the webhook route. A `HEAD` request returns `204` and names the provider:
 
 ```bash [Terminal]
-curl -I https://your-tunnel.trycloudflare.com/api/_vitehub/agents/assistant/webhooks/slack
+curl -I https://your-tunnel.trycloudflare.com/_vitehub/agents/assistant/webhooks/slack
 # HTTP/2 204
 # x-vitehub-channel-provider: slack
 ```
 
-Set `https://your-tunnel.trycloudflare.com/api/_vitehub/agents/assistant/webhooks/slack` as the Request URL on **Event Subscriptions**. Slack shows **Verified** when the route answers. Save.
+Set `https://your-tunnel.trycloudflare.com/_vitehub/agents/assistant/webhooks/slack` as the Request URL on **Event Subscriptions**. Slack shows **Verified** when the route answers. Save.
 
 Invite the bot with `/invite @Assistant`, then mention it: `@Assistant what is ViteHub?`. It answers in a thread. You can also send it a direct message from its **Messages** tab.
 
@@ -283,7 +277,7 @@ PORT=3000 node .output/server/index.mjs
 
 Production needs durable Agent State for thread subscriptions and queued deliveries. `VITEHUB_AGENT_STATE_URL` points it at a SQLite file on a disk that survives a restart. See [History and sessions](/docs/agents/chat-history-sessions).
 
-Then set the production Request URL, such as `https://bot.example.com/api/_vitehub/agents/assistant/webhooks/slack`, on **Event Subscriptions**. ViteHub does not register Slack URLs; `vitehub channels sync` supports only Telegram.
+Then set the production Request URL, such as `https://bot.example.com/_vitehub/agents/assistant/webhooks/slack`, on **Event Subscriptions**. ViteHub does not register Slack URLs; `vitehub channels sync` supports only Telegram.
 
 The webhook route also works off Node:
 

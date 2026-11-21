@@ -17,7 +17,7 @@ import type { Result } from "@vite-hub/runtime"
 import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
-import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
+import { downloadDisposition, isActiveContentType } from "./internal/active-content.ts"
 import { matchesETag, parseByteRange, selectByteRange } from "./internal/serve-request.ts"
 import { edgeCacheKey, keepInEdgeCache, matchEdgeCache } from "./internal/edge-cache.ts"
 import isBlob from "./internal/is-blob.ts"
@@ -30,6 +30,25 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
+
+const blobStorageHealthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
+
+export function registerBlobStorageHealthCheck(storage: BlobStorage, check: () => Promise<void>): void {
+  blobStorageHealthChecks.set(storage, check)
+}
+
+export async function checkBlobStorageHealth(storage: BlobStorage): Promise<void> {
+  const check = blobStorageHealthChecks.get(storage)
+  if (check) return check()
+  const [error] = await storage.head("vitehub-health-check")
+  if (error) throw error
+}
+
+export async function checkBlobDriverHealth(driver: BlobDriverAdapter<unknown>): Promise<void> {
+  if (driver.checkHealth) await driver.checkHealth()
+  else if (driver.name === "s3") await driver.list({ limit: 1 })
+  else await driver.head("vitehub-health-check")
+}
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
 export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
@@ -378,6 +397,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
       }
+      if (options.method === "PUT" && options.contentLength !== undefined && !(Number.isSafeInteger(options.contentLength) && options.contentLength >= 0)) {
+        throw blobErrorDiagnostics.BLOB_SIGN_CONTENT_LENGTH_INVALID()
+      }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
@@ -427,9 +449,8 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   function responseHeaders(options: BlobServeResponseOptions, normalizedPath: string): Headers {
     const headers = new Headers(options.headers)
     headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
-    if (options.download !== undefined && options.download !== false) {
-      headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
-    }
+    const disposition = downloadDisposition(normalizedPath, options.download)
+    if (disposition) headers.set("Content-Disposition", disposition)
     return headers
   }
   // The cache lookup applied Blob's range and `If-None-Match` rules using object metadata. Other headers come from this

@@ -20,6 +20,7 @@ function setup(open: () => unknown[]) {
   let now = 1_000_000
   const inbox = new PullRequestInbox({ path: ":memory:", repositories: [repository], clock: () => now })
   const graphql = vi.fn(async () => ({ data: { repository: { pullRequests: { nodes: open(), pageInfo: { hasNextPage: false, endCursor: null } } } } }))
+  const { signal } = new AbortController()
   const rest = { state: "open" }
   const read = vi.fn(async (path: string) => {
     const number = Number(/\/pulls\/(\d+)$/.exec(path)?.[1])
@@ -27,10 +28,10 @@ function setup(open: () => unknown[]) {
   })
   const tick = async (advance = 61_000) => {
     now += advance
-    await detectChangedPullRequests(inbox, () => graphql, [repository], now)
-    return await probeChangedSnapshots(inbox, read, now)
+    await detectChangedPullRequests(inbox, () => graphql, [repository], now, undefined, undefined, signal)
+    return await probeChangedSnapshots(inbox, read, now, undefined, undefined, undefined, undefined, signal)
   }
-  return { inbox, graphql, read, rest, tick, clock: () => now }
+  return { inbox, graphql, read, rest, signal, tick, clock: () => now }
 }
 
 describe("GitHub inbox change detection", () => {
@@ -45,7 +46,7 @@ describe("GitHub inbox change detection", () => {
     // A completed check whose delivery was lost changes the fingerprint.
     checks = node(7, { commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE", contexts: { nodes: [{ __typename: "CheckRun", databaseId: 1, status: "COMPLETED", conclusion: "FAILURE" }], pageInfo: { hasNextPage: false } } } } }] } })
     expect(await f.tick()).toBe(1)
-    expect(f.read).toHaveBeenCalledWith(`repos/${repository}/pulls/7`, ".")
+    expect(f.read).toHaveBeenCalledWith(`repos/${repository}/pulls/7`, ".", f.signal)
     await f.inbox.close()
   })
 
@@ -177,7 +178,7 @@ describe("GitHub inbox change detection", () => {
       return []
     })
     expect(await f.tick()).toBe(1)
-    expect(f.read).toHaveBeenCalledWith(`repos/${repository}/actions/runs/77`, ".")
+    expect(f.read).toHaveBeenCalledWith(`repos/${repository}/actions/runs/77`, ".", f.signal)
     expect(looksMergeReady((await f.inbox.get(repository, 7))!)).toBe(true)
     await f.inbox.close()
   })

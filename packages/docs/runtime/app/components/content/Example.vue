@@ -31,9 +31,12 @@ function onKeydown(event: KeyboardEvent) {
   const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
   if (!step) return
   event.preventDefault()
+  const group = event.currentTarget
   const next = views[(views.indexOf(view.value) + step + views.length) % views.length]!
   view.value = next
-  nextTick(() => (event.currentTarget instanceof HTMLElement ? event.currentTarget : null)?.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus())
+  nextTick(() => {
+    if (group instanceof HTMLElement) group.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus()
+  })
 }
 </script>
 

@@ -22,16 +22,18 @@ import { getSandboxTaskFeatureDriver } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
 import { resolveCloudflareSandboxTaskInstanceType, resolveVercelSandboxTaskVcpus } from './size'
-import { createSandboxTaskTypeTemplateContents } from './type-template'
+import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from './type-template'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const sandboxTaskRuntimeStateSpecifier = '@vite-hub/sandbox/task/runtime/state'
-export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/_internal/task/runtime'
+export const sandboxTaskRuntimeSpecifier = '@vite-hub/sandbox/internal/task/runtime'
 export const sandboxTaskRuntimeProviderSpecifiers = {
   cloudflare: `${sandboxTaskRuntimeSpecifier}/providers/cloudflare`,
   vercel: `${sandboxTaskRuntimeSpecifier}/providers/vercel`,
 } as const
+/** Only the `vite dev` facade imports the local provider, so builds do not bundle it. */
+export const sandboxTaskRuntimeLocalProviderSpecifier = `${sandboxTaskRuntimeSpecifier}/providers/local`
 
 export const sandboxTaskRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',
@@ -85,7 +87,7 @@ function createSandboxTaskManifest(aliasPath: string, typeTemplate: string): Fea
       { name: 'SandboxTaskRunResult', as: 'SandboxTaskRunResult', from: '@vite-hub/sandbox/task', type: true },
     ],
     typeTemplate: {
-      filename: 'runtime/sandbox-task.d.ts',
+      filename: sandboxTaskTypeTemplateFilename,
       contents: typeTemplate,
     },
   }
@@ -238,13 +240,7 @@ export async function createSandboxTaskFeaturePlan(
     discoveredDefinitionOptions.rootDir || process.cwd(),
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
-  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions.map((definition) => {
-    return {
-      handler: definition.handler,
-      kind: definition.kind,
-      name: definition.name,
-    }
-  })))
+  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions))
   const {
     bundleAlias,
     featureImports = manifest.imports,

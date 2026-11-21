@@ -7,7 +7,7 @@ import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } f
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { VITEHUB_FEATURES, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import { build as viteBuild, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
@@ -267,17 +267,17 @@ describe("hubSandboxTask", () => {
     ])
     expect(facade).toContain("setSandboxTaskRuntimeConfig")
     expect(facade).toContain("setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)")
-    expect(facade).toContain("setSandboxTaskRuntimeDevelopment(true)")
+    expect(facade).toContain('import("@vite-hub/sandbox/internal/task/runtime/providers/local")')
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     const facadePackageImports = [
-      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeLocalProvider, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toEqual([
       "@vite-hub/sandbox/task/runtime/state",
-      "@vite-hub/sandbox/_internal/task/runtime",
+      "@vite-hub/sandbox/internal/task/runtime",
     ])
     expect(facade).toContain('from "./sandbox-task-registry.mjs"')
     expect(facade).toContain(`from ${JSON.stringify(providerLoaderAlias)}`)
@@ -286,7 +286,7 @@ describe("hubSandboxTask", () => {
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
-    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/_internal/task/runtime/providers/vercel")
+    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/internal/task/runtime/providers/vercel")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
@@ -314,7 +314,6 @@ describe("hubSandboxTask", () => {
     const { default: definition } = await registry["__proto__"]!()
     expect(definition.options).toEqual({ timeout: 5000 })
     expect(definition.bundle.modules[definition.bundle.entry]).toContain("prototype sandbox")
-    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"), "utf8")).resolves.toContain("setSandboxTaskRuntimeDevelopment(false)")
   })
 
   it("loads only the selected generated Definition payload", async () => {
@@ -830,8 +829,8 @@ describe("hubSandboxTask", () => {
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
     const exportsModule = rollupPlugin.load.handler("\0virtual:vitehub-sandbox-task-cloudflare-exports")
-    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
-    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare"])
+    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
+    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare"])
     expect(ids.filter(id => rollupPlugin.load.filter.id.test(id))).toEqual(["\0virtual:vitehub-sandbox-task-cloudflare-exports"])
     expect(exportsModule).toContain("import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
@@ -1769,6 +1768,57 @@ describe("hubSandboxTask", () => {
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
+  it("writes declarations before Nuxt writes the referenced tsconfig files", async () => {
+    const rootDir = await createViteRoot()
+    // A fresh clone of a Nuxt app: `nuxt prepare` writes `.nuxt/tsconfig.*.json` after the Vite hooks run.
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes: string = 'from helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "./notes"`,
+      `export default defineSandboxTask({ handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "serve" as const, mode: "development" }
+
+    // `nuxt dev` and `nuxt build` run after Nuxt writes the files, and keep reading the app's tsconfig.
+    await expect(prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })).rejects.toThrow(/TSCONFIG_ERROR/)
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(readdir(join(rootDir, ".vitehub/sandbox-task/runtime"))).resolves.toEqual(["sandbox-task.d.ts"])
+  })
+
+  it("leaves TypeScript path resolution to the runtime build and preserves the active runtime on prepare", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { "@helpers/*": ["./src/tools/*"] } } }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes = 'from aliased helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "@helpers/notes"`,
+      `export default defineSandboxTask({ project: false, handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "build" as const, mode: "production" }
+    const prepare = { env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } }
+    const runtimeDir = join(rootDir, ".vitehub/sandbox-task/runtime")
+    const bundle = join(runtimeDir, "sandbox-task-definitions/tools__release-notes.mjs")
+
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(lstat(bundle)).rejects.toMatchObject({ code: "ENOENT" })
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })
+    await expect(readFile(bundle, "utf8")).resolves.toContain("from aliased helper")
+
+    const facade = join(runtimeDir, "sandbox-task.mjs")
+    const activeRuntime = await readFile(facade, "utf8")
+    await writeFile(join(rootDir, "src/tools/next.sandbox-task.ts"), `export { default } from "./release-notes.sandbox-task"\n`)
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(facade, "utf8")).resolves.toBe(activeRuntime)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/next"')
   })
 
   it("keeps Windows definition fallbacks in the active runtime", async () => {

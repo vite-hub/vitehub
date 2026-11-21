@@ -266,6 +266,91 @@ describe("select one of many", async () => {
     await context.close()
   })
 
+  test("indicators belong to their own group, and a wrapped shared indicator can opt out", async () => {
+    const { context, page } = await open()
+    try {
+      const result = await page.evaluate(async () => {
+        const group = document.createElement("section")
+        group.setAttribute("data-motion-select", "")
+        group.style.cssText = "position:relative;display:flex;width:300px"
+        group.innerHTML = `
+          <div style="width:100px" data-state="active">One</div>
+          <div style="width:100px">Two<div role="radiogroup"><button role="radio" aria-checked="true">
+            <span data-slot="indicator">●</span>
+          </button></div></div>
+          <div role="listbox" aria-multiselectable="true"><div role="option" aria-selected="false">Option</div></div>
+          <div><span data-motion-indicator style="position:absolute;left:100px;width:80px;height:5px"></span></div>`
+        document.body.append(group)
+        const [first, second] = group.children
+        const dot = group.querySelector("[data-slot=indicator]")
+        const mark = group.querySelector("[data-motion-indicator]")
+        const nextFrames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        first.removeAttribute("data-state")
+        second.setAttribute("data-state", "active")
+        await nextFrames()
+        const sharedMoves = !!mark.style.translate
+        const nestedMoves = !!dot.style.translate
+
+        mark.setAttribute("data-motion", "none")
+        second.removeAttribute("data-state")
+        first.setAttribute("data-state", "active")
+        first.style.backgroundColor = "red"
+        mark.style.left = "0px"
+        await nextFrames()
+        const optedOut = !mark.style.translate && !mark.style.scale && !group.querySelector("[data-motion-copy]")
+
+        mark.removeAttribute("data-motion")
+        const option = group.querySelector("[role=option]")
+        option.setAttribute("aria-selected", "true")
+        await nextFrames()
+        return { sharedMoves, nestedMoves, optedOut, multiMoves: !!mark.style.translate || !!group.querySelector("[data-motion-copy]") }
+      })
+      assert.deepEqual(result, { sharedMoves: true, nestedMoves: false, optedOut: true, multiMoves: false })
+    } finally {
+      await context.close()
+    }
+  })
+
+  test("copies an opaque green background and currentColor underline, then clears an empty selection", async () => {
+    const { context, page } = await open()
+    try {
+      const result = await page.evaluate(async () => {
+        const group = document.createElement("section")
+        group.setAttribute("role", "tablist")
+        group.style.cssText = "position:relative;display:flex;width:300px"
+        group.innerHTML = `
+          <style>
+            [data-probe-tab] { display:block;width:100px;height:30px;color:blue }
+            [data-probe-tab][aria-selected=true] { background:green;border-bottom:2px solid currentColor }
+          </style>
+          <button data-probe-tab role="tab" aria-selected="true">One</button>
+          <button data-probe-tab role="tab" aria-selected="false">Two</button>
+          <button data-probe-tab role="tab" aria-selected="false">Three</button>`
+        document.body.append(group)
+        const [first, second, third] = group.querySelectorAll("[role=tab]")
+        const nextFrames = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        first.setAttribute("aria-selected", "false")
+        second.setAttribute("aria-selected", "true")
+        await nextFrames()
+        const copy = group.querySelector("[data-motion-copy]")
+        const background = copy?.style.backgroundColor
+        const underline = copy?.style.borderBottomColor
+
+        second.setAttribute("aria-selected", "false")
+        await nextFrames()
+        const cleared = !group.querySelector("[data-motion-copy]") && !second.hasAttribute("data-motion-select-hidden")
+
+        third.innerHTML = '<span data-motion-indicator style="display:block;width:80px;height:5px"></span>'
+        third.setAttribute("aria-selected", "true")
+        await nextFrames()
+        return { background, underline, cleared, reentryMoves: !!third.firstElementChild.style.translate }
+      })
+      assert.deepEqual(result, { background: "rgb(0, 128, 0)", underline: "rgb(0, 0, 255)", cleared: true, reentryMoves: false })
+    } finally {
+      await context.close()
+    }
+  })
+
   test("a resize keeps the indicator in place with no motion", async () => {
     const { context, page } = await open()
     await page.locator("[data-test=tabs] [role=tab] >> nth=1").click()

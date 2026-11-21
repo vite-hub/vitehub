@@ -3,7 +3,7 @@
 // has no layout, so these checks need a real browser.
 // Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
@@ -14,10 +14,11 @@ import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 const port = Number(process.env.COMMENTS_BROWSER_PORT ?? 4797)
 /** A folder for screenshots of the flows, for pull request evidence. */
 const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
+const builtOverlay = new URL("../../dist/overlay/", import.meta.url)
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
-/** Serves `/api/_vitehub/comments/**` from the real handler, with one signed-in person. */
+/** Serves `/_vitehub/comments/**` from the real handler, with one signed-in person. */
 function commentsApi() {
   let comments
   const files = new Map()
@@ -25,7 +26,7 @@ function commentsApi() {
     name: "comments-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url.startsWith("/api/_vitehub/comments/")) return next()
+        if (!req.url.startsWith("/_vitehub/comments/")) return next()
         const [{ createComments }, { createCommentsHandler }, { H3 }] = await Promise.all([server.ssrLoadModule(harness), server.ssrLoadModule(handlerFile), import("h3")])
         comments ??= await createComments({
           storeAttachment: (file) => {
@@ -34,7 +35,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
@@ -120,7 +121,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const strong = await page.locator("#first strong").boundingBox()
     await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: strong.x + strong.width * 0.8, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
-    const bar = page.locator("vitehub-comments .selection-bar")
+    const bar = page.locator("vitehub-comments [data-slot='comment-selection-bar']")
     await bar.waitFor({ timeout: 5000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
     await composer.waitFor({ timeout: 5000 })
@@ -340,7 +341,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       getSelection().removeAllRanges()
       getSelection().addRange(range)
     })
-    await page.locator("vitehub-comments .selection-bar").waitFor({ timeout: 5000 })
+    await page.locator("vitehub-comments [data-slot='comment-selection-bar']").waitFor({ timeout: 5000 })
     await page.keyboard.press("c")
     await composer.fill("Second quote")
     await composer.press("Enter")
@@ -553,7 +554,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         getSelection().removeAllRanges()
         getSelection().addRange(range)
       })
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
       // No hover color on a touch screen, where a tap would leave it on.
       await button.hover()
@@ -588,14 +589,14 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         return range.getBoundingClientRect().bottom
       })
       assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
       // The bar rises from the text with the appear effect of the motion layer. Measure it where it rests.
-      await touch.locator("vitehub-comments .selection-bar").evaluate(bar => new Promise((resolve) => {
+      await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").evaluate(bar => new Promise((resolve) => {
         const check = () => (bar.style.translate || bar.style.clipPath || bar.style.opacity ? requestAnimationFrame(check) : resolve())
         check()
       }))
-      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      const box = await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
       // The system's text menu opens just above the selection, so the bar leaves it 64px.
@@ -620,6 +621,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
     finally {
       await touch.close()
+    }
+  })
+
+  await t.test("the Comment bar keeps its size and stays on screen when the page's root text is larger", async () => {
+    const large = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await large.goto(`http://127.0.0.1:${port}/`)
+      await large.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      // Text near the top left corner, so the bar has to go under it and stay inside the left edge.
+      await large.evaluate(() => {
+        document.documentElement.style.fontSize = "24px"
+        const first = document.querySelector("#first")
+        Object.assign(first.style, { position: "fixed", left: "0", top: "20px", margin: "0" })
+        const range = document.createRange()
+        range.selectNodeContents(first.querySelector("strong"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const bar = large.locator("vitehub-comments [data-slot='comment-selection-bar']")
+      await bar.waitFor({ timeout: 5000 })
+      await large.waitForTimeout(200)
+      const box = await bar.boundingBox()
+      assert.equal(Math.round(box.height), 38)
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1024 && box.y + box.height <= 720, `bar at ${JSON.stringify(box)}`)
+    }
+    finally {
+      await large.close()
     }
   })
 
@@ -696,5 +724,60 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), null)
   })
 
+  assert.deepEqual(errors, [])
+})
+
+test("the built overlay loads its chunks from its own folder", { timeout: 60_000 }, async (t) => {
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const context = await browser.newContext()
+  // A routed origin: the page is at the root and the built overlay at the asset path of the Comments routes.
+  const origin = "http://localhost:4799"
+  const assets = "/_vitehub/comments/assets/"
+  const scripts = []
+  await context.route(`${origin}/**`, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith(".js")) scripts.push(path)
+    if (path === "/") {
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><main><p>Hello</p></main><script type="module">
+        import start from "${assets}overlay.js"
+        const pill = document.createElement("vitehub-pill")
+        const bar = document.createElement("vitehub-tool")
+        bar.slot = "comments"
+        pill.append(bar)
+        document.documentElement.append(pill)
+        start({
+          tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "${assets}overlay.js" },
+          bar,
+          signal: new AbortController().signal,
+          open: false,
+          exit() {},
+          onOpen() {},
+          beforeExit() {},
+          openTool: async () => false,
+          createWindow() { throw new Error("Unexpected retained window") },
+        })
+      </script>` })
+    }
+    if (path.startsWith(assets)) {
+      const body = await readFile(new URL(path.slice(assets.length), builtOverlay)).catch(() => undefined)
+      return body ? route.fulfill({ contentType: "text/javascript", body }) : route.fulfill({ status: 404 })
+    }
+    // Presence is on, so the overlay imports the Realtime client chunk after the session answers.
+    if (path === "/_vitehub/comments/session") {
+      return route.fulfill({ json: { data: { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false }, people: [] } })
+    }
+    if (path.startsWith("/_vitehub/comments/")) return route.fulfill({ json: { data: [], people: [] } })
+    return route.fulfill({ status: 404 })
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+  // The Realtime client opens the room's socket once its chunk has loaded, after the preload links went out.
+  const socket = page.waitForEvent("websocket", { timeout: 15_000 })
+  await page.goto(`${origin}/`)
+  assert.match((await socket).url(), /\/_vitehub\/realtime\/comments\//)
+  assert.ok(scripts.length > 1, `the overlay loaded its chunks: ${scripts.join(", ")}`)
+  assert.deepEqual(scripts.filter(path => !path.startsWith(assets)), [])
   assert.deepEqual(errors, [])
 })

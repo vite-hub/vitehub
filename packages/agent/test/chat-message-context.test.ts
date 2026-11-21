@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { telegram } from "../src/channels.ts"
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
+import { providerAgentRuntime } from "../src/internal/provider-driver-runtime.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentChannelDefinition } from "../src/index.ts"
@@ -72,7 +73,7 @@ function promptModel(prompts: Prompt[], answer: (prompt: Prompt) => string = () 
   }
 }
 
-function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string) {
+function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string, driver?: Parameters<typeof defineAgent>[0]["driver"]) {
   const prompts: Prompt[] = []
   const downloads: string[] = []
   const replies: string[] = []
@@ -88,7 +89,7 @@ function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt
   const agent = defineAgent({
     channels: { telegram: channel },
     // SAFETY: This object implements the AI SDK LanguageModelV3 methods that the Driver calls.
-    driver: { model: model as never },
+    driver: driver ?? { model: model as never },
     hooks: {
       "agent:finish"(event) {
         return event.reply(event.text ?? "")
@@ -123,7 +124,7 @@ function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt
 
   async function send(message: Record<string, unknown>) {
     const tasks: Promise<unknown>[] = []
-    const response = await handler(new Request("https://example.test/api/_vitehub/agents/calories/webhooks/telegram", {
+    const response = await handler(new Request("https://example.test/_vitehub/agents/calories/webhooks/telegram", {
       body: JSON.stringify({ message: { chat, from: user, ...message }, update_id: nextUpdateId++ }),
       headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "test-secret" },
       method: "POST",
@@ -252,6 +253,37 @@ describe("chat trigger message context", () => {
       { images: 0, text: "[Tue 2026-10-13 16:08:00 +00:00 · msg 109351]\nwith dressing" },
     ])
     expect(harness.downloads).toEqual([])
+  })
+
+  it("sends the newest history photos to a provider Driver when maxImages is not set", async () => {
+    // A provider Driver that records the messages of each turn instead of starting Codex.
+    const turnMessages: Array<Array<{ parts?: Array<{ type: string }>, role: string }>> = []
+    const driver = {
+      ...codexDriver(),
+      [providerAgentRuntime]: async () => ({
+        createProviderAgentAdapter: () => ({
+          generate(context: { messages: typeof turnMessages[number] }) {
+            turnMessages.push(context.messages)
+            return { text: "Saved" }
+          },
+          name: "test-provider",
+        }),
+        inspectAgentProvider: async () => ({}),
+      }),
+    }
+    const historyImages = async (maxImages?: number) => {
+      const harness = telegramHarness({ timeZone: "Europe/Stockholm", triggerHistory: { maxImages, maxMessages: 20, source: "thread" } }, undefined, driver as never)
+      for (const [index, name] of ["BANANA", "NACHOS", "SANDWICH", "LEMON", "TOAST"].entries()) {
+        await harness.send({ date: at(18, 6 + index), message_id: 109370 + index, photo: photo(name) })
+      }
+      await harness.send({ date: at(18, 12), message_id: 109375, text: "which of these had cheese?" })
+      return turnMessages.at(-1)!.filter(message => message.role === "user")
+        .map(message => message.parts?.filter(part => part.type === "image").length ?? 0)
+    }
+
+    expect(await historyImages()).toEqual([0, 1, 1, 1, 1, 0])
+    // An explicit value still wins.
+    expect(await historyImages(0)).toEqual([0, 0, 0, 0, 0, 0])
   })
 
   it("uses UTC when the time zone is invalid", async () => {

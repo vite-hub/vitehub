@@ -1,11 +1,13 @@
+import { fileURLToPath } from "node:url"
+
 import { configDefaults, defineConfig } from "vitest/config"
 
 export default defineConfig({
   resolve: {
     alias: {
-      "#vitehub-workspace-assets-registry": new URL("src/runtime/empty-assets-registry.ts", import.meta.url).pathname,
-      "#vitehub-workspace-registry": new URL("src/runtime/empty-registry.ts", import.meta.url).pathname,
-      "@vite-hub/shell/workspace": new URL("../shell/src/workspace/index.ts", import.meta.url).pathname,
+      "#vitehub-workspace-assets-registry": fileURLToPath(new URL("src/runtime/empty-assets-registry.ts", import.meta.url)),
+      "#vitehub-workspace-registry": fileURLToPath(new URL("src/runtime/empty-registry.ts", import.meta.url)),
+      "@vite-hub/shell/workspace": fileURLToPath(new URL("../shell/src/workspace/index.ts", import.meta.url)),
     },
   },
   test: {

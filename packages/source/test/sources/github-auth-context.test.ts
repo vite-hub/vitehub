@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { github, createSource } from "../../src/index.ts"
+import { github, useSource } from "../../src/index.ts"
 import { requestAuthorization, stubGitHubSource } from "./fixtures/github.ts"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -15,11 +15,11 @@ describe.each([false, true])("GitHub Source reader credentials with cache=%s", (
       ref: "main",
       repo: `acme/auth-${operation}-${cached}`,
     })
-    const anonymous = createSource(source, { abortSignal: new AbortController().signal })
+    const anonymous = useSource(source, { abortSignal: new AbortController().signal })
     await anonymous.revision()
 
     token = "another-reader-token"
-    const authenticated = createSource(source)
+    const authenticated = useSource(source)
     await authenticated.revision()
     vi.mocked(fetch).mockClear()
 
@@ -47,11 +47,11 @@ describe.each([false, true])("GitHub Source reader credentials with cache=%s", (
       repo: `acme/pinned-auth-${operation}-${cached}`,
     })
     const revision = { id: "pinned-commit", immutable: true }
-    const anonymous = createSource(source, { revision, abortSignal: new AbortController().signal })
+    const anonymous = useSource(source, { revision, abortSignal: new AbortController().signal })
     await anonymous.meta("other.md")
 
     token = "another-reader-token"
-    const authenticated = createSource(source, { revision })
+    const authenticated = useSource(source, { revision })
     await authenticated.meta("other.md")
     vi.mocked(fetch).mockClear()
 
@@ -81,7 +81,7 @@ describe.each([false, true])("GitHub Source reader credentials with cache=%s", (
       cache: cached ? { maxAge: 3600 } : false,
       repo: `acme/concurrent-pinned-auth-${cached}`,
     })
-    const reader = createSource(source, { revision: { id: "pinned-commit", immutable: true } })
+    const reader = useSource(source, { revision: { id: "pinned-commit", immutable: true } })
     await Promise.all([reader.meta("README.md"), reader.meta("other.md")])
 
     expect(auth).toHaveBeenCalledTimes(1)

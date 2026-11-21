@@ -1,10 +1,10 @@
 import { isMotionOff } from "../layer.ts";
-import { prefersReducedMotion } from "../reduced-motion.ts";
+import { onReducedMotionChange, prefersReducedMotion } from "../reduced-motion.ts";
 import type { MotionEffect } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
-import { after, createGhost } from "./ghost.ts";
+import { after, createGhost, pinGhost } from "./ghost.ts";
 
 // The toolbar tooltip of the prototype: it rises from behind its trigger, widens to its label, slides between
 // triggers, and sinks back.
@@ -68,11 +68,13 @@ interface Tip {
   next: Node | null;
   stopWatch?: () => void;
   text: string;
+  label: Node[];
   trigger: Element | null;
 }
 
 const tips = new WeakMap<HTMLElement, Tip>();
 const openTips = new Set<HTMLElement>();
+const exitBoxes = new Set<Box>();
 /** The ghost of the tooltip that closed last, while a tooltip that opens now can still take its place. */
 let handoff: Box | undefined;
 
@@ -280,6 +282,31 @@ function stopBox(box: Box): void {
   for (const spring of [box.x, box.y, box.width, box.label, box.fade, box.old?.spring]) spring?.stop();
 }
 
+function removeGhost(box: Box): void {
+  stopBox(box);
+  exitBoxes.delete(box);
+  if (handoff === box) handoff = undefined;
+  box.element.closest("[data-motion=none]")?.remove();
+}
+
+function reduceTooltips(reduced: boolean): void {
+  if (!reduced) return;
+  for (const ghost of exitBoxes) removeGhost(ghost);
+  for (const element of openTips) {
+    const box = tips.get(element)?.box;
+    if (!box) continue;
+    stopBox(box);
+    box.holding = true;
+    box.x.set(box.rest.left + box.rest.width / 2);
+    box.y.set(box.rest.top + box.rest.height / 2);
+    box.width.set(box.rest.width);
+    box.label.set(1);
+    box.fade.set(1);
+    box.holding = false;
+    settle(box);
+  }
+}
+
 /**
  * True when the trigger of `to` sits next to the trigger of `from`, as in one toolbar: on the same side, in the same
  * row for a tooltip above or below, or in the same column for one beside. A tooltip in another place rises on its own.
@@ -331,6 +358,7 @@ function start(element: HTMLElement, tip: Tip): void {
   const box = createBox(element, rest, triggerRect);
   tip.box = box;
   tip.text = labelText(box);
+  tip.label = copyLabel(box);
   writeMotionStyle(element, { opacity: null });
   const from = box.handoff && handoff && nextTo(handoff, box) ? handoff : undefined;
   if (from) handoff = undefined;
@@ -346,8 +374,7 @@ function start(element: HTMLElement, tip: Tip): void {
     const old = copyLabel(from);
     const values = { x: [from.x.value, from.x.velocity], y: [from.y.value, from.y.velocity], width: [from.width.value, from.width.velocity] } as const;
     const label = from.old ? 0 : from.label.value;
-    stopBox(from);
-    from.element.closest("[data-motion=none]")?.remove();
+    removeGhost(from);
     box.x.set(values.x[0]);
     box.y.set(values.y[0]);
     box.width.set(values.width[0]);
@@ -376,10 +403,10 @@ function start(element: HTMLElement, tip: Tip): void {
 
 /** Plays the exit of a ghost: the label blurs out, the box narrows, then it sinks behind its trigger. */
 function leaveGhost(box: Box, reduced: boolean): void {
-  const remove = () => box.element.closest("[data-motion=none]")?.remove();
+  exitBoxes.add(box);
   box.holding = false;
   if (reduced) {
-    box.done = remove;
+    box.done = () => removeGhost(box);
     box.fade.to(0, { tween: crossfade });
     return;
   }
@@ -391,10 +418,7 @@ function leaveGhost(box: Box, reduced: boolean): void {
     if (handoff === box) handoff = undefined;
     along(box).to(hiddenCenter(box), { preset: rise });
   });
-  later(box, goneAfter, () => {
-    stopBox(box);
-    remove();
-  });
+  later(box, goneAfter, () => removeGhost(box));
 }
 
 /** The tooltip closed or left the page: its ghost plays the exit where it was. */
@@ -425,6 +449,10 @@ function leave(element: HTMLElement, tip: Tip): void {
   if (!(ghostElement instanceof HTMLElement)) {
     ghostRoot.remove();
     return;
+  }
+  if (element.hasAttribute("popover")) {
+    writeMotionStyle(ghostElement, { scale: null });
+    pinGhost(ghostElement, box.rest);
   }
   const ghost = createBox(ghostElement, box.rest, undefined);
   Object.assign(ghost, { side: box.side, edge: box.edge, trigger: box.trigger, mode: box.mode, origin: box.origin, radius: box.radius, handoff: box.handoff });
@@ -487,7 +515,7 @@ function open(element: HTMLElement): void {
   // A tooltip sits in a portal, away from its trigger, so a trigger inside `data-motion="none"` turns its tooltip off too.
   if (trigger && isMotionOff(trigger)) return;
   const root = element.closest<HTMLElement>("[data-reka-popper-content-wrapper]") ?? element;
-  tip = { open: true, root, parent: root.parentNode, next: root.nextSibling, text: "", trigger };
+  tip = { open: true, root, parent: root.parentNode, next: root.nextSibling, text: "", label: [], trigger };
   tips.set(element, tip);
   openTips.add(element);
   watchMoves();
@@ -511,10 +539,11 @@ function checkMoves(): void {
     const text = labelText(box);
     const moved = Math.abs(rest.left - box.rest.left) > 1 || Math.abs(rest.top - box.rest.top) > 1 || Math.abs(rest.width - box.rest.width) > 1;
     if (!moved && text === tip.text) continue;
-    const old = text === tip.text ? [] : copyLabel(box);
+    const old = text === tip.text ? [] : tip.label;
     tip.trigger = findTrigger(element) ?? tip.trigger;
     const triggerRect = tip.trigger?.getBoundingClientRect();
     tip.text = text;
+    tip.label = copyLabel(box);
     box.rest = rest;
     box.side = sideOf(element, rest, triggerRect);
     box.edge = edgeOf(box.side, rest, triggerRect);
@@ -528,6 +557,7 @@ function checkMoves(): void {
     box.y.to(rest.top + rest.height / 2, { preset: slide });
     box.width.to(rest.width, { preset: widen });
     if (old.length) {
+      box.old?.spring.stop();
       box.old?.element.remove();
       blurOutOld(box, old, box.label.value);
       box.label.set(0);
@@ -539,7 +569,9 @@ function onMove(): void {
   if (!checking) checking = requestAnimationFrame(checkMoves);
 }
 let watching = false;
+let stopWatchingReduction: (() => void) | undefined;
 function watchMoves(): void {
+  stopWatchingReduction ??= onReducedMotionChange(reduceTooltips);
   if (watching) return;
   watching = true;
   document.addEventListener("pointerover", onMove, { capture: true, passive: true });

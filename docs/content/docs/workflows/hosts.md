@@ -17,7 +17,7 @@ icon: i-lucide-cloud-cog
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
 
-ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
+ViteHub infers Vercel only on Vercel. `agent: true` does not turn on Workflow: without `workflow`, Agents run inline, and a restart loses their runs. With `workflow: true` on Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
 | Driver | Configure with | Driver output | Nuance |
@@ -39,6 +39,8 @@ For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
+
+ViteHub bundles the steps of the Workflow DevKit functions as it bundles the server. A step can import a `?markdown-template` file. A package that a step imports can load an optional peer that the app did not install, such as `@vite-hub/kv` in `@vite-hub/agent`: the build passes, and only the step that loads it fails.
 
 ### Upgrade the Vercel Workflow SDK
 
@@ -131,7 +133,7 @@ export default defineConfig({
 
 Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, and the Agents in `server/agents/`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. The startup registry also installs the generated Agent State resolver and Capability loaders, so a fresh worker can restore persisted Channel deliveries without loading an Agent route first.
 
-- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
+- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow runs get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
 - A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, because no worker can run it. Move the Agent to `server/agents/`, or call `runAgent()` to run it without a Workflow.
 - A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)`, runs inline in the request process. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
 

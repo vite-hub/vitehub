@@ -140,6 +140,46 @@ describe("createSpring", () => {
     expect(spring.active).toBe(true);
   });
 
+  it("settles active movement when reduced motion turns on and leaves tweens running", () => {
+    const fade = createSpring(0, () => {});
+    const movement = createSpring(0, value => {
+      if (value === 1) fade.to(1, { tween: 0.15 });
+    });
+    const runningFade = createSpring(0, () => {});
+    runningFade.to(1, { tween: 0.15 });
+    movement.to(1);
+    tick();
+    forceReducedMotion(true);
+    expect(movement.value).toBe(1);
+    expect(movement.active).toBe(false);
+    expect(fade.value).toBe(0);
+    expect(fade.active).toBe(true);
+    expect(runningFade.active).toBe(true);
+    framesUntilIdle();
+    expect(fade.value).toBe(1);
+    expect(runningFade.value).toBe(1);
+  });
+
+  it("advances segments queued in a frame callback only on the next frame", () => {
+    const secondValues: number[] = [];
+    const second = createSpring(0, value => secondValues.push(value));
+    const values: number[] = [];
+    const first = createSpring(0, value => {
+      values.push(value);
+      if (value !== 1) return;
+      first.to(2, { tween: 0.001 });
+      second.to(2, { tween: 0.001 });
+    });
+    first.to(1, { tween: 0.001 });
+    second.to(1, { tween: 0.001 });
+    tick();
+    expect(values).toEqual([1]);
+    expect(secondValues).toEqual([]);
+    tick();
+    expect(values).toEqual([1, 2]);
+    expect(secondValues).toEqual([2]);
+  });
+
   it("refuses a slow factor that is not above 0", () => {
     expect(() => setMotionSlowFactor(0)).toThrow(RangeError);
   });

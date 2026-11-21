@@ -34,10 +34,11 @@ jobs:
       - typecheck
       - ui-sdk
       - service-tests
+      - agent-codex-emulator
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - docs-deploy
@@ -74,7 +75,7 @@ jobs:
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
-            "node-22",
+            "node-floor",
             "prepublish-contracts",
             "verify-providers",
           ])
@@ -474,6 +475,65 @@ jobs:
           VITEHUB_TEST_POSTGRES_URL: postgres://postgres:vitehub@127.0.0.1:5432/postgres
           VITEHUB_TEST_REDIS_URL: redis://127.0.0.1:6379
 
+  # Real Codex against the AI emulator, with no AI key or secret. The emulator rejects request shapes that it does not
+  # implement, such as the `namespace` and freeform tools that Codex sends by default, so this job fails when the
+  # emulator launch options in packages/agent/src/internal/codex-emulation.ts stop working with the Codex version that
+  # the docs pin. Keep CODEX_VERSION equal to the `@openai/codex@<version>` in packages/agent/README.md.
+  agent-codex-emulator:
+    name: agent codex on the AI emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CODEX_VERSION: 0.169.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          # The workspace files pin the T3 provider runtime, the AI emulator, and their dependencies. CODEX_VERSION and
+          # the README pin live in this file and in packages/agent.
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/agent packages/gateways package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the Agent package, the gateways, the workspace dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      # Outside the workspace, so the lockfile does not change, as Codex is an optional peer of the Agent package. The
+      # version is exact. The Agent finds this `codex` on PATH.
+      - name: Install Codex
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: | # zizmor: ignore[adhoc-packages]
+          npm install --prefix "$RUNNER_TEMP/codex" --ignore-scripts --no-audit --no-fund "@openai/codex@$CODEX_VERSION"
+          echo "$RUNNER_TEMP/codex/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Build the Agent package and its workspace dependencies
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --cache -t @vite-hub/agent#build
+      - name: Run real Codex on the AI emulator
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        working-directory: packages/agent
+        env:
+          VITEHUB_TEST_REAL_CODEX: "1"
+        run: |
+          actual="$(codex --version)"
+          if [ "$actual" != "codex-cli $CODEX_VERSION" ]; then
+            echo "::error::Expected codex-cli $CODEX_VERSION on PATH, found: $actual"
+            exit 1
+          fi
+          vp test run test/emulate-codex.test.ts
+
   # Consumer contracts stay on push. Shard 1/3 took a median of 11.7 minutes
   # in successful runs, and pull requests already wait for package tests.
   consumer-contracts:
@@ -507,12 +567,12 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The standalone package floor is Node.js 22.18; Nitro integrations require
-  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
-  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
-  # brand checks, TextDecoder, and structuredClone.
-  node-22:
-    name: node 22.18
+  # The workspace and every package require Node.js 24.15. Other jobs run the
+  # newest Node.js 24. This job runs the tests for built-ins that change between
+  # releases (fs glob, node:sqlite, module hooks, Response brand checks,
+  # TextDecoder, and structuredClone) on the exact floor.
+  node-floor:
+    name: node 24.15
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -521,25 +581,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      # Contributor dependencies require a newer runtime than the standalone
-      # package floor. Install them on Node 24, then test on the exact floor.
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          node-version: "22.18.0"
-          run-install: false
+          node-version: "24.15.0"
 
-      - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
-      # Node 22.18 bundles Corepack 0.33, which expects pnpm's old JS entrypoint.
-      # Bootstrap the exact Corepack version independently of workspace dependencies.
-      - name: Install Corepack with native pnpm support
-        run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
-      # Cached Vite tasks filter environment overrides. Persist this job's
-      # runtime policy so pack-time pnpm subprocesses can use the package floor.
-      - name: Allow the package runtime floor
-        run: corepack pnpm --runtime-on-fail=ignore config set --location=project runtimeOnFail ignore
-      # Install-time builds ran on Node 24. Build the targets together on 22.18
-      # so each dependency runs once, preserving uncached floor validation.
+      - name: Require Node.js 24.15
+        run: node -e 'if (process.version !== "v24.15.0") throw new Error("Expected Node.js v24.15.0, got " + process.version)'
+      # The restored task cache can hold builds from a newer Node.js 24. Build the
+      # targets together on 24.15 so each dependency runs once, preserving
+      # uncached floor validation.
       - name: Clear install-time build cache
         run: vp cache clean
       - name: Build tested packages
@@ -630,7 +679,7 @@ jobs:
       - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - verify-providers
@@ -721,7 +770,7 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - docs-demo
       - verify-providers
@@ -861,7 +910,6 @@ jobs:
       - name: Select the check
         id: changed
         env:
-          BASE_REF: origin/${{ github.base_ref }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ "$EVENT_NAME" != "pull_request" ]; then
@@ -869,7 +917,9 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          base_sha="$(git rev-parse HEAD^1)"
+          echo "base-sha=$base_sha" >> "$GITHUB_OUTPUT"
+          files="$(git diff --name-only "$base_sha" HEAD)"
           if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
@@ -894,13 +944,13 @@ jobs:
       - name: Capture the base
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
-          BASE_REF: origin/${{ github.base_ref }}
+          BASE_SHA: ${{ steps.changed.outputs.base-sha }}
         run: |
           oracle=packages/vite-hub/test/console-pixels.browser.mjs
           cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
           install=false
-          git diff --quiet HEAD "$BASE_REF" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
-          git checkout --quiet --detach "$BASE_REF"
+          git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_SHA"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
           if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
           for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
@@ -1029,6 +1079,9 @@ jobs:
       - name: Install, run, and remove an OS timer from a moved home folder
         if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
         run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
+      - name: Install, run, and remove an OS timer under a folder with %PATH% in its name
+        if: ${{ matrix.scope == 'user' && runner.os == 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --percent-home
 
   # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
   # partial rerun.
@@ -1055,7 +1108,7 @@ jobs:
       - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - console
       - verify-providers

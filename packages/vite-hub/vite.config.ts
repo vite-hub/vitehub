@@ -97,6 +97,7 @@ const runtimeEntries = [
   "src/console/runtime/client/request.ts",
   "src/console/runtime/client/ticket.ts",
   "src/console/runtime/client/blob-media.ts",
+  "src/console/runtime/client/content-heads.ts",
   "src/console/runtime/client/documents.ts",
   "src/console/runtime/client/format.ts",
   "src/console/runtime/client/editor.ts",
@@ -161,7 +162,7 @@ const runtimeEntries = [
   // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
   // session request.
   "src/console/runtime/server/page-auth.ts",
-  "src/console/runtime/server/page-session.ts",
+  "src/console/runtime/server/page-tools-route.ts",
   "src/console/runtime/server/site-session.ts",
 ];
 
@@ -481,6 +482,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-file.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-content-heads.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
@@ -524,11 +526,12 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-app-types.d.ts", to: "dist" },
         { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
@@ -582,6 +585,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/request"];
           delete exports["./console/runtime/client/ticket"];
           delete exports["./console/runtime/client/blob-media"];
+          delete exports["./console/runtime/client/content-heads"];
           delete exports["./console/runtime/client/documents"];
           delete exports["./console/runtime/client/editor"];
           delete exports["./console/runtime/client/env-groups"];
@@ -642,7 +646,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/page-auth"];
-          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tools-route"];
           delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
@@ -705,11 +709,11 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
-          neverBundle: ["esbuild", "vite"],
+          neverBundle: ["vite"],
           alwaysBundle: [/^@vite-hub\/internal/, configurationOwners],
         },
       },

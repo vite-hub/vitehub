@@ -1,9 +1,9 @@
 # @vite-hub/web-container
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fweb-container&icon=npm)](https://npmx.dev/package/@vite-hub/web-container)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fweb-container&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/web-container)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/web-container)](https://npmx.dev/package/@vite-hub/web-container)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/web-container)](https://npmx.dev/package/@vite-hub/web-container)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/web-container` runs a ViteHub app in the reader's browser tab, inside a [StackBlitz WebContainer](https://webcontainers.io). Docs tutorials and playgrounds use it to install, start, and preview an app without a server of ours.
 
@@ -29,26 +29,16 @@ A WebContainer needs `SharedArrayBuffer`, so the page that boots it must send `C
 
 ```ts
 import { defineConfig } from "vite"
-import { hubWebContainer } from "@vite-hub/web-container/vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [hubWebContainer({ routes: ["/playground/**"] })],
+  plugins: [vitehub({ webContainer: { routes: ["/playground/**"] } })],
 })
 ```
 
-The plugin sets the headers in `vite dev` and `vite preview`. `/playground` matches that path only. `/playground/**` matches it and every path below it.
+In Nuxt, set `vitehub: { webContainer: { routes: ["/playground/**"] } }` in `nuxt.config.ts`.
 
-In production, set the same headers with Nitro route rules:
-
-```ts fragment
-import { webContainerHeaders } from "@vite-hub/web-container/vite"
-
-export default defineNitroConfig({
-  routeRules: {
-    "/playground/**": { headers: webContainerHeaders },
-  },
-})
-```
+ViteHub sends the headers in `vite dev`, in `vite preview`, and from the built server through Nitro route rules. `/playground` matches that path only. `/playground/**` matches it and every path below it. In Nuxt, a link into or out of these routes loads a new document, because a page keeps the headers it loaded with.
 
 ## Boot an app and open its preview
 

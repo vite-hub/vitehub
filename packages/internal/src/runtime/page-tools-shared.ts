@@ -61,14 +61,17 @@ export function viteHubPageToolsWanted(search: string, cookie: string): boolean 
  */
 export const viteHubPageToolsAssets = "/_vitehub/page/assets"
 
-/** The route of the visitor check. */
-export const viteHubPageSessionPath = "/_vitehub/page/session"
+/**
+ * The route of the visitor check. It is public, and each tool checks the visitor itself. Its path has no auth word,
+ * such as `session`, because Vite Doctor takes a handler on such a path for an auth route without a guard.
+ */
+export const viteHubPageSessionPath = "/_vitehub/page/tools"
 
 /**
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=21"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=22"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -143,7 +146,7 @@ export function withViteHubBase(base: string, path: string): string {
 
 /**
  * The URL of the session route, from the URL of the loader: the loader is at `<base>/_vitehub/page/assets/loader.js`,
- * so the session is at `<base>/_vitehub/page/session`. Without that shape, it is the session path at the root.
+ * so the session is at `<base>/_vitehub/page/tools`. Without that shape, it is the session path at the root.
  */
 export function viteHubPageSessionUrl(loaderUrl: string): string {
   const path = new URL(loaderUrl, "http://localhost").pathname
@@ -167,7 +170,7 @@ export interface ViteHubPageToolInfo {
   /** A key that opens the tool, such as `c`. */
   hotkey?: string
   /**
-   * The URL of the module script of the tool. A path, such as `/api/_vitehub/comments/assets/overlay.js`, is below the
+   * The URL of the module script of the tool. A path, such as `/_vitehub/comments/assets/overlay.js`, is below the
    * app base: the session route adds the base. A full URL stays as it is.
    */
   script: string
@@ -192,7 +195,7 @@ export interface ViteHubPageAccount {
   signOut: string
 }
 
-/** The answer of `GET /_vitehub/page/session`. */
+/** The answer of `GET /_vitehub/page/tools`. */
 export interface ViteHubPageSession {
   tools: ViteHubPageToolInfo[]
   account?: ViteHubPageAccount

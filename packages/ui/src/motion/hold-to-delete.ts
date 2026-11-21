@@ -1,7 +1,8 @@
 import { announce } from "../internal/announce.ts";
 import { cubicBezier, playTween } from "./helpers/tween.ts";
+import { visualCopy } from "./helpers/visual-copy.ts";
 import { isMotionOff } from "./layer.ts";
-import { prefersReducedMotion } from "./reduced-motion.ts";
+import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { writeMotionStyle } from "./registry.ts";
 import { createSpring, getMotionSlowFactor, onEachFrame } from "./spring.ts";
 
@@ -130,6 +131,7 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
   let undoTimer: ReturnType<typeof setTimeout> | undefined;
   // The state when the pointer or key press started, until its click has passed.
   let pressStart: HoldToDeleteState | undefined;
+  let holdKey: string | undefined;
   let destroyed = false;
   const still = () => prefersReducedMotion() || isMotionOff(button);
   const width = createSpring(0, (value) => {
@@ -219,12 +221,8 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     if (!(item instanceof HTMLElement) || still()) return Promise.resolve();
     item.setAttribute(leavingAttribute, "");
     const rect = item.getBoundingClientRect();
-    // SAFETY: cloneNode of an HTMLElement returns an HTMLElement.
-    const ghost = item.cloneNode(true) as HTMLElement;
+    const ghost = visualCopy(item);
     ghost.removeAttribute(leavingAttribute);
-    ghost.removeAttribute("id");
-    ghost.setAttribute("aria-hidden", "true");
-    ghost.inert = true;
     Object.assign(ghost.style, { boxSizing: "border-box", height: `${rect.height}px`, left: `${rect.left}px`, margin: "0", pointerEvents: "none", position: "fixed", top: `${rect.top}px`, width: `${rect.width}px`, zIndex: "2147483646" });
     writeMotionStyle(ghost, { translate: null, scale: null, opacity: null, filter: null });
     document.body.append(ghost);
@@ -281,6 +279,7 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     setState("leaving");
     const leaving = itemLeaves();
     options.onDelete?.();
+    if (state !== "leaving") return;
     if (still()) return toUndo();
     const open = playTween(0.22, p => writeMotionStyle(lid, { rotate: `${(lidHold + (lidOpen - lidHold) * p).toFixed(2)}deg` }), lidOpenEasing);
     stopTweens.push(open.stop);
@@ -377,10 +376,18 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     if (event.repeat) return;
     pressStart = state;
     if (state === "undo" || state === "leaving") return undo();
-    if (state === "idle" || state === "holding") run(1);
+    if (state === "idle" || state === "holding") {
+      holdKey = event.key;
+      run(1);
+    }
+  };
+  const releaseKey = () => {
+    if (holdKey === undefined) return;
+    holdKey = undefined;
+    release();
   };
   const onKeyUp = (event: KeyboardEvent) => {
-    if (event.key === " " || event.key === "Enter") release();
+    if (event.key === holdKey) releaseKey();
   };
   const onClick = async () => {
     const started = pressStart;
@@ -392,7 +399,7 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     // A pointer or a key held the button: the hold decides, not the click.
     if (started !== undefined || state !== "idle") return;
     const ok = await (options.confirm ?? (() => window.confirm(`${label || "Delete"}?`)))();
-    if (ok && state === "idle") {
+    if (ok && !destroyed && state === "idle") {
       clear();
       complete();
     }
@@ -400,12 +407,18 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
   const onPageHide = () => {
     if (state === "undo" || state === "leaving") void commit();
   };
+  const stopWatchingMotion = onReducedMotionChange((reduced) => {
+    if (!reduced || state !== "leaving") return;
+    clear();
+    toUndo();
+  });
   button.addEventListener("pointerdown", onPointerDown);
   button.addEventListener("pointerup", release);
   button.addEventListener("pointerleave", release);
   button.addEventListener("pointercancel", release);
   button.addEventListener("keydown", onKeyDown);
   button.addEventListener("keyup", onKeyUp);
+  button.addEventListener("blur", releaseKey);
   button.addEventListener("click", onClick);
   window.addEventListener("pagehide", onPageHide);
   setText(label, false);
@@ -430,8 +443,10 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
       button.removeEventListener("pointercancel", release);
       button.removeEventListener("keydown", onKeyDown);
       button.removeEventListener("keyup", onKeyUp);
+      button.removeEventListener("blur", releaseKey);
       button.removeEventListener("click", onClick);
       window.removeEventListener("pagehide", onPageHide);
+      stopWatchingMotion();
     },
   };
 }

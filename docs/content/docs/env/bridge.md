@@ -68,7 +68,7 @@ export function createCredentials(options: {
 }
 ```
 
-Call the factory once per runtime. Export its `provider` as the default export of your provider module, here `server/env/credentials.ts`. For ViteHub Auth, pass a wrapper around `auth.api.getSession({ headers })`. Write your own `isAdmin`: being signed in does not make a user an admin.
+Call the factory once per runtime. Export its `provider` as the default export of your provider module, here `server/env/credentials.ts`. For ViteHub Auth, pass a wrapper around `useAuth().api.getSession({ headers })` from `vite-hub/auth/server`. Write your own `isAdmin`: being signed in does not make a user an admin.
 
 Register the provider module and declare the key you use.
 
@@ -314,6 +314,7 @@ Add [`@better-auth/agent-auth`](https://www.better-auth.com/docs/plugins/agent-a
 Pass that reader to `createEnvAuthenticator`, and map capabilities and their constraints to exact store keys. This example supports one fixed capability and rejects grants with constraints:
 
 ```ts fragment
+import { useAuth } from 'vite-hub/auth/server'
 import { createEnvAuthenticator } from 'vite-hub/env/bridge'
 import type { AgentSession } from '@better-auth/agent-auth'
 import type { EnvAgentScope } from 'vite-hub/env/bridge'
@@ -328,10 +329,10 @@ function agentScope(session: AgentSession): EnvAgentScope {
 }
 
 const authenticate = createEnvAuthenticator({
-  getSession: ({ headers }) => auth.api.getSession({ headers }),
+  getSession: ({ headers }) => useAuth().api.getSession({ headers }),
   isAdmin: session => session.user.id === ownerUserId,
   agents: {
-    getSession: ({ headers }) => auth.api.getAgentSession({ headers }),
+    getSession: ({ headers }) => useAuth().api.getAgentSession({ headers }),
     scope: agentScope,
   },
 })
@@ -362,4 +363,4 @@ A context that your code builds now fails with `ENV_BRIDGE_UNTRUSTED`.
 
 - Declare provider-backed values with [Env](/docs/env/server-api#read-external-env-storage).
 - Call third-party APIs for connected accounts with [Connections](/docs/connections).
-- Protect management with [Auth](/docs/auth) and the [Console](/docs/development/console#protect-the-console-route).
+- Protect management with [Auth](/docs/auth) and the [Console](/docs/console/access#who-can-call-the-endpoint).

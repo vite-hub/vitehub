@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { basename, dirname, relative, resolve } from "node:path"
 
+import { transformWithOxc } from "vite"
+
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
@@ -9,7 +11,7 @@ import {
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, findProperty, moduleTokens, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, exportNames, findProperty, moduleTokens, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
 import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
@@ -451,6 +453,36 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
     .filter(definition => definition.source === "server-agent-workspace")
     .map(definition => dirname(definition.handler)))
   return discoveredCandidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, folderAgentDirs))
+}
+
+/**
+ * Throws when an Agent file that discovery found has no runtime default export. The host imports that default, and a
+ * file without one, such as a folder of helpers under `server/agents/`, would crash the generated routes.
+ */
+export async function assertAgentDefaultExport(definition: Pick<DiscoveredAgentDefinition, "handler" | "name">): Promise<void> {
+  const file = definition.handler
+  if (/\.c[jt]s$/i.test(file)) return
+  const source = readFileSync(file, "utf8")
+  if (exportNames(source, file).includes("default")) {
+    if (!/\.(?:m)?ts$/i.test(file)) return
+    const { code } = await transformWithOxc(source, file, { sourcemap: false })
+    if (exportNames(code, file).includes("default")) return
+  }
+  if (!/\.m[jt]s$/i.test(file)) {
+    const { program } = scanModule(source, file)
+    if (!program.body.some(statement => statement.type === "ImportDeclaration" || statement.type.startsWith("Export"))) {
+      let commonJs = false
+      walk(program, (node) => {
+        if (commonJs) return false
+        if (node.type !== "MemberExpression" || node.object.type !== "Identifier") return
+        commonJs = node.object.name === "exports" || (node.object.name === "module"
+          && ((!node.computed && node.property.type === "Identifier" && node.property.name === "exports")
+            || (node.computed && node.property.type === "Literal" && node.property.value === "exports")))
+      })
+      if (commonJs) return
+    }
+  }
+  throw agentDiagnostics.AGENT_DEFINITION_EXPORT_MISSING({ file, name: definition.name })
 }
 
 export function discoverAgentDefinitions(options:

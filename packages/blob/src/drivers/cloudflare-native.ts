@@ -1,10 +1,11 @@
+import { downloadDisposition } from "../internal/active-content.ts"
 import { byteRangeBounds } from "../internal/byte-range.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
@@ -69,6 +70,14 @@ export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig):
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)
 }
 
+export function getCloudflareDevFallback(options: ResolvedCloudflareR2BlobStoreConfig): ResolvedFsBlobStoreConfig | undefined {
+  if (!options.localFallback || getOptionalBucket(options)) return undefined
+  if (globalThis.navigator?.userAgent === "Cloudflare-Workers") {
+    throw blobErrorDiagnostics.BLOB_R0001({ message: `R2 binding "${options.binding}" not found in the dev runner. Add a local R2 binding or use the Node dev runner for the filesystem fallback.` })
+  }
+  return options.localFallback
+}
+
 function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
   const binding = getOptionalBucket(options)
   if (!binding) {
@@ -108,7 +117,7 @@ function encodePathname(pathname: string): string {
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request. Bind the exact size with `contentLength`." })
   }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
   const accessKeyId = r2Credential(options, "accessKeyId")
@@ -125,9 +134,15 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
   const url = new URL(`${r2S3Endpoint(accountId, options.jurisdiction)}/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
   url.searchParams.set("X-Amz-Expires", String(signOptions.expiresIn))
+  const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
+  if (disposition) url.searchParams.set("response-content-disposition", disposition)
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
+  // A signed `Content-Length` makes R2 reject a body of another size. The client sends the header with the body, and
+  // browsers refuse to set it by hand, so it is signed but not returned.
   const signed = await client.sign(url, {
-    headers,
+    headers: signOptions.method === "PUT" && signOptions.contentLength !== undefined
+      ? { ...headers, "Content-Length": String(signOptions.contentLength) }
+      : headers,
     method: signOptions.method,
     aws: { allHeaders: true, signQuery: true },
   })

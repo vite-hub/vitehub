@@ -1,10 +1,11 @@
 {
   "name": "@vite-hub/forge",
-  "version": "0.3.0",
-  "description": "One Forge identity for ViteHub apps: GitHub App installation tokens and GitHub, GitLab and Forgejo providers from one set of env names.",
+  "version": "0.4.0",
+  "description": "One Forge identity for ViteHub apps: GitHub App installation tokens and GitHub, GitLab, Forgejo and Gitea providers from one set of env names.",
   "keywords": [
     "forge",
     "forgejo",
+    "gitea",
     "github",
     "gitlab",
     "source-control",
@@ -65,6 +66,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -24,7 +24,7 @@ export * from "./components/hold-to-delete.ts";
 export * from "./components/marker.ts";
 export * from "./components/message.ts";
 export * from "./components/motion-list.ts";
-export * from "./components/motion.ts";
+export { MorphText, RollNumber, SwapIcon, vRing } from "./components/motion.ts";
 export * from "./components/progress.ts";
 export * from "./components/relative-time.ts";
 export * from "./components/status.ts";

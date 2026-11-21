@@ -11,7 +11,7 @@ import { getMotionSlowFactor } from "../spring.ts";
 export function createGhost<T extends HTMLElement | SVGElement>(source: T, parent: Node, before: Node | null): T {
   const ghost = source.cloneNode(true) as T;
   for (const element of [ghost, ...ghost.querySelectorAll("*")]) {
-    for (const name of ["id", "role", "tabindex", "hidden", "inert", "data-ending-style", "data-starting-style", "aria-live"]) element.removeAttribute(name);
+    for (const name of ["id", "role", "tabindex", "hidden", "inert", "popover", "data-ending-style", "data-starting-style", "aria-live"]) element.removeAttribute(name);
   }
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("data-motion", "none");

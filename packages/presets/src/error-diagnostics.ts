@@ -1,7 +1,7 @@
 import { defineErrors } from "@vite-hub/runtime"
 
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/diagnostics",
+  docs: "https://vitehub.dev/docs/presets/diagnostics",
   codes: {
     PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
       why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',
@@ -346,6 +346,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_BABYSITTER_NO_FINDINGS_PREFIX_EMPTY: {
       why: "[vitehub] Babysitter noFindingsReviews cannot contain an empty prefix.",
       fix: "Remove the empty string from noFindingsReviews in the Babysitter options, or give each entry the text that starts a no-findings review.",
+    },
+    PRESETS_BABYSITTER_RECONCILE_STALLED: {
+      why: ({ step, minutes }: { step: string; minutes: number }) => `The Babysitter reconcile waited ${minutes} minutes in its ${step} step, so the Babysitter stopped it.`,
+      fix: "Read the babysitter.reconcile.stalled event: it names the step and the pull request that did not answer. The next reconcile claims work again. If the same step stalls again, find the request or lock in that step that never settles and give it a timeout.",
     },
     PRESETS_BABYSITTER_TOOL_FIELD_INVALID: {
       why: ({ key, expected }: { key: string, expected: string }) => `${key} must be ${expected}.`,

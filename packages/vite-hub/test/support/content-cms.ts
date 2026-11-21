@@ -20,6 +20,7 @@ afterEach(async () => {
 })
 
 export async function createProject(files: Record<string, string>): Promise<string> {
+  // Keep disposable files outside the package another build may copy, and link the dependencies that are only installed in the package.
   const cache = join(import.meta.dirname, "../../../../.cache")
   await mkdir(cache, { recursive: true })
   const root = await mkdtemp(join(cache, "content-cms-"))

@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { discoverWorkflowDefinitions } from "../src/discovery.ts"
 import { createWorkflowRegistryContents } from "../src/internal/vite-build.ts"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -16,6 +17,24 @@ afterEach(async () => {
 })
 
 describe("Workflow registry", () => {
+  it("loads a discovered index-only folder as an orchestrator", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-index-"))
+    directories.push(root)
+    const server = join(root, "server")
+    const folder = join(server, "workflows", "approval")
+    const registryFile = join(root, "registry.mjs")
+    await mkdir(folder, { recursive: true })
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
+    await writeFile(join(folder, "index.ts"), "export default async ({ createSignal }) => await createSignal().wait()\n")
+    await writeFile(registryFile, createWorkflowRegistryContents(registryFile, discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [server] })))
+
+    const { default: registry } = await import(pathToFileURL(registryFile).href)
+    const definition = await registry.approval()
+    expect(definition.rootStep).toBe(false)
+    await expect(definition.handler({ createSignal: () => ({ wait: async () => "approved" }) })).resolves.toBe("approved")
+  })
+
   it.each(["plain", "steps", "agent"] as const)("preserves prototype-like names for %s definitions", async (kind) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-name-"))
     directories.push(root)
@@ -87,7 +106,7 @@ describe("Workflow registry", () => {
     await mkdir(dirname(registryFile), { recursive: true })
     await mkdir(workflowDirectory, { recursive: true })
     await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
-    await writeFile(handler, "export default { handler: async (payload, { steps }) => await steps.add(payload), options: { owner: 'workflow' } }\n", "utf8")
+    await writeFile(handler, "export default { handler: async ({ payload, steps }) => await steps.add(payload), owner: 'workflow' }\n", "utf8")
     await writeFile(step, "export default async function add(value) { return value + 1 }\n", "utf8")
 
     const contents = createWorkflowRegistryContents(registryFile, [{
@@ -112,10 +131,10 @@ describe("Workflow registry", () => {
       '    const definition = index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule("release", index) || { handler: index.default }',
       "    const entry = {",
       "      ...definition,",
-      "      options: { ...definition.options, rootStep: false },",
-      "      handler: async (payload, context) => {",
+      "      rootStep: false,",
+      "      handler: async (context) => {",
       "        const workflowSteps = createWorkflowSteps(context, steps)",
-      "        return await definition.handler(payload, { ...context, steps: workflowSteps })",
+      "        return await definition.handler({ ...context, steps: workflowSteps })",
       "      },",
       "    }",
       '    registryEntryCache.set("release", entry)',
@@ -131,12 +150,13 @@ describe("Workflow registry", () => {
     const generated = await import(`${pathToFileURL(registryFile).href}?test=workflow-owner`)
     // SAFETY: The generated fixture above exports this exact Workflow registry contract.
     const registry = generated.default as Record<string, () => Promise<{
-      handler: (payload: number, context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
-      options: { owner: string, rootStep: false }
+      handler: (context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
+      owner: string
+      rootStep: false
     }>>
     const definition = await registry.release!()
-    await expect(definition.handler(1, { name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
-    expect(definition.options).toEqual({ owner: "workflow", rootStep: false })
+    await expect(definition.handler({ name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
+    expect(definition).toMatchObject({ owner: "workflow", rootStep: false })
     await expect(registry.release!()).resolves.toBe(definition)
   })
 })
