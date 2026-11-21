@@ -35,6 +35,15 @@ function applicationBasePath(): string {
   return segments.length ? `/${segments.join("/")}` : ""
 }
 
+/**
+ * The origins of `vitehub({ publicUrl })`: the one origin, or the origin of each Agent of the function form. Empty when
+ * `publicUrl` is not set, such as in `vite dev` without a signed Console.
+ */
+export function configuredPublicOrigins(): string[] {
+  const config = publicUrlConfig()
+  return config.url ? [config.url] : [...new Set(Object.values(config.agents ?? {}))]
+}
+
 function configuredAgentUrl(config: PublicUrlConfig, name: string): string | undefined {
   return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
 }
