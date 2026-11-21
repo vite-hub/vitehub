@@ -41,7 +41,7 @@ async function signs(headers: Record<string, string>): Promise<boolean> {
   await peer.viteHubDevPeerDevHandler(v1)
   const v2 = webEvent("127.0.0.1", headers)
   await peer.viteHubDevPeerDevHandler(v2.event)
-  const upgrade = { headers: { ...headers }, method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "/api/_vitehub/realtime/content/doc" }
+  const upgrade = { headers: { ...headers }, method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "/_vitehub/realtime/content/doc" }
   peer.viteHubDevPeerUpgradeListener(upgrade)
   const results = [peer.viteHubDevPeerHeader in v1.runtime.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
   expect(new Set(results).size, JSON.stringify(headers)).toBe(1)
@@ -322,7 +322,7 @@ describe("the WebSocket upgrade signer of the front process", () => {
     const emitter = new EventEmitter()
     const seen: Array<Record<string, string | string[] | undefined>> = []
     emitter.on("upgrade", (req: { headers: Record<string, string | string[] | undefined> }) => seen.push({ ...req.headers }))
-    return { emitter, seen, upgrade: (remoteAddress: string | undefined, headers: Record<string, string> = localHost, url = "/api/_vitehub/realtime/content/doc") => {
+    return { emitter, seen, upgrade: (remoteAddress: string | undefined, headers: Record<string, string> = localHost, url = "/_vitehub/realtime/content/doc") => {
       emitter.emit("upgrade", { headers: { ...headers }, method: "GET", socket: { remoteAddress }, url })
       return seen.at(-1)!
     } }
@@ -336,7 +336,7 @@ describe("the WebSocket upgrade signer of the front process", () => {
     expect(emitter.listeners("upgrade")).toHaveLength(2)
     const evidence = upgrade("127.0.0.1")[peer.viteHubDevPeerHeader]
     expect(evidence).toMatch(/^v1\./)
-    const target = "http://localhost:3000/api/_vitehub/realtime/content/doc"
+    const target = "http://localhost:3000/_vitehub/realtime/content/doc"
     expect(await peer.verifyViteHubDevPeer(new Request(target, { headers: { [peer.viteHubDevPeerHeader]: String(evidence) } }), key)).toBe(true)
     // The same evidence for another path, or a second time, is refused.
     expect(await peer.verifyViteHubDevPeer(new Request(target, { headers: { [peer.viteHubDevPeerHeader]: String(evidence) } }), key)).toBe(false)

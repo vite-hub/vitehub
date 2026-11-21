@@ -28,19 +28,19 @@ afterAll(async () => {
 it("records valid sends and deferred sends without a provider or handler, and reset empties the list", async () => {
   const pending: Promise<unknown>[] = []
   setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
-  const [sendError, first] = await dynamicQueue.send("welcome", { userId: 1 }, { delaySeconds: 60 })
+  const [sendError, first] = await dynamicQueue.send("welcome", { userId: 1 }, { delay: "1m" })
   expect(sendError).toBeUndefined()
   dynamicQueue.defer("welcome", { userId: 2 })
   await Promise.all(pending)
   const queue = await dynamicQueue.use("digest")
-  const [error, sent] = await queue.sendBatch([{ body: { day: 1 }, delaySeconds: undefined }], { delaySeconds: 5 })
+  const [error, sent] = await queue.sendBatch([{ body: { day: 1 }, delay: undefined }], { delay: "5s" })
 
   expect(error).toBeUndefined()
   expect(sent).toHaveLength(1)
   expect(mode.peek("queue")).toMatchObject([
-    { id: first?.messageId, options: { delaySeconds: 60 }, payload: { userId: 1 }, queue: "welcome" },
+    { id: first?.messageId, options: { delay: "1m" }, payload: { userId: 1 }, queue: "welcome" },
     { options: {}, payload: { userId: 2 }, queue: "welcome" },
-    { options: { delaySeconds: 5 }, payload: { day: 1 }, queue: "digest" },
+    { options: { delay: "5s" }, payload: { day: 1 }, queue: "digest" },
   ])
   expect(handler).not.toHaveBeenCalled()
   expect(createClient).not.toHaveBeenCalled()
@@ -94,7 +94,7 @@ it.each<QueueDriver>(["local", "vercel"])("deduplicates %s sends and batches by 
 it.each<[QueueDriver, QueueEnqueueOptions]>([
   ["cloudflare", { idempotencyKey: "key" }],
   ["cloudflare", { region: "iad1" }],
-  ["cloudflare", { retentionSeconds: 60 }],
+  ["cloudflare", { retention: 60 }],
   ["vercel", { contentType: "json" }],
   ["local", { region: "iad1" }],
 ])("preserves %s option validation in sends and batches (%j)", async (provider, options) => {
@@ -110,12 +110,18 @@ it("uses the configured local delivery rules", async () => {
   expect(await dynamicQueue.send("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
 })
 
+it("rejects a batch item with an explicitly undefined legacy timing key", async () => {
+  const queue = await dynamicQueue.use("welcome")
+  expect(await queue.sendBatch([{ body: {} }, { body: {}, delaySeconds: undefined } as never])).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  expect(mode.peek("queue")).toBeUndefined()
+})
+
 it("reports a deferred validation failure through the host task and dispatch-error hook", async () => {
   const pending: Promise<unknown>[] = []
   const onDispatchError = vi.fn()
   const log = vi.spyOn(console, "error").mockImplementation(() => {})
   setQueueRuntimeConfig({ driver: "cloudflare" })
-  setQueueRuntimeRegistry({ welcome: async () => ({ handler, options: { onDispatchError } }) })
+  setQueueRuntimeRegistry({ welcome: async () => ({ handler, onDispatchError }) })
   setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
   try {
     dynamicQueue.defer("welcome", {}, { region: "iad1" })

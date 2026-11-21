@@ -72,7 +72,7 @@ import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: {
     kind: 'pages',
     async load({ documentId }) {
@@ -156,17 +156,17 @@ import { defineRealtime } from 'vite-hub/realtime'
 import { blobDocument } from 'vite-hub/realtime/server'
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: blobDocument(blob, { prefix: 'drafts/' }),
 })
 ```
 
 `save()` reads the stored file first. It throws `RealtimeDocumentConflict`
 when the file changed, was created, or was deleted after the room loaded it.
-
-> [!WARNING]
-> Blob has no conditional write. An outside write between that read and the
-> save's write is lost.
+It then writes with the Blob `ifMatch` condition, so an outside write between
+that read and the save's write also throws `RealtimeDocumentConflict`, and the
+outside write stays. The store must support conditional writes: see
+[Write only if unchanged](/docs/blob/server-api#write-only-if-unchanged).
 
 After you change the file outside the room, call `refreshRealtimeDocument()`
 so the room loads it.
@@ -305,27 +305,26 @@ to a field. Nested objects in a field are replaced, not merged.
 
 ```ts [server/realtime/pages.ts] fragment
 export default defineRealtime({
-  auth: true,
   identify: async ({ event }) => {
     const session = await getConsoleSession(event)
     return session && { id: session.user.id, name: session.user.name, image: session.user.image }
   },
-  authorize: ({ user, documentId, mode }) => mode === 'read' || canEdit(user, documentId),
+  authorize: ({ user, documentId, mode }) => user !== null && (mode === 'read' || canEdit(user, documentId)),
   document: pagesDocument,
 })
 ```
 
-Each definition must say who can use its rooms. Set `auth: true`, `authorize()`, or both. Set `access: 'public'` only for rooms that each person can read and write. A definition without one of them fails with [`REALTIME_MISSING_ACCESS`](/docs/realtime/limits-and-errors#realtime_missing_access) when the first request loads it.
+Each definition must say who can use its rooms. Set `authorize: true` or `authorize()`. Set `access: 'public'` only for rooms that each person can read and write. A definition without one of them fails with [`REALTIME_MISSING_ACCESS`](/docs/realtime/limits-and-errors#realtime_missing_access) when the first request loads it.
 
 | Option | Behaviour |
 | --- | --- |
-| `access: 'public'` | Lets each person who can reach the app read and write each room, without a user. You cannot use it with `auth` or `authorize`. |
+| `access: 'public'` | Lets each person who can reach the app read and write each room, without a user. You cannot use it with `authorize`. |
 | `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. |
-| `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Without it, requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `auth: true` and no `identify`, `origins` is an error: the Auth session is a cookie. See [From another site](#from-another-site). |
-| `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
-| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Other origins get 403 unless the definition uses the Auth trusted-origin policy described below. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `authorize: true` and no `identify`, `origins` is an error: use the Auth trusted-origin policy instead. See [From another site](#from-another-site). |
+| `authorize: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
+| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `true` to allow. Any other result denies, `undefined` too. It runs for signed-out callers too, with `user: null`: return `false` for them when the rooms need sign-in. A denied read answers 401 without a user, else 403. Without `identify`, Realtime reads the ViteHub Auth session for a request from the app origin, or from an Auth-trusted origin when there is no `origins` hook. A request from another origin accepted by `origins`, or a request without an `Origin` header, gets `user: null`. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
-`event` is the H3 event of the WebSocket upgrade or HTTP request (`RealtimeRequestEvent`, an `H3Event`), so you can pass it to your own helpers that take an `H3Event`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
+`event` is the H3 event of the WebSocket upgrade or HTTP request (`RealtimeRequestEvent`, an `H3Event`), so you can pass it to your own helpers that take an `H3Event`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/runtime/context#standard-context).
 
 An identified user replaces the client's `user` presence field, so nobody can
 fake names and avatars. Without an identity, the client sets its own presence.
@@ -378,7 +377,7 @@ When the rooms of a definition only share presence, set `document: false`. Nothi
 import { defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: false,
 })
 ```
@@ -416,7 +415,7 @@ const room = connectRealtimeRoom('latest', docId)
 room.onUpdate(() => showVersion(room.saveStatus()?.digest))
 ```
 
-`identity` sets who this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
+`identity` sets who this browser shows as. A definition with `identify` or `authorize: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 
 `params` sends query parameters on presence and workspace connections, so a definition can check context such as the current page.
 
@@ -469,7 +468,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 export default defineRealtime({ access: 'public', document: false, requests: true, scope: 'user' })
 ```
 
-The person is the signed-in [Auth](/docs/auth) user of the tab. The definition reads the session when the app has Auth and does not require one: everyone without a session shares one anonymous scope. With `identify` or `auth: true`, those decide who the person is. Server code then names the person, and asks only their room:
+The person is the signed-in [Auth](/docs/auth) user of the tab. The definition reads the session when the app has Auth and does not require one: everyone without a session shares one anonymous scope. With `identify` or `authorize: true`, those decide who the person is. Server code then names the person, and asks only their room:
 
 ```ts fragment
 const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' }, { user: session.user.id })
@@ -528,8 +527,10 @@ else console.log(saved.digest)
 
 Save and checkpoint requests send the client's Yjs state. The server answers
 `409` with `REALTIME_SYNC_PENDING` until it has that state, and the composable
-retries. If a save or checkpoint finds the stored document changed, it
-re-seeds the room and answers `409` with `REALTIME_SOURCE_CHANGED`.
+retries 20 times before it returns that code. If a save or checkpoint finds the
+stored document changed, the server answers `409` and the call returns
+`REALTIME_SOURCE_CHANGED`, even if the room resets before the reply. Use
+`onReset()` to tell when the editor's document is replaced.
 
 When server code changes a stored document, for example in a route that an
 Agent calls, call `refreshRealtimeDocument(definition, documentId)` after the
@@ -570,8 +571,16 @@ hooks can normalize the file. Realtime merges the stored form back into the
 room. Saves need a Workspace Store with conditional writes. A Cloudflare room
 also needs a durable Workspace Store.
 
-`history.checkpoint()` commits the working tree to Workspace history. The
-commit includes every staged path, also other documents saved by their rooms.
+`history.checkpoint()` commits the working tree to Workspace history with the
+Store's author by default. Set `document.checkpointAuthor(user)` to look up a
+name and email approved for Git history, such as a GitHub `noreply` identity.
+The callback receives the identified requester, not the last editor. Anonymous
+requests and callbacks that return `undefined` keep the Store's author.
+Realtime does not use the sign-in email as a Git author automatically. On
+GitHub, custom authors produce unsigned commits. Leave this option unset for
+branches that require signed commits.
+
+The commit includes every staged path, also other documents saved by their rooms.
 If Workspace history moved, Realtime rebases onto the remote head and retries.
 A path changed both locally and remotely takes the remote version and re-seeds
 the room.

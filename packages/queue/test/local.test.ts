@@ -136,13 +136,13 @@ describe("local queue delivery", () => {
     expect(vi.mocked(console.warn).mock.calls[0]![0]).toContain("not a move to another host or a new container")
   })
 
-  it("waits for delaySeconds", async () => {
+  it("waits for delay", async () => {
     const handler = vi.fn(async () => {})
     install({ welcome: { handler } })
     const queue = await dynamicQueue.use("welcome")
 
     const started = Date.now()
-    await queue.send({}, { delaySeconds: 0.3 })
+    await queue.send({}, { delay: "300ms" })
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(handler).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
@@ -190,7 +190,7 @@ describe("local queue delivery", () => {
       await new Promise(resolve => setTimeout(resolve, 20))
       active--
     }
-    const engine = engineFor({ one: { handler }, three: { handler, options: { concurrency: 3 } } })
+    const engine = engineFor({ one: { handler }, three: { handler, concurrency: 3 } })
 
     await engine.enqueue("one", [1, 2, 3, 4].map(n => ({ id: `job-${n}`, payload: n })))
     await vi.waitFor(async () => expect((await engine.status()).queues).toEqual({}))
@@ -323,7 +323,7 @@ describe("local queue client", () => {
     const engine = engineFor({ welcome: { handler } }, () => 60_000)
     const client = createLocalQueueClient(engine, "welcome")
 
-    const [, first] = await client.send({ n: 1 }, { delaySeconds: 60, idempotencyKey: "signup-ada" })
+    const [, first] = await client.send({ n: 1 }, { delay: "1m", idempotencyKey: "signup-ada" })
     const [, second] = await client.send({ n: 2 }, { idempotencyKey: "signup-ada" })
 
     expect(second?.messageId).toBe(first?.messageId)
@@ -351,7 +351,7 @@ describe("local queue client", () => {
     const handler = vi.fn(async () => {})
     const client = createLocalQueueClient(engineFor({ welcome: { handler } }), "welcome")
 
-    const [error, results] = await client.sendBatch([{ body: 1 }, { body: 2, delaySeconds: 0 }])
+    const [error, results] = await client.sendBatch([{ body: 1 }, { body: 2, delay: "0s" }])
 
     expect(error).toBeUndefined()
     expect(results).toEqual([{ messageId: expect.stringMatching(/^queue_/), status: "queued" }, { messageId: expect.stringMatching(/^queue_/), status: "queued" }])
@@ -367,7 +367,7 @@ describe("local queue client", () => {
 describe("local queue inspection", () => {
   it("lists the storage, its durability, and the job counts", async () => {
     install({ digest: { handler: async () => {} }, welcome: { handler: async () => {} } })
-    await dynamicQueue.send("welcome", {}, { delaySeconds: 60 })
+    await dynamicQueue.send("welcome", {}, { delay: "1m" })
 
     await expect(listQueues()).resolves.toEqual({
       provider: "local",
@@ -421,7 +421,7 @@ describe("local queue review regressions", () => {
       { body: 1, idempotencyKey: "signup-ada" },
       { body: 2, idempotencyKey: "signup-ada" },
       { body: 3, idempotencyKey: "signup-grace" },
-    ], { delaySeconds: 60 })
+    ], { delay: "1m" })
 
     engine.close()
     expect(error).toBeUndefined()
@@ -642,7 +642,7 @@ describe("local queue delivery with hosted provider rules", () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     try {
       const enqueuedAt = Date.now()
-      const [error, sent] = await client.send({}, { retentionSeconds: 60 })
+      const [error, sent] = await client.send({}, { retention: 60 })
       expect(error).toBeUndefined()
       const id = sent!.messageId!
       for (let cycle = 1; cycle <= 2; cycle++) {
@@ -688,8 +688,12 @@ describe("local queue delivery with hosted provider rules", () => {
     const [large] = await client.send({ text: "x".repeat(128 * 1024) })
     expect(large).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
     expect(causeMessage(large)).toContain("payload of up to")
-    const [delayed] = await client.send({}, { delaySeconds: 24 * 60 * 60 + 1 })
-    expect(causeMessage(delayed)).toBe("Cloudflare accepts `delaySeconds` up to 86400, got 86401.")
+    const [delayed] = await client.send({}, { delay: "86401s" })
+    expect(causeMessage(delayed)).toBe("Cloudflare accepts a `delay` of up to 86400 seconds, got 86401 seconds.")
+    const [number] = await client.send({}, { delay: 60 as never })
+    expect(number).toMatchObject({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining('60 seconds is "1m"'), why: expect.stringContaining("`delay` is 60") })
+    const [renamed] = await client.send({}, { delaySeconds: 60 } as never)
+    expect(renamed).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", fix: expect.stringContaining("Rename `delaySeconds` to `delay`") })
     const [batch] = await client.sendBatch(Array.from({ length: 101 }, () => ({ body: {} })))
     expect(causeMessage(batch)).toBe("Cloudflare accepts up to 100 jobs in one `sendBatch()`, got 101.")
     const [bytes] = await client.sendBatch([{ body: "x".repeat(100 * 1024) }, { body: "x".repeat(100 * 1024) }, { body: "x".repeat(100 * 1024) }])
@@ -747,9 +751,9 @@ describe("local queue delivery with hosted provider rules", () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     try {
       // The delay is longer than the retention, so Vercel never delivers the job.
-      const [error, sent] = await client.send({}, { delaySeconds: 120, retentionSeconds: 60 })
+      const [error, sent] = await client.sendBatch([{ body: {}, delay: "2m", retention: undefined } as never], { retention: "59.9s" } as never)
       expect(error).toBeUndefined()
-      late = sent!.messageId!
+      late = sent![0]!.messageId!
       await vi.advanceTimersByTimeAsync(61_000)
     }
     finally {
@@ -758,8 +762,8 @@ describe("local queue delivery with hosted provider rules", () => {
     await vi.waitFor(async () => expect(await engine.job(late)).toMatchObject({ error: { message: "[vitehub] The job expired at the end of its retention period." }, state: "dead" }))
     expect(handler).not.toHaveBeenCalled()
 
-    const [range] = await client.send({}, { retentionSeconds: 30 })
-    expect(causeMessage(range)).toBe("Vercel accepts `retentionSeconds` from 60 to 604800, got 30.")
+    const [range] = await client.send({}, { retention: 30 })
+    expect(causeMessage(range)).toBe("Vercel accepts a `retention` from 60 to 604800 seconds, got 30 seconds.")
     const [unsupported] = await client.send({}, { contentType: "json" })
     expect(unsupported).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", why: "The vercel queue provider does not support the enqueue option `contentType`." })
   })

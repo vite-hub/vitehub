@@ -19,9 +19,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_UNSUPPORTED_OPTION: {
       why: ({ options, provider }: { options: string, provider: QueueDriver }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
-      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("`id`")
-        ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
-        : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
+      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("Seconds`")
+        ? "Rename `delaySeconds` to `delay` and `retentionSeconds` to `retention`, and write the time as a duration: `{ delay: \"60s\" }` in place of `{ delaySeconds: 60 }`. `vitehub migrate` renames them."
+        : options.includes("`id`")
+          ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
+          : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
     // Provider cause errors. They are the `cause` of `QUEUE_PROVIDER_FAILED`, as the provider error is in production.
@@ -30,12 +32,12 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
         "batch-bytes": `${provider} accepts up to ${max} bytes in one \`sendBatch()\`, got ${value} bytes of JSON.`,
         "batch-empty": "Vercel requires at least one job in a `sendBatch()`.",
         "batch-jobs": `${provider} accepts up to ${max} jobs in one \`sendBatch()\`, got ${value}.`,
-        "delay": `\`delaySeconds\` must be a number of seconds from 0, got ${value}.`,
-        "delay-max": `${provider} accepts \`delaySeconds\` up to ${max}, got ${value}.`,
+        "delay": `\`delay\` must be a time from 0, got ${value} seconds.`,
+        "delay-max": `${provider} accepts a \`delay\` of up to ${max} seconds, got ${value} seconds.`,
         "payload": `${provider} accepts a payload of up to ${max} bytes, got ${value} bytes of JSON.`,
-        "retention": `${provider} accepts \`retentionSeconds\` from ${min} to ${max}, got ${value}.`,
+        "retention": `${provider} accepts a \`retention\` from ${min} to ${max} seconds, got ${value} seconds.`,
       })[limit],
-      fix: "Change the job as the message says: `delaySeconds`, `retentionSeconds`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
+      fix: "Change the job as the message says: `delay`, `retention`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
     },
     QUEUE_VERCEL_BATCH_REJECTED: {
       why: ({ failed, total }: { failed: number, total: number }) => `@vercel/queue did not accept ${failed} of ${total} batch messages.`,
@@ -65,7 +67,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_JOB_RUNNING: {
       why: "The job is running now.",
-      fix: "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.",
+      fix: "Wait for the attempt to end, then run `vitehub queue jobs get` for its state.",
     },
 
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
@@ -121,9 +123,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_POSTGRES_MISSING_CONNECTION: {
       why: ({ database }: { database?: string }) => database
-        ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no Postgres client in this runtime.`
+        ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no postgres.js client and no connection URL in this runtime.`
         : "The postgres queue provider has no connection: the build found no Postgres Default Database, and `QUEUE_POSTGRES_URL` is not set.",
-      fix: "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
+      fix: ({ database }: { database?: string }) => database
+        ? `Set \`connection.url\` on the Database "${database}", or set \`QUEUE_POSTGRES_URL\` on the server to the Postgres URL of the jobs.`
+        : "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
@@ -164,8 +168,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
     },
     QUEUE_INVALID_DEFINITION: {
-      why: "`defineQueue()` needs a handler function.",
-      fix: "Pass the handler as the first argument, for example `defineQueue(async (job) => { ... })`.",
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Pass one object with a `handler` function and the options next to it, for example `defineQueue({ handler: async ({ payload }) => { ... }, concurrency: 2 })`. Run `npx vitehub migrate` to move the former `defineQueue(handler, options)` form.",
     },
     QUEUE_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
@@ -174,6 +178,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_INVALID_NAME: {
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
+    },
+    QUEUE_MAX_BATCH_SIZE_INVALID: {
+      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads the options from the file to configure the Cloudflare consumer, so they cannot use a spread or a computed key.`,
+      fix: "Write each option, such as `maxBatchSize: 5` (a whole number from 1 to 100), directly in the object of `export default defineQueue({ ... })`, without a variable, a spread, or a computed key.",
     },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,

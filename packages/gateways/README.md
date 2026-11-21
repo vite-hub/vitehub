@@ -6,13 +6,13 @@ An AI gateway is one object that knows where AI requests go and how to sign them
 - **AI SDK models.** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model that sends its requests through the gateway.
 - **`gateway.ask()`.** It answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
 
-`ask(prompt, { model, schema })` sends one model request and returns typed data that a schema checked.
+`ask(prompt, { model, schema })` sends one model request and returns typed data that a schema checked. Without `schema`, it returns the answer text.
 
 The package has no Agent, Vite, or Nitro code. It works in a plain Node script, a Worker, or another framework, and its only dependency is `nostics`. ViteHub applications import it as `vite-hub/gateways`. User docs: [AI Gateways](https://vitehub.dev/docs/gateways).
 
 ## Install
 
-`languageModel()`, `ask()`, and `gateway.ask()` load optional peer dependencies only when you use them. `gateway.ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible`, and `ask(prompt, { model, schema })` needs `ai`:
+`languageModel()`, `ask()`, and `gateway.ask()` load optional peer dependencies only when you use them. `gateway.ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible` (`@ai-sdk/openai` with `openai()`), and `ask(prompt, { model, schema })` needs `ai`:
 
 ```sh
 pnpm add @vite-hub/gateways advocaat
@@ -36,11 +36,13 @@ Change the preset to change the provider. The model ID is the ID that the gatewa
 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
-| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
-The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation. `providerOptions` for `'chat'` go under the gateway name, such as `{ openrouter: { ... } }`; `'responses'` reads `openai` and `'messages'` reads `anthropic`.
+The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation.
+
+Put `providerOptions` under the gateway name for compatible Chat (such as `{ openrouter: { ... } }`), `openai` for `openai()` Chat and Responses, and `anthropic` for Messages. Compatible Chat passes request fields to the gateway. `openai()` Chat reads native SDK options and still sends raw Chat Completions fields such as `parallel_tool_calls`. A raw field takes precedence over its SDK option. `openai()` Chat keeps JSON mode for schema output, so `ask()` validates the result locally and accepts schemas with optional fields.
 
 ## Get typed data from one call
 
@@ -60,9 +62,22 @@ if (error) throw error
 receipt.merchant // string
 ```
 
-`schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Options: `instructions` (system instructions), `signal`, and `onUsage`. `error` is `GATEWAYS_ASK_MODEL_FAILED` when the request fails and `GATEWAYS_ASK_OUTPUT_INVALID` when the answer does not match the schema. Setup errors, such as a missing key or a schema without JSON Schema, throw. Use an Agent when the model must call tools or keep a conversation.
+`schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Leave out `schema` to get the answer as a string: `const [error, summary] = await ask(log, { model })`. Options: `instructions` (system instructions), `signal`, and `onUsage`. `error` is `GATEWAYS_ASK_MODEL_FAILED` when the request fails and `GATEWAYS_ASK_OUTPUT_INVALID` when the answer does not match the schema or has no text. Setup errors, such as a missing key or a schema without JSON Schema, throw. Use an Agent when the model must call tools or keep a conversation.
 
 ## Ask your first question
+
+Pick the builder by the answer that you want. The answer types come from the questions.
+
+| You want | Write | You get |
+| --- | --- | --- |
+| Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
+| The probability of yes | `ask.chance(instructions, { true?, false? })` | `{ chance }`, from `0` to `1`. |
+| One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
+| One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
+| A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. Pass the map to `gateway.ask()`, or spread it into your questions. |
+
+For `ask.switch()` and `ask.choice()`, `criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
 
 ```ts
 import { ask, typesafe } from '@vite-hub/gateways'
@@ -70,31 +85,21 @@ import { ask, typesafe } from '@vite-hub/gateways'
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
 
-const answers = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', {
     groceries: 'Food and household shopping.',
     eatingOut: 'Restaurants and cafes.',
   }),
   recurring: ask.if('Is it a recurring payment?'),
 })
+if (error) throw error
 
 answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1
 answers.recurring // boolean
 ```
 
-The answer types come from the questions:
-
-| Builder | Answer |
-| --- | --- |
-| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
-| `ask.switch(instructions, criteria)` | The selected label only. |
-| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
-| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
-| `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
-
-`gateway.ask(state, questions, { signal, onUsage })` sends the questions in sequential bounded requests. The shared state plus each question must fit below 30,000 bytes. It retries up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. `onUsage` receives the `model`, `provider`, and token `usage` of each request.
+`gateway.ask(state, questions, { signal, onUsage })` sends the questions in sequential bounded requests. The shared state plus each question must fit below 30,000 bytes. It retries up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. `onUsage` receives the `model`, `provider`, and token `usage` of each request. It returns `[error, answers]`: a rejected key returns `GATEWAYS_R0008` and a provider that still fails returns `GATEWAYS_R0009`. A missing key or a question that the `ask` builders did not make throws.
 
 ### Ask with any model
 
@@ -104,12 +109,30 @@ The answer types come from the questions:
 import { ask, askWithModel } from '@vite-hub/gateways'
 import { openai } from '@ai-sdk/openai'
 
-const answers = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await askWithModel(openai('gpt-5.1-mini')).ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
 })
+if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 ```
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
+### Test without a key
+
+`scriptedAsk(script)` from `@vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. `answers.choice()`, `answers.score()`, `answers.chance()`, and `answers.first()` build answers that pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from '@vite-hub/gateways'
+import { answers, scriptedAsk } from '@vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+```
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option. `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` returns a rejected key or a failing provider instead.
 
 ## Presets
 
@@ -121,12 +144,13 @@ A chat model gives one answer and how sure it is. `probabilities` put that numbe
 | `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
 | `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
 | `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `emulate()` | | `<url>` (AI SDK `messages` only) | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
 | `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
 | `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
 | `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
-The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
@@ -151,6 +175,38 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 ```
 
 An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `cloudflare()` reads two keys, `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models. `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
+
+## AI emulator
+
+`emulate()` sends model requests to the [AI emulator](https://emulate.dev/docs/ai) (`@emulators/ai`). The emulator answers from rules that you write, not from a model, so the same request gets the same answer each time. Use it in dev and tests. It needs no AI key.
+
+Start the emulator:
+
+```sh
+npx emulate@0.14.0 start --service ai --port 4014
+```
+
+Then use it like any other gateway:
+
+```ts [answer.ts]
+import { generateText } from 'ai'
+import { emulate } from '@vite-hub/gateways'
+import { languageModel } from '@vite-hub/gateways/ai-sdk'
+
+// Reads VITEHUB_EMULATE_URL, else uses http://localhost:4014.
+const model = languageModel(emulate(), 'gpt-5.1', { api: 'responses' })
+
+const { text } = await generateText({ model, prompt: 'Hello' })
+```
+
+- `emulate()` serves AI SDK models with `api: 'chat'`, `'responses'`, and `'messages'`. The emulator accepts any model ID.
+- Without a matching rule, the emulator returns a default reply. For `Output.object()` and `generateObject()`, that reply follows your schema on all three APIs.
+- It reads no credentials. It sends the key `emulate`, because the AI SDK providers need a key.
+- `emulate({ url })` replaces `VITEHUB_EMULATE_URL`.
+- In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
+- `GET <url>/_ai/calls` lists each request and the rule that answered it.
+- The emulator rejects hosted tools, such as web search.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. To run a Codex Agent without tools on the emulator, set `VITEHUB_MODELS=emulate`, and ViteHub sets up Codex for it. Read [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator). Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 
@@ -224,7 +280,7 @@ export const codexThroughCloudflare = defineAiGateway({
 
 ## Use with ViteHub Agents
 
-In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub then declares the preset's variables in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
+In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub declares the variables of each preset that a server file imports in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
 
 `@vite-hub/gateways/internal` is for ViteHub packages: model API route resolution and `ask()` with trace observers.
 

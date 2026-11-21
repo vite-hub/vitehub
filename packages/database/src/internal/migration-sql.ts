@@ -28,6 +28,55 @@ const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}
 
 /** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
+  return scanSqlStatements(sql).statements
+}
+
+const statementBreakpoint = "--> statement-breakpoint"
+
+/**
+ * Adds Drizzle's `--> statement-breakpoint` between the statements of each part of a migration, such as a hand-written
+ * file that Wrangler runs as one script, or a custom migration. Drizzle runs each part with one libSQL `execute()`,
+ * which runs only the first statement and drops the rest without an error. A part with one statement stays as it is,
+ * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a trigger body stay together.
+ */
+export function addStatementBreakpoints(sql: string): string {
+  return sql.split(statementBreakpoint).map(addPartBreakpoints).join(statementBreakpoint)
+}
+
+/**
+ * The parts of a migration that Drizzle runs one by one. A SQLite part has one statement, as `addStatementBreakpoints()`
+ * cuts it. Postgres runs a part of several statements in one query, so its parts stay as written.
+ */
+export function migrationParts(sql: string, dialect: DatabaseDialect): string[] {
+  return (dialect === "sqlite" ? addStatementBreakpoints(sql) : sql)
+    .split(statementBreakpoint)
+    .map(part => part.trim())
+    .filter(part => splitSqlStatements(part).length)
+}
+
+function addPartBreakpoints(sql: string): string {
+  const { ends, statements } = scanSqlStatements(sql)
+  if (statements.length < 2) return sql
+  const cuts: number[] = []
+  let trigger = false
+  for (const [index, statement] of statements.entries()) {
+    if (/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
+    if (trigger && !/^END\s*;$/i.test(statement)) continue
+    trigger = false
+    if (index < statements.length - 1) cuts.push(ends[index]!)
+  }
+  let result = ""
+  let start = 0
+  for (const cut of cuts) {
+    result += `${sql.slice(start, cut)}\n${statementBreakpoint}\n`
+    start = cut
+  }
+  return result + sql.slice(start)
+}
+
+/** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
+function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
+  const ends: number[] = []
   const statements: string[] = []
   let current = ""
   let quote: "'" | '"' | "`" | "]" | undefined
@@ -71,14 +120,17 @@ export function splitSqlStatements(sql: string): string[] {
       continue
     }
     if (char === ";") {
-      if (current.trim()) statements.push(`${current.trim()};`)
+      if (current.trim()) {
+        statements.push(`${current.trim()};`)
+        ends.push(index + 1)
+      }
       current = ""
       continue
     }
     current += char
   }
   if (current.trim()) statements.push(current.trim())
-  return statements
+  return { ends, statements }
 }
 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */

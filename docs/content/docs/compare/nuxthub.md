@@ -117,7 +117,7 @@ key.
   production build. ViteHub uses PGlite only in development and app tests. In
   production, a ViteHub Postgres database needs a Postgres server.
 - NuxtHub shows the database in Nuxt DevTools. ViteHub has its own
-  [Console](/docs/development/console) at console.vitehub.dev.
+  [Console](/docs/console) at console.vitehub.dev.
 
 ## Move a Nuxt app from NuxtHub
 

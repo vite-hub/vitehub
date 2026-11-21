@@ -6,15 +6,17 @@ import { kebabCase, pascalCase, splitByCase } from "scule"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
+import { assertNoCachedPageGuards, type NuxtPageLike } from "./page-guard-cache.ts"
+import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
 
+import type { AuthPageGuardConfig } from "./nuxt-types.ts"
 import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-export type { AuthPageMeta, AuthPageMode, AuthRedirects } from "./nuxt-types.ts"
+export type { AuthPageMeta, AuthPageMode } from "./nuxt-types.ts"
 
 export interface AuthNuxtModuleOptions {
   auth?: AuthOptions
@@ -36,6 +38,9 @@ type NuxtLike = {
     app?: {
       baseURL?: string
     }
+    experimental?: {
+      extraPageMetaExtractionKeys?: string[]
+    }
     imports?: {
       imports?: Array<{ from: string, name: string }>
     }
@@ -44,8 +49,12 @@ type NuxtLike = {
       plugins?: string[]
     }
     rootDir?: string
+    router?: {
+      options?: { sensitive?: boolean }
+    }
     serverDir?: string
     srcDir?: string
+    ssr?: boolean
     vite?: {
       define?: Record<string, unknown>
       plugins?: unknown[]
@@ -69,7 +78,7 @@ type NuxtComponent = {
   shortPath: string
 }
 
-const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+const composables = ["useAbility", "useAuthClient", "useUserSession"]
 /** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
 const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
@@ -78,6 +87,12 @@ const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
 const manifestRegistered = new WeakSet<object>()
+const pageCacheCheckRegistered = new WeakSet<object>()
+
+type NitroBuild = {
+  hooks: { hook: (name: "build:config", callback: () => Promise<void> | void) => void }
+  options: { routeRules: Parameters<typeof assertNoCachedPageGuards>[1] }
+}
 
 /** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
 function resolveBetterAuthVueClient(): string | undefined {
@@ -143,7 +158,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": authConfig.definition.handler,
+          "#vitehub/auth/definition": await writeNuxtAuthDefinition(viteRoot, authConfig),
           ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }
@@ -164,16 +179,16 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  // The session bridge and page guard share the discovered Auth path and redirects.
-  const authOptions = resolveAuthOptions()
-  const authConfig = authOptions === false ? undefined : resolveAuthConfig()
-  const redirects = authOptions ? authOptions.redirects : undefined
+  // The session bridge and page guard share the discovered Auth path and the sign-in pages of `access`.
+  const authConfig = resolveAuthOptions() === false ? undefined : resolveAuthConfig()
+  const signIn = authConfig?.access.signIn
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
-  nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
+  nuxt.options.runtimeConfig.public.vitehubAuth = resolveAuthOptions() === false ? false : {
     basePath: authConfig?.basePath ?? "/api/auth",
-    redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
-  }
+    signInPage: signIn && "provider" in signIn ? null : signIn?.page ?? "/login",
+    afterSignIn: authConfig?.access.afterSignIn ?? "/",
+  } satisfies AuthPageGuardConfig
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
@@ -186,7 +201,8 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (authConfig?.abilities && !componentsRegistered.has(nuxt) && nuxt.hook) {
     componentsRegistered.add(nuxt)
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
-    const prefix = (authOptions && authOptions.components?.prefix) || ""
+    // `components.prefix` of `defineAuth()`, which the Vite plugin reads at build time, like `basePath`.
+    const prefix = authConfig.components?.prefix ?? ""
     // The same entries that `@nuxt/kit`'s addComponentExports() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
       for (const name of abilityComponents) {
@@ -224,6 +240,26 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       const keys = new Set(Object.keys(manifest).filter(id => lazy.has(resolve(root, id))))
       if (!keys.size) return
       for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => !keys.has(id))
+    })
+  }
+
+  if (resolveAuthOptions() !== false && !pageCacheCheckRegistered.has(nuxt) && nuxt.hook) {
+    pageCacheCheckRegistered.add(nuxt)
+    // Nuxt reads a `definePageMeta()` key into the page at build time only when the key is in this list or
+    // `experimental.extractSerializablePageMeta` is on.
+    nuxt.options.experimental ??= {}
+    const extractionKeys = nuxt.options.experimental.extraPageMetaExtractionKeys ??= []
+    if (!extractionKeys.includes("auth")) extractionKeys.push("auth")
+    let pages: readonly NuxtPageLike[] = []
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `pages:resolved` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
+    ;(nuxt.hook as unknown as (name: "pages:resolved", handler: (resolved: NuxtPageLike[]) => void) => void)("pages:resolved", (resolved) => {
+      pages = resolved
+    })
+    // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
+    // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `nitro:init` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
+    ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
+      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive }))
     })
   }
 
@@ -270,13 +306,23 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 }
 
 /**
- * The Nuxt names of a component export under a prefix. Nuxt splits the prefix of `components: [{ path, prefix }]`
- * with the same `scule` functions, so `<name>.vue` in that directory gets the same names, unless the prefix ends with `name`.
+ * The Nuxt names of a component export under a prefix: the names that `<name>.vue` gets in a directory of
+ * `components: [{ path, prefix }]`. As in Nuxt's `resolveComponentNameSegments()`, the prefix words that the name starts
+ * with are dropped, so the prefix `MyAuth` gives `MyAuthPermission`.
  *
  * @example
  * componentNames("custom", "AuthPermission") // { kebabName: "custom-auth-permission", pascalName: "CustomAuthPermission" }
  */
 function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
-  const words = [...splitByCase(prefix), ...splitByCase(name)]
+  // `splitByCase("my-auth-")` ends with "", which adds no word in Nuxt's overlap check.
+  const prefixWords = splitByCase(prefix).filter(Boolean)
+  const nameWords = splitByCase(name)
+  const nameContent = nameWords.join("/").toLowerCase()
+  let kept = prefixWords.length
+  for (let index = prefixWords.length - 1; index >= 0; index--) {
+    const overlap = prefixWords.slice(index).join("/").toLowerCase()
+    if (nameContent === overlap || nameContent.startsWith(`${overlap}/`)) kept = index
+  }
+  const words = [...prefixWords.slice(0, kept), ...nameWords]
   return { kebabName: kebabCase(words), pascalName: pascalCase(words) }
 }

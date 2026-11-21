@@ -47,7 +47,7 @@ afterAll(async () => {
 
 /** One server process: a services object, as `createSyncHandler()` makes once. */
 function processOf<TTable, TRow, TArgs>(definition: SyncDefinition<TTable, TRow, TArgs>, name = "issues", definitions?: SyncServices["definitions"]) {
-  const route = `/api/_vitehub/sync/${name}`
+  const route = `/_vitehub/sync/${name}`
   const services: SyncServices = {
     db: () => drizzle(d1),
     identify: async (request) => {

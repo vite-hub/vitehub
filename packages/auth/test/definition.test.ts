@@ -13,10 +13,10 @@ describe("defineAuth", () => {
           { authorize, method: "POST", route: "/app/actions" },
         ],
         signIn: {
-          callbackURL: "/app",
           errorCallbackURL: "/login?error=auth",
           provider: "github",
         },
+        afterSignIn: "/app",
       },
       basePath: "/auth",
       route: false,
@@ -29,10 +29,10 @@ describe("defineAuth", () => {
             { authorize, method: "POST", route: "/app/actions" },
           ],
           signIn: {
-            callbackURL: "/app",
             errorCallbackURL: "/login?error=auth",
             provider: "github",
           },
+          afterSignIn: "/app",
         },
         basePath: "/auth",
         route: false,
@@ -102,9 +102,21 @@ describe("defineAuth", () => {
     }
   })
 
+  it("keeps components.prefix and rejects any other components value", () => {
+    expect(defineAuth({ components: { prefix: "Custom" } }).options.components).toEqual({ prefix: "Custom" })
+    for (const components of [false, { prefix: "" }, { prefix: 1 }, { prefix: "Custom", global: true }]) {
+      expect(() => defineAuth({ components } as never)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+    }
+  })
+
   it("rejects unsupported access config", () => {
     expect(() => defineAuth({ access: false } as never)).toThrow(/access must be an object/)
-    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be an object/)
+    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be a path or an object/)
+    expect(() => defineAuth({ access: { signIn: "login" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(() => defineAuth({ access: { signIn: "//evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(defineAuth({ access: { signIn: "/login", afterSignIn: "/dashboard" } }).options.access).toEqual({ signIn: "/login", afterSignIn: "/dashboard" })
+    expect(() => defineAuth({ access: { afterSignIn: "https://evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_AFTER_SIGN_IN_INVALID" }))
+    expect(() => defineAuth({ access: { signIn: { provider: "github", callbackURL: "/app" } } } as never)).toThrow(expect.objectContaining({ code: "AUTH_SIGN_IN_CALLBACK_URL_MOVED" }))
     expect(() => defineAuth({ access: { signIn: { provider: "" } } } as never)).toThrow(/access\.signIn\.provider/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", requestSignUp: "yes" } } } as never)).toThrow(/requestSignUp/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", scopes: ["read:org", 1] } } } as never)).toThrow(/scopes/)

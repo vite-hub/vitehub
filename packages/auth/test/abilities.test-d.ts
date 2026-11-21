@@ -1,10 +1,11 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAbilities, deny, type AbilityName, type AbilityRefusal } from "../src/abilities.ts"
+import { defineAuth } from "../src/definition.ts"
 import { can, requireAbility } from "../src/server.ts"
 import { AuthPermission, useAbility, type AuthPermissionProps } from "../src/vue.ts"
 
-import type { AuthAnonymousAuthorization, AuthAuthorization, AuthOptions } from "../src/types.ts"
+import type { AuthAnonymousAuthorization, AuthAuthorization, AuthDefinition, AuthOptions } from "../src/types.ts"
 import type abilities from "./fixtures/abilities.ts"
 import type { Post } from "./fixtures/abilities.ts"
 
@@ -120,10 +121,12 @@ describe("ability types", () => {
     deny("x", { status: 500 })
   })
 
-  it("takes the Nuxt component prefix in the Auth options", () => {
-    expectTypeOf<{ components: { prefix: "Auth" } }>().toExtend<AuthOptions>()
+  it("takes the Nuxt component prefix in the Auth Definition, not in the plugin options", () => {
+    expectTypeOf(defineAuth({ components: { prefix: "Auth" } })).toExtend<AuthDefinition>()
     // @ts-expect-error The prefix is a string.
-    const numeric: AuthOptions = { components: { prefix: 1 } }
-    void numeric
+    defineAuth({ components: { prefix: 1 } })
+    // @ts-expect-error `vitehub({ auth })` takes only `false`; the prefix is in `defineAuth()`.
+    const plugin: AuthOptions = { components: { prefix: "Auth" } }
+    void plugin
   })
 })

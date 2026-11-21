@@ -27,7 +27,7 @@ export interface DeploymentEnvEntry {
 
 /** What `vitehub deploy` does after it uploads the build, from `deploy` and `health` of `vitehub()`. */
 export interface DeploymentDeployManifest {
-  /** Paths on the deployed URL that must answer with a 2xx status, such as `/api/_vitehub/health`. */
+  /** Paths on the deployed URL that must answer with a 2xx status, such as `/_vitehub/health`. */
   check: readonly string[]
   /** Submit the sitemap URLs of `url` to IndexNow after a production deploy. The site serves `/<key>.txt`. */
   indexNow?: { key: string, url: string }

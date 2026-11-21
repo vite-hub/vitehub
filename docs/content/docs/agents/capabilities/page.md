@@ -26,7 +26,7 @@ Turn on Agents and Realtime. This Node build keeps its rooms in memory, in one p
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, realtime: { driver: 'memory' } },
+  vitehub: { agent: true, realtime: { driver: 'memory' } },
 })
 ```
 :::
@@ -39,7 +39,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
+    vitehub({ agent: true, realtime: { driver: 'memory' } }),
     nitro(),
   ],
 })
@@ -53,7 +53,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
+    vitehub({ agent: true, realtime: { driver: 'memory' } }),
   ],
 })
 ```
@@ -67,7 +67,7 @@ Give the Agent the Capability and a web chat. With [Auth](/docs/auth), `authenti
 ```ts [server/agents/settings.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { page } from 'vite-hub/agent/capabilities'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 import { authenticated } from 'vite-hub/auth/agent'
 
 export default defineAgent({
@@ -186,9 +186,9 @@ const notRestored = await page.undo() // every change not undone yet, newest fir
 
 The server records each change in the Invocation journal as `agent.page.change`, with the page id, the person (`page.user`, the Auth user id or `anonymous`), the step, the label and key, and the time. The values before and after are in `page.change.content`, which follows the journal's content policy: the default journal keeps them, and another journal with `content: 'metadata'` keeps them only with `metadataContent: ['page.change.content']`. Each approval the page asked for is recorded as `agent.approval.request` and `agent.approval.decision`.
 
-- `vitehub agent invocations show <id>` prints the page changes. With `--json`, they are in `pageChanges`, and the approvals in `approvals`.
+- `vitehub agent invocations get <id>` prints the page changes. With `--json`, they are in `pageChanges`, and the approvals in `approvals`.
 - The Console shows them on the **Page** surface of the session, with an Undo button for each.
-- `vitehub invocations undo <id> --change <change>` asks the person's open page to put one change back, as the Console's Undo does. It sends no value: the page restores from its own record, with the same rules as `page.undo(id)`. The journal records `agent.page.undo` with who asked.
+- `vitehub agent invocations undo <id> --change <change>` asks the person's open page to put one change back, as the Console's Undo does. It sends no value: the page restores from its own record, with the same rules as `page.undo(id)`. The journal records `agent.page.undo` with who asked.
 
 ## Inspect calls
 

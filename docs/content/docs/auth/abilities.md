@@ -105,7 +105,17 @@ For the allowed case alone, use default content:
 
 In Nuxt, the server reads the session for the page, so server rendering shows the right slot. In a Vue app without server rendering, the component shows nothing until Better Auth answers.
 
-Nuxt registers `<AuthPermission>` only when the app or a layer has `shared/abilities.ts`. Adding or removing that file in development restarts Nuxt. An app component with the same name wins. A custom prefix, such as `vitehub: { auth: { components: { prefix: 'Custom' } } }`, registers `<CustomAuthPermission>` with the same types. Prefixes follow Nuxt's component prefix rules.
+Nuxt registers `<AuthPermission>` only when the app or a layer has `shared/abilities.ts`. Adding or removing that file in development restarts Nuxt. An app component with the same name wins. To rename it, set `components.prefix` in the Auth Definition. This one registers `<CustomAuthPermission>` with the same types:
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  components: { prefix: 'Custom' },
+})
+```
+
+Prefixes follow Nuxt's component prefix rules, which drop the prefix words that the name starts with: `MyAuth` registers `<MyAuthPermission>`. Nuxt reads the prefix at build time, so write it as a string literal.
 
 Nuxt uses the Auth Definition's configured base path for browser session refreshes. In other Vue apps with a custom client, call `provideAuthClient(client)` from a parent component's setup. Descendant `<AuthPermission>` components and Auth composables share that client. For a single check, pass the client directly to `useAbility(client)`.
 

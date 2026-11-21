@@ -1034,7 +1034,7 @@ describe("hubDatabase", () => {
 
     const plugin = hubDatabase({ projectRoot: "packages/db" })
     // SAFETY: The test invokes Vite's config hook with its documented arguments.
-    const configure = plugin.config as (config: unknown, env: unknown) => void
+    const { handler: configure } = plugin.config as { handler: (config: unknown, env: unknown) => void }
     configure({ [VITEHUB_SERVER_DIRS]: [join(rootDir, "server")] }, { command: "serve", mode: "test" })
     const configResolved = resolveConfigResolved(plugin)
     await configResolved({ [VITEHUB_FEATURES]: { database: undefined }, root: rootDir })
@@ -1086,10 +1086,8 @@ describe("hubDatabase", () => {
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
-    expect(analyticsConfig).not.toContain("import databaseDefinition")
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
     expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
-    expect(primaryConfig).not.toContain("import databaseDefinition")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
     expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })

@@ -6,6 +6,7 @@ import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { observationRecordProjection } from "./observation-projection.ts"
+import { observationRowChanges, parsedObservation } from "./observation-rows.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
@@ -22,6 +23,7 @@ import type {
 import type { Client, InStatement, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
+import type { ObservationRow } from "./observation-rows.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -47,6 +49,11 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 /** Pages that one incremental vacuum returns to the file system. */
 const incrementalVacuumPages = 1000
+/**
+ * Bytes a WAL file keeps after a checkpoint resets it. SQLite reuses the WAL file without shrinking it, so one long
+ * reader during a write burst would otherwise leave a WAL as large as that burst on disk for the life of the database.
+ */
+const walSizeLimitBytes = 64 * 1024 * 1024
 const backfillPageSize = 100
 const observationInsertChunkSize = 200
 const searchVersion = 3
@@ -78,19 +85,6 @@ function serialize(record: Omit<AgentInvocationRecord, "cursor">): string {
   return stringify(record)
 }
 
-function parsedObservation(value: unknown): TraceEventLogEntry | undefined {
-  if (typeof value !== "string") return
-  const parsed: unknown = JSON.parse(value)
-  if (parsed === null || typeof parsed !== "object" || !("name" in parsed) || typeof parsed.name !== "string") return
-  // SAFETY: Observation rows are written from records that applyAgentInvocationStoreUpdate() produced.
-  return parsed as TraceEventLogEntry
-}
-
-interface ObservationRow {
-  observation: TraceEventLogEntry
-  position: number
-}
-
 function observationRows(rows: readonly Row[]): ObservationRow[] {
   return rows.flatMap((row) => {
     const observation = parsedObservation(row.observation)
@@ -101,33 +95,6 @@ function observationRows(rows: readonly Row[]): ObservationRow[] {
 function withObservationRows(record: AgentInvocationRecord, rows: readonly Row[]): AgentInvocationRecord {
   if (!rows.length) return record
   return { ...record, observations: [...record.observations, ...observationRows(rows).map(row => row.observation)] }
-}
-
-/**
- * Returns the row changes when an update kept the record's observations and the order of existing rows.
- * Appends and evictions of appended observations qualify. Any other change returns undefined.
- */
-function observationRowChanges(
-  inRecord: readonly TraceEventLogEntry[],
-  rows: readonly ObservationRow[],
-  observations: readonly TraceEventLogEntry[],
-): { added: TraceEventLogEntry[], removed: number[] } | undefined {
-  if (observations.length < inRecord.length || inRecord.some((observation, index) => observations[index] !== observation)) return
-  const positions = new Map(rows.map(row => [row.observation, row.position]))
-  const kept = new Set<number>()
-  const added: TraceEventLogEntry[] = []
-  let lastPosition = -1
-  for (const observation of observations.slice(inRecord.length)) {
-    const position = positions.get(observation)
-    if (position === undefined) {
-      added.push(observation)
-      continue
-    }
-    if (added.length || position <= lastPosition) return
-    lastPosition = position
-    kept.add(position)
-  }
-  return { added, removed: rows.flatMap(row => kept.has(row.position) ? [] : [row.position]) }
 }
 
 function parsedRecord(value: unknown): Omit<AgentInvocationRecord, "cursor"> | undefined {
@@ -305,10 +272,19 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   /** The database file. Set by initialize() when maxSize is set. */
   let storePath: string | undefined
   let synchronousNormal = false
-  // synchronous is a per-connection setting, and libSQL opens pooled connections on demand.
-  // Each write sets it on the idle connection that the write borrows next.
+  const walSizeLimit = `PRAGMA journal_size_limit = ${walSizeLimitBytes}`
   const prepareWrite = async () => {
-    if (synchronousNormal) await client.execute("PRAGMA synchronous = NORMAL")
+    if (synchronousNormal) await client.executeMultiple("PRAGMA synchronous = NORMAL;")
+  }
+  const batchWrite = async (statements: InStatement[]) => {
+    if (!synchronousNormal) return await client.batch(statements, "write")
+    const results = await client.batch([walSizeLimit, ...statements], "write")
+    return results.slice(1)
+  }
+  const executeWrite = async (statement: InStatement) => {
+    if (!synchronousNormal) return await client.execute(statement)
+    const results = await batchWrite([statement])
+    return results[0]!
   }
   let searchBackfill: Promise<void> | undefined
   let summaryBackfill: Promise<void> | undefined
@@ -329,6 +305,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await prepareWrite()
       const transaction = await client.transaction("write")
       try {
+        if (synchronousNormal) await transaction.execute(walSizeLimit)
         const result = await transaction.execute({
           args: claimId === undefined ? [id] : [id, id, claimId],
           sql: `SELECT sequence, search_version, record FROM ${table} WHERE id = ?${claimId === undefined
@@ -462,7 +439,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             : []
         })
         if (searchUpdates.length) {
-          await client.batch(searchUpdates, "write")
+          await batchWrite(searchUpdates)
           projected = true
         }
       }
@@ -491,11 +468,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       })
       if (!missingSummaries.rows.length) break
       beforeSequence = Math.min(...missingSummaries.rows.map(row => numberValue(row.sequence)))
-      await client.batch(missingSummaries.rows.map(row => ({
+      await batchWrite(missingSummaries.rows.map(row => ({
         args: [numberValue(row.sequence)],
         sql: `UPDATE ${table} SET summary = json_remove(record, '$.observations')
           WHERE sequence = ? AND summary IS NULL AND json_valid(record)`,
-      })), "write")
+      })))
     }
   }
   const startSummaryBackfill = () => {
@@ -538,7 +515,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const executeSchema = async (sql: string) => {
         if (synchronousNormal) {
           // executeMultiple keeps the connection-local pragma and DDL on one borrowed connection, outside a transaction.
-          await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${sql}`)
+          await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${walSizeLimit};\n${sql}`)
         }
         else {
           await client.execute(sql)
@@ -675,7 +652,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
           }
         })
-        await client.batch(agentNameBackfill, "write")
+        await batchWrite(agentNameBackfill)
       }
       backfillSequence = 0
       while (true) {
@@ -695,7 +672,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
               WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
           }
         })
-        await client.batch(updatedAtBackfill, "write")
+        await batchWrite(updatedAtBackfill)
       }
       await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
       await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
@@ -727,7 +704,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
           if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
         }
-        await client.execute(`UPDATE ${table}_claims
+        await executeWrite(`UPDATE ${table}_claims
           SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
       }
       if (!claimColumns.rows.some(row => row.name === "claim_token")) {
@@ -887,7 +864,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
    */
   const vacuumFreePages = async () => {
     try {
-      await client.executeMultiple(`PRAGMA incremental_vacuum(${incrementalVacuumPages})`)
+      const vacuum = `PRAGMA incremental_vacuum(${incrementalVacuumPages})`
+      await client.executeMultiple(synchronousNormal ? `${walSizeLimit};\n${vacuum}` : vacuum)
     }
     catch (error) {
       console.warn(`[vitehub] SQLite Agent Invocation incremental vacuum failed. The next prune frees the remaining pages: ${error instanceof Error ? error.message : String(error)}`)
@@ -909,6 +887,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     const transaction = await client.transaction("write")
     let result: Awaited<ReturnType<typeof pruneSize>>
     try {
+      if (synchronousNormal) await transaction.execute(walSizeLimit)
       result = await pruneSize(transaction, budget)
       await transaction.commit()
     }
@@ -955,6 +934,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await prepareWrite()
       const transaction = await client.transaction("write")
       try {
+        if (synchronousNormal) await transaction.execute(walSizeLimit)
         const beforeBytes = await liveBytes(transaction)
         const ids: string[] = []
         for (const selection of pruneSelections(true, updatedBefore)) {
@@ -992,7 +972,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         const expectedClaimIds = options?.expectedClaimIds === undefined ? null : JSON.stringify(options.expectedClaimIds)
         const expectedTraceId = options?.expectedTraceId ?? null
         const expectedCursor = options?.expectedCursor === undefined ? null : Number(options.expectedCursor)
-        const result = await client.execute({
+        const result = await executeWrite({
           args: [id, claimId, claimToken, leaseMs, id, expectedCursor, expectedCursor, expectedTraceId, expectedTraceId, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
           sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
             SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND (? IS NULL OR sequence = ?) AND (? IS NULL OR json_extract(record, '$.traceId') = ?))
@@ -1028,7 +1008,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
             args: [input.id],
             sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
           }, observationRowsStatement(input.id))
-          const results = await client.batch(statements, "write")
+          const results = await batchWrite(statements)
           const row = results.at(-2)?.rows[0]
           const stored = row ? deserialize(row.record, row.sequence) : undefined
           const record = stored && withObservationRows(stored, results.at(-1)?.rows ?? [])
@@ -1164,7 +1144,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         : "1 = 1"
       // Cache complete IDs only when requested. Record writes invalidate the projection,
       // including writes from older clients that do not know about this column.
-      await write(async () => await retrySqliteBusy(async () => await client.execute({
+      await write(async () => await retrySqliteBusy(async () => await executeWrite({
         args,
         sql: `UPDATE ${table} SET capability_ids = ${capabilityIdsProjection(table)}
           WHERE capability_ids IS NULL AND ${filter}`,
@@ -1213,11 +1193,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         return await retrySqliteBusy(async () => {
           await prepareWrite()
           const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ")
-          const results = await client.batch([
+          const results = await batchWrite([
             { args: [id, ...terminalStatuses], sql: `DELETE FROM ${table} WHERE id = ? AND status IN (${terminalPlaceholders})` },
             { args: [id, id], sql: `DELETE FROM ${table}_claims WHERE id = ? AND NOT EXISTS (SELECT 1 FROM ${table} WHERE id = ?)` },
             { args: [id], sql: `SELECT 1 FROM ${table} WHERE id = ? LIMIT 1` },
-          ], "write")
+          ])
           if (results[0]!.rowsAffected > 0) return "deleted"
           return results[2]!.rows.length ? "not-terminal" : "not-found"
         })
@@ -1231,15 +1211,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         return await retrySqliteBusy(async () => {
           const selections = pruneSelections(true, pruneOptions.updatedBefore)
           if (!selections.length) return { dryRun, ids: [] }
-          const results = await client.batch(dryRun
-            ? [{
+          const results = dryRun
+            ? await client.batch([{
                 args: selections.flatMap<number | string>(selection => selection.args),
                 sql: `${selections.map(selection => `SELECT id, sequence FROM ${table} WHERE ${selection.where}`).join(" UNION ")} ORDER BY sequence`,
-              }]
-            : [
+              }], "write")
+            : await batchWrite([
                 ...selections.map(selection => ({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })),
                 deleteOrphanClaims,
-              ], "write")
+              ])
           const ids = results.slice(0, selections.length).flatMap(result => result.rows.flatMap(row => typeof row.id === "string" ? [row.id] : []))
           return { dryRun, ids }
         })
@@ -1249,7 +1229,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       await write(async () => {
         await initialize()
         await prepareWrite()
-        await client.execute({
+        await executeWrite({
           args: [id, claimId],
           sql: `DELETE FROM ${table}_claims WHERE id = ? AND claim_id = ?`,
         })

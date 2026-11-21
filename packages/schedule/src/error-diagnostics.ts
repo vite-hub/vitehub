@@ -24,7 +24,7 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SCHEDULE_RUN_NOT_FOUND: {
       why: "Schedule Run was not found.",
-      fix: "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.",
+      fix: "List the runs of the Schedule with `vitehub schedule runs list <name>` and pass one of their ids.",
     },
 
     // Published numbered errors.
@@ -163,6 +163,10 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SCHEDULE_DEFINITION_EXPORT_INVALID: {
       why: ({ name }: { name: string }) => `Schedule "${name}" has no default export of defineSchedule() with a cron and a handler.`,
       fix: "Default-export `defineSchedule({ cron, handler })` from the Schedule file that the message names, in `server/schedules/`.",
+    },
+    SCHEDULE_PROCESS_CLAIMS_IN_MEMORY: {
+      why: "The Process Runtime claims each Schedule occurrence in memory, because the app has no Database. With several server processes, each one runs every occurrence.",
+      fix: "Run one server only, or add a Postgres Database so that more than one server runs each occurrence once.",
     },
     SCHEDULE_RUNTIME_CATCH_UP_INVALID: {
       why: "Schedule Process Runtime catchUpMs must be a non-negative number.",

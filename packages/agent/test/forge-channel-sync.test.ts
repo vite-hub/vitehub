@@ -79,7 +79,7 @@ vi.mock("forges/forgejo", () => ({ forgejo: (options: ForgeOptionsBase) => mockH
 
 const token = "private-access-token"
 const secret = "private-hook-secret"
-const url = "https://app.example.com/api/_vitehub/agents/reviewer/webhooks/code"
+const url = "https://app.example.com/_vitehub/agents/reviewer/webhooks/code"
 const fetcher = vi.fn<typeof fetch>(async () => { throw new Error("Unexpected network request") })
 // SAFETY: Sync resolution needs only runtime settings and request-scoped memoization in this fixture.
 const context = createRuntimeContext({ capabilities: {}, runtime: "unknown", runtimeConfig: {} }) as AgentCallbackContext
@@ -268,7 +268,7 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
       })
       expect(stderr.text()).toBe("")
       expect(status).toBe(0)
-      expect(stdout.text()).toContain('"url":"https://app.example.com/api/_vitehub/agents/reviewer/webhooks/code"')
+      expect(stdout.text()).toContain('"url":"https://app.example.com/_vitehub/agents/reviewer/webhooks/code"')
       expect(stdout.text()).not.toContain(token)
       expect(stdout.text()).not.toContain(secret)
     }

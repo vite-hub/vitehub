@@ -68,7 +68,7 @@ To read and change Workspace files, use [`workspaceShell()`](/docs/workspace/age
 ## Verify the sandbox
 
 1. Start the Vite development server.
-2. Run `vitehub agent info --agent support --json`. Confirm that `tools` contains `{ name: "sandbox", category: "execution", commands: ["node", "pnpm"] }`.
+2. Run `vitehub agent get support --json`. Confirm that `tools` contains `{ name: "sandbox", category: "execution", commands: ["node", "pnpm"] }`.
 3. Ask the Agent to run a program that is not in `commands`. Confirm that the tool fails with `Sandbox command "<name>" is not allowed.` and the Sandbox primitive did not run.
 
 ## Options

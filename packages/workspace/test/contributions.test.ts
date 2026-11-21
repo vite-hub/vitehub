@@ -3,6 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
+import { nitro as nitroPlugin } from "nitro/vite"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceContributions } from "../src/build/contributions.ts"
@@ -11,6 +14,7 @@ import { inspectWorkspaceDefinitions } from "../src/inspect.ts"
 import { createWorkspaceNitroConfig, hubWorkspace } from "../src/vite.ts"
 
 import type { CollectedWorkspaceContribution, WorkspaceContributingPlugin } from "../src/vite.ts"
+import type { Nitro } from "nitro/types"
 import type { Plugin } from "vite"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -77,7 +81,7 @@ describe("collectWorkspaceContributions", () => {
       false,
     ], { ...context, serverDirs: ["/app/server"] })
 
-    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"] })
+    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"], plugins: expect.any(Array) })
     expect(contributions).toEqual([
       { ...collected("content", "/abs/cms.ts", "cms"), reason: "Content documents." },
       collected("notes", "pkg/notes", "default", "notes/vite"),
@@ -181,12 +185,14 @@ describe("discoverViteWorkspaceDefinitions contributions", () => {
 
   it("applies resolved store overrides to contributed definitions", async () => {
     const root = await createRoot()
-    const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace")] })
+    const registryFile = join(root, "registry.mjs")
+    const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace", "contentWorkspace")] })
     const store = { binding: "CONTENT", namespace: "content", driver: "cloudflare" }
+    await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions, new Map([["content", { store }]])))
 
-    const contents = createWorkspaceRegistryContents(join(root, "registry.mjs"), definitions, new Map([["content", { store }]]))
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string, store: unknown } }>> } = await import(pathToFileURL(registryFile).href)
 
-    expect(contents).toContain("return { default: { ...definition, store: {\"binding\":\"CONTENT\"")
+    await expect(registry.content!()).resolves.toEqual({ default: { label: "package content", store } })
   })
 })
 
@@ -226,7 +232,7 @@ describe("hubWorkspace contributions", () => {
     if (host === "vite") {
       const plugin = hubWorkspace()
       const config = hook<(config: Record<string, unknown>, env: { command: "serve", mode: string }) => Promise<unknown>>(plugin.config)
-      const userConfig = { nitro: {}, plugins, root }
+      const userConfig = { nitro: { preset: "cloudflare-module" }, plugins, root }
       await config(userConfig, { command: "serve", mode: "development" })
       nitro = userConfig.nitro
     }
@@ -238,7 +244,56 @@ describe("hubWorkspace contributions", () => {
     })
   })
 
-  it("loads contributed Definitions with package-imported memory stores in dev", async () => {
+  it.each(["plugin options", "nitro.config", "Node"])("uses the resolved Nitro dev preset from %s", async (source) => {
+    const root = await createPackageStoreRoot([
+      `import { writeFileSync } from "node:fs"`,
+      `writeFileSync(new URL("./loaded", import.meta.url), "loaded")`,
+      `export const store = { driver: "cloudflare", binding: "CONTENT_FILES", namespace: "content" }`,
+    ].join("\n"))
+    const workspace = hubWorkspace()
+    const owner = contributor([{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }])
+    if (source === "nitro.config") await writeFile(join(root, "nitro.config.ts"), `export default { preset: "cloudflare-module" }\n`)
+    const preset = source === "nitro.config" ? undefined : source === "Node" ? "node-server" : "cloudflare-module"
+    const configured = new Error("Nitro configuration inspected")
+    let instance: Nitro | undefined
+    try {
+      await expect(resolveConfig({
+        configFile: false,
+        logLevel: "silent",
+        root,
+        plugins: [
+          owner as Plugin,
+          workspace,
+          nitroPlugin({ preset, hooks: { "build:before": (nitro) => {
+            instance = nitro
+            throw configured
+          } } }),
+        ],
+      }, "serve")).rejects.toBe(configured)
+      const plugin = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+      const marker = join(root, "node_modules", "content-store", "loaded")
+      if (source === "Node") {
+        const resolved = hook<(config: Record<string, unknown>) => Promise<void>>(workspace.configResolved)
+        await resolved({ command: "serve", plugins: [workspace, owner], root })
+        const [inspector] = await collectViteHubDefinitionInspectors([workspace])
+        await expect(inspector!.list()).resolves.toContainEqual(expect.objectContaining({ name: "content" }))
+        await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+        expect(instance?.options.cloudflare?.wrangler?.artifacts).toBeUndefined()
+        expect(plugin).not.toContain("setActiveCloudflareEnv")
+      }
+      else {
+        await expect(readFile(marker, "utf8")).resolves.toBe("loaded")
+        expect(instance?.options.preset).toBe("cloudflare-dev")
+        expect(instance?.options.cloudflare?.wrangler?.artifacts).toEqual([{ binding: "CONTENT_FILES", namespace: "content" }])
+        expect(plugin).toContain("setActiveCloudflareEnv")
+      }
+    }
+    finally {
+      await instance?.close()
+    }
+  })
+
+  it("loads contributed Definitions with package-imported memory stores at runtime in Node dev", async () => {
     const root = await createPackageStoreRoot([
       `import { writeFileSync } from "node:fs"`,
       `writeFileSync(new URL("./loaded", import.meta.url), "loaded")`,
@@ -247,14 +302,16 @@ describe("hubWorkspace contributions", () => {
     ].join("\n"))
     const nitro = await createWorkspaceNitroConfig({
       command: "serve",
-      nitro: {},
+      nitro: { preset: "node-server" },
       plugins: [contributor([{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }])],
       viteRoot: root,
     })
     expect(nitro).not.toHaveProperty("cloudflare.wrangler.artifacts")
-    await expect(readFile(join(root, "node_modules", "content-store", "loaded"), "utf8")).resolves.toBe("loaded")
-    const registry = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
-    expect(registry).toContain("import(\"content-owner/workspace\")")
+    const marker = join(root, "node_modules", "content-store", "loaded")
+    await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    const { default: registry }: { default: Record<string, () => Promise<unknown>> } = await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)
+    await expect(registry.content!()).resolves.toEqual({ default: { store: { driver: "memory" } } })
+    await expect(readFile(marker, "utf8")).resolves.toBe("loaded")
   })
 
   it("adds contributed Workspaces to the Nitro registry, typegen, manifest, and inspection", async () => {
@@ -268,11 +325,9 @@ describe("hubWorkspace contributions", () => {
     const userConfig = { nitro: {}, plugins: [[owner as Plugin]], root }
 
     await config(userConfig, { command: "serve", mode: "development" })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
-    expect(registrySource).toContain("[\"content\"]: async () => {")
     expect(registrySource).toContain("import(\"content-owner/workspace\")")
-    expect(registrySource).toContain("mod[\"contentWorkspace\"]")
 
     await configResolved({ command: "serve", plugins: [plugin, owner], root })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain("\"content\": true")
@@ -310,7 +365,9 @@ describe("hubWorkspace contributions", () => {
       viteRoot: root,
     })
 
-    expect(nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain("[\"content\"]: async () => {")
+    expect(nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string } }>> } = await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)
+    expect(Object.keys(registry)).toEqual(["content"])
+    await expect(registry.content!()).resolves.toEqual({ default: { label: "package content" } })
   })
 })

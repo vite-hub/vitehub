@@ -78,7 +78,7 @@ describe("vitehub agent invocations --database", () => {
 
   it("shows a running record with its inline and appended observations", async () => {
     const path = await storeJournal()
-    const result = await run(["show", "second", "--database", path, "--json"])
+    const result = await run(["get", "second", "--database", path, "--json"])
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
       id: "second",
@@ -135,7 +135,7 @@ describe("vitehub agent invocations --database", () => {
     const before = await readFile(path)
 
     expect((await run(["list", "--database", path, "--table-prefix", "custom_"])).stdout).toBe("old failed 2026-10-06T10:01:00.000Z\n")
-    const shown = await run(["show", "old", "--database", path, "--table-prefix", "custom_", "--json"])
+    const shown = await run(["get", "old", "--database", path, "--table-prefix", "custom_", "--json"])
     expect(JSON.parse(shown.stdout)).toMatchObject({ id: "old", observations: [{ name: "agent.invocation.start" }] })
     expect((await readFile(path)).equals(before)).toBe(true)
   })
@@ -144,7 +144,7 @@ describe("vitehub agent invocations --database", () => {
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
     [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
-    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
+    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
   ])("rejects %j", async (args, message) => {
     const result = await run(args)
@@ -158,7 +158,7 @@ describe("vitehub agent invocations --database", () => {
     expect((await run(["list", "--database", path])).stderr).toContain(`[AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING] No Agent Invocation journal table vitehub_agent_invocations exists in ${path}.\n├▶ fix: Pass \`--table-prefix\``)
 
     const journal = await storeJournal()
-    expect((await run(["show", "unknown", "--database", journal])).stderr).toContain(`[AGENT_INVOCATION_NOT_FOUND] Agent Invocation unknown was not found in ${journal}.\n`)
+    expect((await run(["get", "unknown", "--database", journal])).stderr).toContain(`[AGENT_INVOCATION_NOT_FOUND] Agent Invocation unknown was not found in ${journal}.\n`)
   })
 
   it("explains that the runtime has no node:sqlite", async () => {
@@ -170,7 +170,7 @@ describe("vitehub agent invocations --database", () => {
     const { runAgentInvocationsCli: runWithoutSqlite } = await import("../src/internal/agent-invocations-cli.ts")
     const stderr = stream()
     expect(await runWithoutSqlite(["list", "--database", path], { env: {}, stderr, stdout: stream() })).toBe(1)
-    expect(stderr.output()).toContain("[AGENT_INVOCATIONS_NODE_SQLITE_MISSING] --database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.\n")
+    expect(stderr.output()).toContain("[AGENT_INVOCATIONS_NODE_SQLITE_MISSING] --database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.\n")
   })
 })
 
@@ -190,7 +190,7 @@ describe("vitehub agent invocations with --database", () => {
     const list = await read(["list", "--json"])
     expect(list.exitCode, list.stderr).toBe(0)
     expect(JSON.parse(list.stdout).invocations.map((record: { id: string }) => record.id)).toEqual(["second", "first"])
-    expect(JSON.parse((await read(["show", "second", "--json"])).stdout)).toMatchObject({ id: "second", status: "running" })
+    expect(JSON.parse((await read(["get", "second", "--json"])).stdout)).toMatchObject({ id: "second", status: "running" })
     expect(await read(["tail", "first"])).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
     expect((await read(["export"])).stdout.trim().split("\n").map(line => JSON.parse(line).id)).toEqual(["first", "second"])
     expect(JSON.parse((await read(["wait-idle", "--json"])).stdout)).toMatchObject({ event: "invocations.idle", stale: [{ id: "second" }] })

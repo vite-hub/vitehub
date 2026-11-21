@@ -160,7 +160,7 @@ beforeEach(() => {
 })
 
 const accountServer = createMcpHandler({ name: "ViteHub", publicRoute: "/mcp", route: "/mcp/account", tools, verify: request => verifyMcpRequest(request, { auth }) })
-const publicServer = createMcpHandler({ name: "ViteHub", publicRoute: "/mcp", route: "/mcp", tools: Object.fromEntries(Object.entries(tools).filter(([, tool]) => tool.public === true)) })
+const publicServer = createMcpHandler({ name: "ViteHub", publicRoute: "/mcp", route: "/mcp", tools: Object.fromEntries(Object.entries(tools).filter(([, tool]) => tool.access === "public")) })
 
 interface Answer {
   result: { content: Array<{ text: string }>, isError: boolean, structuredContent?: Record<string, unknown>, tools: Array<{ annotations?: Record<string, boolean>, name: string, inputSchema: Record<string, unknown> }> }

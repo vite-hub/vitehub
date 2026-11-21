@@ -4,12 +4,13 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const execFileAsync = promisify(execFile)
-const bin = new URL("../dist/bin.js", import.meta.url).pathname
+const bin = fileURLToPath(new URL("../dist/bin.js", import.meta.url))
 const cleanup: Array<() => Promise<void>> = []
 
 afterEach(async () => {
@@ -39,6 +40,59 @@ it("runs connections commands against the running app without loading the projec
 
   expect(stdout).toBe("No Connections found.\n")
   expect(requests).toEqual(["POST /_vitehub/connections"])
+})
+
+// Inspection of the AI emulator must not need an app: an explicit target is enough, also in an empty directory.
+it("runs agent emulator against VITEHUB_EMULATE_URL from an empty directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-emulator-cli-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  const requests: string[] = []
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`)
+    const body = request.url === "/_ai/rules" ? { rules: [], strict: false } : []
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise(resolve => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("The test server has no port.")
+  const url = `http://127.0.0.1:${address.port}`
+
+  const { stdout } = await execFileAsync(process.execPath, [bin, "agent", "emulator", "--json"], {
+    cwd: root,
+    env: { ...process.env, NO_COLOR: "1", VITEHUB_EMULATE_URL: url },
+    timeout: 10_000,
+  })
+
+  expect(JSON.parse(stdout)).toEqual({ calls: [], rules: { rules: [], strict: false }, url })
+  expect(requests.sort()).toEqual(["GET /_ai/calls", "GET /_ai/rules"])
+})
+
+// A project can set a Vite `root` and `agent.cli: false`. Only the loaded project knows both, so default discovery loads it.
+it("loads the project for agent emulator without an explicit emulator, and not with --url", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-emulator-project-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  await writeFile(join(root, "vite.config.mjs"), "throw new Error('the project config was loaded')\n")
+  // One server is both the dev server (its Agent Dev Loop discovery names the emulator) and the emulator.
+  let url = ""
+  const server = createServer((request, response) => {
+    const body = request.url === "/_ai/rules" ? { rules: [], strict: false } : request.url === "/_ai/calls" ? [] : { emulator: { url } }
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  cleanup.push(() => new Promise(resolve => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("The test server has no port.")
+  url = `http://127.0.0.1:${address.port}`
+  const { VITEHUB_EMULATE_URL: _unset, ...env } = process.env
+
+  const discovery = execFileAsync(process.execPath, [bin, "agent", "emulator", "--json"], { cwd: root, env: { ...env, NO_COLOR: "1" }, timeout: 10_000 })
+  await expect(discovery).rejects.toMatchObject({ stderr: expect.stringContaining("the project config was loaded") })
+
+  const { stdout } = await execFileAsync(process.execPath, [bin, "agent", "emulator", "--json", "--url", url], { cwd: root, env: { ...env, NO_COLOR: "1" }, timeout: 10_000 })
+  expect(JSON.parse(stdout)).toMatchObject({ url })
+  const fromEnv = await execFileAsync(process.execPath, [bin, "agent", "emulator", "--json"], { cwd: root, env: { ...env, NO_COLOR: "1", VITEHUB_EMULATE_URL: url }, timeout: 10_000 })
+  expect(JSON.parse(fromEnv.stdout)).toMatchObject({ url })
 })
 
 it("runs kv commands against the running app without loading the project", async () => {

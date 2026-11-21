@@ -47,6 +47,7 @@ import type {
   WorkspaceHistoryCommitOptions,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceSessionWriteFileOptions,
@@ -775,6 +776,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         }))
       } } : {}),
       ...(baseHistory.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => { requireCompleteHistory(); return await baseHistory.openPullRequest!(options) } } : {}),
+      deleteRef: async (options: WorkspaceHistoryDeleteRefOptions) => {
+        requireCompleteHistory()
+        return await baseHistory.deleteRef(options)
+      },
       commit: commitHistory,
       checkpoint: baseHistory.checkpoint.bind(baseHistory),
       rebase,

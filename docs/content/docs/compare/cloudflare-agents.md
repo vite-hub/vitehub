@@ -97,7 +97,7 @@ Agent file and routes stay the same. Existing state does not move. Read
   through a [Capability](/docs/agents/capabilities) you attach.
 - **Channels.** [Channels](/docs/agents/channels) connect an Agent to web chat,
   HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, and Gmail.
-- **Inspection.** The [Console](/docs/development/console) and the `vitehub`
+- **Inspection.** The [Console](/docs/console) and the `vitehub`
   CLI show each Agent run. [Evals](/docs/agents/evals) test an Agent from the
   CLI.
 

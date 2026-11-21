@@ -7,6 +7,7 @@ import { contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeSafeWorks
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 import { withWorkspaceProgress } from "./progress.ts"
+import { createTarGz, type TarEntry } from "./tar.ts"
 import { resolveWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 
 import type { WorkspaceRevisionMaterialization } from "../storage/materialization.ts"
@@ -759,6 +760,36 @@ async function extractRevisionArchive(
   }
 }
 
+// One archive costs one host write and one `tar` run, where each file would cost a host write. Small trees and very
+// large trees keep the file writes: the archive is built in memory.
+const sessionArchiveMinFiles = 32
+const sessionArchiveMaxBytes = 64 * 1024 * 1024
+
+/** Extracts the archive into the Session root. Returns false when the host cannot run `tar`, so the caller writes each file. */
+async function extractSessionArchive(host: WorkspaceSessionHost, root: string, archive: Uint8Array, signal?: AbortSignal): Promise<boolean> {
+  const path = posix.join(root, `.vitehub-workspace-${randomUUID()}.tar.gz`)
+  signal?.throwIfAborted()
+  try {
+    await host.files.write(path, archive, { signal })
+    signal?.throwIfAborted()
+    const extracted = await host.exec("tar", ["-xzf", path, "-C", root], { signal })
+    signal?.throwIfAborted()
+    return extracted.code === 0
+  }
+  catch {
+    signal?.throwIfAborted()
+    return false
+  }
+  finally {
+    try {
+      if (await host.files.exists(path)) await host.files.remove(path, { recursive: false })
+    }
+    finally {
+      signal?.throwIfAborted()
+    }
+  }
+}
+
 async function sanitizeHostSymlinks(host: WorkspaceSessionHost, root: string, abortSignal?: AbortSignal) {
   const symlinks = (await listHostEntries(host, root, "", true, undefined, false, [], abortSignal)).filter(isGitSymlinkEntry)
   for (const entry of symlinks) {
@@ -856,19 +887,45 @@ async function materializeWorkspace(
   const nested = entries.find(entry => hasSymlinkParent(entry.path, symlinks))
   if (nested)
     throw workspaceError(`[vitehub] Workspace path crosses a symlink parent: ${nested.path}.`)
-  for (const entry of entries.filter(entry => entry.type === "directory")) {
-    abortSignal?.throwIfAborted()
-    await host.files.mkdir(toHostPath(root, entry.path), { recursive: true, signal: abortSignal })
-    abortSignal?.throwIfAborted()
-  }
+  const bytes = entries.reduce((total, entry) => total + (entry.size || 0), 0)
   await withWorkspaceProgress(options?.onProgress, {
-    data: {
-      bytes: entries.reduce((total, entry) => total + (entry.size || 0), 0),
-      files: files.length,
-    },
+    data: { bytes, files: files.length },
     id: "workspace.prepare.read-files",
     label: "Reading workspace files",
   }, async () => {
+    abortSignal?.throwIfAborted()
+    const archiveBudget = Math.min(host.archiveMaxBytes ?? 0, sessionArchiveMaxBytes)
+    const tryArchive = async () => {
+      let remaining = archiveBudget
+      const archive: TarEntry[] = entries.filter(entry => entry.type === "directory").map(entry => ({ path: entry.path, type: "directory" }))
+      for (const entry of files) {
+        abortSignal?.throwIfAborted()
+        const symlink = isGitSymlinkEntry(entry)
+        const content = symlink && typeof entry.metadata?.symlinkTarget === "string"
+          ? contentToBytes(entry.metadata.symlinkTarget)
+          : contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" }))
+        remaining -= content.byteLength
+        if (remaining < 0) return false
+        if (symlink) {
+          const target = new TextDecoder().decode(content)
+          if (isSafeHostSymlink(root, entry.path, target)) archive.push({ path: entry.path, type: "symlink", target })
+          else {
+            matchesRetained = false
+            archive.push({ path: entry.path, type: "file", content: contentToBytes(target) })
+          }
+        }
+        else archive.push({ path: entry.path, type: "file", content, executable: entry.metadata?.gitMode === "100755" })
+        if (matchesRetained && !await matchesRetainedWorkspaceFile(workspace, entry, content, retained?.files.get(entry.path))) matchesRetained = false
+      }
+      abortSignal?.throwIfAborted()
+      const compressed = await createTarGz(archive, archiveBudget)
+      return !!compressed && compressed.byteLength <= archiveBudget && await extractSessionArchive(host, root, compressed, abortSignal)
+    }
+    if (archiveBudget > 0 && files.length >= sessionArchiveMinFiles && bytes <= archiveBudget && await tryArchive()) return
+    for (const entry of entries.filter(entry => entry.type === "directory")) {
+      abortSignal?.throwIfAborted()
+      await host.files.mkdir(toHostPath(root, entry.path), { recursive: true, signal: abortSignal })
+    }
     abortSignal?.throwIfAborted()
     await mapHostMaterialization(host, files, async (entry) => {
       abortSignal?.throwIfAborted()
