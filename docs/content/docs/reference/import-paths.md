@@ -204,7 +204,7 @@ These paths have no `vite-hub` path:
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/comment-marks.css` | UI Package | The comment pins and highlights as plain CSS, for a page that reads the file as text with `?raw`. |
-| `@vite-hub/ui/icon-swap.css` | UI Package | The `CopyButton` icon swap as plain CSS, for a page that reads the file as text with `?raw`. |
+| `@vite-hub/ui/icon-swap.css` | UI Package | A copy and check icon cross-fade as plain CSS, for a page that runs no script of ours and reads the file as text with `?raw`. |
 | `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 

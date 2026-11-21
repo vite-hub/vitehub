@@ -3,6 +3,8 @@ import { useViteHubUIIcons } from "../config.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { announce, prepareAnnouncer } from "../internal/announce.ts";
+import { ring } from "../motion/helpers/ring.ts";
+import { SwapIcon } from "./motion.ts";
 
 /** The text to copy, or a function that returns it, such as one that fetches the Markdown of a page. */
 export type CopyValue = string | (() => string | Promise<string>);
@@ -109,8 +111,9 @@ interface ButtonLeadingSlotProps {
 
 /**
  * A button that copies text. It shows `icon`, or the theme's `copy` icon, and swaps to the theme's `copyCheck` icon for
- * `duration` ms after a copy. Both icons stay in the button and cross-fade with the rules of `icon-swap.css`. It
- * announces "Copied", or "Copy failed" when the browser refuses. Without a label it is an icon-only button named "Copy".
+ * `duration` ms after a copy: the copy icon blurs out and the check draws in, a label changes to `copiedLabel` letter by
+ * letter, and the button rings once. It announces "Copied", or "Copy failed" when the browser refuses. Without a label
+ * it is an icon-only button named "Copy".
  */
 export const CopyButton = defineComponent({
   name: "CopyButton",
@@ -119,6 +122,8 @@ export const CopyButton = defineComponent({
     // SAFETY: Vue's runtime constructors cannot express the function's return type.
     value: { required: true, type: [String, Function] as PropType<CopyValue> },
     label: { default: undefined, type: String },
+    /** The label for `duration` ms after a copy, when the button has a label. */
+    copiedLabel: { default: "Copied", type: String },
     /** The icon before a copy, such as `i-lucide-link` for a link. Defaults to the theme's `copy` icon. */
     icon: { default: undefined, type: String },
     ariaLabel: { default: undefined, type: String },
@@ -136,7 +141,6 @@ export const CopyButton = defineComponent({
   },
   setup(props, { attrs, emit, slots }) {
     const UButton = useUIComponent("UButton");
-    const UIcon = useUIComponent("UIcon");
     const icons = useViteHubUIIcons();
     const { copy, copied } = useCopy({ duration: () => props.duration });
     const instance = getCurrentInstance();
@@ -179,18 +183,19 @@ export const CopyButton = defineComponent({
       const ok = await copy(value);
       loading.value = false;
       announce(target, ok ? "Copied" : "Copy failed");
+      if (ok && target instanceof HTMLElement) ring(target);
       if (ok) emit("copy");
       else emit("error");
     }
 
-    // Both icons stay in the DOM, so the swap animates both ways. While the text loads, the button shows its own loading icon.
-    // Each icon has a wrapper that the swap animates, so a utility class on the icon, such as the theme's opacity, stays.
+    // One icon slot for every state: the copy icon, the spinner while a text loads, and the check. The swap blurs the
+    // old icon out, and the spinner and the check draw their stroke in.
     const leading = ({ ui }: ButtonLeadingSlotProps) => {
       const iconClass = ui?.leadingIcon?.({ class: leadingIconClass(attrs.ui) });
-      return [h("span", { "aria-hidden": "true", "data-slot": "copy-button-icon" }, [
-        h("span", { "data-icon": "copy" }, [h(UIcon, { class: iconClass, name: props.icon ?? icons.value.copy })]),
-        h("span", { "data-icon": "check" }, [h(UIcon, { class: iconClass, name: icons.value.copyCheck })]),
-      ])];
+      const [name, enter] = loading.value
+        ? [icons.value.loading, "draw"] as const
+        : copied.value ? [icons.value.copyCheck, "draw"] as const : [props.icon ?? icons.value.copy, "blur"] as const;
+      return [h(SwapIcon, { class: iconClass, name, enter, spin: loading.value })];
     };
 
     return () =>
@@ -201,8 +206,9 @@ export const CopyButton = defineComponent({
         "data-slot": attrs["data-slot"] ?? "copy-button",
         // The slot draws the icons. The button still needs `icon` to lay out the leading icon and its loading icon.
         icon: copied.value ? icons.value.copyCheck : props.icon ?? icons.value.copy,
-        label: props.label,
-        loading: loading.value,
+        // The layer's label effect morphs the label of the button letter by letter.
+        label: props.label && copied.value ? props.copiedLabel : props.label,
+        disabled: loading.value || attrs.disabled,
         size: props.size,
         variant: props.variant,
         onClick: (event: MouseEvent) => {
@@ -219,7 +225,7 @@ export const CopyButton = defineComponent({
           preload();
         },
       }, {
-        ...(loading.value ? {} : { leading }),
+        leading,
         ...(slots.default ? { default: slots.default } : {}),
       });
   },
