@@ -296,8 +296,8 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     comark-chat:
-      specifier: 0.10.1
-      version: 0.10.1
+      specifier: 0.12.1
+      version: 0.12.1
     forges:
       specifier: 0.3.1
       version: 0.3.1
@@ -3913,7 +3913,7 @@ importers:
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
       comark-chat:
         specifier: 'catalog:'
-        version: 0.10.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
+        version: 0.12.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       katex:
         specifier: ^0.19.1
         version: 0.19.1
@@ -12950,8 +12950,8 @@ packages:
       vue:
         optional: true
 
-  comark-chat@0.10.1:
-    resolution: {integrity: sha512-A/bUsLbo/4ypmzS9Yg6qH4qgHbEElOnK/mptnC2nn+2upmCTVq065QsoneTGewVn6dh0U8A0ftJG2rsAGsqAuQ==}
+  comark-chat@0.12.1:
+    resolution: {integrity: sha512-Ii86mmbCyEDZvmzbYm8EFi/JpmGF9Dca8ASHuG1BxXRHt8jo8L6ocSwkEfy8eTQ619lyBcXJc/tTQ8XjR+sceg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/react': ^0.9.0
@@ -32170,7 +32170,7 @@ snapshots:
       - echarts
       - plotly.js
 
-  comark-chat@0.10.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
+  comark-chat@0.12.1(@comark/vue@0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
     optionalDependencies:
       '@comark/vue': 0.9.0(katex@0.19.1)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
       react: 19.2.6

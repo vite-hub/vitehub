@@ -18,6 +18,8 @@ describe("ChatMessage", () => {
       role: "assistant",
       parts: [
         { filename: "retained.png", mediaType, type: "file", url: "/files/retained-image" },
+        { filename: "a.png", mediaType, type: "file", url: "/uploads/a.png" },
+        { filename: "b.png", mediaType, type: "file", url: "uploads/b.png" },
         { filename: "unsafe.png", mediaType, type: "file", url: "javascript:alert(1)" },
       ],
     };
@@ -26,7 +28,7 @@ describe("ChatMessage", () => {
       props: { message },
     });
 
-    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["/files/retained-image"]);
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["/files/retained-image", "/uploads/a.png", "uploads/b.png"]);
     expect(wrapper.get('[aria-label="Preview retained.png"]').attributes("type")).toBe("button");
     expect(wrapper.text()).toContain("unsafe.png");
   });
