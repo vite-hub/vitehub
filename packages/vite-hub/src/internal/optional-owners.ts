@@ -113,6 +113,14 @@ export const optionalFeaturePackages = {
 export type OptionalFeature = keyof typeof optionalFeaturePackages
 
 /**
+ * Peers that only work in their supported range: ViteHub imports modules that other versions do not have, such as
+ * `drizzle-orm/libsql/codecs` and `drizzle-orm/d1/codecs` of Drizzle 1.0. An app with Drizzle 0.x builds into a resolve
+ * error that does not name the version, so the check stops first and names the range. pnpm keeps a version that the
+ * lockfile or another dependency already has, even when it is outside the peer range, and only warns.
+ */
+const rangeRequiredPeers: ReadonlySet<string> = new Set(["drizzle-orm"])
+
+/**
  * The results of `isPackageInstalled` in this process. Each lookup resolves from `vite-hub` itself, so the package name
  * is the key. A dev start asks for the same packages two or three times, and most of them are missing.
  */
@@ -284,9 +292,9 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
 }
 
 /**
- * Throws when an enabled feature misses one of its packages or has a ViteHub package outside the range of `vite-hub`,
- * and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
- * provider needs, from `hostFeaturePackages`.
+ * Throws when an enabled feature misses one of its packages, or has a ViteHub package or a peer that needs its range,
+ * such as drizzle-orm, outside the range of `vite-hub`, and warns when another installed package is outside its range.
+ * `hostPackages` adds the packages that the host or a provider needs, from `hostFeaturePackages`.
  */
 export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}, reportVersionError = true): void {
   const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
@@ -387,13 +395,26 @@ export function unsupportedViteHubPackagesError(
   return unsupported && viteHubErrorDiagnostics.VITE_HUB_PACKAGE_VERSION_UNSUPPORTED(unsupported)
 }
 
+/**
+ * The error for installed peers that need their range, such as drizzle-orm, outside the range of `vite-hub`, or
+ * `undefined` when all are in range.
+ */
+export function unsupportedPeerPackagesError(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): ReturnType<typeof viteHubErrorDiagnostics.VITE_HUB_PEER_VERSION_UNSUPPORTED> | undefined {
+  const unsupported = unsupportedPackageVersions(packages.filter(name => rangeRequiredPeers.has(name)), versionOf, manifest)
+  return unsupported && viteHubErrorDiagnostics.VITE_HUB_PEER_VERSION_UNSUPPORTED(unsupported)
+}
+
 /** The warning for other installed packages outside the range of `vite-hub`, or `undefined` when all are in range. */
 export function unsupportedPackageVersionsWarning(
   packages: readonly string[],
   versionOf: (packageName: string) => string | undefined = installedPackageVersion,
   manifest: unknown = readViteHubManifest(),
 ): string | undefined {
-  const unsupported = unsupportedPackageVersions(packages.filter(name => !isViteHubPackage(name)), versionOf, manifest)
+  const unsupported = unsupportedPackageVersions(packages.filter(name => !isViteHubPackage(name) && !rangeRequiredPeers.has(name)), versionOf, manifest)
   return unsupported && `[vitehub] ${unsupported.installed} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${unsupported.install}`
 }
 
@@ -424,7 +445,8 @@ const checkedPackageVersions = new Set<string>()
 let viteHubManifest: unknown
 
 /**
- * Throws the error of `unsupportedViteHubPackagesError`, and prints the warning of `unsupportedPackageVersionsWarning`
+ * Throws the error of `unsupportedViteHubPackagesError` or `unsupportedPeerPackagesError`, and prints the warning of
+ * `unsupportedPackageVersionsWarning`
  * one time for each package in this process. The import facades call `assertFeaturePackages` for each import, so a
  * package in range is checked only the first time. A package out of range stays unchecked, so the next check throws
  * again until the app installs a supported version. A `vite-hub` manifest that the check cannot read turns it off.
@@ -441,6 +463,7 @@ function checkPackageVersions(packages: readonly string[], reportVersionError: b
     }
   }
   const error = unsupportedViteHubPackagesError(unchecked, installedPackageVersion, viteHubManifest)
+    ?? unsupportedPeerPackagesError(unchecked, installedPackageVersion, viteHubManifest)
   if (error) {
     // Vite and Nitro print the message of a build error, not its fix. The fix names the install command and pnpm `overrides`.
     if (reportVersionError) console.error(formatDiagnostic(error))

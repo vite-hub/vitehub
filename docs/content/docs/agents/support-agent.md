@@ -125,7 +125,7 @@ pnpm vite build
 # In another terminal, keep the dev server running for `agent get`.
 pnpm vite dev
 pnpm vitehub inspect definitions --kind agent
-pnpm vitehub agent get --agent support --json
+pnpm vitehub agent get support --json
 ```
 
 Check that the definition lists the `teams` Channel, the `docs` Source, the

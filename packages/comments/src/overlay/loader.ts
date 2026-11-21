@@ -2,4 +2,4 @@
 // tools work without the Console.
 import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 
-void loadViteHubPageTools({ session: new URL("../session", import.meta.url).pathname })
+void loadViteHubPageTools({ session: new URL("../tools", import.meta.url).pathname })

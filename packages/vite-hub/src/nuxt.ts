@@ -19,6 +19,8 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
+import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
+import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { cloudflareExportConditions } from "./deployment.ts"
@@ -136,6 +138,16 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
   })
 }
 
+type NuxtTypeReference = { path: string } | { types: string }
+type NuxtTypeConfig = { compilerOptions?: { paths?: Record<string, string[]> } }
+type NuxtPrepareTypesContext = {
+  references: NuxtTypeReference[]
+  sharedReferences?: NuxtTypeReference[]
+  serverReferences?: NuxtTypeReference[]
+  tsConfig: NuxtTypeConfig
+  sharedTsConfig: NuxtTypeConfig
+}
+
 type NuxtLike = {
   /** The installed Nuxt version, such as `5.0.0-2611052317-a04317f`. */
   _version?: string
@@ -150,6 +162,7 @@ type NuxtLike = {
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
     (name: "build:before" | "modules:done" | "nitro:build:before", callback: () => void): void
+    (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -195,6 +208,7 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+const cloudflareAppTypes = fileURLToPath(new URL("./cloudflare-app-types.d.ts", import.meta.url))
 const cloudflareWorkersDeclaration = fileURLToPath(new URL("./cloudflare-workers.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
@@ -298,12 +312,12 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 
 /**
  * Put these plugins before Nitro's own resolvers, so they see generated and cache imports first. Each one goes first, so
- * in a build `forgeBuildCheckPlugin()` can wrap Source imports before Nitro resolves them.
+ * in a build the Forge and Drizzle checks can see imports before Nitro resolves them.
  */
 function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin()] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1256,17 +1270,28 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
-  // Generated server files such as the Database middleware import `cloudflare:workers`. `cloudflare-workers.d.ts` declares
-  // what they use, without globals. App and shared code also reach server files, through typed server routes and type
-  // imports, so they get only that declaration: the global Workers types replace DOM types such as `Element`.
-  // `@cloudflare/workers-types` is an optional peer. When the app installs it, the server code gets its full types.
-  const cloudflare = plan.host === "cloudflare"
-  const serverTypes = cloudflare ? [relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration)] : []
-  const appTypes = cloudflare ? [relative(nuxt.options.buildDir, cloudflareWorkersDeclaration)] : []
-  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData)
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
-  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData, "sharedTsConfig")
-  addTypeScriptDefaults((nuxt.options.nitro ??= {}), [...generatedTypes, ...serverTypes], generatedData)
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
+  // Nuxt excludes `node_modules`, so it drops these declarations from `include` in an installed app.
+  // A `/// <reference>` in the declaration files that Nuxt writes loads them anyway.
+  if (plan.host === "cloudflare") {
+    const hasWorkerTypes = isPackageInstalled("@cloudflare/workers-types")
+    const appTypes = { path: hasWorkerTypes ? cloudflareAppTypes : cloudflareWorkersDeclaration }
+    const serverTypes = { path: hasWorkerTypes ? cloudflareTypes : cloudflareWorkersDeclaration }
+    nuxt.hook?.("prepare:types", ({ references, sharedReferences, serverReferences, tsConfig, sharedTsConfig }) => {
+      references.push(appTypes)
+      sharedReferences?.push(appTypes)
+      serverReferences?.push(serverTypes)
+      if (hasWorkerTypes) {
+        for (const config of [tsConfig, sharedTsConfig]) {
+          const paths = ((config.compilerOptions ??= {}).paths ??= {})
+          paths["cloudflare:workers"] ??= [cloudflareAppTypes]
+        }
+      }
+    })
+  }
   if (options.database) {
     const databaseOptions = options.database === true ? {} : { ...options.database }
     // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.
