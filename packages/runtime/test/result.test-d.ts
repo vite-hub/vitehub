@@ -1,7 +1,8 @@
 import { formatDiagnostic, type Diagnostic, type DiagnosticJSON, type InferDiagnosticCodes } from "nostics"
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineErrors, runtimeErrorDiagnostics, type Result, type ResultError } from "@vite-hub/runtime"
+import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime"
+import { runtimeErrorDiagnostics } from "@vite-hub/runtime/internal/error-diagnostics"
 
 const errors = defineErrors({
   docs: "https://vitehub.dev/docs/example",

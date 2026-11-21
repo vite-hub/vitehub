@@ -362,7 +362,7 @@ pnpm vitehub database migrate
 
 ### Add fields and plugin tables
 
-Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` calls:
+Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` and its local imports call:
 
 ```ts [server/auth.ts]
 import { twoFactor, username } from 'better-auth/plugins'
@@ -405,8 +405,8 @@ export default defineHandler(async (event) => {
 
 `authSqliteSchema` and `authPostgresSchema` from `vite-hub/auth/schema` have only the core tables. Use them for foreign keys to `user` or `organization`, not to read your fields.
 
-- Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. A field is `NOT NULL` only with `required: true`.
-- Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. A plugin that comes from another file is not found: call it in `server/auth.ts`.
+- Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. On a new table, `required: true` makes the column `NOT NULL`. On an existing SQLite table, the generated types keep the snapshot's nullability and defaults, and a new required field without a default stays nullable so old rows still work.
+- Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. Auth also finds them in the exports that `server/auth.ts` imports with a relative path, such as `authPlugins()` from `../src/server/auth-plugins.ts`, and in the code those exports use. It does not follow aliases such as `~/` or packages.
 - `genericOAuth()` adds no tables, so it works without a change.
 - For other plugins, add their tables to the Database Definition. When the options need a table or a column that the Database does not have, the adapter fails with `AUTH_C0056` and names it, before it opens the Database.
 

@@ -8,7 +8,7 @@ import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 // Every app with Console access serves the entry and its page paths, operation RPC and page tools session, and no other Console route.
-const consoleRoutes = ["/_vitehub", "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/page/session"]
+const consoleRoutes = ["/_vitehub", "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/page/tools"]
 
 it.each([
   ["no primitives", { env: false }, []],

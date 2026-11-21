@@ -1012,7 +1012,7 @@ describe("hubBlob", () => {
       await config(userConfig, { command: "build" })
       return userConfig.nitro?.handlers
     }
-    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob-signed/**" }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/blob-signed/**" }
 
     expect(await handlers({ driver: "fs" })).toEqual([signed])
     expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare" }, local: { driver: "fs" } } })).toEqual([signed])

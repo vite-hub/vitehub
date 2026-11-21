@@ -6,7 +6,7 @@ import { foreignKey as sqliteForeignKey, index, integer, sqliteTable, text, uniq
 
 import { authSqlName, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
 
-import type { AuthExistingTables } from "./existing-tables.ts"
+import type { AuthExistingColumn, AuthExistingTables } from "./existing-tables.ts"
 import type { AuthCoreModel, AuthCoreTableSpecs, AuthPluginSchemas, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField, AuthTableName, AuthTableSpec } from "./table-specs.ts"
 
 export { authPluginSchemas, authTableSpecs, resolveAuthTableSpecs } from "./table-specs.ts"
@@ -140,9 +140,18 @@ type FieldData<F> = F extends { type: "boolean" } ? boolean
           : F extends { type: "number[]" } ? number[]
             : unknown
 
-type WithConstraints<TBuilder, F> = (F extends { defaultValue: unknown } | { onUpdate: true } ? HasDefault<TBuilder> : TBuilder) extends infer TDefault
-  ? F extends { required: true } ? NotNull<TDefault> : TDefault
-  : never
+type WithDefault<TBuilder, TDefault extends boolean> = TDefault extends true ? HasDefault<TBuilder> : TBuilder
+type WithColumnConstraints<TBuilder, TRequired extends boolean, TDefault extends boolean> = TRequired extends true
+  ? NotNull<WithDefault<TBuilder, TDefault>>
+  : WithDefault<TBuilder, TDefault>
+
+type HasValue<TValue> = undefined extends TValue ? false : true
+type FieldDefault<TField> = TField extends { defaultValue: infer TValue } ? HasValue<TValue> : false
+type HasFieldDefault<TField> = false extends FieldDefault<TField> ? false : true
+type InsertDefault<TField, TDefault extends boolean> = [TField] extends [{ onUpdate: true }] ? true : TDefault
+type FieldRequired<TField> = [TField] extends [{ required: true }] ? true : false
+
+type WithConstraints<TBuilder, TField> = WithColumnConstraints<TBuilder, FieldRequired<TField>, InsertDefault<TField, HasFieldDefault<TField>>>
 
 type SqliteBuilder<F> = F extends { type: "boolean" } ? SQLiteBooleanBuilder
   : F extends { type: "date" } ? SQLiteTimestampBuilder
@@ -157,15 +166,23 @@ type PostgresBuilder<F> = F extends { type: "boolean" } ? PgBooleanBuilder
         : F extends { type: "json" } ? PgJsonbBuilder
           : $Type<PgTextBuilder, FieldData<F>>
 
-type SqliteColumns<TFields> = { id: IsPrimaryKey<SQLiteTextBuilder<[string, ...string[]]>> } & { -readonly [K in keyof TFields]: WithConstraints<SqliteBuilder<TFields[K]>, TFields[K]> }
+type WithSqliteConstraints<TBuilder, TField, TColumns, TName extends string> =
+  [TColumns] extends [never] ? WithConstraints<TBuilder, TField>
+    : [TColumns] extends [Record<TName, infer TColumn extends AuthExistingColumn>]
+      ? WithColumnConstraints<TBuilder, [TColumn] extends [{ notNull: true }] ? true : false, InsertDefault<TField, [TColumn] extends [{ default: string }] ? true : false>>
+      : WithColumnConstraints<TBuilder, HasFieldDefault<TField> extends true ? FieldRequired<TField> : false, InsertDefault<TField, HasFieldDefault<TField>>>
+
+type SqliteColumns<TFields, TExistingColumns> = { id: IsPrimaryKey<SQLiteTextBuilder<[string, ...string[]]>> } & {
+  -readonly [K in keyof TFields]: WithSqliteConstraints<SqliteBuilder<TFields[K]>, TFields[K], TExistingColumns, SqlName<K & string>>
+}
 
 type PostgresColumns<TFields> = { id: IsPrimaryKey<PgTextBuilder> } & { -readonly [K in keyof TFields]: WithConstraints<PostgresBuilder<TFields[K]>, TFields[K]> }
 
 /** A SQLite table with a typed column for each field of `TFields`. */
-export type AuthSqliteTableOf<TFields> = SQLiteTableWithColumns<{
+export type AuthSqliteTableOf<TFields, TExistingColumns = never> = SQLiteTableWithColumns<{
   name: string
   schema: undefined
-  columns: BuildColumns<string, SqliteColumns<TFields>, "sqlite">
+  columns: BuildColumns<string, SqliteColumns<TFields, TExistingColumns>, "sqlite">
   dialect: "sqlite"
   isAlias: false
 }>
@@ -201,8 +218,14 @@ type MergeFields<TUnion> = { [K in TUnion extends unknown ? keyof TUnion : never
 /** `TFirst` wins a key that both have, as `resolveAuthTableSpecs()` keeps the column that a table has already. */
 type Prefer<TFirst, TSecond> = TFirst & Omit<TSecond, keyof TFirst>
 
-type SchemaPlugins<TOptions> = TOptions extends { plugins: readonly (infer TPlugin extends AuthSchemaPlugin)[] }
-  ? AuthSchemaPlugin extends TPlugin ? never : TPlugin
+type HasPlugin<TPlugins, TPlugin> = TPlugins extends readonly [infer TFirst, ...infer TRest]
+  ? [TFirst] extends [TPlugin] ? true : HasPlugin<TRest, TPlugin>
+  : TPlugins extends readonly [...infer TRest, infer TLast]
+    ? [TLast] extends [TPlugin] ? true : HasPlugin<TRest, TPlugin>
+    : false
+
+type SchemaPlugins<TOptions> = [TOptions] extends [{ plugins: infer TPlugins }]
+  ? { [P in AuthSchemaPlugin]: false extends HasPlugin<TPlugins, P> ? never : P }[AuthSchemaPlugin]
   : never
 
 type PluginFields<TPlugin extends AuthSchemaPlugin, TModel extends string> = TPlugin extends unknown
@@ -213,9 +236,13 @@ type PluginTables<TPlugin extends AuthSchemaPlugin> = MergeFields<TPlugin extend
   ? AuthPluginSchemas[TPlugin] extends { tables: infer TTables } ? TTables : never
   : never>
 
+type GuaranteedFieldKeys<TFields, TKey = keyof TFields> = TKey extends keyof TFields
+  ? string extends TKey ? never : [TFields] extends [Record<TKey, AuthTableField>] ? TKey : never
+  : never
+
 type AdditionalFields<TOptions, TModel extends string> = TModel extends AuthCoreModel
-  ? TOptions extends { additionalFields: { readonly [K in TModel]?: infer TFields } }
-    ? string extends keyof NonNullable<TFields> ? {} : NonNullable<TFields>
+  ? [TOptions] extends [{ additionalFields: { readonly [K in TModel]: infer TFields } }]
+    ? Pick<TFields, GuaranteedFieldKeys<TFields>>
     : {}
   : {}
 
@@ -227,10 +254,25 @@ type TableFields<TOptions, TModel extends AuthTableName> = Prefer<
 type PluginTableFields<TOptions, TTable extends keyof PluginTables<SchemaPlugins<TOptions>>> =
   PluginTables<SchemaPlugins<TOptions>>[TTable] extends { fields: infer TFields } ? TFields : never
 
-/** The Better Auth tables for SQLite, with the plugin tables and the plugin and additional columns of `TOptions`. */
-export type AuthSqliteSchemaFor<TOptions extends AuthSchemaOptions> =
-  & { readonly [TModel in AuthTableName]: AuthSqliteTableOf<TableFields<TOptions, TModel>> }
-  & { readonly [TTable in keyof PluginTables<SchemaPlugins<TOptions>>]: AuthSqliteTableOf<PluginTableFields<TOptions, TTable>> }
+type Lower = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+type Upper = Uppercase<Lower>
+type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+
+/** The same word boundaries as `authSqlName()`, for lookup in a migration snapshot. */
+type SqlName<TName extends string, TPrevious extends string = "", TResult extends string = ""> =
+  TName extends `${infer TChar}${infer TRest}`
+    ? SqlName<TRest, TChar, `${TResult}${TChar extends Upper
+      ? TPrevious extends Lower | Digit ? "_" : TPrevious extends Upper ? TRest extends `${Lower}${string}` ? "_" : "" : ""
+      : ""}${Lowercase<TChar>}`>
+    : TResult
+
+type ExistingColumns<TExisting, TModel extends string> =
+  [TExisting] extends [Record<SqlName<TModel>, { columns: infer TColumns }>] ? TColumns : never
+
+/** The Better Auth tables for SQLite, with fields from `TOptions` and constraints from a literal migration snapshot. */
+export type AuthSqliteSchemaFor<TOptions extends AuthSchemaOptions, TExisting extends AuthExistingTables | undefined = undefined> =
+  & { readonly [TModel in AuthTableName]: AuthSqliteTableOf<TableFields<TOptions, TModel>, ExistingColumns<TExisting, TModel>> }
+  & { readonly [TTable in keyof PluginTables<SchemaPlugins<TOptions>>]: AuthSqliteTableOf<PluginTableFields<TOptions, TTable>, ExistingColumns<TExisting, TTable & string>> }
 
 /** The Better Auth tables for Postgres, with the plugin tables and the plugin and additional columns of `TOptions`. */
 export type AuthPostgresSchemaFor<TOptions extends AuthSchemaOptions> =
@@ -300,11 +342,12 @@ export const authPostgresSchema: AuthPostgresSchema = buildTables(postgresDialec
  * `AuthSchemaPlugin`, or when the Database has some of the tables already. `existing` holds those tables, read from the
  * latest migration: each one keeps the column defaults, unique keys, and foreign keys that only a table rebuild could
  * change, so the migration adds columns and indexes, and does not drop a table that other tables reference. The
- * columns of the plugins and additional fields are typed from the literal of `options`.
+ * columns of the plugins and additional fields are typed from the literal of `options`, with constraints from the
+ * snapshot literal when present.
  */
-export function createAuthSqliteSchema<const TOptions extends AuthSchemaOptions>(options: TOptions, existing?: AuthExistingTables): AuthSqliteSchemaFor<TOptions> {
-  // SAFETY: `resolveAuthTableSpecs()` builds the tables and fields that `AuthSqliteSchemaFor` reads from the same options.
-  return buildTables(sqliteDialect, resolveAuthTableSpecs(options), existing) as unknown as AuthSqliteSchemaFor<TOptions>
+export function createAuthSqliteSchema<const TOptions extends AuthSchemaOptions, const TExisting extends AuthExistingTables | undefined = AuthExistingTables | undefined>(options: TOptions, existing?: TExisting): AuthSqliteSchemaFor<TOptions, TExisting> {
+  // SAFETY: `buildTables()` uses the same options and snapshot that determine the table, field, and constraint types.
+  return buildTables(sqliteDialect, resolveAuthTableSpecs(options), existing) as unknown as AuthSqliteSchemaFor<TOptions, TExisting>
 }
 
 /** The Better Auth tables for Postgres, with the plugins and additional fields of `options`, typed from its literal. */
