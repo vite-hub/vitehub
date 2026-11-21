@@ -521,6 +521,41 @@ describe("hubAuth", () => {
     expect(diagnostics).toEqual([])
   })
 
+  it("declares the private Auth export by path for the vite-hub distribution", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    await mkdir(join(root, "node_modules/vite-hub/auth"), { recursive: true })
+    await writeFile(join(root, "node_modules/vite-hub/package.json"), JSON.stringify({ name: "vite-hub", exports: { "./auth/server": { types: "./auth/server.d.ts" } } }))
+    await writeFile(join(root, "node_modules/vite-hub/auth/server.d.ts"), "declare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\nexport declare function withAnonymousAuthorization(): \"anonymous\"\n")
+    await mkdir(join(root, ".vitehub/env"), { recursive: true })
+    await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
+
+    // `vite-hub/auth` has no package export for the private entry, so the declaration names it by file path.
+    await resolvePluginConfig(hubAuth(undefined, { importBase: "vite-hub/auth" }), root, [{ name: "@vite-hub/env/vite" }])
+    const declaration = join(root, ".vitehub/types/auth-server.d.ts")
+    const probe = join(root, "probe.ts")
+    await writeFile(probe, [
+      'import { createAuthAccessHandler, withAnonymousAuthorization } from "#vitehub/auth/server"',
+      'export const anonymous: "anonymous" = withAnonymousAuthorization()',
+      "export const access: ReturnType<typeof createAuthAccessHandler> = createAuthAccessHandler([])",
+      "// @ts-expect-error the real handler type, not `any`",
+      "export const wrong: number = createAuthAccessHandler",
+      "",
+    ].join("\n"))
+
+    const program = ts.createProgram([declaration, probe], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+      types: [],
+    })
+    const diagnostics = [declaration, probe].flatMap(file => ts.getPreEmitDiagnostics(program, program.getSourceFile(file)))
+      .map(diagnostic => `${diagnostic.file?.fileName}: TS${diagnostic.code} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`)
+    expect(diagnostics).toEqual([])
+  })
+
   it("disables the auth plugin with false", async () => {
     const root = await createTempProject()
     await writeAuth(root)
