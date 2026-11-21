@@ -102,7 +102,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     // Option errors. `sign()` and `handleUpload()` throw them before they call the provider or read the request.
     BLOB_SIGN_CONTENT_LENGTH_INVALID: {
-      why: ({ contentLength }: { contentLength: unknown }) => `\`contentLength\` of \`blob.sign()\` is ${JSON.stringify(contentLength) ?? String(contentLength)}. It must be a whole number of bytes, 0 or more.`,
+      why: "`contentLength` of `blob.sign()` must be a non-negative safe integer in bytes.",
       fix: "Pass the exact size of the file in bytes, such as `blob.sign(pathname, { method: \"PUT\", contentLength: file.size, expiresIn: \"15m\" })`, or omit `contentLength`.",
     },
     BLOB_UPLOAD_MAX_FILES_INVALID: {

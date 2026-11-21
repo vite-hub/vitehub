@@ -227,6 +227,23 @@ describe("signed requests of the fs driver", () => {
     expect((await send(fromPath.url)).headers.get("content-disposition")).toBe("attachment; filename=\"q3.pdf\"; filename*=UTF-8''q3.pdf")
   })
 
+  it.each([
+    ["an empty name", ""],
+    ["a name with a lone surrogate", "📄".slice(0, 1) + ".txt"],
+  ])("matches serve() when signing a download with %s", async (_, download) => {
+    const pathname = "reports/q3.pdf"
+    await blob.put(pathname, "%PDF", { contentType: "application/pdf" })
+    const app = new H3()
+    app.all(`${blobSignedRoute}/**`, signedRoute)
+    const signed = await sign(pathname, { download, expiresIn: 60, method: "GET" })
+    const response = await app.fetch(new Request(new URL(signed.url, origin)))
+    const served = await blob.serve(new Request(`${origin}/files/${pathname}`), pathname, { download })
+
+    expect(response.status).toBe(200)
+    expect(served.headers.get("content-disposition")).toMatch(/^attachment;/)
+    expect(response.headers.get("content-disposition")).toBe(served.headers.get("content-disposition"))
+  })
+
   it("stores a signed PUT only when the body has the bound contentLength", async () => {
     const upload = await sign("audio/source.mp3", { contentLength: 4, contentType: "audio/mpeg", expiresIn: 60, method: "PUT" })
     expect(upload.headers).toEqual({ "Content-Type": "audio/mpeg" })
@@ -258,7 +275,7 @@ describe("signed requests of the fs driver", () => {
     expect(createOnly).toMatchObject({ code: "BLOB_OPERATION_FAILED", cause: { code: "BLOB_R0025" } })
     // SAFETY: A JavaScript caller can pass a size that the type rejects.
     await expect(blob.sign("notes.txt", { expiresIn: 60, maxSize: "8 megabytes" as BlobSize, method: "PUT" })).rejects.toMatchObject({ code: "BLOB_R0039" })
-    for (const contentLength of [-1, 1.5, Number.NaN, "4" as unknown as number]) {
+    for (const contentLength of [-1, 1.5, Number.NaN, "4" as unknown as number, 4n as unknown as number]) {
       await expect(blob.sign("notes.txt", { contentLength, expiresIn: 60, method: "PUT" })).rejects.toMatchObject({ code: "BLOB_SIGN_CONTENT_LENGTH_INVALID" })
     }
   })

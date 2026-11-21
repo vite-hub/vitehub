@@ -21,14 +21,15 @@ function encodeAttrValue(value: string): string {
   return encodeURIComponent(value).replace(/['()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
 }
 
-/**
- * An RFC 6266 `Content-Disposition: attachment` value. It keeps only the last path segment of `filename`, removes
- * control characters, and sends an ASCII `filename` for old clients and a UTF-8 `filename*`.
- */
-export function attachmentDisposition(filename: string): string {
+export function normalizeDownloadName(filename: string): string {
   // A lone surrogate becomes U+FFFD, because encodeURIComponent() throws on it.
   // eslint-disable-next-line no-control-regex -- the header must not carry control characters.
-  const name = (filename.split(/[\\/]/).pop() ?? "").replace(/[\u0000-\u001F\u007F]/g, "").replace(/\p{Cs}/gu, "\uFFFD").trim() || "file"
+  return (filename.split(/[\\/]/).pop() ?? "").replace(/[\u0000-\u001F\u007F]/g, "").replace(/\p{Cs}/gu, "\uFFFD").trim() || "file"
+}
+
+/** An RFC 6266 attachment value with an ASCII `filename` for old clients and a UTF-8 `filename*`. */
+export function attachmentDisposition(filename: string): string {
+  const name = normalizeDownloadName(filename)
   const ascii = name.replace(/[^\u0020-\u007E]|["\\]/g, "_")
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeAttrValue(name)}`
 }

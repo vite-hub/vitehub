@@ -3,6 +3,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { BlobSignedRequest, BlobDriverSignOptions } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { normalizeDownloadName } from "./active-content.ts"
 import { blobSizeToBytes } from "./size.ts"
 
 /** The `deriveSecret()` purpose of the key that signs the links of `fs` stores. */
@@ -99,7 +100,7 @@ export async function signFsRequest(store: string, pathname: string, options: Bl
   const contentType = options.method === "PUT" ? options.contentType ?? "" : ""
   const maxSize = options.method === "PUT" && options.maxSize !== undefined ? blobSizeToBytes(options.maxSize) : undefined
   const download = options.method === "GET" && options.download !== undefined && options.download !== false
-    ? options.download === true ? pathname : options.download
+    ? normalizeDownloadName(options.download === true ? pathname : options.download)
     : ""
   const link: SignedFsLink = {
     contentLength: options.method === "PUT" && options.contentLength !== undefined ? String(options.contentLength) : "",

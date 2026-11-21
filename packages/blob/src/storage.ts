@@ -398,7 +398,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
       }
       if (options.method === "PUT" && options.contentLength !== undefined && !(Number.isSafeInteger(options.contentLength) && options.contentLength >= 0)) {
-        throw blobErrorDiagnostics.BLOB_SIGN_CONTENT_LENGTH_INVALID({ contentLength: options.contentLength })
+        throw blobErrorDiagnostics.BLOB_SIGN_CONTENT_LENGTH_INVALID()
       }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
