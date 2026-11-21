@@ -47,6 +47,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/shell"
     | "@vite-hub/sync"
     | "@vite-hub/ui"
+    | "@vite-hub/web-container"
     | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
@@ -101,6 +102,7 @@ export const optionalFeaturePackages = {
   // `server/sync/` turns Sync on, and its change log goes to the Database.
   "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
+  "webContainer": ["@vite-hub/web-container"],
   // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
   "webhooks": ["@vite-hub/webhooks"],
   "workflow": features.workflow.packages,

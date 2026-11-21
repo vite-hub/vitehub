@@ -412,15 +412,25 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Consequences:** Other values make the same sleep last different times per provider.
 
-## A root step sleep returns a marker instead of throwing
+## A root step sleep or signal wait returns a marker instead of throwing
 
 `rootStepSleepResult`, `runInRootStep` in `packages/workflow/src/runtime/execute.ts`.
 
 **Context:** A thrown error in the root step makes the provider retry it and run the code before the sleep again.
 
-**Decision:** The root step returns a marker result; a replay reads it and fails with WORKFLOW_ROOT_STEP_SLEEP the same way on every provider.
+**Decision:** The root step returns a marker result; a replay reads it and fails with `WORKFLOW_ROOT_STEP_SLEEP` or `WORKFLOW_ROOT_STEP_SIGNAL` the same way on every provider.
 
-**Consequences:** Throwing re-runs side effects before the sleep.
+**Consequences:** Throwing in the step would re-run side effects before the wait.
+
+## Signal tokens survive durable replay
+
+`createSignals` in `packages/workflow/src/runtime/execute.ts`.
+
+**Context:** A durable provider can replay the handler from the beginning after a wait.
+
+**Decision:** Number signals by call order so the token is stable. Only an inline run may wait in process memory. Cloudflare uses an explicit 365-day event timeout; OpenWorkflow uses the token as the signal name and the provider's default wait timeout.
+
+**Consequences:** A durable adapter without signal support must fail rather than register a wait that replay cannot recover.
 
 ## Cloudflare passes `step` as an RPC stub
 

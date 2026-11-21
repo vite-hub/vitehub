@@ -189,7 +189,7 @@ Available namespaces:
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
 | `vitehub workflow runs get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
-| `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow signal by hook token. |
+| `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow with a signal or hook token. |
 | `vitehub workflow runs` | Available | Workflow Package | List, show, or clear the Workflow runs that `vite dev` recorded. Show includes steps, status, result, and error. Clearing history asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |

@@ -19,6 +19,7 @@ export default defineNuxtConfig({
     workspace: false,
     console: true,
     publicUrl: "https://vitehub.dev",
+    webContainer: { routes: ["/learn/**", "/playground"] },
   },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },

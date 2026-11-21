@@ -45,6 +45,7 @@ export type {
   WorkflowRunStep,
   WorkflowResultErrorCode,
   WorkflowRunStatus,
+  WorkflowSignal,
   WorkflowSignalResult,
   WorkflowSharedOptions,
   WorkflowStepBackoff,

@@ -1,9 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { sendChannelTrigger } from "@vite-hub/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { github } from "../src/channels.ts"
+import { github, githubPullRequestTrigger } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -20,7 +21,7 @@ interface Run {
   finish: () => void
 }
 
-async function setup(headMoves?: "notify" | "cancel", events: readonly string[] = [], config: { concurrencyLimit?: number, actorFilter?: boolean, name?: string } = {}) {
+async function setup(headMoves?: "notify" | "cancel", events: readonly string[] = [], config: { concurrencyLimit?: number, actorFilter?: boolean, name?: string, trigger?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "vitehub-reconcile-head-moves-"))
   const state = createLibsqlAgentState({ url: `file:${join(directory, "state.sqlite")}` })
   let headSha = "author-sha"
@@ -70,6 +71,7 @@ async function setup(headMoves?: "notify" | "cancel", events: readonly string[] 
           ...(config.actorFilter ? { filter: { actor: { allow: ["onmax"] } } } : {}),
           reply: false,
         },
+        ...(config.trigger ? { triggers: { wake: githubPullRequestTrigger({ events: ["pull_request_review"], invoke: () => ({ input: { prompt: "Rebase on main." } }) }) } } : {}),
         webhooks: { secret: false },
       }),
     },
@@ -279,6 +281,31 @@ describe("GitHub reconcile runs when the pull request branch moves", () => {
     expect(runs[0]!.prompt).not.toContain("While this request waited")
     runs[0]!.finish()
     await vi.waitFor(() => expect(completed("push-1")).toBe(true), { timeout: 10_000 })
+    expect(run).toHaveBeenCalledOnce()
+  }, 30_000)
+
+  it("drops a queued server send after the author pushes with headMoves: \"cancel\"", async () => {
+    const { comment, completed, push, run, runs } = await setup("cancel", [], { trigger: true })
+    await comment("comment-1", 1)
+    await vi.waitFor(() => expect(runs).toHaveLength(1), { timeout: 10_000 })
+    await expect(sendChannelTrigger("github", "wake", { pullRequest: { repository: "acme/app", number: 42 }, id: "w1" })).resolves.toEqual([undefined, { deliveryId: "wake:w1", queued: true }])
+    await new Promise(resolve => setTimeout(resolve, 5))
+
+    await push("push-1", author, "pushed-sha")
+    await vi.waitFor(() => expect(runs[0]!.signal?.aborted).toBe(true), { timeout: 10_000 })
+
+    await vi.waitFor(() => expect(completed("wake:w1")).toBe(true), { timeout: 10_000 })
+    expect(run).toHaveBeenCalledOnce()
+  }, 30_000)
+
+  it("cancels a running server send when the pull request closes", async () => {
+    const { completed, pullRequestEvent, run, runs } = await setup(undefined, [], { trigger: true })
+    await expect(sendChannelTrigger("github", "wake", { pullRequest: { repository: "acme/app", number: 42 }, id: "w1" })).resolves.toEqual([undefined, { deliveryId: "wake:w1", queued: true }])
+    await vi.waitFor(() => expect(runs).toHaveLength(1), { timeout: 10_000 })
+
+    await expect(pullRequestEvent("closed-1", "closed", author)).resolves.toMatchObject({ status: 200 })
+    await vi.waitFor(() => expect(runs[0]!.signal?.aborted).toBe(true), { timeout: 10_000 })
+    await vi.waitFor(() => expect(completed("wake:w1")).toBe(true), { timeout: 10_000 })
     expect(run).toHaveBeenCalledOnce()
   }, 30_000)
 

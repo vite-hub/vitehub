@@ -1,8 +1,9 @@
-import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
+import type { WorkflowDefinition, WorkflowDuration, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowSignal, WorkflowStepContext, WorkflowStepFunction, WorkflowStepOptions, WorkflowStepRetries } from "../types.ts"
 import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
-import { isNonRetryableError, NonRetryableError } from "../errors.ts"
+import { createWorkflowError, isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
+import { closeInlineWorkflowSignals, createWorkflowSignalToken, openInlineWorkflowSignal, waitForInlineWorkflowSignal } from "./signals.ts"
 
 /** The options of a step with the default retries filled in. */
 export interface ResolvedWorkflowStepOptions {
@@ -224,13 +225,46 @@ function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext
   }
 }
 
-function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"]): WorkflowExecutionContext<TPayload> {
+interface WorkflowSignals {
+  createSignal: WorkflowExecutionContext["createSignal"]
+  close: () => void
+}
+
+function createSignals(context: WorkflowProviderContext, wait?: () => Promise<never>): WorkflowSignals {
+  let count = 0
+  const inlineTokens: string[] = []
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The value comes from a resumeWorkflow() call in another request, so no input at this call site can type it.
+  const createSignal = <TValue>(): WorkflowSignal<TValue> => {
+    if (context.provider === "vercel") throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED({ name: context.name })
+    const step = context.step
+    if (step?.do && !step.waitForSignal) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: context.provider } })
+    const name = `signal-${++count}`
+    const inline = !step?.waitForSignal
+    const token = createWorkflowSignalToken({ host: inline ? "inline" : context.provider, run: context.id ?? "", signal: name, workflow: context.name })
+    if (inline) {
+      openInlineWorkflowSignal(token)
+      inlineTokens.push(token)
+    }
+    let waiting: Promise<TValue> | undefined
+    return {
+      token,
+      // SAFETY: `TValue` is the type that the caller of `resumeWorkflow()` sends for this token.
+      wait: () => waiting ??= (wait ? wait() : inline
+        ? runProviderStep(undefined, name, async () => await waitForInlineWorkflowSignal(token))
+        : step!.waitForSignal!(name, token)) as Promise<TValue>,
+    }
+  }
+  return { close: () => closeInlineWorkflowSignals(inlineTokens), createSignal }
+}
+
+function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"], createSignal: WorkflowExecutionContext["createSignal"]): WorkflowExecutionContext<TPayload> {
   // SAFETY: `WorkflowSteps` types the steps of every folder Workflow. A Workflow without step files has none, and the
   // generated entry of a folder Workflow replaces this object with its own steps.
-  return { ...context, sleep, steps: {} as WorkflowExecutionContext["steps"] }
+  return { ...context, createSignal, sleep, steps: {} as WorkflowExecutionContext["steps"] }
 }
 
 const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
+const rootStepSignalResult = { "~vitehubRootStepSignal": true } as const
 
 /**
  * The step result that says the step threw a `NonRetryableError`. A provider that retries every error, such as
@@ -262,27 +296,42 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   encode: (value: TResult) => TOutput | Promise<TOutput>,
 ): Promise<TOutput> {
   if (definition.rootStep === false) {
-    return await encode(await definition.handler(toExecutionContext(context, createSleep(context))))
+    const signals = createSignals(context)
+    try {
+      return await encode(await definition.handler(toExecutionContext(context, createSleep(context), signals.createSignal)))
+    }
+    finally {
+      signals.close()
+    }
   }
 
-  let slept = false
+  let suspended: typeof rootStepSignalResult | typeof rootStepSleepResult | undefined
   const sleepError = () => workflowErrorDiagnostics.WORKFLOW_ROOT_STEP_SLEEP({ name: context.name })
+  const signalError = () => workflowErrorDiagnostics.WORKFLOW_ROOT_STEP_SIGNAL({ name: context.name })
   const sleep = async () => {
-    slept = true
+    suspended = rootStepSleepResult
     throw sleepError()
   }
+  const signals = createSignals(context, async () => {
+    suspended = rootStepSignalResult
+    throw signalError()
+  })
   const output = await runProviderStep(context.step, context.name, async () => {
     try {
-      const value = await encode(await definition.handler(toExecutionContext(context, sleep)))
-      return slept ? rootStepSleepResult : value
+      const value = await encode(await definition.handler(toExecutionContext(context, sleep, signals.createSignal)))
+      return suspended ?? value
     }
     catch (error) {
-      if (slept) return rootStepSleepResult
+      if (suspended) return suspended
       throw error
+    }
+    finally {
+      signals.close()
     }
   })
   if (typeof output === "object" && output !== null && "~vitehubRootStepSleep" in output) throw sleepError()
-  // SAFETY: Only a root step that slept returns the marker, and the check above throws for it.
+  if (typeof output === "object" && output !== null && "~vitehubRootStepSignal" in output) throw signalError()
+  // SAFETY: Only a root step that waited returns a marker, and the checks above throw for it.
   return output as TOutput
 }
 

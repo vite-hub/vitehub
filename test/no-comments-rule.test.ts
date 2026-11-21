@@ -16,6 +16,7 @@ new RuleTester().run("vitehub/no-comments", plugin.rules["no-comments"], {
   valid: [
     { filename: source, code: "/** Opens a store. */\nexport function open() {}" },
     { filename: source, code: "export interface Store {\n  /** The store name. */\n  name: string\n}" },
+    { filename: source, code: "export interface Store {\n  /** The store name. */\n  // doctor-disable-next-line example-rule -- example reason\n  name: string\n}" },
     { filename: source, code: "export type Mode =\n  /** Reads only. */\n  | \"read\"\n  /** Reads and writes. */\n  | \"write\"" },
     { filename: source, code: "// @ts-expect-error the value is untyped\nconst a: string = 1" },
     { filename: source, code: "// SAFETY: the schema checked the value,\n// and JSON has no other shape.\nconst b = JSON.parse(\"1\") as number" },

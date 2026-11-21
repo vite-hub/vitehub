@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton } from "@vite-hub/ui";
 import { useConsoleToast } from "../client/toast";
 
 /** A value that the Console reads and does not change, such as an ID, in a field-shaped box. `copy` adds a copy button. */
@@ -13,10 +14,8 @@ const props = defineProps<{
 
 const toast = useConsoleToast();
 
-async function copyValue(): Promise<void> {
-  if (!props.value) return;
-  const copied = await navigator.clipboard.writeText(props.value).then(() => true, () => false);
-  toast.show({ title: copied ? `${props.label} copied` : "The browser blocked the clipboard. Select the value and copy it." });
+function copyFailed(): void {
+  toast.show({ title: "The browser blocked the clipboard. Select the value and copy it." });
 }
 </script>
 
@@ -25,7 +24,7 @@ async function copyValue(): Promise<void> {
     <USkeleton v-if="loading" class="h-3 w-40" />
     <span v-else class="min-w-0 flex-1 truncate" :class="mono ? 'font-mono text-[0.8125rem]' : ''"><slot>{{ value }}</slot></span>
     <UTooltip v-if="copy && value && !loading" :text="`Copy ${label.toLowerCase()}`">
-      <UButton icon="i-lucide-copy" size="xs" color="neutral" variant="ghost" :aria-label="`Copy ${label.toLowerCase()}`" @click="copyValue" />
+      <CopyButton :value="value" size="xs" color="neutral" :aria-label="`Copy ${label.toLowerCase()}`" @error="copyFailed" />
     </UTooltip>
   </div>
 </template>

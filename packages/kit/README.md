@@ -308,6 +308,19 @@ The group takes ui-sdk `Avatar`s from `@ui-sdk/vue/avatar`, round and 24px (20px
 
 `pnpm --filter @vite-hub/ui test:kit-parts` renders every combination of USkeleton, UEmpty, UBadge, UChip, UAlert, UCard, and the presence avatar row that the Console uses, once with Nuxt UI and `@vite-hub/ui/theme.css` and once as the markup above on the kit family, in light and dark at 1280px and 390px. It compares each case pixel by pixel and fails on any difference. The one known difference is a 1px fringe next to badge text: UBadge clips the subpixel fringe of the first and last glyph, and the kit badge does not (at most 10 pixels in a badge).
 
+## Registry
+
+`registry/` holds the `@vitehub` registry in the shadcn-vue format. `pnpm --filter @vite-hub/kit build:registry` writes it to `docs/public/r/`, which vitehub.dev serves at `/r/<name>.json`. A test fails when the files there are out of date, when an item does not match the vendored shadcn-vue 2.9.0 schema, or when an item depends on a registry item outside `@vitehub`, since stock shadcn-vue items install Reka UI.
+
+| Item | Type | What `shadcn-vue add` writes |
+| --- | --- | --- |
+| `vitehub` | `registry:style` | The tokens into the app's CSS, and the family to `styles/vitehub.css` |
+| `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
+
+In an app with Tailwind 4 and a font set in `components.json`, shadcn-vue 2.9.0 can also add its base CSS when it installs the skill. The skill item declares `tw-animate-css` so the base CSS import resolves.
+
+To check this in a Vite + Vue + Tailwind 4 app, point the `@vitehub` entry in `components.json` at the registry under test (`/r/{name}.json` on your local docs server). Set a `font` in `components.json` and start without `tw-animate-css` installed. Run `npx shadcn-vue@2.9.0 add @vitehub/vitehub`, import the installed `styles/vitehub.css` in the app's main stylesheet, and check that the app builds. Then run `npx shadcn-vue@2.9.0 add @vitehub/vitehub-ui-skill`. Check that the skill file exists, `tw-animate-css` is installed, and the app still builds.
+
 ## Nuxt
 
 Add the ui-sdk module for the ui-sdk parts and helpers, and the kit module for the kit parts:

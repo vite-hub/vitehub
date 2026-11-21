@@ -1,8 +1,10 @@
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { requireAtomicAgentStateLock } from "../src/internal/state-lock.ts"
+import { acquireLockWith, releaseLockWith, requireAtomicAgentStateLock } from "../src/internal/state-lock.ts"
 import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
+import { createLibsqlAgentState } from "../src/state/sqlite.ts"
+import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-namespace.ts"
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {
   protected ctx: unknown
@@ -44,6 +46,42 @@ async function durableState() {
 }
 
 describe("atomic State cache lease mutations", () => {
+  it.each(["get", "mutateWithLock"] as const)("releases a fallback lease when %s rejects", async method => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const error = new Error("Temporary State error")
+      vi.spyOn(state, method).mockRejectedValueOnce(error)
+      await expect(acquireLockWith(state, "mail", 60_000, [{ key: "pending", type: "delete" }], ["cursor"])).rejects.toBe(error)
+      await expect(state.acquireLock("mail", 60_000)).resolves.toMatchObject({ threadId: "mail" })
+    } finally { await state.disconnect() }
+  })
+
+  it("falls back to old Cloudflare RPCs only when the batch method is missing", async () => {
+    const namespace = createFakeCloudflareStateNamespace()
+    const actor = namespace.get(namespace.idFromName("default"))
+    const acquireBatch = vi.spyOn(actor, "acquireLockWith").mockImplementation(() => { throw new TypeError('The RPC receiver does not implement the method "acquireLockWith".') })
+    const releaseBatch = vi.spyOn(actor, "releaseLockWith").mockImplementation(() => { throw new TypeError('The RPC receiver does not implement the method "releaseLockWith".') })
+    const state = requireAtomicAgentStateLock(createCloudflareAgentState({ namespace }))
+    await state.connect()
+    await state.set("pending", true)
+    const { lock, values } = await acquireLockWith(state, "mail", 60_000, [{ key: "pending", type: "delete" }], ["pending"])
+    expect(lock).toMatchObject({ threadId: "mail" })
+    expect(values).toEqual([null])
+    await expect(releaseLockWith(state, lock!, [{ key: "cursor", type: "set", value: "105" }], ["cursor"])).resolves.toEqual({ committed: true, values: ["105"] })
+
+    const ambiguous = new Error("RPC disconnected")
+    acquireBatch.mockImplementationOnce(() => { throw ambiguous })
+    const acquire = vi.spyOn(actor, "acquireLock")
+    await expect(acquireLockWith(state, "mail", 60_000, [], [])).rejects.toBe(ambiguous)
+    expect(acquire).not.toHaveBeenCalled()
+    const next = (await state.acquireLock("mail", 60_000))!
+    releaseBatch.mockImplementationOnce(() => { throw ambiguous })
+    const release = vi.spyOn(actor, "releaseLock")
+    await expect(releaseLockWith(state, next, [], [])).rejects.toBe(ambiguous)
+    expect(release).not.toHaveBeenCalled()
+  })
+
   it("checks token and expiry in the same Durable Object transaction as cursor/pending writes", async () => {
     const { actor, sql } = await durableState()
     actor.cacheSet("cursor", JSON.stringify("100"))

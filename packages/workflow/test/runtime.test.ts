@@ -2952,7 +2952,7 @@ describe("workflow runtime", () => {
     await expectInvalidProviderResult(resumeWorkflow("opaque", {}), "resume-signal", "run ID")
   })
 
-  it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
+  it("fails unsupported inline cancellation and a token that no signal made explicitly", async () => {
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => "inline" } }),
     })
@@ -2963,7 +2963,7 @@ describe("workflow runtime", () => {
 
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     expect(await resumeWorkflow("opaque", {})).toMatchObject([{
-      code: "WORKFLOW_OPERATION_UNSUPPORTED",
+      code: "WORKFLOW_SIGNAL_TOKEN_INVALID",
     }, undefined])
   })
 

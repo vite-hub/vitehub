@@ -67,7 +67,7 @@ Give the Agent the Capability and a web chat. With [Auth](/docs/auth), `authenti
 ```ts [server/agents/settings.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { page } from 'vite-hub/agent/capabilities'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 import { authenticated } from 'vite-hub/auth/agent'
 
 export default defineAgent({

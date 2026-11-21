@@ -1140,7 +1140,7 @@ function renderWorkflowRegistryEntry(
     return renderAgentWorkflowRegistryEntry(registryFile, definition, retainedAgentInstructions)
   }
 
-  if (!definition.steps?.length) {
+  if (!definition.steps) {
     return `  [${JSON.stringify(definition.name)}]: async () => ${renderRegistryImport(registryFile, definition.handler)},`
   }
 
@@ -1232,7 +1232,7 @@ export function createWorkflowRegistryContents(
   vercelNativeFiles: Record<string, string> = {},
   retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
-  const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
+  const needsWorkflowRuntime = definitions.some(definition => definition.steps !== undefined)
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow

@@ -31,6 +31,8 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKFLOW_RUN_AMBIGUOUS: 400,
   WORKFLOW_RUN_UNKNOWN: 400,
   WORKFLOW_RUNS_UNAVAILABLE: 409,
+  WORKFLOW_SIGNAL_NOT_WAITING: 409,
+  WORKFLOW_SIGNAL_TOKEN_INVALID: 400,
 }
 
 function failure<TError extends Error>(error: TError, message = error.message): TError {

@@ -61,7 +61,8 @@ const noComments = defineRule({
     function keepApiDoc(node) {
       if (!publicSource || !isExported(node)) return
       const pipe = node.parent?.type === "TSUnionType" ? context.sourceCode.getTokenBefore(node) : undefined
-      const doc = context.sourceCode.getCommentsBefore(pipe?.value === "|" ? pipe : node).at(-1)
+      const doc = context.sourceCode.getCommentsBefore(pipe?.value === "|" ? pipe : node)
+        .findLast(comment => !directive.test(comment.value))
       if (doc?.type === "Block" && doc.value.startsWith("*")) apiDocs.add(doc)
     }
 

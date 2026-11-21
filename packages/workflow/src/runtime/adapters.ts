@@ -10,15 +10,18 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { toCloudflareStartParams } from "./delay.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
-import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
+import { cloudflareSignalEventType } from "./cloudflare-runner.ts"
+import { cancelOpenWorkflowRun, getOpenWorkflowRun, resumeOpenWorkflowSignal, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { emitWorkflowFailed } from "./run-failed.ts"
 import { toWorkflowRunError } from "./run-error.ts"
-import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { readWorkflowSignalToken, resumeInlineWorkflowSignal } from "./signals.ts"
+import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeEvent, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, CloudflareWorkflowInstance, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import type { WorkflowOperationName } from "../errors.ts"
+import type { WorkflowSignalAddress } from "./signals.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   definition: WorkflowDefinition<TPayload, TResult>
@@ -34,6 +37,20 @@ interface GetWorkflowAdapterContext {
   event: unknown
   id: string
   name: string
+}
+
+async function resumeViteHubSignal<TPayload>(
+  config: ResolvedWorkflowOptions,
+  token: string,
+  payload: TPayload,
+  durable?: (address: WorkflowSignalAddress) => Promise<void>,
+): Promise<WorkflowSignalResult> {
+  const address = readWorkflowSignalToken(token)
+  if (!address) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
+  if (address.host === "inline") resumeInlineWorkflowSignal(token, address, payload)
+  else if (address.host === config.driver && durable) await durable(address)
+  else throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
+  return { id: address.run, provider: config.driver }
 }
 
 interface WorkflowRuntimeAdapter {
@@ -291,7 +308,22 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
       return await inlineAdapter(config).run(context)
     },
-    resume: () => unsupportedOperation("cloudflare", "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, signal, workflow }) => {
+      const binding = resolveCloudflareInspectionBinding(getWorkflowRuntimeEvent(), config.binding, workflow)
+      if (!binding) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+      const { instance, run: current } = await readCloudflareRun(binding, run)
+      if (!instance || finishedRunStatuses.has(current.status)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+      await runWorkflowProviderOperation("cloudflare", "resume-signal", async () => {
+        if (!instance.sendEvent) unsupportedOperation("cloudflare", "signals")
+        try {
+          await instance.sendEvent({ payload, type: cloudflareSignalEventType(signal) })
+        }
+        catch (error) {
+          if (isCloudflareInstanceNotFound(error)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+          throw error
+        }
+      })
+    }),
   }
   return adapter
 }
@@ -312,7 +344,9 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     get: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
       ? await getOpenWorkflowRun(config, name, id)
       : await inline.get({ event, id, name }),
-    resume: () => unsupportedOperation("openworkflow", "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, workflow }) => {
+      if (!await resumeOpenWorkflowSignal(config, workflow, run, token, payload)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+    }),
     run: async (context) => {
       const { definition, event, name, options, payload, startAt } = context
       if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
@@ -429,7 +463,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         status: "queued",
       }
     },
-    resume: () => unsupportedOperation(config.driver, "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload),
   }
 }
 
@@ -462,6 +496,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         : await fallback.get({ event: undefined, id, name })
     },
     async resume(token, payload) {
+      if (readWorkflowSignalToken(token)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
       if (getWorkflowDevRecorder()) unsupportedOperation(config.driver, "signals")
       try {
         return await resumeVercelWorkflowSignal(token, payload)

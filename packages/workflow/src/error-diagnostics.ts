@@ -284,9 +284,31 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `\`workflow.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Workflow would not use the driver you chose.`,
       fix: ({ value }: { value: string }) => `Set \`workflow: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
+    WORKFLOW_ROOT_STEP_SIGNAL: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`signal.wait()\` in its root step. Only a folder Workflow can wait for a signal: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after the wait would run the code before the wait again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.request-transcript.ts`, and call `signal.wait()` between the steps.",
+    },
     WORKFLOW_ROOT_STEP_SLEEP: {
       why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
       fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.sleep()` between the steps.",
+    },
+    WORKFLOW_SIGNAL_NOT_WAITING: {
+      why: ({ run }: { run: string }) => `[vitehub] No run waits for this signal token. The run ${JSON.stringify(run)} has not reached \`signal.wait()\` yet, it got the signal already, or it ended.`,
+      fix: "Retry later when the run can still be before its `signal.wait()`, for example by answering a webhook with a 5xx status so the sender retries. Check the run with `getWorkflowRun()`. An inline run in `vite dev` waits in memory, so a restart of the dev server loses it.",
+      data: ({ run }: { run: string }): { run: string } => ({ run }),
+    },
+    WORKFLOW_SIGNAL_TIMEOUT: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} waited one year for a signal, and no \`resumeWorkflow()\` call sent it.`,
+      fix: "Call `resumeWorkflow(signal.token, value)` within one year. To stop waiting sooner, cancel the run with `cancelWorkflow()`.",
+    },
+    WORKFLOW_SIGNAL_TOKEN_INVALID: {
+      why: ({ provider }: { provider: string }) => `[vitehub] \`resumeWorkflow()\` got a token that \`context.createSignal()\` did not make for the ${provider} Workflow provider of this app.`,
+      fix: "Pass the `token` of `context.createSignal()` from a run of this app, as it is. A token from another provider, such as an inline run in `vite dev`, does not resume a deployed run.",
+      data: ({ provider }: { provider: string }): { provider: string } => ({ provider }),
+    },
+    WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.createSignal()\`. Signals do not work on Vercel yet.`,
+      fix: "Run the Workflow on Cloudflare or OpenWorkflow to wait for a signal. On Vercel, a `native` entry can wait with `defineHook()` from the Workflow DevKit, and `resumeWorkflow()` resumes its hook token.",
     },
     WORKFLOW_SLEEP_DURATION_INVALID: {
       why: ({ name, value }: { name: string, value: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep(${value})\`. A sleep takes a duration such as \`'30 seconds'\` or \`'1 day'\`, a number of milliseconds that is 0 or more, or a valid \`Date\`.`,

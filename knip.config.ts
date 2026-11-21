@@ -147,8 +147,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
-    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg.
-    ignoreBinaries: ["ffmpeg"],
+    ignoreBinaries: ["ffmpeg", "ffprobe"],
     ignoreDependencies: [
       "nuxt-nightly",
       "@shikijs/langs",

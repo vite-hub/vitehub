@@ -114,7 +114,7 @@ export function isOutboundChannelSource(source: string, file: string): boolean {
   return value.type === "CallExpression" || (!nonDefinitionTypes.has(value.type) && canBeChannelDefinitionObject(value))
 }
 
-const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+const channelModules = new Set(["vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 const webhookAdapterNames = new Set(["stripe", "webhook"])
 
 /**

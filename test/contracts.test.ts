@@ -366,7 +366,7 @@ describe("docs import contracts", () => {
     const importPattern = /(?:from\s+|import\s+)['"]((?:@vite-hub\/[^'"]+)|(?:vite-hub(?:\/[^'"]+)?))['"]/g
 
     for (const file of markdownFiles) {
-      const source = readFileSync(file, "utf8")
+      const source = readFileSync(file, "utf8").replace(/^```diff\b[^\n]*\n[\s\S]*?^```/gm, diff => diff.replace(/^-.*$/gm, ""))
       for (const match of source.matchAll(importPattern)) {
         const specifier = match[1]
         if (specifier) {

@@ -4804,6 +4804,68 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/choices/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }, { from: "vite-hub/device/vue", name: "useStoredData" }, { from: "vite-hub/device/vue", name: "useStoredFetch" }, { from: "vite-hub/device", name: "setDeviceAccount" }, { from: "vite-hub/device", name: "clearDevice" }, { from: "vite-hub/device", name: "inspectDevice" }])
   })
 
+  describe("WebContainer", () => {
+    it("sends the isolation headers on the routes and loads a new document across them", async () => {
+      const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-web-container-"))
+      onTestFinished(() => rm(root, { recursive: true, force: true }))
+      const { nuxt, runNitroConfigHook } = createNuxt(false)
+      nuxt.options.rootDir = root
+      const { webContainerHeaders, webContainerVitePlugin } = await import("@vite-hub/web-container/vite")
+      mocks.vitehub.mockReturnValue([webContainerVitePlugin({ routes: ["/play/**"] })])
+      await viteHubNuxtModule({ host: "node", webContainer: { routes: ["/play/**"] } }, nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ webContainer: { routes: ["/play/**"] } })
+      const config: Record<string, unknown> = { routeRules: { "/api/**": { cors: true } } }
+      await runNitroConfigHook(config)
+      expect(config.routeRules).toMatchObject({
+        "/api/**": { cors: true },
+        "/play": { headers: webContainerHeaders },
+        "/play/**": { headers: webContainerHeaders },
+      })
+
+      const src = resolve(root, ".vitehub/web-container/nuxt-boundary.mjs")
+      expect(nuxt.options.plugins).toContainEqual({ src, mode: "client" })
+      const middleware: { current?: (to: { path: string, fullPath: string }, from: { path: string, matched: unknown[] }) => unknown } = {}
+      vi.doMock("#imports", () => ({
+        addRouteMiddleware: (_name: string, handler: typeof middleware.current, options: { global?: boolean }) => {
+          if (options.global) middleware.current = handler
+        },
+        defineNuxtPlugin: <T>(plugin: T) => plugin,
+        navigateTo: (path: string, options: { external?: boolean }) => ({ path, external: options.external }),
+        useRouter: () => router,
+      }))
+      const { createMemoryHistory, createRouter } = await import("vue-router")
+      const router = createRouter({ history: createMemoryHistory("/portal/"), routes: [{ path: "/:path(.*)*", component: {} }] })
+      vi.doMock("vite-hub/web-container", async () => ({ matchesWebContainerRoute: (await import("@vite-hub/web-container")).matchesWebContainerRoute }))
+      const copy = await mkdtemp(resolve(import.meta.dirname, ".web-container-plugin-"))
+      try {
+        await writeFile(resolve(copy, "plugin.mjs"), await readFile(src, "utf8"))
+        // SAFETY: the generated plugin is the object that `defineNuxtPlugin()` got, which the fake returns as is.
+        const { default: plugin } = await import(pathToFileURL(resolve(copy, "plugin.mjs")).href) as { default: { setup: () => void } }
+        plugin.setup()
+      }
+      finally {
+        await rm(copy, { recursive: true, force: true })
+        vi.doUnmock("#imports")
+        vi.doUnmock("vite-hub/web-container")
+      }
+      const navigate = (from: string, to: string, first = false) => middleware.current!(router.resolve(`${to}?x=1#target`), { path: from, matched: first ? [] : [{}] })
+      expect(navigate("/docs", "/play/editor")).toEqual({ path: "/portal/play/editor?x=1#target", external: true })
+      expect(navigate("/play", "/docs")).toEqual({ path: "/portal/docs?x=1#target", external: true })
+      expect(navigate("/play", "/play/editor")).toBeUndefined()
+      expect(navigate("/docs", "/guide")).toBeUndefined()
+      expect(navigate("/docs", "/play", true)).toBeUndefined()
+    })
+
+    it("adds no boundary without webContainer", async () => {
+      const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-web-container-"))
+      onTestFinished(() => rm(root, { recursive: true, force: true }))
+      const { nuxt } = createNuxt(false)
+      nuxt.options.rootDir = root
+      await viteHubNuxtModule({ host: "node" }, nuxt)
+      expect(nuxt.options.plugins.map(plugin => typeof plugin === "string" ? plugin : plugin.src)).not.toContain(resolve(root, ".vitehub/web-container/nuxt-boundary.mjs"))
+    })
+  })
+
   describe("Device", () => {
     /** Runs the module in a fresh root, and returns the Nuxt plugins and the source of the device plugin. */
     async function setup(options: Parameters<typeof viteHubNuxtModule>[0]) {

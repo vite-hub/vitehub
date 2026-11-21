@@ -1009,7 +1009,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "server/agents/disabled.ts"), `
           import { defineAgent } from "vite-hub/agent"
-          import { webChat } from "vite-hub/agent/channels"
+          import { webChat } from "vite-hub/channels/adapters"
 
           export default defineAgent({
             channels: { web: webChat({ route: false }) },
@@ -1019,7 +1019,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "server/agents/contract.ts"), `
           import { defineAgent } from "vite-hub/agent"
           import { progressSummary, title } from "vite-hub/agent/capabilities"
-          import { webChat } from "vite-hub/agent/channels"
+          import { webChat } from "vite-hub/channels/adapters"
 
           class HybridResult {
             async *[Symbol.asyncIterator]() {
@@ -1344,9 +1344,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(installed.some(entry => entry.startsWith("@vite-hub+agent@"))).toBe(false)
       await run(process.execPath, ["--input-type=module", "-e", `
         import assert from 'node:assert/strict'
-        import { defineChannel } from 'vite-hub/channels'
+        import { defineChannel, defineChannelTrigger, ignored } from 'vite-hub/channels'
         const channel = defineChannel({ adapter: { kind: 'log', send: text => ({ id: text }) } })
         assert.deepEqual(await channel.adapter.send('sent'), { id: 'sent' })
+        assert.equal(defineChannelTrigger({ invoke: () => ignored('later') }).invoke().status, 200)
       `], appDir)
     }
     finally {

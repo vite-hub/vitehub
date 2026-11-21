@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { discoverWorkflowDefinitions } from "../src/discovery.ts"
 import { createWorkflowRegistryContents } from "../src/internal/vite-build.ts"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -16,6 +17,24 @@ afterEach(async () => {
 })
 
 describe("Workflow registry", () => {
+  it("loads a discovered index-only folder as an orchestrator", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-index-"))
+    directories.push(root)
+    const server = join(root, "server")
+    const folder = join(server, "workflows", "approval")
+    const registryFile = join(root, "registry.mjs")
+    await mkdir(folder, { recursive: true })
+    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
+    await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
+    await writeFile(join(folder, "index.ts"), "export default async ({ createSignal }) => await createSignal().wait()\n")
+    await writeFile(registryFile, createWorkflowRegistryContents(registryFile, discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [server] })))
+
+    const { default: registry } = await import(pathToFileURL(registryFile).href)
+    const definition = await registry.approval()
+    expect(definition.rootStep).toBe(false)
+    await expect(definition.handler({ createSignal: () => ({ wait: async () => "approved" }) })).resolves.toBe("approved")
+  })
+
   it.each(["plain", "steps", "agent"] as const)("preserves prototype-like names for %s definitions", async (kind) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-name-"))
     directories.push(root)

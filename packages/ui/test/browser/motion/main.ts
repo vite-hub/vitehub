@@ -8,16 +8,21 @@ import UButton from "@nuxt/ui/components/Button.vue";
 import UCheckbox from "@nuxt/ui/components/Checkbox.vue";
 import UIcon from "@nuxt/ui/components/Icon.vue";
 import URadioGroup from "@nuxt/ui/components/RadioGroup.vue";
+import USlider from "@nuxt/ui/components/Slider.vue";
+import USplitter from "@nuxt/ui/components/Splitter.vue";
 import USwitch from "@nuxt/ui/components/Switch.vue";
 import UTabs from "@nuxt/ui/components/Tabs.vue";
+import { Slider as SdkSlider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/vue/slider";
 import { createApp, h, ref } from "vue";
 import type { VNode } from "vue";
 
 import { createViteHubUI } from "../../../src/config.ts";
 import { defineMotionEffect, forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
+import { textRows } from "./text.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
+const inverted = new URLSearchParams(location.search).has("inverted");
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
@@ -98,6 +103,116 @@ class ShadowButton extends HTMLElement {
 }
 customElements.define("motion-shadow-button", ShadowButton);
 
+const volume = ref(40);
+const interval = ref([20, 80]);
+const sdkVolume = ref(40);
+const plainVolume = ref(40);
+const filesWidth = ref(150);
+
+function setPlainVolume(value: number): void {
+  plainVolume.value = Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function at(event: PointerEvent): void {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  setPlainVolume((event.clientX - rect.left) / rect.width * 100);
+}
+
+function plainSlider(): VNode {
+  return h("div", {
+    "class": "plain-slider",
+    "data-test": "plain-slider",
+    onPointerdown(event: PointerEvent) {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      at(event);
+    },
+    onPointermove(event: PointerEvent) {
+      if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) at(event);
+    },
+  }, [
+    h("div", { "class": "plain-slider-range", "data-slot": "range", "style": { width: `${plainVolume.value}%` } }),
+    h("div", {
+      "class": "plain-slider-thumb",
+      "role": "slider",
+      "tabindex": 0,
+      "aria-label": "Plain volume",
+      "aria-valuemin": 0,
+      "aria-valuemax": 100,
+      "aria-valuenow": plainVolume.value,
+      "style": { left: `${plainVolume.value}%` },
+      onKeydown(event: KeyboardEvent) {
+        const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        setPlainVolume(plainVolume.value + step * (event.shiftKey ? 10 : 1));
+      },
+    }),
+  ]);
+}
+
+let start: { x: number; width: number } | undefined;
+
+function plainPanels(): VNode {
+  return h("div", { "class": "plain-panels", "data-test": "panels" }, [
+    h("div", { "class": "plain-pane", "data-test": "files", "style": { width: `${filesWidth.value}px` } }, "Files"),
+    h("div", {
+      "class": "plain-edge",
+      "data-test": "resize",
+      "role": "separator",
+      "tabindex": 0,
+      "aria-label": "Resize files",
+      "aria-orientation": "vertical",
+      "aria-valuenow": filesWidth.value,
+      "aria-valuemin": 120,
+      "aria-valuemax": 220,
+      onPointerdown(event: PointerEvent) {
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+        start = { x: event.clientX, width: filesWidth.value };
+      },
+      onPointermove(event: PointerEvent) {
+        if (!start) return;
+        filesWidth.value = Math.max(120, Math.min(220, start.width + event.clientX - start.x));
+      },
+      onPointerup() {
+        start = undefined;
+      },
+    }),
+    h("div", { class: "plain-pane plain-pane-main" }, "Document"),
+  ]);
+}
+
+function dragRows(): VNode[] {
+  const line = () => h("span", { class: "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--ui-border) group-hover:bg-(--ui-border-accented)" });
+  return [
+    row("USlider, ui-sdk slider, plain slider", [
+      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", inverted, "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
+      h(SdkSlider, { "data-test": "sdk-slider", "class": "sdk-slider", "modelValue": sdkVolume.value, "onUpdate:modelValue": (value: number | number[]) => (sdkVolume.value = Number(value)) }, () => [
+        h(SliderControl, { class: "sdk-slider-control" }, () => [
+          h(SliderTrack, { class: "sdk-slider-track" }, () => [
+            h(SliderIndicator, { class: "sdk-slider-range" }),
+            h(SliderThumb, { "class": "sdk-slider-thumb", "aria-label": "Kit volume" }),
+          ]),
+        ]),
+      ]),
+      plainSlider(),
+      ...(inverted ? [
+        h(USlider, { "data-test": "interval", "class": "w-80", "aria-label": "Interval", "modelValue": interval.value }),
+        h("button", { "data-test": "set-interval", "onClick": () => (interval.value = [35, 65]) }, "Set interval"),
+      ] : []),
+    ]),
+    row("USplitter, a plain resize handle", [
+      h("div", { class: "splitter-frame" }, [
+        h(USplitter, { "data-test": "splitter", "items": [{ id: "files", slot: "files", defaultSize: 30, minSize: 20, maxSize: 40 }, { id: "doc", slot: "doc", defaultSize: 70 }] }, {
+          "files": () => h("div", { class: "plain-pane" }, "Files"),
+          "doc": () => h("div", { class: "plain-pane plain-pane-main" }, "Document"),
+          "resize-handle": line,
+        }),
+      ]),
+      plainPanels(),
+    ]),
+  ];
+}
+
 const app = createApp({
   render: () => h("main", { class: "page" }, [
     row("Speed and reduced motion", [
@@ -150,6 +265,7 @@ const app = createApp({
       h("button", { "class": "plain own-press", "data-test": "own-press" }, "own scale transition"),
       h("button", { "class": "plain", "data-test": "not-a-control-parent" }, [h("span", { "data-test": "inner-span" }, "span in a button")]),
     ]),
+    ...textRows(row),
     row("Shadow DOM", [h("motion-shadow-button", { "data-test": "shadow-host" })]),
     row("Toggle: switch", [
       h(USwitch, { "data-test": "switch-xl", "modelValue": live.value, "onUpdate:modelValue": (value: boolean) => (live.value = value), label: "Email on deploy", size: "xl", ui: switchUI }),
@@ -183,6 +299,7 @@ const app = createApp({
         h(UButton, { "data-test": "off-bookmark", "variant": "ghost", "icon": "i-lucide-bookmark", "aria-label": "Save", "aria-pressed": offSaved.value, "onClick": () => (offSaved.value = !offSaved.value) }),
       ]),
     ]),
+    ...dragRows(),
   ]),
 });
 const { default: ui } = await import("@nuxt/ui/vue-plugin");

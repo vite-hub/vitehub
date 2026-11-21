@@ -25,6 +25,8 @@ const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
   "WORKFLOW_PROVIDER_OPERATION_FAILED",
   "WORKFLOW_R0014",
   "WORKFLOW_RUN_ID_UNSUPPORTED",
+  "WORKFLOW_SIGNAL_NOT_WAITING",
+  "WORKFLOW_SIGNAL_TOKEN_INVALID",
   "WORKFLOW_START_DELAY_INVALID",
 ])
 
@@ -297,8 +299,10 @@ export async function cancelWorkflow(name: string, id: string): Promise<Result<W
 }
 
 /**
- * Resumes a run that waits for a signal and returns `[error, signal]`. `token` is the opaque token that the provider
- * gave the waiting step. An empty token or a provider failure is `error`. Config errors throw.
+ * Resumes a run that waits for a signal and returns `[error, signal]`. `token` is `signal.token` from
+ * `context.createSignal()`, or the hook token of a native Vercel entry. `payload` is the value that `signal.wait()`
+ * returns: send a JSON value. An invalid token, a run that does not wait for the token, or a provider failure is
+ * `error`. Config errors throw.
  */
 export async function resumeWorkflow<TPayload = unknown>(token: string, payload: TPayload): Promise<Result<WorkflowSignalResult, WorkflowResultErrorCode>> {
   if (!token || typeof token !== "string") {
