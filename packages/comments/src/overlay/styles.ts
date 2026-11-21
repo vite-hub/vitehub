@@ -58,12 +58,6 @@ export const overlayStyles = `
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
   border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/var(--vh-comment-pin-size) "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
-/* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
-[data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
-[data-draft="true"] [data-slot="prompt-input-group"] { flex-flow: row wrap; align-items: flex-end; border: 0; box-shadow: none; background: none; }
-[data-draft="true"] [data-slot="prompt-input-attachments"] { flex-basis: 100%; }
-[data-draft="true"] [data-slot="prompt-input-textarea"] { flex: 1; min-width: 0; min-height: 2.25rem; padding: .5rem .25rem .375rem .625rem; }
-[data-draft="true"] [data-slot="prompt-input-toolbar"] { padding: .25rem; }
 [data-slot="comment-pin-number"] { display: none; }
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
