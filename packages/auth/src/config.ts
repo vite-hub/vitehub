@@ -546,7 +546,7 @@ function assertOneReturnWithPages(options: Expression): void {
     if (node.type === "ReturnStatement") returned.push(node.argument)
   })
   const declaresPages = (argument: Expression | null | undefined) => {
-    const body = objectLiteral(argument && unwrapExpression(argument))
+    const body = objectLiteral(argument ? unwrapExpression(argument) : undefined)
     if (!hasObjectProperty(body, "access")) return false
     const access = readObjectPropertyValue(body, "access")
     const object = objectLiteral(access && unwrapExpression(access))

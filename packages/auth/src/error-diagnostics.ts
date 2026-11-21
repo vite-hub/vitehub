@@ -65,7 +65,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
     },
 
-    // Sign-in, page guard, and component config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    // Page guard and component config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
     AUTH_AFTER_SIGN_IN_INVALID: {
       why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
       fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
