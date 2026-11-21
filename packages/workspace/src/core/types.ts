@@ -211,6 +211,8 @@ export interface WorkspaceSessionHostFiles {
 }
 
 export interface WorkspaceSessionHost {
+  /** Maximum compressed archive bytes accepted by `files.write`, after allowing for transport overhead. Omit to copy files individually. */
+  readonly archiveMaxBytes?: number
   readonly executionAuthority: ExecutionAuthority
   readonly inspectionConcurrency?: number
   /** Maximum independent workspace files copied into this host concurrently. Defaults to 1. */
@@ -618,11 +620,11 @@ export interface WorkspaceStore {
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   /**
-   * Writes each file as `writeFile` does, then sets each metadata key as `setMeta` does, in one call. It is not atomic:
-   * a failure can leave some files written. Startup Source materialization uses it for new files. Without it, each file
-   * and key is written on its own.
+   * Creates new files without replacing existing paths, then sets the metadata keys. Call `onWrite` with each file's
+   * path after it is created, so the Workspace can roll back those files if a later write fails. Startup Source
+   * materialization uses this for new files. Without it, each file and key is written on its own.
    */
-  writeFiles?(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>): Promise<void>
+  writeFiles?(files: readonly WorkspaceFile[], meta?: Readonly<Record<string, unknown>>, onWrite?: (path: string) => void): Promise<void>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>

@@ -800,18 +800,8 @@ function isMaterializedStartupSource(value: unknown): value is MaterializedStart
   return readStringMeta(source, "key") !== undefined && readStringMeta(source, "mountPath") !== undefined
 }
 
-async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceContext): AsyncGenerator<WorkspaceSourceItem> {
-  if (source.source.getItems) {
-    yield* await source.source.getItems(ctx)
-    return
-  }
-
-  for (const key of await source.source.getKeys(ctx)) {
-    yield await source.source.getItem(key, ctx)
-  }
-}
-
 interface MaterializationEntry {
+  batchable?: boolean
   content?: string | Uint8Array
   contentStream?: WorkspaceContentStream
   item?: WorkspaceSourceItem
@@ -865,10 +855,12 @@ async function* iterateMaterializationEntries(
   }
 
   if (source.source.getItems) {
-    for await (const item of iterateSourceItems(source, ctx)) {
+    const items = await source.source.getItems(ctx)
+    const batchable = !source.source.getMeta || items.every(item => item.metadata != null)
+    for (const item of items) {
       const upstreamMeta = item.metadata ?? await source.source.getMeta?.(item.key, ctx)
       const entry = createMaterializationEntry(source, item, upstreamMeta)
-      if (materializationPathMatches(entry.path, options)) yield entry
+      if (materializationPathMatches(entry.path, options)) yield { ...entry, batchable }
     }
     return
   }
@@ -1066,8 +1058,8 @@ async function materializeWorkspaceSourcesInternal(
       revision = ctx.revision
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      const reportUpdate = async () => {
-        if (!shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) return
+      const reportUpdate = async (force = false) => {
+        if (!force && !shouldReportMaterializationUpdate(lastProgressAt, sourceFiles)) return
         await reportMaterializationProgress(options, source, {
           bytes: sourceBytes,
           cacheStatus,
@@ -1165,17 +1157,32 @@ async function materializeWorkspaceSourcesInternal(
         const replaced: typeof batch = []
         const written = await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
           const existingPaths = new Map((await store.list(source.mountPath, { recursive: true })).map(entry => [entry.path, entry.type]))
+          const verifiedPaths = new Map<string, "directory" | "file" | undefined>()
+          const pathType = async (path: string) => {
+            const listed = existingPaths.get(path)
+            if (listed) return listed
+            if (!verifiedPaths.has(path)) verifiedPaths.set(path, (await store.stat(path))?.type)
+            return verifiedPaths.get(path)
+          }
           const missingDirectories = new Set<string>()
           const fresh = []
           for (const { entry, item } of batch) {
             const ancestors = parentDirectoryPaths(entry.path)
-            if (existingPaths.has(entry.path) || ancestors.some(directory => existingPaths.get(directory) === "file")) {
+            let blocked = false
+            const absent = []
+            for (const directory of ancestors) {
+              const type = await pathType(directory)
+              if (type === "file") {
+                blocked = true
+                break
+              }
+              if (!type && directory !== source.mountPath && sourceOwnsDirectory(source, directory)) absent.push(directory)
+            }
+            if (blocked || await pathType(entry.path)) {
               replaced.push({ entry, item })
               continue
             }
-            for (const directory of ancestors) {
-              if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !existingPaths.has(directory)) missingDirectories.add(directory)
-            }
+            for (const directory of absent) missingDirectories.add(directory)
             const fileMetadata = normalizeSourceFileMetadata({
               ...normalizeSourceFileMetadata(item.metadata || {}),
               ...entry.metadata,
@@ -1184,6 +1191,7 @@ async function materializeWorkspaceSourcesInternal(
             })
             fresh.push({ entry, item, fileMetadata, digest: await sha256(entry.content), size: contentSize(entry.content) })
           }
+          throwIfAborted(options.abortSignal)
           if (fresh.length) {
             await writeWorkspaceOwnedFiles(sourceStore, fresh.map(({ entry, item, fileMetadata, digest }) => ({
               file: { path: entry.path, content: entry.content, mediaType: item.mediaType, metadata: fileMetadata },
@@ -1193,6 +1201,7 @@ async function materializeWorkspaceSourcesInternal(
           for (const directory of missingDirectories) ownedDirectories.add(directory)
           return fresh
         }))
+        const previousFileCount = sourceFiles
         for (const { entry, item, fileMetadata, digest, size } of written) {
           const path = entry.path
           const previousBytes = Object.hasOwn(itemMetadata, path) ? itemMetadata[path]?.materializedBytes ?? 0 : 0
@@ -1209,8 +1218,8 @@ async function materializeWorkspaceSourcesInternal(
           persistedBytesDelta += size - previousBytes
           counts.added++
           paths.push({ path, status: "added" })
-          await reportUpdate()
         }
+        if (written.length) await reportUpdate(previousFileCount === 0 || Math.floor(previousFileCount / 25) < Math.floor(sourceFiles / 25))
         for (const { entry, item } of replaced) await writeOne(entry, item)
       }
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options, workspace)) {
@@ -1231,7 +1240,7 @@ async function materializeWorkspaceSourcesInternal(
         }
         const item = entry.item!
         if (overlapsPending(path)) await flush()
-        if (batchWrites && entry.content !== undefined && !entry.contentStream) {
+        if (batchWrites && entry.batchable && entry.content !== undefined && !entry.contentStream) {
           pending.push({ entry: { ...entry, content: entry.content }, item })
           pendingPaths.add(path)
           for (const directory of parentDirectoryPaths(path)) pendingDirectories.add(directory)
@@ -1239,6 +1248,7 @@ async function materializeWorkspaceSourcesInternal(
           if (pending.length >= 512 || pendingBytes >= 32 * 1024 * 1024) await flush()
           continue
         }
+        await flush()
         await writeOne(entry, item)
       }
       await flush()

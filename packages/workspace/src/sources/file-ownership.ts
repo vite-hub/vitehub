@@ -140,17 +140,19 @@ export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: stri
 }
 
 // Call inside the Store mutation queue, only for paths that hold no file. The files and their owners take one Store
-// call. On failure, every file of the batch and its owner is removed again.
+// call. On failure, only files created by the batch and their owners are removed again.
 export async function writeWorkspaceOwnedFiles(store: WorkspaceStore, files: readonly { file: WorkspaceFile, owner: WorkspaceFileOwner }[]): Promise<void> {
   const keys = files.map(({ file }) => fileOwnerMetaKey(file.path))
+  const written = new Set<string>()
   try {
-    await store.writeFiles!(files.map(({ file }) => file), Object.fromEntries(files.map(({ owner }, index) => [keys[index], owner])))
+    await store.writeFiles!(files.map(({ file }) => file), Object.fromEntries(files.map(({ owner }, index) => [keys[index], owner])), path => { written.add(path) })
     const owners = volatileOwners.get(workspaceStoreIdentity(store))
     for (const key of keys) owners?.delete(key)
   }
   catch (error) {
     const failures: unknown[] = []
     for (const { file } of files) {
+      if (!written.has(file.path)) continue
       try {
         await store.rm(file.path, { force: true })
         await removeWorkspaceFileOwner(store, file.path)

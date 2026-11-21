@@ -45,10 +45,12 @@ function padding(size: number) {
 }
 
 /** Packs the entries into one gzip tar archive. Names longer than the 100-byte ustar field use a PAX header. */
-export async function createTarGz(entries: readonly TarEntry[]): Promise<Uint8Array> {
+export async function createTarGz(entries: readonly TarEntry[], maxBytes: number): Promise<Uint8Array | undefined> {
   const mtime = Math.floor(Date.now() / 1000)
   const chunks: Uint8Array[] = []
+  let size = 1024
   for (const entry of entries) {
+    const start = chunks.length
     const name = entry.type === "directory" ? `${entry.path}/` : entry.path
     const linkname = entry.type === "symlink" ? entry.target : ""
     const pax = [
@@ -62,9 +64,11 @@ export async function createTarGz(entries: readonly TarEntry[]): Promise<Uint8Ar
     if (entry.type === "directory") chunks.push(tarHeader(name, "5", 0, 0o755, mtime))
     else if (entry.type === "symlink") chunks.push(tarHeader(name, "2", 0, 0o777, mtime, linkname))
     else chunks.push(tarHeader(name, "0", entry.content.byteLength, entry.executable ? 0o755 : 0o644, mtime), entry.content, padding(entry.content.byteLength))
+    for (let index = start; index < chunks.length; index++) size += chunks[index]!.byteLength
+    if (size > maxBytes) return
   }
   chunks.push(new Uint8Array(1024))
-  const tar = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+  const tar = new Uint8Array(size)
   let offset = 0
   for (const chunk of chunks) {
     tar.set(chunk, offset)

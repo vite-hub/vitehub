@@ -78,7 +78,7 @@ export function createWorkspaceSourceMountAuthority(owner: string) {
       }
       if (store.writeFileConditional) scoped.writeFileConditional = async (path, file, ifDigest) => await store.writeFileConditional!(assertInMount(path), file, ifDigest)
       if (store.writeFileStream) scoped.writeFileStream = async (path, file) => await store.writeFileStream!(assertInMount(path), file)
-      if (store.writeFiles) scoped.writeFiles = async (files, meta) => await store.writeFiles!(files.map(file => ({ ...file, path: assertInMount(file.path) })), meta)
+      if (store.writeFiles) scoped.writeFiles = async (files, meta, onWrite) => await store.writeFiles!(files.map(file => ({ ...file, path: assertInMount(file.path) })), meta, onWrite)
       if (store.removeEmptyDirectory) scoped.removeEmptyDirectory = async path => await store.removeEmptyDirectory!(assertInMount(path, true))
       if (store.getMeta) scoped.getMeta = async key => await store.getMeta!(key)
       if (store.setMeta) scoped.setMeta = async (key, value) => await store.setMeta!(key, value)

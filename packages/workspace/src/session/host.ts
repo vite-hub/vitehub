@@ -768,16 +768,25 @@ const sessionArchiveMaxBytes = 64 * 1024 * 1024
 /** Extracts the archive into the Session root. Returns false when the host cannot run `tar`, so the caller writes each file. */
 async function extractSessionArchive(host: WorkspaceSessionHost, root: string, archive: Uint8Array, signal?: AbortSignal): Promise<boolean> {
   const path = posix.join(root, `.vitehub-workspace-${randomUUID()}.tar.gz`)
-  await host.files.write(path, archive, { signal })
+  signal?.throwIfAborted()
   try {
-    const extracted = await host.exec("tar", ["-xzf", path, "-C", root], { signal }).catch((error: unknown) => {
-      if (signal?.aborted) throw error
-      return undefined
-    })
-    return extracted?.code === 0
+    await host.files.write(path, archive, { signal })
+    signal?.throwIfAborted()
+    const extracted = await host.exec("tar", ["-xzf", path, "-C", root], { signal })
+    signal?.throwIfAborted()
+    return extracted.code === 0
+  }
+  catch {
+    signal?.throwIfAborted()
+    return false
   }
   finally {
-    await host.files.remove(path, { recursive: false, signal })
+    try {
+      if (await host.files.exists(path)) await host.files.remove(path, { recursive: false })
+    }
+    finally {
+      signal?.throwIfAborted()
+    }
   }
 }
 
@@ -885,29 +894,34 @@ async function materializeWorkspace(
     label: "Reading workspace files",
   }, async () => {
     abortSignal?.throwIfAborted()
-    if (files.length >= sessionArchiveMinFiles && bytes <= sessionArchiveMaxBytes) {
+    const archiveBudget = Math.min(host.archiveMaxBytes ?? 0, sessionArchiveMaxBytes)
+    const tryArchive = async () => {
+      let remaining = archiveBudget
       const archive: TarEntry[] = entries.filter(entry => entry.type === "directory").map(entry => ({ path: entry.path, type: "directory" }))
       for (const entry of files) {
         abortSignal?.throwIfAborted()
-        if (isGitSymlinkEntry(entry)) {
-          const content = typeof entry.metadata?.symlinkTarget === "string"
-            ? contentToBytes(entry.metadata.symlinkTarget)
-            : contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" }))
+        const symlink = isGitSymlinkEntry(entry)
+        const content = symlink && typeof entry.metadata?.symlinkTarget === "string"
+          ? contentToBytes(entry.metadata.symlinkTarget)
+          : contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" }))
+        remaining -= content.byteLength
+        if (remaining < 0) return false
+        if (symlink) {
           const target = new TextDecoder().decode(content)
           if (isSafeHostSymlink(root, entry.path, target)) archive.push({ path: entry.path, type: "symlink", target })
           else {
             matchesRetained = false
-            archive.push({ path: entry.path, type: "file", content })
+            archive.push({ path: entry.path, type: "file", content: contentToBytes(target) })
           }
-          if (matchesRetained && !await matchesRetainedWorkspaceFile(workspace, entry, content, retained?.files.get(entry.path))) matchesRetained = false
-          continue
         }
-        const content = contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" }))
-        archive.push({ path: entry.path, type: "file", content, executable: entry.metadata?.gitMode === "100755" })
+        else archive.push({ path: entry.path, type: "file", content, executable: entry.metadata?.gitMode === "100755" })
         if (matchesRetained && !await matchesRetainedWorkspaceFile(workspace, entry, content, retained?.files.get(entry.path))) matchesRetained = false
       }
-      if (await extractSessionArchive(host, root, await createTarGz(archive), abortSignal)) return
+      abortSignal?.throwIfAborted()
+      const compressed = await createTarGz(archive, archiveBudget)
+      return !!compressed && compressed.byteLength <= archiveBudget && await extractSessionArchive(host, root, compressed, abortSignal)
     }
+    if (archiveBudget > 0 && files.length >= sessionArchiveMinFiles && bytes <= archiveBudget && await tryArchive()) return
     for (const entry of entries.filter(entry => entry.type === "directory")) {
       abortSignal?.throwIfAborted()
       await host.files.mkdir(toHostPath(root, entry.path), { recursive: true, signal: abortSignal })
