@@ -21,6 +21,7 @@ interface Move {
   to?: string
   /** Only these names move. */
   names?: ReadonlySet<string>
+  additional?: { to: string, names: ReadonlySet<string> }
   /** Every name moves except these. */
   keep?: ReadonlySet<string>
   /** Names that have another name at `to`. The local name stays. */
@@ -87,10 +88,8 @@ const commentsRemoved = internalNames([[["builtinCommentSubjects", "commentsPage
 const formsGuardNames = new Set(["guardRequest", "GuardedRequest", "GuardRequestOptions", "GuardRequestServices"])
 const formsRemoved = internalNames([[["isFormDefinition"], "A file in `server/forms/` default-exports `defineForm()`. ViteHub checks it."]])
 const workspaceFilesNames = new Set(["normalizeSafeWorkspacePath", "resolveWorkspaceStoreTarget", "WorkspaceStoreTarget"])
-const workspaceRemoved = new Map([
-  ...internalNames([[["assertModelWorkspaceGlobPattern", "modelWorkspaceGlobPatternLimits", "resolveWorkspaceAutoCommit", "WorkspaceGlobPatternLimits"], packageOnly]]),
-  ...[["invalidateWorkspaceStore", "resolveRegisteredWorkspaceDefinition"]].flat().map(name => [name, `\`${name}\` moved to \`vite-hub/workspace/runtime\`. Import it from there.`] as const),
-])
+const workspaceRuntimeNames = new Set(["invalidateWorkspaceStore", "resolveRegisteredWorkspaceDefinition"])
+const workspaceRemoved = internalNames([[["assertModelWorkspaceGlobPattern", "modelWorkspaceGlobPatternLimits", "resolveWorkspaceAutoCommit", "WorkspaceGlobPatternLimits"], packageOnly]])
 
 function moves(): Move[] {
   return [
@@ -113,8 +112,13 @@ function moves(): Move[] {
     { from: "@vite-hub/comments", to: "@vite-hub/comments/client", names: commentsClientNames, removed: commentsRemoved },
     { from: "vite-hub/forms", removed: new Map([...formsRemoved, ...[...formsGuardNames].map(name => [name, `\`${name}\` moved to \`@vite-hub/forms/guard\`. Install \`@vite-hub/forms\` and import it from there.`] as const)]) },
     { from: "@vite-hub/forms", to: "@vite-hub/forms/guard", names: formsGuardNames, removed: formsRemoved },
-    { from: "vite-hub/workspace", to: "vite-hub/workspace/files", names: workspaceFilesNames, removed: workspaceRemoved },
-    { from: "@vite-hub/workspace", to: "@vite-hub/workspace/files", names: workspaceFilesNames, removed: new Map([...workspaceRemoved].map(([name, message]) => [name, message.replace("vite-hub/workspace/runtime", "@vite-hub/workspace/runtime")])) },
+    ...["vite-hub/workspace", "@vite-hub/workspace"].map(from => ({
+      from,
+      to: `${from}/files`,
+      names: workspaceFilesNames,
+      additional: { to: `${from}/runtime`, names: workspaceRuntimeNames },
+      removed: workspaceRemoved,
+    })),
   ]
 }
 
@@ -146,11 +150,11 @@ function importedName(specifier: Specifier): string | undefined {
   return specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
 }
 
-function isMoving(move: Move, name: string | undefined): boolean {
-  if (!move.to || name === undefined || move.removed?.has(name)) return false
-  if (move.names) return move.names.has(name)
-  if (move.keep) return !move.keep.has(name)
-  return true
+function destination(move: Move, name: string | undefined): string | undefined {
+  if (name === undefined || move.removed?.has(name)) return undefined
+  if (move.additional?.names.has(name)) return move.additional.to
+  if (move.names ? !move.names.has(name) : move.keep?.has(name)) return undefined
+  return move.to
 }
 
 /** The text of a moved specifier, with the new name when it was renamed. */
@@ -198,7 +202,8 @@ function splitNamedImports(context: FileContext, statement: ImportDeclaration, m
     : statement.importKind === "type" ? skipImportTrivia(code, prefixEnd + "type".length) : prefixEnd
   let cursor = open + 1
   const kept: string[] = []
-  const moved: string[] = []
+  const moved = new Map<string, string[]>()
+  let lastItems = kept
   for (const specifier of statement.specifiers) {
     if (specifier.type !== "ImportSpecifier") continue
     const separator = skipImportTrivia(code, end(specifier))
@@ -206,16 +211,17 @@ function splitNamedImports(context: FileContext, statement: ImportDeclaration, m
     const right = code.slice(end(specifier), separator).trimEnd()
     const lastComment = right.match(/\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*/g)?.at(-1)
     const trailingLineComment = lastComment?.startsWith("//")
-    const moving = isMoving(move, importedName(specifier))
-    const text = moving ? specifierText(context, specifier, move) : code.slice(start(specifier), end(specifier))
-    const items = moving ? moved : kept
-    items.push(left + text + right + (trailingLineComment ? "\n" : ""))
+    const to = destination(move, importedName(specifier))
+    const text = to ? specifierText(context, specifier, move) : code.slice(start(specifier), end(specifier))
+    lastItems = to ? (moved.get(to) ?? []) : kept
+    if (to) moved.set(to, lastItems)
+    lastItems.push(left + text + right + (trailingLineComment ? "\n" : ""))
     cursor = code[separator] === "," ? separator + 1 : separator
   }
   const close = skipImportTrivia(code, cursor)
   const afterTrailingComma = code.slice(cursor, close).trimStart()
   if (afterTrailingComma.trim()) {
-    const items = kept.length ? kept : moved
+    const items = kept.length ? kept : lastItems
     items[items.length - 1] += `, ${afterTrailingComma}`
   }
   return { prefixEnd, open, close, kept, moved }
@@ -233,43 +239,55 @@ function rewriteImport(context: FileContext, statement: ImportDeclaration, move:
     if (message) followUp(context, specifier, message)
   }
   if (!move.to) return
-  const named = statement.specifiers.filter(specifier => specifier.type === "ImportSpecifier")
   const others = statement.specifiers.filter(specifier => specifier.type !== "ImportSpecifier")
   for (const specifier of others) {
     followUp(context, specifier, `\`${move.from}\` changed: ${describeMove(move)} Update the reads through this ${specifier.type === "ImportNamespaceSpecifier" ? "namespace" : "default"} import by hand.`)
   }
-  const moving = named.filter(specifier => isMoving(move, importedName(specifier)))
-  if (!moving.length) return
-  context.moved.add(move.to)
-  const target = joinedImport(context, statement, move.to)
+  const moving = statement.specifiers.flatMap((specifier) => {
+    const to = destination(move, importedName(specifier))
+    return to ? [{ specifier, to }] : []
+  })
+  if (!moving[0]) return
+  const first = moving[0].to
+  const destinations = new Set(moving.map(item => item.to))
+  for (const to of destinations) context.moved.add(to)
+  const target = destinations.size === 1 ? joinedImport(context, statement, first) : undefined
   const wholeImport = moving.length === statement.specifiers.length
-  if (wholeImport && !target) {
-    replaceSource(context, statement.source, move.to)
-    for (const specifier of moving) {
+  if (wholeImport && destinations.size === 1 && !target) {
+    replaceSource(context, statement.source, first)
+    for (const { specifier } of moving) {
       const text = specifierText(context, specifier, move)
       if (text !== block.code.slice(start(specifier), end(specifier))) output.overwrite(block.offset + start(specifier), block.offset + end(specifier), text)
     }
     return
   }
   const { prefixEnd, open, close, kept, moved } = splitNamedImports(context, statement, move)
-  if (wholeImport) {
+  if (wholeImport && target) {
     const [from, to] = listItemRemoval(block.code, statement)
     output.remove(block.offset + from, block.offset + to)
+  }
+  else if (wholeImport) {
+    replaceSource(context, statement.source, first)
+    output.overwrite(block.offset + open + 1, block.offset + close, ` ${moved.get(first)!.join(", ")} `)
+    moved.delete(first)
   }
   else if (kept.length) output.overwrite(block.offset + open + 1, block.offset + close, ` ${kept.join(", ")} `)
   else output.remove(block.offset + prefixEnd, block.offset + close + 1)
   // Join an import of the same path, such as `diagnostics` from `vite-hub/agent/capabilities`.
-  if (target) {
-    output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${moved.join(", ")}`)
-    return
-  }
   const typeOnly = statement.importKind === "type" ? "type " : ""
   const semicolon = style.semicolons ? ";" : ""
-  output.appendLeft(block.offset + end(statement), `\nimport ${typeOnly}{ ${moved.join(", ")} } from ${quoteString(move.to, style)}${semicolon}`)
+  for (const [to, items] of moved) {
+    const target = joinedImport(context, statement, to)
+    if (target) output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${items.join(", ")}`)
+    else output.appendLeft(block.offset + end(statement), `\nimport ${typeOnly}{ ${items.join(", ")} } from ${quoteString(to, style)}${semicolon}`)
+  }
 }
 
 function describeMove(move: Move): string {
-  if (move.names) return `${[...move.names].map(name => `\`${name}\``).join(" and ")} moved to \`${move.to}\`.`
+  if (move.names) {
+    const describe = (names: ReadonlySet<string>, to: string | undefined) => `${[...names].map(name => `\`${name}\``).join(" and ")} moved to \`${to}\`.`
+    return move.additional ? `${describe(move.names, move.to)} ${describe(move.additional.names, move.additional.to)}` : describe(move.names, move.to)
+  }
   if (move.keep) return `the names that ViteHub does not own moved to \`${move.to}\`.`
   return `its exports moved to \`${move.to}\`.`
 }
