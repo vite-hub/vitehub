@@ -73,7 +73,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0016: {
       ...dynamicError,
-      fix: "Set `window` of this Rate Limit to \"10s\" or \"1m\" to use the Cloudflare binding, or use the `kv` driver for other windows.",
+      fix: "Give the app a KV store with a shared atomic increment, such as `kv: { driver: \"upstash\" }`, so that Rate Limit counts this window in KV. Cloudflare KV has no such increment. Or set `window` to \"10s\" or \"1m\" to use the Cloudflare binding.",
     },
     RATE_LIMIT_R0019: {
       ...dynamicError,
@@ -153,7 +153,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0038: {
       ...dynamicError,
-      fix: "Pass `peek({ key })` or `reset({ key })` a non-empty string `key`.",
+      fix: "Pass `peek({ key })`, `refund({ key })`, or `reset({ key })` a non-empty string `key`.",
     },
     RATE_LIMIT_R0039: {
       ...dynamicError,
@@ -214,6 +214,10 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED: {
       ...dynamicError,
       fix: "Count in a shared store: on Node, set `rateLimit: { driver: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
+    },
+    RATE_LIMIT_REFUND_RESULT_INVALID: {
+      why: "A custom Rate Limit driver returned a value from `refund()` that is not `[undefined, undefined]` or `[error, undefined]`.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, undefined]` from `refund()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_REFUSAL_OPTION_INVALID: {
       ...dynamicError,

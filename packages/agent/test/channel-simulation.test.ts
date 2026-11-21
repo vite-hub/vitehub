@@ -21,7 +21,7 @@ import type { AgentRunContext } from "../src/index.ts"
 import type { ChatInstance } from "chat"
 
 function chatRequest(channel: string, text: string): Request {
-  return new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${channel}`, {
+  return new Request(`https://example.com/_vitehub/agents/support/webhooks/${channel}`, {
     body: JSON.stringify({ id: `conversation-${channel}`, messages: [{ id: `message-${channel}`, role: "user", parts: [{ type: "text", text }] }] }),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -43,7 +43,7 @@ function lastUserText({ messages }: AgentRunContext): string {
   return parts.map(part => part.type === "text" ? part.text : "").join("")
 }
 
-const [channelsList, channelsThreads, channelsConversation, conversationsExport] = agentChannelOperations
+const [channelsList, channelsThreads, channelsConversation, conversationsExport, , channelsDeliveries] = agentChannelOperations
 const consoleContext = { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc"), surface: "console", user: null } as const
 
 /** Runs `channels.list` for one Agent named `support`, the way the Console and `vitehub channels list` call it. */
@@ -112,7 +112,7 @@ describe("simulated chat Channels", () => {
     const handler = createChannelWebhookRouteHandler(agent)
     const platforms = { discord: "Discord", slack: "Slack", teams: "Microsoft Teams", telegram: "Telegram" }
     for (const [channel, platform] of Object.entries(platforms)) {
-      const route = `/api/_vitehub/agents/support/webhooks/${channel}`
+      const route = `/_vitehub/agents/support/webhooks/${channel}`
       const response = await handler(new Request(`https://example.com${route}`), channel, { agentName: "support" })
       expect(response.status, channel).toBe(200)
       expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
@@ -158,22 +158,22 @@ describe("simulated chat Channels", () => {
     expect(html).toContain("[data-embed] .sim-switch { display: none; }")
 
     const single = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
-    const alone = await (await createChannelWebhookRouteHandler(single)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/slack"), "slack", { agentName: "support" })).text()
+    const alone = await (await createChannelWebhookRouteHandler(single)(new Request("https://example.com/_vitehub/agents/support/webhooks/slack"), "slack", { agentName: "support" })).text()
     expect(alone).not.toContain("<nav class=\"sim-switch\"")
   })
 
   it("marks simulated Channels in the Channel list, with the path of their chat page", async () => {
     const result = await listChannels({ discord: discord(), slack: slack() })
     expect(result.channels).toEqual([
-      expect.objectContaining({ agent: "support", channel: "discord", provider: "discord", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/discord" }),
-      expect.objectContaining({ agent: "support", channel: "slack", provider: "slack", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/slack" }),
+      expect.objectContaining({ agent: "support", channel: "discord", provider: "discord", simulated: true, simulator: "/_vitehub/agents/support/webhooks/discord" }),
+      expect.objectContaining({ agent: "support", channel: "slack", provider: "slack", simulated: true, simulator: "/_vitehub/agents/support/webhooks/slack" }),
     ])
     // The chat page keeps the messages in browser memory, so the provider window is not a reason to warn.
     for (const channel of result.channels) expect(channel.retention, channel.channel).not.toHaveProperty("warning")
-    expect(channelsList.cli?.format?.(result)).toBe([
+    expect((channelsList.cli || undefined)?.format?.(result)).toBe([
       "AGENT    CHANNEL  PROVIDER             HISTORY          CHAT PAGE",
-      "support  discord  discord (simulated)  provider-window  /api/_vitehub/agents/support/webhooks/discord",
-      "support  slack    slack (simulated)    provider-window  /api/_vitehub/agents/support/webhooks/slack",
+      "support  discord  discord (simulated)  provider-window  /_vitehub/agents/support/webhooks/discord",
+      "support  slack    slack (simulated)    provider-window  /_vitehub/agents/support/webhooks/slack",
       "",
     ].join("\n"))
   })
@@ -198,18 +198,42 @@ describe("simulated chat Channels", () => {
     const options = { agentName: "support" }
     const channels = await handler.channels(new Request("https://example.com/channels"), options)
     const simulator = channels.find(channel => channel.id === "slack")?.simulator
-    expect(simulator).toBe(`/api/_vitehub/agents/support/webhooks/${selector}`)
+    expect(simulator).toBe(`/_vitehub/agents/support/webhooks/${selector}`)
     const url = `https://example.com${simulator}`
     const response = await handler(new Request(url), undefined, options)
     expect(response.status).toBe(200)
     const html = await response.text()
     expect(html).toContain('<a aria-current="page">Slack</a>')
-    expect(html).toContain('href="/api/_vitehub/agents/support/webhooks/discord"')
-    const other = await (await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord"), undefined, options)).text()
+    expect(html).toContain('href="/_vitehub/agents/support/webhooks/discord"')
+    const other = await (await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/discord"), undefined, options)).text()
     expect(other).toContain(`href="${simulator}"`)
     const reply = await handler(new Request(url, chatRequest("slack", "hi registration")), undefined, options)
     expect(reply.status).toBe(200)
     expect(streamedText(await reply.text())).toBe("echo: hi registration")
+  })
+
+  it.each([
+    { webhooks: [{}, {}], selectors: ["slack-1", "slack-2"] },
+    { webhooks: { id: "primary", provider: "custom" }, selectors: ["primary"] },
+  ])("lists the deliveries of every webhook registration of a Channel ($selectors)", { timeout: 20_000 }, async ({ webhooks, selectors }) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-deliveries-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const agent = defineAgent({ channels: { slack: slack({ messages: { state }, webhooks }) }, driver: { run: context => `echo: ${lastUserText(context)}` } })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const options = { agentIdentity: { name: "support" }, agentName: "support", state }
+    try {
+      for (const selector of selectors) {
+        const reply = await handler(new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${selector}`, chatRequest("slack", `hi ${selector}`)), undefined, options)
+        await reply.text()
+      }
+      installChannelsConsoleHost({ agents: { support: agent }, handlers: { support: handler }, options: () => options })
+      const { deliveries } = await channelsDeliveries!.run({ agent: "support", channel: "slack" }, consoleContext)
+      expect(deliveries).toHaveLength(selectors.length)
+      expect(deliveries.every(delivery => delivery.status === "completed" && delivery.invocationId)).toBe(true)
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("reads the threads and conversations of a simulated Channel without the provider window warning", async () => {
@@ -250,8 +274,8 @@ describe("simulated chat Channels", () => {
     const handler = createChannelWebhookRouteHandler(agent)
     try {
       for (const [route, webhook] of [
-        ["/api/_vitehub/agents/support/webhooks/support", "support"],
-        ["/api/_vitehub/agents/support/webhooks/support", undefined],
+        ["/_vitehub/agents/support/webhooks/support", "support"],
+        ["/_vitehub/agents/support/webhooks/support", undefined],
         ["/hooks/support", ""],
         ["/legacy/slack/", ""],
         ["/legacy/slack/", undefined],
@@ -278,7 +302,7 @@ describe("simulated chat Channels", () => {
 
   it("escapes the Agent name in the chat page", async () => {
     const agent = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
-    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/x/webhooks/slack"), "slack", { agentName: "</script><img>" })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/_vitehub/agents/x/webhooks/slack"), "slack", { agentName: "</script><img>" })
     const html = await response.text()
     expect(html).not.toContain("</script><img>")
     expect(html).toContain("&lt;/script&gt;&lt;img&gt;")
@@ -288,8 +312,8 @@ describe("simulated chat Channels", () => {
     const polling = telegram({ mode: "polling" })
     expect(inspectMessageChannelInstructions({ telegram: polling }).join("\n")).toContain("Telegram")
     expect(polling.listener).toBeUndefined()
-    expect(polling.webhooks).toEqual({ secretToken: false })
-    expect(telegram().webhooks).toMatchObject({ secretToken: false })
+    expect(polling.webhooks).toEqual({ secret: false })
+    expect(telegram().webhooks).toMatchObject({ secret: false })
   })
 
   it.each([undefined, true])("keeps buffered replies in the request with an active Workflow (durable: %s)", async (durable) => {
@@ -321,7 +345,7 @@ describe("simulated chat Channels", () => {
 
   it.each([false, true])("skips custom webhook verification (registration array: %s)", async (array) => {
     const verify = vi.fn(() => false)
-    const registration = { signature: { verify }, secretToken: "provider-secret", secretHeader: "x-provider-signature" }
+    const registration = { signature: { verify }, secret: () => "provider-secret", secretHeader: "x-provider-signature" }
     const channel = channelAdapter("discord", { webhooks: array ? [registration] : registration })
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
@@ -371,7 +395,7 @@ describe("simulated chat Channels", () => {
 
   it("starts no Discord Gateway for a simulated Discord Channel", async () => {
     const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
-    const response = await createDiscordGatewayRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), { durationMs: 1 })
+    const response = await createDiscordGatewayRouteHandler(agent)(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), { durationMs: 1 })
     expect(response.status).toBe(204)
   })
 
@@ -383,7 +407,7 @@ describe("simulated chat Channels", () => {
   it("answers a GET with 405 when simulation is off", async () => {
     delete process.env[channelSimulationEnv]
     const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
-    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord"), "discord", { agentName: "support" })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/_vitehub/agents/support/webhooks/discord"), "discord", { agentName: "support" })
     expect(response.status).toBe(405)
   })
 })

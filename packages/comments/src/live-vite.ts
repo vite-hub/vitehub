@@ -5,9 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
 import { readForgeBuild } from "@vite-hub/forge/build/node"
@@ -434,7 +435,6 @@ async function standaloneDatabase(projectRoot: string, options: CommentsOptions,
   const where = options.database || undefined
   // Reject static SQLite locations before generating a Node connector for workerd development.
   const location = parseDatabaseLocation(where, "comments", { node: command !== "serve" || !workerd })
-  if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
   if (command !== "serve") return { ...(where ? { where } : {}), node: location.kind === "file" }
   if (location.kind === "file") return { where, node: true }
   if (workerd) return { where: where ?? "d1:COMMENTS", ...(location.kind === "env" ? { fallback: "d1:COMMENTS" } : {}), node: false }
@@ -498,7 +498,7 @@ export default comments
 
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
- * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
+ * `/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
  * overlay script, and adds it to pages in comment mode. `enabled: true` does the same without the file, with the default
  * `defineComments()`. Other apps without the file are unaffected.
  */
@@ -528,6 +528,11 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   const integration: CommentsVitePlugin = {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
     configEnvironment: options.standalone ? { order: "post", handler: workerdDependencyConfig } : undefined,
+    // Nitro installs modules in Vite's `config` hook, before the hints of the build start, so the hint is reported here.
+    configResolved: options.standalone ? (config) => {
+      startViteHubHints(config)
+      if (/[?&]authToken=/.test(options.standalone?.database ?? "")) reportViteHubHint(config, commentsErrorDiagnostics.COMMENTS_DATABASE_TOKEN_IN_BUILD())
+    } : undefined,
     nitro: options.standalone ? {
       async setup(nitro) {
         if (!projectRoot || !options.standalone) return
@@ -632,7 +637,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const definition = discover() ?? await writeDefaultDefinition(directory, imports)
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
-        const pageSession = join(directory, "page-session.mjs")
+        const pageToolsRoute = join(directory, "page-tools-route.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
         const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development }
@@ -641,13 +646,14 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeComponents(),
           // Standalone storage waits for Nitro's resolved dev runner in the module setup above.
           options.standalone ? undefined : writeFile(plugin, renderCommentsPlugin(pluginInput)),
-          writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
+          writeFile(pageToolsRoute, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // The handler imports server/content.ts and its Markdown renderer, so load it on the first Comments request.
-        kit.addHandler({ handler, lazy: true, route: `${mount}${commentsRoute}/**` })
+        // Every Comments route checks the `authorize` policy of `defineComments()`.
+        kit.addHandler({ handler, lazy: true, meta: { ...ownAccessRouteMeta }, route: `${mount}${commentsRoute}/**` })
         kit.addPlugin(plugin)
-        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), mount })
+        addViteHubPageToolRoutes(kit, { handler: pageToolsRoute, loader: builtDirectory("page"), mount })
         const nitro = kit.config
         // Nuxt forwards Nitro config without loading Vite's plugin.nitro convention.
         if (integration.nitro) {

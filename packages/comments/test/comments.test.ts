@@ -151,6 +151,23 @@ describe("defineComments", () => {
     expect(retry!.id).toBe(first!.id)
   })
 
+  it("finds the thread and the reply of a requestId before a retry, and stores a retried reply once", async () => {
+    const comments = await createComments()
+    const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Typo", author: ada, requestId: "draft-1" })
+    expect(await comments.findThread({ page: "/pricing/", requestId: "draft-1" })).toEqual([undefined, thread])
+    expect(await comments.findThread({ subject: { kind: "page", id: "/pricing" }, requestId: "draft-2" })).toEqual([undefined, null])
+
+    expect(await comments.findReply(thread!.id, "reply-1")).toEqual([undefined, null])
+    const [, first] = await comments.reply(thread!.id, { body: "Fixed", author: grace, requestId: "reply-1" })
+    const [retryError, retry] = await comments.reply(thread!.id, { body: "Fixed", author: grace, requestId: "reply-1" })
+    expect(retryError).toBeUndefined()
+    expect(retry).toEqual(first)
+    expect(await comments.findReply(thread!.id, "reply-1")).toEqual([undefined, first])
+    expect((await comments.get(thread!.id))[1]!.messages).toHaveLength(2)
+    expect((await comments.reply(thread!.id, { body: "Fixed", author: ada, requestId: "reply-1" }))[0]?.code).toBe("COMMENTS_INVALID_INPUT")
+    expect((await comments.findReply("thread_missing", "reply-1"))[0]?.code).toBe("COMMENTS_NOT_FOUND")
+  })
+
   it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {
     expect(Object.keys(commentsSchema)).toEqual(["vitehubCommentThreads", "vitehubCommentMessages", "vitehubCommentCounters", "vitehubCommentForge"])
   })

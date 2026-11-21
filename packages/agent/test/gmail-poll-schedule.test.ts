@@ -157,7 +157,7 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
     await expect(readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")).resolves.not.toHaveLength(0)
     const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", [
       "const { default: handler } = await import(process.argv[1])",
-      "const response = await handler(new Request('https://example.com/api/_vitehub/agents/poller/inspection'), { params: { agent: 'poller' } })",
+      "const response = await handler(new Request('https://example.com/_vitehub/agents/poller/inspection'), { params: { agent: 'poller' } })",
       "console.log(response.status)",
       "console.log(await response.text())",
     ].join("\n"), pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href])

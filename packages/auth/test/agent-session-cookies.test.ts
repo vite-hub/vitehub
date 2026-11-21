@@ -57,7 +57,7 @@ function chatRoute() {
 }
 
 function chatRequest(cookie: string): Request {
-  return new Request(`${origin}/api/_vitehub/agents/support/chat`, {
+  return new Request(`${origin}/_vitehub/agents/support/chat`, {
     body: chatBody,
     headers: { "content-type": "application/json", cookie },
     method: "POST",

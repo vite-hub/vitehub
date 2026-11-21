@@ -7,6 +7,7 @@ import { createWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowHandle } from "../src/types.ts"
+import { unwrap } from "./unwrap.ts"
 
 interface FakeWorker {
   definitions: string[]
@@ -106,7 +107,7 @@ describe("installOpenWorkflow", () => {
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         await expect(installOpenWorkflow(app)).resolves.toBe(true)
-        await expect(startWorkflow("welcome")).resolves.toMatchObject({ provider: "openworkflow", status: "queued" })
+        await expect(unwrap(startWorkflow("welcome"))).resolves.toMatchObject({ provider: "openworkflow", status: "queued" })
       }
       expect(loader).toHaveBeenCalledOnce()
     }

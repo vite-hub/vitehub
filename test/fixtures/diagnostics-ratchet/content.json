@@ -1,17 +1,8 @@
 {
-  "rawErrors": {
-    "packages/content/src/cli.ts": 1,
-    "packages/content/src/documents.ts": 3,
-    "packages/content/src/field.ts": 3,
-    "packages/content/src/index.ts": 4,
-    "packages/content/src/live.ts": 1,
-    "packages/content/src/operations.ts": 1,
-    "packages/content/src/realtime.ts": 2,
-    "packages/content/src/ref-routes.ts": 1,
-    "packages/content/src/runtime/console.ts": 1
-  },
+  "rawErrors": {},
   "codesWithoutFix": [],
   "invariants": {
+    "packages/content/src/live.ts": 1,
     "packages/content/src/ref-routes.ts": 1
   }
 }

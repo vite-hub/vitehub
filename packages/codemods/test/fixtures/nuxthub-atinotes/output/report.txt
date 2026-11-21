@@ -18,6 +18,6 @@ Notes:
   - Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub and remove @nuxthub/core.
+  - Run `pnpm install` to install vite-hub and @vite-hub/kv and remove @nuxthub/core.
   - Run `npx nuxi prepare`, then type-check the app.
   - Run `pnpm nuxt build` and `pnpm vitehub inspect output --json` to check the resources and bindings.

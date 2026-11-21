@@ -42,9 +42,104 @@ describe("submitForm", () => {
     expect(error).toMatchObject({ status: 0, message: "offline" })
   })
 
+  it("sends the same Idempotency-Key when a retry has the same values, so a lost answer stores one message", async () => {
+    const store = createMemoryFormsStore()
+    const keys: (string | null)[] = []
+    let lose = true
+    const lossy: typeof fetch = async (input, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"))
+      const response = await server(store)(input, init)
+      // The server stored the message, but the answer did not arrive.
+      if (lose) throw new TypeError("network error")
+      return response
+    }
+    const [lost] = await submitForm("feedback", { message: "Retry me" }, { fetch: lossy, page: "/docs" })
+    expect(lost?.status).toBe(0)
+    lose = false
+    const [error, data] = await submitForm("feedback", { message: "Retry me" }, { fetch: lossy, page: "/docs" })
+    expect(error).toBeUndefined()
+    expect(keys[1]).toBe(keys[0])
+    expect(data?.id).toBe(keys[0])
+    expect(await store.list()).toHaveLength(1)
+    // After the success, the same values are a new message with a new key.
+    await submitForm("feedback", { message: "Retry me" }, { fetch: lossy, page: "/docs" })
+    expect(keys[2]).not.toBe(keys[0])
+    expect(await store.list()).toHaveLength(2)
+  })
+
+  it("sends a new key for other values, and the key of idempotencyKey", async () => {
+    const keys: (string | null)[] = []
+    const failing: typeof fetch = async (_input, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"))
+      throw new TypeError("offline")
+    }
+    await submitForm("feedback", { message: "First" }, { fetch: failing, page: "/docs" })
+    await submitForm("feedback", { message: "Edited" }, { fetch: failing, page: "/docs" })
+    expect(keys[1]).not.toBe(keys[0])
+    await submitForm("feedback", { message: "First" }, { fetch: failing, page: "/docs", idempotencyKey: "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90" })
+    expect(keys[2]).toBe("0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90")
+  })
+
+  it("forgets the key of a failed message when another message is sent", async () => {
+    const store = createMemoryFormsStore()
+    const keys: (string | null)[] = []
+    let lose = true
+    const lossy: typeof fetch = async (input, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"))
+      const response = await server(store)(input, init)
+      if (lose) throw new TypeError("network error")
+      return response
+    }
+    await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
+    lose = false
+    await submitForm("feedback", { message: "Second note" }, { fetch: lossy, page: "/docs" })
+    // The person writes the first note again later: a new message, not a retry.
+    await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
+    expect(new Set(keys).size).toBe(3)
+    expect(await store.list()).toHaveLength(3)
+  })
+
+  it.each([true, false])("keeps the latest retry state when the older send finishes last (older response lost: %s)", async (olderLost) => {
+    const store = createMemoryFormsStore()
+    const keys: (string | null)[] = []
+    let signalStored!: () => void
+    const olderStored = new Promise<void>(resolve => { signalStored = resolve })
+    let releaseOlder!: () => void
+    const finishOlder = new Promise<void>(resolve => { releaseOlder = resolve })
+    const fetchForm: typeof fetch = async (input, init) => {
+      const index = keys.push(new Headers(init?.headers).get("idempotency-key"))
+      const response = await server(store)(input, init)
+      if (index === 1) {
+        signalStored()
+        await finishOlder
+      }
+      if ((index === 1 && olderLost) || (index === 2 && !olderLost)) throw new TypeError("network error")
+      return response
+    }
+    const options = { fetch: fetchForm, page: "/docs", url: formRoute("overlapping") }
+    const first = { message: "First note" }
+    const second = { message: "Second note" }
+    const older = submitForm("feedback", first, options)
+    await olderStored
+    await submitForm("feedback", second, options)
+    releaseOlder()
+    await older
+    const [error, result] = await submitForm("feedback", olderLost ? first : second, options)
+    expect(error).toBeUndefined()
+    if (olderLost) {
+      expect(new Set(keys).size).toBe(3)
+      expect(await store.list()).toHaveLength(3)
+    }
+    else {
+      expect(keys[2]).toBe(keys[1])
+      expect(result?.id).toBe(keys[1])
+      expect(await store.list()).toHaveLength(2)
+    }
+  })
+
   it("builds the route below the app base", () => {
-    expect(formRoute("contact")).toBe("/api/_vitehub/forms/contact")
-    expect(formRoute("bug report", "/docs")).toBe("/docs/api/_vitehub/forms/bug%20report")
+    expect(formRoute("contact")).toBe("/_vitehub/forms/contact")
+    expect(formRoute("bug report", "/docs")).toBe("/docs/_vitehub/forms/bug%20report")
   })
 })
 

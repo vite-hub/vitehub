@@ -8,7 +8,7 @@ import { readWorkspaceVersions } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { buildPlaygroundTemplates, playgroundTemplates, snapshotSources } from "../modules/tutorials/playground";
 import { dependencyKey } from "../modules/tutorials/steps";
-import { isIsolatedPath, isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
+import { isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(docsRoot, "..");
@@ -24,7 +24,7 @@ describe("playground", () => {
     expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels", "ui"]);
     // The editor and the preview open a file and a route of the template.
     for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
-    for (const template of built.filter(item => item.id !== "ui")) expect(template.preview, template.id).toMatch(/^\/api\//);
+    for (const template of built.filter(item => item.id !== "ui" && item.id !== "channels")) expect(template.preview, template.id).toMatch(/^\/api\//);
     const kv = built.find(template => template.id === "kv")!;
     expect(kv.files["server/api/settings.post.ts"]).toBe(await readFile(resolve(fixturesDir, "server-primitives/server/api/settings.post.ts"), "utf8"));
     expect(kv.files["vite.config.ts"]).toContain("kv:");
@@ -34,7 +34,7 @@ describe("playground", () => {
     // The Channels template opens the simulated Slack page of its Agent, so the preview needs no bot or token.
     const channels = built.find(template => template.id === "channels")!;
     expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
-    expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
+    expect(channels.preview).toBe("/_vitehub/agents/support/webhooks/slack");
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
     // The ViteHub UI template is a Vue app on the headless parts of @ui-sdk/vue, and its preview is the app page.
     const ui = built.find(template => template.id === "ui")!;
@@ -75,12 +75,8 @@ describe("playground", () => {
     expect(dependencyKey("{")).toBe("invalid");
   });
 
-  it("isolates /playground besides the tutorials, and nothing below it", () => {
-    expect(isIsolatedPath("/playground")).toBe(true);
-    expect(isIsolatedPath("/learn/first-agent")).toBe(true);
-    expect(isIsolatedPath("/playground/other")).toBe(false);
-    expect(isIsolatedPath("/docs")).toBe(false);
-    // The "Run this tutorial" link hides only on tutorials.
+  it("shows the \"Run this tutorial\" link only on tutorials", () => {
+    expect(isIsolatedTutorialPath("/learn/first-agent")).toBe(true);
     expect(isIsolatedTutorialPath("/playground")).toBe(false);
   });
 

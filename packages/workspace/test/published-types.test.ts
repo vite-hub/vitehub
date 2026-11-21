@@ -27,6 +27,7 @@ it("publishes Workspace types through the package contract", async () => {
     await symlink(resolve(packageRoot, "node_modules/drizzle-orm"), join(root, "node_modules/drizzle-orm"), "junction")
 
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", join(root, "tsconfig.generated.json")])
   }
   finally {
     await rm(root, { force: true, recursive: true })

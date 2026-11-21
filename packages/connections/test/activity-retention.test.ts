@@ -5,7 +5,6 @@ import { drizzle } from "drizzle-orm/libsql"
 import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defaultActivityRetention } from "../src/internal/activity-retention.ts"
 import { createDatabaseConnectionStore } from "../src/store.ts"
 import { connect, createTestRuntime, mailConnection } from "./helpers.ts"
 
@@ -41,10 +40,6 @@ async function ids(db: ReturnType<typeof drizzle>, namespace = "connections"): P
 }
 
 describe("Connection activity retention", () => {
-  it("keeps 14 days and 10,000 events by default", () => {
-    expect(defaultActivityRetention).toEqual({ maxAgeMs: 14 * day, maxRecords: 10_000 })
-  })
-
   it("drops events older than 14 days by default", async () => {
     const { db, store } = setup()
     const envStore = createDatabaseEnvStore({ db, encryptionKeys, namespace: "connections" })

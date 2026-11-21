@@ -121,6 +121,14 @@ describe("Babysitter CI attribution", () => {
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: ["ci"] })).toThrow("bypassInheritedChecks");
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: { "acme/app": [""] } })).toThrow("bypassInheritedChecks");
   });
+
+  it("validates forkHeadBranches", () => {
+    expect(resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "Vite-Hub/ViteHub": "preview/pr-{number}" } })).toEqual({
+      mode: "direct", method: "squash", foldStacks: true, ready: approvedIfOutside, forkHeadBranches: new Map([["vite-hub/vitehub", "preview/pr-{number}"]]) });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: ["preview/pr-{number}"] })).toThrow("forkHeadBranches");
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "acme/app": "preview" } })).toThrow("forkHeadBranches");
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "acme/app": "preview/pr-{number}?x" } })).toThrow("forkHeadBranches");
+  });
 });
 
 describe("Babysitter merge readiness with attributed failures", () => {

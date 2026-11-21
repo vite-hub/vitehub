@@ -2,9 +2,18 @@ import { defineDiagnostics } from "nostics"
 
 import type { Diagnostics } from "nostics"
 
+interface RuntimeCodeParams {
+  counter?: string
+  message?: unknown
+  option?: string
+  suggestion?: string
+  unit?: string
+  value?: string
+}
+
 interface RuntimeCodeDefinition {
-  why: (params: { counter?: string, message?: unknown, value?: string }) => string
-  fix?: string
+  why: (params: RuntimeCodeParams) => string
+  fix?: string | ((params: RuntimeCodeParams) => string)
 }
 
 const dynamicError: RuntimeCodeDefinition = {
@@ -28,9 +37,11 @@ type RuntimeErrorCode =
   | "RUNTIME_R0018"
   | "RUNTIME_CONSOLE_PATH_INVALID"
   | "RUNTIME_CONSOLE_PROJECT_URL_INVALID"
+  | "RUNTIME_DURATION_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
   | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
+  | "RUNTIME_HIDDEN_ERROR"
   | "RUNTIME_SERIALIZED_RESPONSE_INVALID"
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
@@ -60,6 +71,12 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
     why: ({ value }) => `${value} is not a project URL. Use the https:// origin of the app, with its base path if it has one.`,
     fix: "Pass `hostedConsoleUrl()` the `https://` origin of the app, or `http://localhost` in development, with its base path and without a user name or password.",
   },
+  RUNTIME_DURATION_INVALID: {
+    why: ({ option, value }) => `${option ? `\`${option}\`` : "The value"} is ${value}, which is not a duration. A duration is a string with a number of 0 or more and a unit, such as "30s", "5m", or "1 day".`,
+    fix: ({ suggestion, unit = "milliseconds", value }) => suggestion
+      ? `Write the time as a string with a unit: ${value} ${unit} is ${suggestion}.`
+      : "Write a number of 0 or more and one unit: `ms`, `s`, `m`, `h`, `d`, or `w`, or a long name such as `minutes` or `days`. For example `\"30s\"`, `\"5m\"`, or `\"1 day\"`.",
+  },
   RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID: {
     why: ({ counter }) => `[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`,
     fix: "Pass `consume()` and the `record*()` methods of the execution budget a finite number of 0 or more.",
@@ -72,6 +89,10 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
     why: () => "[vitehub] Execution budget limits must be finite non-negative numbers.",
     fix: "Set each limit of `executionBudget`, such as `maxToolCalls` or `maxOutputBytes`, to a finite number of 0 or more, or remove it.",
   },
+  RUNTIME_HIDDEN_ERROR: {
+    why: () => "The server failed. The error is not a ViteHub error, so its message and stack stay on the server.",
+    fix: "Read the server logs for the error. To send a code, a why, and a fix to the client, return a `ResultError` from `defineErrors()` and pass it to `toResponse()`.",
+  },
   RUNTIME_SERIALIZED_RESPONSE_INVALID: {
     why: () => "Invalid serialized Response",
     fix: "Pass `deserializeResponse()` the record that `serializeResponse()` returned, unchanged. Check it first with `isSerializedResponse()`.",
@@ -79,6 +100,6 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/runtime/diagnostics",
   codes,
 })

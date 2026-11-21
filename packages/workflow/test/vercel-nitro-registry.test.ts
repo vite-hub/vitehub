@@ -71,7 +71,7 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     "server/workflows/welcome.ts": [
       "import { defineWorkflow } from '@vite-hub/workflow'",
       "",
-      "export default defineWorkflow('welcome', async (payload: { name: string }) => ({ greeting: `Hello ${payload.name}` }))",
+      "export default defineWorkflow<{ name: string }>({ handler: async ({ payload }) => ({ greeting: `Hello ${payload.name}` }) })",
       "",
     ].join("\n"),
   })
@@ -85,9 +85,10 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     "",
     "export async function handleRequest() {",
     "  startup()",
-    "  const run = await startWorkflow('welcome', { name: 'Ada' })",
+    "  const [, run] = await startWorkflow('welcome', { name: 'Ada' })",
     "  await Promise.all(globalThis.__vitehubWaitUntil)",
-    "  return { run, settled: await getWorkflowRun('welcome', run.id) }",
+    "  const [, settled] = await getWorkflowRun('welcome', run.id)",
+    "  return { run, settled }",
     "}",
     "",
   ].join("\n"))
@@ -128,7 +129,7 @@ it.each(["vite", "nitro"])("gives a native entry in %s the ID of the native Work
     "  return { ok: true }",
     "}",
     "",
-    "export default defineWorkflow('onboard', async () => ({ ok: true }), { native: durableOnboard })",
+    "export default defineWorkflow({ handler: async () => ({ ok: true }), native: durableOnboard })",
     "",
   ].join("\n")
   const root = await createApp({ "server/workflows/onboard.ts": definition })
@@ -167,7 +168,7 @@ it("gives Nitro the Workflow DevKit webhook route of a native entry, because Nit
     "  return { ok: true }",
     "}",
     "",
-    "export default defineWorkflow('onboard', async () => ({ ok: true }), { native: durableOnboard })",
+    "export default defineWorkflow({ handler: async () => ({ ok: true }), native: durableOnboard })",
     "",
   ].join("\n")
   const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/workflows/onboard.ts": native }))

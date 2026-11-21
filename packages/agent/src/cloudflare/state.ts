@@ -38,18 +38,24 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   }
 
   acquireLock(threadId: string, ttlMs: number): Lock | null {
+    return this.acquireLockWith(threadId, ttlMs, [], []).lock
+  }
+
+  /** Takes the lock and, only when it gets it, applies `mutations` and reads `keys`, in one request and one transaction. */
+  acquireLockWith(threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): { lock: Lock | null, values: Array<string | null> } {
     const result = this.ctx.storage.transactionSync(() => {
       const now = Date.now()
       this.sql.exec("DELETE FROM locks WHERE thread_id = ? AND expires_at <= ?", threadId, now)
       const existing = this.sql.exec("SELECT 1 FROM locks WHERE thread_id = ? LIMIT 1", threadId).toArray()
-      if (existing.length > 0) return null
+      if (existing.length > 0) return { lock: null, values: [] }
 
       const token = crypto.randomUUID()
       const expiresAt = now + ttlMs
       this.sql.exec("INSERT INTO locks (thread_id, token, expires_at) VALUES (?, ?, ?)", threadId, token, expiresAt)
-      return { expiresAt, threadId, token }
+      this.applyCacheMutations(mutations)
+      return { lock: { expiresAt, threadId, token }, values: keys.map(key => this.cacheGet(key)) }
     })
-    if (result) this.scheduleCleanupIfNeeded()
+    if (result.lock) this.scheduleCleanupIfNeeded()
     return result
   }
 
@@ -59,14 +65,31 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
 
   cacheMutateWithLock(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[]): boolean {
     return this.ctx.storage.transactionSync(() => {
-      const held = this.sql.exec("SELECT 1 FROM locks WHERE thread_id = ? AND token = ? AND expires_at > ?", threadId, token, Date.now()).toArray()
-      if (held.length === 0) return false
-      for (const mutation of mutations) {
-        if (mutation.type === "delete") this.sql.exec("DELETE FROM cache WHERE key = ?", mutation.key)
-        else this.sql.exec("INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, NULL)", mutation.key, JSON.stringify(mutation.value))
-      }
+      if (!this.holdsLock(threadId, token)) return false
+      this.applyCacheMutations(mutations)
       return true
     })
+  }
+
+  /** Applies `mutations` while the lease is live, releases the lock, then reads `keys`, in one request and one transaction. */
+  releaseLockWith(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): { committed: boolean, values: Array<string | null> } {
+    return this.ctx.storage.transactionSync(() => {
+      const committed = this.holdsLock(threadId, token)
+      if (committed) this.applyCacheMutations(mutations)
+      this.releaseLock(threadId, token)
+      return { committed, values: keys.map(key => this.cacheGet(key)) }
+    })
+  }
+
+  private holdsLock(threadId: string, token: string): boolean {
+    return this.sql.exec("SELECT 1 FROM locks WHERE thread_id = ? AND token = ? AND expires_at > ?", threadId, token, Date.now()).toArray().length > 0
+  }
+
+  private applyCacheMutations(mutations: readonly AgentStateCacheMutation[]): void {
+    for (const mutation of mutations) {
+      if (mutation.type === "delete") this.sql.exec("DELETE FROM cache WHERE key = ?", mutation.key)
+      else this.sql.exec("INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, NULL)", mutation.key, JSON.stringify(mutation.value))
+    }
   }
 
   cacheDelete(key: string): void {

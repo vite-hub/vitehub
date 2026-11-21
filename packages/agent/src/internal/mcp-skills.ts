@@ -85,7 +85,7 @@ async function readText(client: McpResourceClient, uri: string, signal: AbortSig
 export async function readMcpSkills(client: object, signal?: AbortSignal): Promise<McpSkill[]> {
   if (!hasResourceMethods(client)) return []
   // Loaded here so that importing mcp() does not load the Workspace package.
-  const { normalizeSafeWorkspacePath } = await import("@vite-hub/workspace")
+  const { normalizeSafeWorkspacePath } = await import("@vite-hub/workspace/internal/path")
   const listed: Array<{ name: string, path: string, uri: string }> = []
   let cursor: string | undefined
   try {

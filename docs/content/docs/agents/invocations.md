@@ -30,7 +30,7 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
-A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
+A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent get` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
 
 ## Run an Agent
 
@@ -60,17 +60,17 @@ The success value is an `AgentRunResult`:
 
 ### Pass the host Runtime Context
 
-In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
+In a route, pass the host [Runtime Context](/docs/runtime/context) as `runtimeContext`. It carries request metadata, the runtime config, and the host `waitUntil`:
 
 The route reads the signed-in user with a helper of the app:
 
 ```ts [server/utils/auth.ts]
 import { HTTPError } from 'h3'
-import { auth } from 'vite-hub/auth/server'
+import { useAuth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireAuthenticatedUser(event: H3Event) {
-  const session = await auth.api.getSession({ headers: event.req.headers })
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
   if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }
@@ -157,7 +157,7 @@ for await (const event of events) {
 
 The tuple covers the start of the Invocation. An error during stream consumption reaches the reader of the stream.
 
-Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+Streaming routes must provide a real host `waitUntil` lifetime in `runtimeContext`. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup).
 
 The stream ends when the caller reads all of it, cancels it, or gets an error. A caller that stops reading also stops observing completion.
 
@@ -327,7 +327,7 @@ Pass a store to `defineAgentInvocations()` for a separate SQLite or libSQL journ
 
 ### Store invocations in a ViteHub Database
 
-`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, and native D1.
+`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, native D1, and [Postgres](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database).
 
 ### Redact stored evidence
 
@@ -370,7 +370,7 @@ Model and provider Drivers get an abort signal. A custom `run` Driver must stop 
 
 ## Inspect invocations in the console
 
-Open the app in the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
+Open the app in the [ViteHub Console](/docs/console) to browse retained sessions and inspect invocation events. The Console calls the app's Operations endpoint. A production build has no endpoint when `console` is omitted or set to `false`.
 
 The Console guide covers Vite and Nuxt setup, the journal that it reads, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 

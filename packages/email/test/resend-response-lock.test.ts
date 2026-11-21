@@ -19,8 +19,8 @@ describe("Resend response reader ownership", () => {
 
     const result = await driver.send(message, context);
 
-    if (status === 200) expect(result).toMatchObject({ data: { id: "email-1" }, error: null });
-    else expect(result).toMatchObject({ error: { code: "RATE_LIMIT" } });
+    if (status === 200) expect(result).toMatchObject([undefined, { id: "email-1" }]);
+    else expect(result).toMatchObject([{ code: "RATE_LIMIT" }, undefined]);
     expect(response.body?.locked).toBe(false);
   });
 
@@ -30,7 +30,7 @@ describe("Resend response reader ownership", () => {
     }));
     const driver = resend({ apiKey: "re_test", fetch: async () => response });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "NETWORK" } });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "NETWORK" }, undefined]);
     expect(response.body?.locked).toBe(false);
   });
 
@@ -38,7 +38,7 @@ describe("Resend response reader ownership", () => {
     const response = new Response("x".repeat(65_537));
     const driver = resend({ apiKey: "re_test", fetch: async () => response });
 
-    await expect(driver.send(message, context)).resolves.toMatchObject({ error: { code: "PROVIDER" } });
+    await expect(driver.send(message, context)).resolves.toMatchObject([{ code: "PROVIDER" }, undefined]);
     expect(response.body?.locked).toBe(false);
   });
 
@@ -60,7 +60,7 @@ describe("Resend response reader ownership", () => {
       controller.abort();
     }
 
-    await expect(delivery).resolves.toMatchObject({ error: { code: "CANCELLED" } });
+    await expect(delivery).resolves.toMatchObject([{ code: "CANCELLED" }, undefined]);
     expect(cancel).toHaveBeenCalledOnce();
     expect(response.body?.locked).toBe(false);
   });
@@ -79,7 +79,7 @@ describe("Resend response reader ownership", () => {
       const delivery = driver.send(message, context);
       await vi.advanceTimersByTimeAsync(30_000);
 
-      await expect(delivery).resolves.toMatchObject({ error: { code: "TIMEOUT" } });
+      await expect(delivery).resolves.toMatchObject([{ code: "TIMEOUT" }, undefined]);
       expect(cancel).toHaveBeenCalledOnce();
       expect(response.body?.locked).toBe(false);
     } finally {

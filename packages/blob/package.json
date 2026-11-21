@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/blob",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Vite-first blob storage primitives and deployment integration for ViteHub.",
   "keywords": [
     "blob",
@@ -146,7 +146,6 @@
     "birpc": "catalog:runtime",
     "cjs-module-lexer": "2.3.0",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
@@ -161,6 +160,7 @@
     "@vercel/blob": "catalog:storage",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.4",
+    "esbuild": "catalog:tooling",
     "files-sdk": "catalog:storage",
     "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
@@ -222,6 +222,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

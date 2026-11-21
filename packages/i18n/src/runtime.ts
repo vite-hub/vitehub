@@ -1,4 +1,5 @@
 import { setupI18n } from "@lingui/core"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { matchLocale, parseAcceptLanguage, readCookie } from "./locales.ts"
@@ -98,20 +99,54 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
+/** Validate the recursive token tuples consumed by Lingui's compiled-message reader. */
+function isCompiledMessage(value: unknown): boolean {
+  return Array.isArray(value) && value.every((token) => {
+    if (typeof token === "string") return true
+    if (!Array.isArray(token) || token.length < 1 || token.length > 3 || typeof token[0] !== "string") return false
+    const [, type, format] = token
+    if (type === undefined) return token.length === 1
+    if (typeof type !== "string") return false
+    if (type === "plural" || type === "selectordinal" || type === "select") {
+      return isRecord(format) && Object.hasOwn(format, "other") && Object.entries(format).every(([key, choice]) =>
+        key === "offset" && type !== "select" ? typeof choice === "number" && Number.isFinite(choice) : isCompiledMessage(choice))
+    }
+    return format === undefined || format === null || typeof format === "string" || isRecord(format)
+  })
+}
+
+/** Each message is text or a compiled list of text and validated placeholders. */
+function isMessages(value: unknown): value is Messages {
+  return isRecord(value) && Object.values(value).every(message => typeof message === "string" || isCompiledMessage(message))
+}
+
+/** The body of the live catalog route: `{ revision, messages }`. */
+function readLiveCatalog(body: unknown): { revision: string, messages: Messages } | undefined {
+  if (!isRecord(body) || typeof body.revision !== "string") return
+  const messages = body.messages ?? {}
+  return isMessages(messages) ? { revision: body.revision, messages } : undefined
+}
+
 /**
  * Translations that a Workspace published after the build. The route answers with an ETag, so the browser downloads a
  * catalog again only after a publish. When the route fails, the page keeps the catalog of the build.
  */
 async function liveMessages(live: string, locale: string): Promise<Messages> {
+  let body: unknown
   try {
     const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
     if (!response.ok) return {}
-    const body = await response.json() as { revision?: string, messages?: Messages }
-    return body.revision === "build" ? {} : body.messages ?? {}
+    body = await response.json()
   }
   catch {
     return {}
   }
+  const catalog = readLiveCatalog(body)
+  if (!catalog) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_INVALID({ locale, route: live }))
+    return {}
+  }
+  return catalog.revision === "build" ? {} : catalog.messages
 }
 
 async function loadMessages(config: I18nRuntimeConfig | undefined, locale: string): Promise<Messages> {

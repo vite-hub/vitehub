@@ -16,6 +16,7 @@ import { linkSetupProject, readLinkHostOption, readSetupLinkState, SETUP_LINK_FI
 import { readSetupProject } from "./project.ts"
 import { removeCommand } from "./remove.ts"
 import { setupStatus } from "./status.ts"
+import { updateCommand } from "./update.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { SetupLiveStatus } from "./deployments.ts"
@@ -259,4 +260,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand, deploymentsCommand, loginCommand, logoutCommand, whoamiCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, updateCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand, deploymentsCommand, loginCommand, logoutCommand, whoamiCommand]

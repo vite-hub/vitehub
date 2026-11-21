@@ -8,7 +8,7 @@ import { deserializeResponse } from "../src/response.ts"
 it("gives RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID a fix and its own docs page", () => {
   const error = runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID()
   expect(error.fix).toMatch(/\S/)
-  expect(error.docs).toBe("https://vitehub.dev/docs/development/diagnostics/runtime_execution_budget_limit_invalid")
+  expect(error.docs).toBe("https://vitehub.dev/docs/runtime/diagnostics/runtime_execution_budget_limit_invalid")
 })
 
 it("reports a negative execution budget limit with its code and fix", () => {
@@ -19,10 +19,10 @@ it("reports a negative execution budget limit with its code and fix", () => {
   }))
 })
 
-it.each(["RUNTIME_CONSOLE_PATH_INVALID", "RUNTIME_CONSOLE_PROJECT_URL_INVALID", "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID", "RUNTIME_SERIALIZED_RESPONSE_INVALID"] as const)("gives %s a fix and its own docs page", (code) => {
+it.each(["RUNTIME_CONSOLE_PATH_INVALID", "RUNTIME_CONSOLE_PROJECT_URL_INVALID", "RUNTIME_DURATION_INVALID", "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID", "RUNTIME_SERIALIZED_RESPONSE_INVALID"] as const)("gives %s a fix and its own docs page", (code) => {
   const error = runtimeErrorDiagnostics[code]({ counter: "inputBytes", value: "x" })
   expect(error.fix).toMatch(/\S/)
-  expect(error.docs).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
+  expect(error.docs).toBe(`https://vitehub.dev/docs/runtime/diagnostics/${code.toLowerCase()}`)
 })
 
 it("reports a bad hostedConsoleUrl() argument, a bad budget amount, and a bad response record with a code and fix", () => {

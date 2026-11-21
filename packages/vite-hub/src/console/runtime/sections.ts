@@ -351,9 +351,8 @@ export function resolveConsoleSectionIds(options: {
   connections?: unknown;
   database?: unknown;
   email?: unknown;
-  host?: unknown;
   kv?: unknown;
-  observability?: unknown;
+  logs?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
   sandboxTask?: unknown;
@@ -361,12 +360,9 @@ export function resolveConsoleSectionIds(options: {
   workflow?: unknown;
   workspace?: unknown
 }): ConsoleSectionId[] {
-  const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && options.host !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
-    // `observability: { logs }` connects the log source that the section reads.
-    ...(options.observability && typeof options.observability === "object" && "logs" in options.observability && options.observability.logs ? ["logs"] : []),
+    ...(options.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
     ...(isConsoleMcpClientEnabled(options.console) ? ["mcp-client"] : []),
@@ -381,7 +377,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.rateLimit ? ["rate-limits"] : []),
     ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),
-    ...(workflowEnabled ? ["workflows"] : []),
+    ...(options.workflow ? ["workflows"] : []),
     ...(options.queue ? ["queues"] : []),
     ...(options.schedule ? ["schedules"] : []),
   ]

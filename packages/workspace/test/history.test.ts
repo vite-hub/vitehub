@@ -90,6 +90,25 @@ function rawFiles(files: Record<string, string | Uint8Array>) {
   return Object.fromEntries(Object.entries(files).map(([path, content]) => [path, { path, content }]))
 }
 
+it.each(["published", "draft"])("observes its own head rejection but not a post-write conflict on %s", async (ref) => {
+  const { store } = await setup("libsql")
+  const base = createWorkspace({ name: "history", store })
+  await base.history.commit({ ref: "published", ifHead: null, files: { "a.txt": "published" } })
+  const workspace = createWorkspace({ name: "history", store, hooks: {
+    "write:after": async () => { await base.history.commit({ ref, ifHead: null, files: { "a.txt": "hook" } }) },
+  } })
+  const onHeadConflict = vi.fn()
+  const commit = { ref: "draft", ifHead: null, files: { "a.txt": "draft" }, onHeadConflict }
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref } })
+  expect(onHeadConflict).not.toHaveBeenCalled()
+  const head = await workspace.history.head({ ref: "draft" })
+  expect(await (await workspace.history.open(head!.id)).readFile("a.txt")).toBe("draft")
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "draft" } })
+  expect(onHeadConflict).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "WORKSPACE_CONFLICT" }))
+})
+
 describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { timeout: 30_000 }, (driver) => {
   it("commits, lists, opens, and reads immutable text and binary files after a reopen", async () => {
     const { store, facade, fresh } = await setup(driver)
@@ -220,7 +239,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     const otherRevision = await other.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "same" }), metadata: { source: ["raw-store"] } })
     expect(otherRevision.metadata).toEqual({ source: ["raw-store"] })
     expect(uploads).toHaveBeenCalledTimes(3)
-    expect(uploads.mock.calls.map(([key]) => key)).toEqual(expect.arrayContaining([expect.stringMatching(/\/sha256\/[a-f0-9]{64}$/)]))
+    for (const [key] of uploads.mock.calls) expect(key).toMatch(/\/sha256\/[a-f0-9]{64}-[a-f0-9-]{36}$/)
     expect(uploads.mock.calls.every(([key]) => String(key).startsWith("_vitehub/workspace-history/"))).toBe(true)
     await store.delete()
     expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
@@ -829,7 +848,7 @@ describe("retained history Blob prefix", () => {
     await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "handbook" }) })
     const keys = uploads.mock.calls.map(([key]) => String(key))
     expect(keys).toHaveLength(1)
-    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
+    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}-[a-f0-9-]{36}$/)
     const [error, listed] = await blob.list()
     expect(error).toBeUndefined()
     expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)

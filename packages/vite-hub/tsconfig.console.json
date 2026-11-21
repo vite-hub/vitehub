@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.dev.json",
   "compilerOptions": {
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "ES2025.Intl", "DOM", "DOM.Iterable"],
     // Resolve workspace packages through their built declarations, so server sources stay out of this browser program.
     "paths": {
       // The stand-ins for Nuxt UI that the overlay builds with. `standaloneUI()` of the overlay build owns them.
@@ -16,6 +16,7 @@
     "src/page/**/*.ts",
     "../ui/src/standalone/virtual.d.ts",
     "test/console-comment-thread-dismissal.test.ts",
+    "test/console-stored-boot.test.ts",
     "test/vue.d.ts",
     "test/console-invocation-views/**/*.ts"
   ],

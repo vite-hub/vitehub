@@ -2,6 +2,7 @@ import { afterEach, assert, expect, it, vi } from "vitest"
 
 import { createWorkflow } from "../src/runtime/client.ts"
 import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRuntimeConfig } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => resetWorkflowRuntime())
 
@@ -13,15 +14,15 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
     headers: { "content-type": "application/octet-stream", "x-result": "original" },
   }))
   const workflow = createWorkflow("repeated-inspection", handler)
-  await workflow.start(undefined, { id: "run-1" })
+  await unwrap(workflow.start(undefined, { id: "run-1" }))
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
-  const first = await workflow.getRun("run-1")
+  const first = await unwrap(workflow.getRun("run-1"))
   assert(first.result instanceof Response)
   await expect(first.result.arrayBuffer()).resolves.toEqual(new Uint8Array([0, 128, 255]).buffer)
   first.result.headers.set("x-result", "changed by reader")
 
-  for (const read of [() => workflow.getRun("run-1"), () => workflow.start(undefined, { id: "run-1" })]) {
+  for (const read of [() => unwrap(workflow.getRun("run-1")), () => unwrap(workflow.start(undefined, { id: "run-1" }))]) {
     const next = await read()
     expect(next.status).toBe("completed")
     assert(next.result instanceof Response)
@@ -36,14 +37,14 @@ it.each(["vercel", "cloudflare"] as const)("keeps %s inline output readable acro
 it("keeps the stored output when an inspector cancels its response", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("cancelled-inspection", () => new Response("saved output"))
-  await workflow.start(undefined, { id: "run-1" })
+  await unwrap(workflow.start(undefined, { id: "run-1" }))
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
-  const first = await workflow.getRun("run-1")
+  const first = await unwrap(workflow.getRun("run-1"))
   assert(first.result instanceof Response)
   await first.result.body?.cancel()
 
-  const next = await workflow.getRun("run-1")
+  const next = await unwrap(workflow.getRun("run-1"))
   assert(next.result instanceof Response)
   await expect(next.result.text()).resolves.toBe("saved output")
 })
@@ -51,11 +52,11 @@ it("keeps the stored output when an inspector cancels its response", async () =>
 it("preserves a null response body across inspections", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("empty-inspection", () => new Response(null, { status: 204 }))
-  await workflow.start(undefined, { id: "run-1" })
+  await unwrap(workflow.start(undefined, { id: "run-1" }))
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
   for (let index = 0; index < 2; index++) {
-    const run = await workflow.getRun("run-1")
+    const run = await unwrap(workflow.getRun("run-1"))
     assert(run.result instanceof Response)
     expect(run.result.status).toBe(204)
     expect(run.result.body).toBeNull()
@@ -68,18 +69,18 @@ it("records a failed run when its response body cannot be retained", async () =>
   const workflow = createWorkflow("failed-output", () => new Response(new ReadableStream({
     start(controller) { controller.error(cause) },
   })))
-  await workflow.start(undefined, { id: "run-1" })
+  await unwrap(workflow.start(undefined, { id: "run-1" }))
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
-  expect(await workflow.getRun("run-1")).toMatchObject({ error: { message: "output stream failed" }, status: "failed", result: undefined })
+  expect(await unwrap(workflow.getRun("run-1"))).toMatchObject({ error: { message: "output stream failed" }, status: "failed", result: undefined })
 })
 
 it("returns a plain handler value, not a Response, on inspection and duplicate start", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow("plain-inspection", () => ({ ok: true }))
-  await workflow.start(undefined, { id: "run-1" })
+  await unwrap(workflow.start(undefined, { id: "run-1" }))
   await getWorkflowRunState(workflow.name, "run-1")!.promise
 
-  await expect(workflow.getRun("run-1")).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
-  await expect(workflow.start(undefined, { id: "run-1" })).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
+  await expect(unwrap(workflow.getRun("run-1"))).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
+  await expect(unwrap(workflow.start(undefined, { id: "run-1" }))).resolves.toMatchObject({ result: { ok: true }, status: "completed" })
 })

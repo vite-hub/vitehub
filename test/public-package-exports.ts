@@ -25,6 +25,15 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorPeers = {
+  "@tiptap/core": "both",
+  "@tiptap/extension-image": "both",
+  "@tiptap/extension-list": "both",
+  "@tiptap/extension-table": "both",
+  "@tiptap/pm": "both",
+  "@tiptap/starter-kit": "both",
+} satisfies Readonly<Record<string, OptionalPeerUsage>>
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -35,6 +44,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
   ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["@vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
   // Agent UI checks json-render specs and reads the form schemas of @vite-hub/forms. Its entries are Zod schemas.
   ["@vite-hub/agent/ui", { "@json-render/core": "both", "@json-render/vue": "runtime", "@vite-hub/forms": "both", "zod": "runtime" }],
   // The Vue renderer reads the json-render state store, which needs Zod, and draws Button and Tabs with @ui-sdk/vue.
@@ -49,10 +59,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // The assistant preset is an Agent Definition on the ChatGPT gateway.
   ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
-  // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
-  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
+  ["@vite-hub/content/editor", { ...contentEditorPeers, "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { ...contentEditorPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
@@ -83,6 +92,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console keeps the Agent journal in libSQL.
@@ -138,7 +148,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "sync", "ui", "web-container", "webhooks", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "device", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "sync", "ui", "web-container", "webhooks", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

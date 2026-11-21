@@ -50,7 +50,7 @@ Use the web platform before JavaScript, and JavaScript before a dependency. A na
 
 **Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use Nuxt UI, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
 
-**Server code** also runs on the Node floor in the root `package.json` `engines` (Node 22 today). Check a feature on [node.green](https://node.green) or the Node docs, not only on webstatus.dev. For example, Node 22 has no `Intl.DurationFormat`, so code that a server can render must not depend on it.
+**Server code** also runs on the Node floor in the root `package.json` `engines` (Node 24.15 today). Check a feature on [node.green](https://node.green) or the Node docs, not only on webstatus.dev.
 
 **Known exceptions.** Each one has a reason. Remove it when the reason goes away.
 
@@ -100,15 +100,21 @@ git fetch origin main
 corepack pnpm exec vp run doctor:typescript
 ```
 
-The task compares with the merge base of `origin/main`. Set `VITE_DOCTOR_SINCE` to compare with a different Git ref.
+The task compares with the merge base of `origin/main`. Set `VITE_DOCTOR_SINCE` to compare with a different Git ref. Doctor reports only the findings on lines that your branch changes, so a finding on a line you did not touch never fails the check. When you change a line that already has a finding, the finding is yours to fix.
 
-Fix each finding in the code. Each finding gives a fix and a link to its Diagnostic Code page. Do not suppress a finding to make the check pass. If the code is correct and the finding is wrong for one line, add a `doctor-disable-next-line <rule> -- <reason>` or a `// SAFETY:` comment. Write a reason that is true only for that line. Do not copy a reason from a different line. Doctor's instructions for agents are in [`node_modules/vite-doctor/docs/skills/doctor/SKILL.md`](node_modules/vite-doctor/docs/skills/doctor/SKILL.md).
+`doctor.config.json` runs only the rules it names. Its `overrides` set rules per path: some rules check only `packages/*/src`, and the type evidence rules are off in playgrounds, docs, and examples. To see every finding in the repository, not only those on changed lines, run `node node_modules/vite-doctor/dist/cli.mjs . --no-cache`.
+
+Fix each finding in the code. Each finding gives a fix and a link to its Diagnostic Code page. Do not suppress a finding to make the check pass. If the code is correct and the finding is wrong for one line, add a `doctor-disable-next-line <rule> -- <reason>` or a `// SAFETY:` comment. Write a reason that is true only for that line. Do not copy a reason from a different line. Name the rule ID, such as `typescript/evidence/no-chained-type-assertions`, not the Diagnostic Code. Doctor reports a directive that suppresses nothing (`DOC0036`) or names an unknown rule (`DOC0037`). Delete these directives. `--fix` deletes them for you. When the reason that you delete explains why the code is safe, keep it as a `// SAFETY:` comment. Doctor's instructions for agents are in [`node_modules/vite-doctor/docs/skills/doctor/SKILL.md`](node_modules/vite-doctor/docs/skills/doctor/SKILL.md).
 
 Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
 
 ## Pull requests
 
 Keep one concern per pull request. Use a clear conventional title and start the body with the user visible problem and result. Include focused validation. Do not merge, force push, or deploy without explicit authorization. Use an isolated worktree for pull request work and never remove pre existing work.
+
+Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](CONTRIBUTING.md#verify-the-changed-behavior). CI must not be the first check of your change.
+
+Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 
 ## Review guidelines
 

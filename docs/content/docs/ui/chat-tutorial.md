@@ -13,7 +13,7 @@ ViteHub UI is a set of Vue components for AI apps, such as a chat view and a pro
 In this tutorial, you show a short chat with one question and one reply. The messages are written in your code, so you can check the view before you connect an Agent.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Nuxt 5 app. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
+> You need Node.js 24.15 or newer on 24.x, or 26 or newer, pnpm, and a Nuxt 5 app. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
