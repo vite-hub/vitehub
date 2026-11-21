@@ -28,6 +28,12 @@ vi.mock("node:dns/promises", () => {
   return { lookup, default: { lookup } }
 })
 
+const httpsRequest = vi.hoisted(() => vi.fn())
+vi.mock("node:https", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:https")>(),
+  request: httpsRequest,
+}))
+
 const origin = "https://notes.test"
 const relay = "https://relay.t3.codes/hooks/wh_7c1d?token=t3-relay-token"
 const people: Record<string, CommentsUser> = {
@@ -110,19 +116,19 @@ beforeEach(() => {
   receiverStatus = 202
   hidden = new Set()
   vi.stubEnv("VITEHUB_WEBHOOKS_KEY", btoa(String.fromCharCode(...new Uint8Array(32).fill(7))))
-  const real = globalThis.fetch
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init)
-    if (!request.url.startsWith("https://relay.t3.codes/") && !request.url.startsWith("https://hooks.example.com/")) return real(input, init)
-    deliveries.push({ url: request.url, headers: request.headers, body: JSON.parse(await request.text()) })
-    return new Response(null, { status: receiverStatus })
-  })
+  httpsRequest.mockReset()
+  httpsRequest.mockImplementation((url: URL, options: { headers: Record<string, string> }, onResponse: (response: { statusCode: number, destroy: () => void }) => void) => ({
+    on: vi.fn(),
+    end: (body: string) => {
+      deliveries.push({ url: url.href, headers: new Headers(options.headers), body: JSON.parse(body) })
+      onResponse({ statusCode: receiverStatus, destroy: vi.fn() })
+    },
+  }))
 })
 
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
-  vi.unstubAllGlobals()
 })
 
 describe("pairing", () => {
