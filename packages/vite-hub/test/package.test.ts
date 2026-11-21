@@ -42,6 +42,7 @@ import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
+import { renamedForwarders } from "./forwarder-owners.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -186,13 +187,10 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   return targets;
 }
 
-// `vite-hub/operations` forwards the operation contract of the Runtime package.
-const renamedForwarders = new Map([["./operations", "@vite-hub/runtime/operations"]]);
-
 function ownerSpecifierForDistributionSubpath(subpath: string): string {
   const renamed = renamedForwarders.get(subpath);
   if (renamed) return renamed;
-  const [owner, ...rest] = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/");
+  const [owner, ...rest] = subpath.replace(/^\.\//, "").split("/");
   return [`@vite-hub/${owner}`, ...rest].join("/");
 }
 
@@ -210,6 +208,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
   const path = subpath.replace(/^\.\//, "");
 
   if (subpath === "./package.json") return "package metadata";
+  if (specifier === "@vite-hub/channels/adapters") return "subset composed into the Agent adapter facade";
   if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/codemods") return "framework tooling";
   if (/^(?:cli|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
@@ -302,6 +301,7 @@ describe("framework package contract", () => {
       "./console/ui",
       "./doctor",
       "./logs",
+      "./logs/client",
       "./logs/host",
       "./logs/memory",
       "./logs/source",
@@ -342,7 +342,8 @@ describe("framework package contract", () => {
       }
 
       for (const subpath of Object.keys(Object(ownerExports))) {
-        if (manifest.exports[distributionSubpath(packageName, subpath)]) continue;
+        const distributionPath = distributionSubpath(packageName, subpath);
+        if (manifest.exports[distributionPath] && !renamedForwarders.has(distributionPath)) continue;
         if ([...renamedForwarders.values()].includes(ownerSpecifier(packageName, subpath))) continue;
         if (ownerOnlyReason(packageName, subpath)) continue;
         unclassified.push(ownerSpecifier(packageName, subpath));
@@ -376,6 +377,9 @@ describe("framework package contract", () => {
     }
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
+    );
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-app-types.d.ts`, "utf8")).toContain(
+      "export = CloudflareWorkersModule",
     );
     expect(readFileSync(`${packageRoot}/dist/cloudflare-workers.d.ts`, "utf8")).toContain(
       'declare module "cloudflare:workers"',
@@ -784,7 +788,7 @@ describe("framework package contract", () => {
         "/_vitehub/rpc",
         "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/session",
+        "/_vitehub/page/tools",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

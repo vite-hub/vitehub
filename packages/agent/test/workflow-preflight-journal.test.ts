@@ -4,6 +4,7 @@ import { defineAgent, portableAgentWorkflowInput, startAgentInvocation, agentWor
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
+import { createMessage } from "../src/messages.ts"
 
 afterEach(() => {
   setAgentWorkflowRuntimeLoaders({
@@ -133,6 +134,32 @@ describe("Workflow delivery lock portability", () => {
       steer: { lock: { expiresAt: 123, threadId: "telegram", token: () => "invalid" } },
     } } })).rejects.toThrow("JSON-compatible")
     await expect(portableAgentWorkflowInput({ context: { userLock: new Date() } })).rejects.toThrow("JSON-compatible")
+  })
+})
+
+describe("Workflow chat history attachment portability", () => {
+  const context = { "vitehub.channelDelivery": { deliveryId: "delivery-id", provider: "telegram", state: "chat" } }
+  const expired = Object.assign(new Error("Photo not found"), { status: 404 })
+  const photo = { fetchData: async () => { throw expired }, mediaType: "image/jpeg", type: "image" } as const
+  const followUp = createMessage({ id: "follow-up", metadata: { chat: { skippedCount: 1 } }, parts: [{ text: "continue", type: "text" }], role: "user" })
+
+  it("hands off a Telegram text follow-up even when one history photo has expired", async () => {
+    const history = createMessage({ id: "history", parts: [photo, { data: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", type: "image" }, { text: "earlier photos", type: "text" }], role: "user" })
+    const queued = createMessage({ id: "queued", parts: [{ text: "and this", type: "text" }], role: "user" })
+
+    const portable = await portableAgentWorkflowInput({ context, messages: [history, queued, followUp] }, followUp.id)
+
+    expect(portable.messages).toEqual([
+      { ...history, parts: [{ data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" }, { text: "earlier photos", type: "text" }] },
+      queued,
+      followUp,
+    ])
+  })
+
+  it("still rejects failed photo downloads in the current and queued inputs", async () => {
+    const attachment = createMessage({ id: "queued", parts: [photo], role: "user" })
+    await expect(portableAgentWorkflowInput({ context, messages: [attachment] }, attachment.id)).rejects.toBe(expired)
+    await expect(portableAgentWorkflowInput({ context, messages: [attachment, followUp] }, followUp.id)).rejects.toBe(expired)
   })
 })
 

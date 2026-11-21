@@ -1,10 +1,10 @@
 # @vite-hub/realtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Yjs" src="https://comark-ui.onmax.me/badge.svg?label=Yjs&amp;value=collaboration">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Yjs" src="https://img.shields.io/static/v1?label=Yjs&amp;message=collaboration&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/realtime` synchronizes TipTap editors through Yjs while a ViteHub Workspace owns the canonical Markdown files. Use the package directly when you compose ViteHub's modular Vite integrations. Use [`vite-hub`](https://www.npmjs.com/package/vite-hub) when you want the combined distribution.
@@ -56,7 +56,7 @@ export default defineWorkspace({
 import { defineRealtime } from "@vite-hub/realtime"
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: "docs" },
   history: { checkpoint: true },
 })
@@ -110,6 +110,8 @@ console.log(checkpoint.document.body)
 console.log(checkpoint.snapshot.id)
 ```
 
+Checkpoints use the Workspace Store's author by default. Set `document.checkpointAuthor` only to look up a Git identity approved for publication for the identified requester. Leave it unset for GitHub branches that require signed commits.
+
 ## Share presence without a document
 
 Set `document: false` when a room only shows who is there and what each person shares, such as a cursor. Nothing loads or saves, `authorize()` is asked only for `read`, and the rooms work with every Realtime driver.
@@ -119,7 +121,7 @@ Set `document: false` when a room only shows who is there and what each person s
 import { defineRealtime } from "@vite-hub/realtime"
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: false,
 })
 ```
@@ -162,18 +164,22 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 
 ## Deployment and security boundaries
 
-- The Vue adapter connects to the generated same-origin `/api/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions. In a component it prepares the editor extensions during setup and connects when the component mounts, so the server render and the first browser render both have `status` `disconnected`.
+- The Vue adapter connects to the generated same-origin `/_vitehub/realtime/**` WebSocket route. The Vite integration registers that route and discovers `server/realtime` definitions. In a component it prepares the editor extensions during setup and connects when the component mounts, so the server render and the first browser render both have `status` `disconnected`.
 - `driver: "memory"` is single-process and loses room state when the process stops. ViteHub rejects it for known distributed hosts. It retains at most 128 active rooms.
 - `driver: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `driver: "auto"` selects it when a Cloudflare host or hosting environment can be resolved.
 - On a Node build, `driver: "auto"` picks when the server starts: `redis` with `REDIS_URL`, else `postgres` on the postgres.js client of the Default Database when it is on Postgres (`REALTIME_POSTGRES_URL` overrides it; `DATABASE_URL` is not read), else `memory`. A borrowed Database client is never closed. It prints the choice at boot. With `redis` or `postgres`, each instance holds its rooms in memory and shares Yjs updates and awareness with the other instances through Redis pub/sub or Postgres `LISTEN`/`NOTIFY`. The instances start each room from one shared record (`vitehub_realtime_rooms` on Postgres), and saves of one room run one at a time under a lock, so `ifDigest` stays correct across instances. `NOTIFY` payloads over 8,000 bytes go through the `vitehub_realtime_messages` table. Each app has its own namespace on the bus (`realtime.namespace`, else the app name; `REALTIME_NAMESPACE` replaces it at runtime), so two apps on one Redis or Postgres never share a room. Presence of a stopped instance leaves at once, and that of a crashed instance after the 30 second Yjs awareness timeout. Other production builds fail with `REALTIME_MISSING_DRIVER`.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
-- Each Realtime Definition must set `auth: true`, `authorize()`, or `access: "public"`. Otherwise the server rejects it with `REALTIME_MISSING_ACCESS`. `authorize()` allows only when it returns `true`; `undefined` and `false` deny. `auth: true` needs ViteHub Auth or `identify()`; it verifies the user and replaces client-supplied presence identity. `access: "public"` lets each person read and write each Realtime. Presence in a public definition is untrusted and must not authorize application actions.
+- Each Realtime Definition must set `authorize: true`, `authorize()`, or `access: "public"`. Otherwise the server rejects it with `REALTIME_MISSING_ACCESS`. `authorize()` allows only when it returns `true`; `undefined` and `false` deny. It also runs for signed-out callers, with `user: null`. `authorize: true` needs ViteHub Auth or `identify()`; it verifies the user and replaces client-supplied presence identity. `access: "public"` lets each person read and write each Realtime. Presence in a public definition is untrusted and must not authorize application actions.
 - Requests with an `Origin` other than the app's get 403 on each definition, unless `origins()` accepts the origin.
 - Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a Realtime driver and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
-- Realtime routes follow the app base, including a Nuxt `app.baseURL`. With Vite `base: "/portal/"`, connections use `/portal/api/_vitehub/realtime/**`; Nitro's own `baseURL` is counted once.
+- Realtime routes follow the app base, including a Nuxt `app.baseURL`. With Vite `base: "/portal/"`, connections use `/portal/_vitehub/realtime/**`; Nitro's own `baseURL` is counted once.
 - `refreshRealtimeDocument(definition, id)` tells an open room that its stored copy changed outside it. Document adapters may implement `hold()` and `release()` to keep a lease while writers are in a room.
 - One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
-- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
+- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A `REALTIME_REQUEST_FAILED` error has the HTTP status in `error.data.status`. A refused request returns the code that the server names, such as `REALTIME_SOURCE_CHANGED` when the stored document changed, or `REALTIME_SYNC_PENDING` after 20 retries. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
+
+## Refusals and failures in logs
+
+With the evlog Nitro module registered, a refused connection, save, checkpoint, or refresh gets a `realtime` field on its request's wide event: `{ definition, room, refused, status, code? }`. A room id of a `document: false` Definition is a short hash, because it can be a token. After the WebSocket opens, close codes, connection errors, failed sync between Node instances, and failed background saves are their own evlog events, `{ action: "realtime", message, realtime: { definition, room, closed | failed } }`. Without evlog, Realtime prints the sync and save failures to the console. See [Limits and errors](https://vitehub.dev/docs/realtime/limits-and-errors#see-refusals-and-failures-in-logs).
 
 ## Public imports
 

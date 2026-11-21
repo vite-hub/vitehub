@@ -1,9 +1,11 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, open, opendir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
+
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
@@ -15,6 +17,19 @@ interface FsMultipartState {
   contentType?: string
   customMetadata?: Record<string, string>
   pathname: string
+}
+
+// The ops that already logged a failure. `list()` reads every file, so a broken cache folder would log once per file.
+const loggedFsFailures = new Set<string>()
+
+/**
+ * Logs a failed cache or metadata write that the operation survives, once per process for each `op`. The driver does
+ * not know the request or a `waitUntil()`, so the failure is an event of its own.
+ */
+function logFsFailure(op: string, message: string, error: unknown, fallback: () => void): void {
+  if (loggedFsFailures.has(op)) return
+  loggedFsFailures.add(op)
+  logFailure({ field: "blob", fields: { op, driver: "fs" }, message, error }, fallback)
 }
 
 const uploadIdPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
@@ -297,7 +312,7 @@ async function readCopiedMetadata(root: string, pathname: string, path: string, 
   // before the sidecar is published, so readers also check its recorded hash.
   if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
     await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
-      console.error("[vitehub/blob] Filesystem metadata re-key failed", error)
+      logFsFailure("fs-metadata-rekey", "Blob filesystem metadata re-key failed", error, () => console.error("[vitehub/blob] Filesystem metadata re-key failed", error))
     })
   }
   return metadata
@@ -464,7 +479,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         if (!bytes || version !== await currentVersion(path)) continue
         contentHash = sha256(bytes)
         await writeHash(root, pathname, { contentHash, fileVersion: version }).catch((error) => {
-          console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+          logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
         })
       }
       const hash = contentHash
@@ -653,7 +668,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     const published = await stat(publishedPath, { bigint: true })
     if (written && published.dev === written.dev && published.ino === written.ino && published.size === written.size && published.mtimeNs === written.mtimeNs) {
       await writeHash(root, pathname, { contentHash, fileVersion: fileVersion(published) }).catch((error) => {
-        console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+        logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
       })
     }
     const entry = await readEntry(root, pathname)
@@ -745,6 +760,11 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
 
   const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
     name: "fs",
+    async checkHealth() {
+      await assertNoSymlinkPath(root, root)
+      const directory = await opendir(root).catch(ignoreNotFound)
+      await directory?.close()
+    },
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
     // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.

@@ -373,6 +373,22 @@ describe("agent memory capability", () => {
     await expect(denied.search(request)).rejects.toThrow("EACCES")
   })
 
+  it("throws AGENT_MEMORY_EVENT_INVALID for a JSONL line that is not a memory event, and skips a torn last line", async () => {
+    const { workspaceJsonlMemoryStore } = await import("../src/capabilities.ts")
+    const valid = { op: "delete", deletedAt: "2026-11-01T00:00:00.000Z", digest: "d", id: "mem_1", scope: { agent: "support" }, store: "agent", tombstoneId: "mem_del_1", version: 1 }
+    const store = (contents: string) => workspaceJsonlMemoryStore({ path: "memory/memory.jsonl" }).create({
+      workspace: { fs: { appendFile: vi.fn(), mkdir: vi.fn(), readFile: async () => contents, writeFile: vi.fn() } },
+    } as never)
+    const request = { query: "", scope: { agent: "support" }, store: "agent" }
+
+    const torn = await store(`${JSON.stringify(valid)}\n{"op":"upse`)
+    await expect(torn.search(request)).resolves.toEqual({ items: [] })
+    for (const line of [{ op: "upsert", store: "agent" }, { ...valid, scope: "support" }, { ...valid, op: "rename" }]) {
+      const broken = await store(`${JSON.stringify(valid)}\n${JSON.stringify(line)}\n`)
+      await expect(broken.search(request)).rejects.toMatchObject({ code: "AGENT_MEMORY_EVENT_INVALID", why: expect.stringContaining("memory/memory.jsonl:2") })
+    }
+  })
+
   it("rejects store retention, which memory() does not apply", async () => {
     const { memory } = await import("../src/capabilities.ts")
     const adapter = { create: vi.fn(), kind: "test" }

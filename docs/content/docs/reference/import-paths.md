@@ -21,17 +21,17 @@ the same behavior.
 | `vite-hub` | `vitehub()`, the framework Vite plugin. |
 | `vite-hub` | `detectHost()`: the host `vitehub()` detects when `host` is omitted. Use it for host-specific config. |
 | `vite-hub/seo` | `defineSitemap()` for the pages of `server/sitemap.ts`. See [Sitemap and robots.txt](/docs/frameworks-hosts/sitemap). |
-| `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
+| `vite-hub/skills` | Define and serve [Agent Skills](/docs/console/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
-| `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval helpers. Install Evalite and the test runner yourself. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
 | `vite-hub/logs` | The LogSource contract and `createLogBuffer()`. Import the Evlog logger API from `evlog`. |
 | `vite-hub/logs/source` | Server-side LogSource contract, query validation, and cursor errors without Evlog. |
 | `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runs without Evlog, but its types need `evlog`. |
 | `vite-hub/logs/host` | Install and resolve a project's LogSource in the process-wide registry, without Evlog. |
+| `vite-hub/logs/client` | `reportBrowserError()`: send an error that the page caught, or a warning, to the server logs. Needs `observability.browserErrors`. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. `useChat(agent, { page })` connects the page's ui-sdk bridge. |
 | `vite-hub/agent/page` | [`connectPage()`](/docs/agents/capabilities/page): lets an Agent with `page()` work this page through ui-sdk's agent bridge, in any framework. |
@@ -40,8 +40,8 @@ the same behavior.
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
-| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
-| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
+| `vite-hub/choices` | [`defineChoices()`](/docs/choices/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/choices`. |
+| `vite-hub/choices/vue` | [`useChoices()`](/docs/choices/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/choices/vue`; auto-imported in Nuxt. |
 | `vite-hub/device` | [`openDevice()`, `setDeviceAccount()`, `clearDevice()`, and `inspectDevice()`](/docs/device/browser-api): the stored copies of server answers in the browser, for one account. Re-exports `@vite-hub/device`. |
 | `vite-hub/device/vue` | [`useStoredData()`](/docs/device/browser-api#usestoreddata) and [`useStoredFetch()`](/docs/device/browser-api#usestoredfetch): the last answer at once from the device, then a fresh one. Re-exports `@vite-hub/device/vue`. |
 | `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. `formFields()`, `toElicitation()`, and `toChatModal()` draw the same schema as an MCP elicitation or a Slack or Teams modal, and `checkForm()` checks the answers. Re-exports `@vite-hub/forms`. |
@@ -56,10 +56,10 @@ the same behavior.
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
 | `vite-hub/gateways` | [AI Gateways](/docs/gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/gateways/server-api#use-a-model-with-the-ai-sdk): an AI SDK model that sends requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
-| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/presets/babysitter` | Composable [Babysitter](/docs/presets/babysitter) repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
-| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
+| `vite-hub/presets/labeller` | [Gmail labelling preset](/docs/presets/labeller) with ordered rules, Jev fallback, and allowlisted message actions. |
+| `vite-hub/presets/workspace` | Opt-in [workspace source-provenance citation preset](/docs/presets/workspace). |
 | `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
@@ -104,7 +104,9 @@ the same behavior.
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` is on. |
-| `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, the `webhook()` and `stripe()` adapters, and `useChannel()` for named sends. |
+| `vite-hub/channels` | `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, `rejected()`, `useChannel()`, and `sendChannelTrigger()`. Needs no `@vite-hub/agent`. |
+| `vite-hub/channels/server` | `useChannel()` for named sends and `sendChannelTrigger()` for outgoing triggers. |
+| `vite-hub/channels/adapters` | Every Channel adapter: `webhook()`, `stripe()`, `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, `gitlab()`, `forgejo()`, `gmail()`, `webChat()`, and `channelAdapter()`. Needs `@vite-hub/agent`, which serves their webhook route. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, Comments API, presence, MCP, and [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
@@ -125,10 +127,10 @@ the same behavior.
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
-| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
+| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
-| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
+| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/console/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |
 | `vite-hub/rate-limit/drivers/memory` | `memoryRateLimitDriver()`: fixed windows in one process, for local runs and tests. |
@@ -138,7 +140,7 @@ the same behavior.
 | `vite-hub/realtime/bus` | Node room fanout through Postgres or Redis, bus selection, and shutdown hooks for manual server integration. |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
 | `vite-hub/realtime/agent` | `agentRealtime`, the Realtime handle that ViteHub passes to the Agent [`page()`](/docs/agents/capabilities/page) Capability. Apps do not import it. |
-| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
+| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. See [Runtime](/docs/runtime). |
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
@@ -165,6 +167,7 @@ the same behavior.
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | Every AI interface component, headless message scrolling, and default styles. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
 | `vite-hub/ui/workspace` | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
+| `vite-hub/ui/motion` | The motion layer without Vue: `installMotion()` for a page or a shadow root, the spring engine, reduced motion, and `defineMotionEffect()`. |
 | `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
@@ -202,7 +205,7 @@ These paths have no `vite-hub` path:
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/comment-marks.css` | UI Package | The comment pins and highlights as plain CSS, for a page that reads the file as text with `?raw`. |
-| `@vite-hub/ui/icon-swap.css` | UI Package | The `CopyButton` icon swap as plain CSS, for a page that reads the file as text with `?raw`. |
+| `@vite-hub/ui/icon-swap.css` | UI Package | A copy and check icon cross-fade as plain CSS, for a page that runs no script of ours and reads the file as text with `?raw`. |
 | `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 

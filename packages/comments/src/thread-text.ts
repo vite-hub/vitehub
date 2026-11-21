@@ -39,7 +39,7 @@ export function describeCommentThread(thread: CommentThread): string {
       ...(message.attachments.length ? [`Attachments: ${message.attachments.join(", ")}`] : []),
     ]),
   ]
-  if (thread.resolvedBy) lines.push("", `Resolved by ${commentPersonName(thread.resolvedBy)} at ${new Date(thread.resolvedAt ?? thread.updatedAt).toISOString()}`)
+  if (thread.resolvedBy) lines.push("", `Resolved by ${thread.resolvedActor ? `${thread.resolvedActor.name ?? thread.resolvedActor.id} for ` : ""}${commentPersonName(thread.resolvedBy)} at ${new Date(thread.resolvedAt ?? thread.updatedAt).toISOString()}`)
   return lines.join("\n")
 }
 

@@ -1,10 +1,10 @@
 # @vite-hub/blob
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
-  <img alt="Storage" src="https://comark-ui.onmax.me/badge.svg?label=Blob&amp;value=stores">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=config&amp;color=blue">
+  <img alt="Storage" src="https://img.shields.io/static/v1?label=Blob&amp;message=stores&amp;color=blue">
 </p>
 
 `@vite-hub/blob` gives server code one object-storage API across local files and hosted blob providers.
@@ -65,7 +65,9 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
-At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
+At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`. A named `fs` store without `base` uses a sibling folder such as `.vitehub/data/blob-avatars`. The Node development fallback of a `cloudflare` store uses the same rule. Names used to generate folders can use letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
 
 The `fs` driver keeps each object as the file at its pathname, so `docs/a.txt` is the file `<base>/docs/a.txt`. A pathname that is also a folder, such as `docs` next to `docs/a.txt`, keeps its bytes in `<base>/.vitehub/blob-folder-objects`, the same way S3 and R2 keep both keys. Files that older versions stored stay where they are.
 
@@ -85,7 +87,7 @@ On Vercel, the `vercel` driver uses OIDC when the project has `BLOB_STORE_ID`, w
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the dev runner's emulated R2 binding. Without a binding, only the Node runner falls back to `fs`. With Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the store.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -97,9 +99,9 @@ export default defineConfig({
 })
 ```
 
-With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. Another explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
-Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route uses `/api/_vitehub/blob` as a safe namespaced API route by default. Use `serve.route` for product-facing paths such as `/assets`.
+Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route is `/_vitehub/blob` by default. Use `serve.route` for product-facing paths such as `/assets`.
 `put()` has no `access` option. One object cannot be private in a public store, so `put()` with `access` throws `BLOB_R0045`. Keep private files in a store that the route does not serve, or serve that store with `authorize: true`. On Vercel Blob, `access` on the store sets the provider access. It defaults to `"private"`, or to `"public"` when `serve: { access: "public" }` serves the store, and `access: "public"` on a store that `authorize: true` serves fails with `BLOB_C0022`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 `servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
@@ -242,6 +244,7 @@ export async function shareAudio(file: Blob) {
   const [downloadError, download] = await blob.sign("private/audio.mp3", {
     method: "GET",
     expiresIn: 60 * 60,
+    download: "Interview.mp3",
   })
   if (downloadError) throw downloadError
 
@@ -249,6 +252,7 @@ export async function shareAudio(file: Blob) {
     method: "PUT",
     expiresIn: "15m",
     contentType: "audio/mpeg",
+    contentLength: file.size,
     createOnly: true,
   })
   if (uploadError) throw uploadError
@@ -268,7 +272,7 @@ The returned headers are part of the request contract and must be sent unchanged
 
 `maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel` drivers bind it.
 
-The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob/signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob-signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link, or a body that is not `contentLength` bytes (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. `download` sets `Content-Disposition: attachment` on the signed `GET`, as on `serve()`. `contentLength` binds the exact body size of a `PUT`: the `fs` and `cloudflare` drivers bind it, and the other drivers fail. `maxSize` binds the largest size on the `fs` and `vercel` drivers only. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 
@@ -349,6 +353,10 @@ blob: {
   secretAccessKey: process.env.MINIO_ROOT_PASSWORD,
 }
 ```
+
+## Failures in logs
+
+A failed cache read or write, derived file cleanup, media record write, or `fs` hash or metadata write does not fail the operation. With the evlog Nitro module registered, Blob logs it with `blob: { op, store, driver, code }`: on the wide event of a `serve()` request, else as its own evlog event, once per process for each `fs` op. Events never hold the error message or a pathname. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/blob/limits-and-errors#see-cache-failures-in-logs).
 
 ## CLI
 

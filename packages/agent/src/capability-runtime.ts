@@ -6,7 +6,8 @@ import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isSourceSkillsOf } from "./internal/source-skills.ts"
-import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
+import { ViteHubError } from "@vite-hub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 import { applyWorkspaceAccessWrapper, grantWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, trustedWorkspaceAccessScope, workspaceOverrideSymbol } from "./access-runtime.ts"
@@ -266,7 +267,6 @@ export function defineCapability<
 >(
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & NoInfer<CheckedCapabilityTools<TCapability, TRuntimeConfig, Name>>,
 ): TCapability
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This call fixes the config type; the returned builder checks the supplied Capability and infers its tool schemas.
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The returned builder constrains the supplied Capability to this Workspace name.

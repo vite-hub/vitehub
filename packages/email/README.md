@@ -1,9 +1,9 @@
 # `@vite-hub/email`
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Femail&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Femail&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
@@ -76,7 +76,7 @@ import { email } from "@vite-hub/email"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
-  data: { user: { name: "Maxi" } },
+  data: { user: { name: "Ada" } },
 })
 
 const [error] = await email.send({
@@ -107,7 +107,7 @@ import { email } from "@vite-hub/email"
 
 const [error] = await email.send({
   template: "welcome",
-  data: { user: { name: "Maxi" } },
+  data: { user: { name: "Ada" } },
   from: "hello@example.com",
   to: "you@example.com",
   subject: "Your workspace is ready",
@@ -122,7 +122,7 @@ To render a template without sending it, import its typed async renderer:
 ```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
 
-const markdown = await renderWelcome({ user: { name: "Maxi" } })
+const markdown = await renderWelcome({ user: { name: "Ada" } })
 ```
 
 Nested paths keep their relative name. For example,
@@ -182,9 +182,9 @@ Read the outbox from a running Development Server, or render a template without 
 
 ```bash
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html
+pnpm vitehub email outbox get outbox-1 --html
 pnpm vitehub email outbox clear
-pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
+pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
 `email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`).

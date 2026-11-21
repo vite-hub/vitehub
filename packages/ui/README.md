@@ -1,9 +1,9 @@
 # @vite-hub/ui
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fui&icon=npm)](https://npmx.dev/package/@vite-hub/ui)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fui&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/ui)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/ui)](https://npmx.dev/package/@vite-hub/ui)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/ui)](https://npmx.dev/package/@vite-hub/ui)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 Vue primitives for AI chat, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
@@ -19,12 +19,13 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, `useComments()`, and the Choices input parts | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
 | `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/motion` | The motion layer: press, toggle, select, drag, and appear motion by role, the shared spring engine, and reduced motion. No Vue, so a plain TypeScript page or a shadow root can use it | Nothing: `createViteHubUI()` and the Nuxt module install it |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 | `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
 | `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
-| `@vite-hub/ui/icon-swap.css` | The copy and check icon cross-fade of `CopyButton` in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the button with its data attributes |
+| `@vite-hub/ui/icon-swap.css` | A copy and check icon cross-fade in plain CSS, for a page or a shadow root that runs no script of ours. `CopyButton` uses `swapIcon` instead, and `styles.css` leaves the file out | Rendering the button with its data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 
@@ -286,6 +287,56 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 ```
 
 Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
+
+## Motion
+
+Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. A pressed `button`, link, tab, radio, option, menu item, or checkbox squashes and springs back past rest. A pressed switch grows its knob instead of squashing the whole control. Non-transformable inline controls, such as links in running text, keep their layout and do not squash. A pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
+
+- Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
+- Turn it off for the app with `createViteHubUI({ motion: false })`.
+- Without Vue, call it yourself. Pass a shadow root to watch the state attributes inside it too:
+
+```ts
+import { installMotion } from "@vite-hub/ui/motion";
+
+const host = document.createElement("div");
+document.body.append(host);
+const uninstall = installMotion(host.attachShadow({ mode: "open" }));
+```
+
+Four parts move with the helpers of the motion layer, for events that only the component knows:
+
+- `MotionList` replaces `<TransitionGroup>`. Render keyed items in its slot: neighbors spring to their new place, a new item grows from `origin` (the row it duplicates) or from its slot, and a removed item folds away.
+- `Progress` shows work that runs: `value` from 0 to 1 fills the bar with a head, `null` shows a wave while the total is not known, and `done` draws a dot into a check. It has `role="progressbar"` and `aria-valuenow`.
+- `DropField` is a label around a file input. The dots behind its text lean toward a dragged file. A click and the keyboard open the file picker. It emits `files`.
+- `HoldToDelete` is a button that deletes when it is held. It emits `delete` (hide the item), shows Undo for `undoFor` ms (emits `undo`), and only then calls `commit`. Unmounting it during the Undo window commits. A click from a screen reader asks `confirm` first.
+
+```vue
+<MotionList tag="ul">
+  <li v-for="file in files" :key="file.id">{{ file.name }}</li>
+</MotionList>
+<Progress :value="upload.progress" :done="upload.done" label="Upload cover.png" />
+<HoldToDelete :commit="() => removeFile(file.id)" @delete="hidden = true" @undo="hidden = false" />
+```
+
+Without Vue, `createMotionList`, `createProgress`, `createDropField`, and `createHoldToDelete` from `@vite-hub/ui/motion` do the same on any element.
+
+### Labels, icons, counts, and rings
+
+The layer also morphs what changes with state. When the label of a `UButton` changes, such as `:label="loading ? 'Publishing' : 'Publish'"`, its letters change one at a time and the button's width follows with a spring. When Vue draws another icon into the button's leading or trailing icon, such as the spinner of `loading`, the old icon blurs out and the spinner draws its stroke in. The app only changes the label and the icon. With `@nuxt/icon` in CSS mode an icon is a class, which the layer does not watch, so the icon changes at once there; use `SwapIcon` in the button's `leading` slot.
+
+For everything else, use the component or the helper:
+
+| Vue | Helper in `@vite-hub/ui/motion` | Use it for |
+| --- | --- | --- |
+| `<MorphText :text="copied ? 'Copied' : 'Copy link'" />` | `morphText(element, text)` | A label outside a `UButton` |
+| `<SwapIcon :name="icon" enter="draw" />` | `swapIcon(container, icon, { exit, enter })` | An icon that says what happened: `exit: "right"` for an arrow that leaves the way it points, `enter: "draw"` for a check or a spinner |
+| `<RollNumber :value="count" />` | `rollNumber(element, value, format?)` | A count: only the changed digits roll, up when it grows, down when it shrinks |
+| `<UButton v-ring="saved" />` | `ring(element)` | A finished action, such as saved or copied: a ring in the border color grows once and fades |
+
+`CopyButton` uses all of them. Each helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text for screen readers the whole time and holds plain text again at the end. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
+
+The entry also has the spring engine (`createSpring`, `springs.snappy`, `springs.soft`), reduced motion (`prefersReducedMotion`, `onReducedMotionChange`, `forceReducedMotion`), `setMotionSlowFactor(4)` to watch an effect at ¼×, and `defineMotionEffect` to add an effect for a role. The motion page in `test/browser/motion/` renders every role; `pnpm --filter @vite-hub/ui test:motion` checks it in Chromium, and `MOTION_RECORD=<dir>` records each press at ¼×.
 
 ## The ui-sdk set
 

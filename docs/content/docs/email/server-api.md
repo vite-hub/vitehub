@@ -142,6 +142,9 @@ TypeScript completes `template` with the names under `server/emails`, and types
 | A value that the template reads only inside an `::if` branch | Optional, and also takes `null`, such as a database column with no value |
 
 An unknown name, a missing value, or a value of the wrong type does not compile.
+The build reports `EMAIL_TEMPLATE_SYNTAX_INVALID` when a template uses an old
+binding such as `{{ name }}` instead of `{{ data.name }}`, or puts either form
+inside inline code or a code block, where it stays as text.
 When `data` does not fit at runtime, `send()` returns
 `EMAIL_TEMPLATE_RENDER_FAILED`. A name that no template has throws
 `EMAIL_TEMPLATE_NOT_FOUND`. A message with `template` cannot also set `html` or

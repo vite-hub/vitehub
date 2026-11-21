@@ -68,14 +68,14 @@ Pass `at` or `cron`, not both. `payload` is a JSON value that the handler gets a
 | `listSchedules({ name })` | `Result<StartedSchedule[]>`, oldest first. `name` is optional. |
 | `cancelSchedule(id)` | `Result<StartedSchedule>`, the Schedule that it removed. A run that already started finishes. |
 
-Each function returns `[error, data]` and does not throw. A one-time Schedule leaves the store after its run, also when the handler fails. Its run stays in the run history: `vitehub schedule runs <id>` lists it.
+Each function returns `[error, data]` and does not throw. A one-time Schedule leaves the store after its run, also when the handler fails. Its run stays in the run history: `vitehub schedule runs list <id>` lists it.
 
 ### How started Schedules run
 
-When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from KV and runs the due ones. So started Schedules need `kv`, and on Node they need `schedule: { runtime: { driver: 'process' } }`.
+When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from the store and runs the due ones. On Node with KV off, the Process Runtime keeps started Schedules in memory, so they are lost on restart. Host cron needs `kv`.
 
-- The store is KV, one key for each Schedule under `vitehub:schedule/started-schedules/`, or under the `runtime.prefix` that you set. It survives restarts and deploys.
-- With the Process Runtime, the first wake after a restart runs the cron minutes that no process checked, within `catchUpMs` (one hour by default). A one-time Schedule whose `at` passed while the process was down runs at the first wake.
+- With KV, the store uses one key for each Schedule under `vitehub:schedule/started-schedules/`, or under the `runtime.prefix` that you set. Use persistent KV to keep these keys across restarts and deploys.
+- With the Process Runtime and persistent KV, the first wake after a restart runs the cron minutes that no process checked, within `catchUpMs` (one hour by default). A one-time Schedule whose `at` passed while the process was down runs at the first wake.
 - On Cloudflare, each wake checks its own minute only, because the run history is in memory there. A Cron Trigger that does not fire skips that minute for cron Schedules.
 - Each occurrence has the run id `srun_started_<id>_<time>`. The same Process Runtime does not run an occurrence twice. On Cloudflare, KV is eventually consistent, so a one-time Schedule can run twice when two wakes see it. Use `context.runId` as an idempotency key for side effects that must happen once.
 - The `vitehub/started-schedules` wake records no run of its own. It sets `manual: true`, so `vitehub schedule run vitehub/started-schedules` and the Console run action check for due Schedules now.
@@ -166,12 +166,33 @@ process.once('SIGTERM', () => void controller.close())
 
 Call `controller.close()` on shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 
+## See Schedule runs in logs
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, each Schedule handler run inside Nitro gets its own evlog event. Standalone provider output runs outside Nitro and does not send these events. Standalone is the default for Vercel and Deno cron wakes and can also be selected on Cloudflare and Netlify.
+
+A run has no request, so it has no request fields:
+
+```json
+{ "level": "info", "action": "schedule", "message": "Schedule run succeeded", "schedule": { "name": "digest", "source": "static", "scheduledAt": "2026-11-17T08:00:00.000Z", "ms": 412, "outcome": "success" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | The Schedule Definition. |
+| `id` | The id of a started Schedule. |
+| `runId`, `attempt` | The run and its attempt number, when the runtime records runs. |
+| `source` | `static` for a cron run, `started` for a started Schedule, `manual` for `runSchedule()`. |
+| `scheduledAt`, `ms` | The time of the occurrence, and how long the handler ran. |
+| `outcome` | `success`, or `failure` with level `error` and the error in the event's `error` field. |
+
+A Schedule with the cron `* * * * *` makes 1,440 `info` events a day. To keep fewer, sample them with evlog's `sampling: { rates: { info: 10 } }`. evlog keeps every `error`. The tick that runs started Schedules each minute gets no event. A failure of the runtime itself, such as a lost lease store, is an event with `schedule: { op: "runtime" }`, or `{ op: "started", name, id }` for a started Schedule that could not run. A started Schedule that fails at each tick logs once, until the cause changes. When the handler finishes but the run store fails, the run event says `success` and a second event says `{ op: "record-run" }`. Without evlog, Schedule logs failures to the server console as before, and successful runs only in the run history.
+
 ## Read Schedule Runs
 
 `getScheduleRunStore()` returns the installed store.
 
 - `listRuns({ scheduleId, idPrefix, limit })` lists runs, newest first. `idPrefix` filters run IDs before `limit`, so the Process Runtime reads only the newest `srun_static_` run for catch-up.
 - `listAttempts(runId)` lists the attempts of one run.
-- In development, `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store.
+- In development, `vitehub schedule runs list <name>` and `vitehub schedule runs get <runId>` read the same store.
 
 For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 more recent records for a cron run. If none is one, it checks the whole `catchUpMs` window instead of guessing a time. Existing static run IDs stop duplicates. Support `idPrefix` to read only one record.

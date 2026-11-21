@@ -1,9 +1,9 @@
 # @vite-hub/schedule
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fschedule&icon=npm)](https://npmx.dev/package/@vite-hub/schedule)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fschedule&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/schedule)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/schedule)](https://npmx.dev/package/@vite-hub/schedule)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/schedule)](https://npmx.dev/package/@vite-hub/schedule)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/schedule` discovers recurring work, generates cron output for supported hosts, and can run Static Schedule Definitions in one long-lived process.
 
@@ -15,7 +15,7 @@ Install `vite-hub` and `@vite-hub/schedule` for an application. `vite-hub` expos
 pnpm add vite-hub @vite-hub/schedule
 ```
 
-Enable Schedule with the framework integration and import application helpers from its feature path:
+A file in `server/schedules/` turns Schedule on in the framework integration. Import application helpers from its feature path:
 
 ```ts
 // vite.config.ts
@@ -23,7 +23,7 @@ import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ host: "cloudflare", schedule: true })],
+  plugins: [vitehub({ host: "cloudflare" })],
 });
 ```
 
@@ -104,11 +104,11 @@ export default defineSchedule({
 
 Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. `timeZone` works with the Process Runtime and with every host's cron output.
 
-The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying. Write weekdays as standard cron numbers, 0 to 6 from Sunday. Cloudflare and Deno number weekdays 1 to 7 from Sunday, so their output writes weekday names: `0 4 * * 1-5` becomes `0 4 * * MON,TUE,WED,THU,FRI`.
 
-Applications that use the framework distribution register Schedule through `vitehub({ host, schedule: true })` and import the definition helper from `vite-hub/schedule`. On Deno, the build writes standalone cron output and a `.output/main.ts` entrypoint that loads it before the Nitro server.
+Applications that use the framework distribution turn Schedule on with a file in `server/schedules/`, with no `schedule` key, and import the definition helper from `vite-hub/schedule`. On Deno, the build writes standalone cron output and a `.output/main.ts` entrypoint that loads it before the Nitro server.
 
-Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
+Nuxt projects enable Schedule with `vite-hub/nuxt` and a file in `server/schedules/`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
 ## Start a Schedule from code
 
@@ -134,7 +134,7 @@ const [, started] = await listSchedules({ name: "reminder" });
 await cancelSchedule(standUp!.id);
 ```
 
-The functions return `[error, data]`. The Schedules are stored in KV, so they survive restarts and deploys. When a Definition has no `cron`, the build adds the Schedule `vitehub/started-schedules` with the cron `* * * * *`: Cloudflare wakes it with a Cron Trigger, and the Process Runtime wakes it on Node. Each wake runs the started Schedules that are due. Started Schedules need KV, and on Node the Process Runtime. `vitehub schedule list`, `start`, and `cancel` and the Console Schedules page show and change them. Read the [server API](https://vitehub.dev/docs/schedule/server-api#start-a-schedule-from-code) for the delivery rules.
+The functions return `[error, data]`. The Schedules are stored in KV, so they survive restarts and deploys. When a Definition has no `cron`, the build adds the Schedule `vitehub/started-schedules` with the cron `* * * * *`: Cloudflare wakes it with a Cron Trigger, and the Process Runtime wakes it on Node. Each wake runs the started Schedules that are due. Started Schedules need KV, and on Node the Process Runtime. `vitehub schedule start` and `cancel` and the Console Schedules page show and change them. `vitehub schedule list` lists them after the Static Schedule Definitions, and works without KV when no Definition can be started. Read the [server API](https://vitehub.dev/docs/schedule/server-api#start-a-schedule-from-code) for the delivery rules.
 
 ## Understand time zones
 
@@ -167,7 +167,7 @@ Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. 
 
 ## Run schedules in the server process
 
-The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKV()`. Use it on long-lived servers, one or more:
+The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKV()`. Use it on long-lived servers, one or more. `vitehub({ host: "node", schedule: true })` turns it on for you. With `hubSchedule()` alone, set `runtime`:
 
 ```ts
 import { hubKV } from "@vite-hub/kv/vite";
@@ -199,7 +199,7 @@ Every server checks every Schedule. Before a server runs an occurrence, it takes
 - A failed run is final, as on one server. It is not retried.
 - When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed. This also works when every server restarts: at start, a server reads the runs inside `catchUpMs` that are still pending or running, and tries them again.
 
-The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `useLeases()` from `@vite-hub/database`. That works on Postgres, remote libSQL, and D1. A local libSQL file is safe for one server process only, because `@libsql/client` can lose writes when several processes write to one file. The server prints a warning at the first lease in that case. Without a Database, the leases stay in memory and the build prints a warning: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
+The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `useLeases()` from `@vite-hub/database`. That works on Postgres, remote libSQL, and D1. A local libSQL file is safe for one server process only, because `@libsql/client` can lose writes when several processes write to one file. The server prints a warning at the first lease in that case. Without a Database, the leases stay in memory and the build reports the hint `SCHEDULE_PROCESS_CLAIMS_IN_MEMORY` in its output and in `.vitehub/hints.json`: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
 
 With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output. `providerOutput: false` records the same wake ownership as `"auto"` in this configuration.
 
@@ -250,7 +250,7 @@ Custom stores must apply the `listRuns({ scheduleId, idPrefix, limit })` filters
 
 ## Run and inspect schedules
 
-`hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, and `schedule.cancel` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `list [name]`, `start <name>`, and `cancel <id>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app.
+`hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, and `schedule.cancel` operations. They are the `vitehub schedule runs list <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `list [name]`, `start <name>`, and `cancel <id>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app.
 
 Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` to run it on a deployment that enables `console.invoke`. The command signs the call with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so a CI job needs only that secret. `vitehub secret console-key ci` prints a new key pair. Server code can call `runSchedule(name)` from `@vite-hub/schedule`. It reads the generated registry and returns `[error, run]`. A failed handler gives a run with `status: "failed"`. An invalid `scheduledAt` or a failed run store gives `error`. An unknown name or a Definition without `manual: true` throws. Each manual run gets a new `srun_manual_` id.
 
@@ -258,7 +258,11 @@ Add `--at <ISO date-time>` to run it as if the cron fired at that time, for exam
 
 Discovery reads `manual` as a literal boolean from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 
-The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. When the server runs the Process Runtime, the cron and time zone come from the loaded Definitions on each request, so they are the values that the runtime uses. `vitehub inspect definitions` reads them from the source file and shows `Not a static string` for a value that it cannot read there. Use `vitehub schedule runs <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
+The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. When the server runs the Process Runtime, the cron and time zone come from the loaded Definitions on each request, so they are the values that the runtime uses. `vitehub inspect definitions` reads them from the source file and shows `Not a static string` for a value that it cannot read there. Use `vitehub schedule runs list <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
+
+## Runs in logs
+
+With the evlog Nitro module registered, each Schedule handler run inside Nitro gets its own evlog event, `schedule: { name, source, scheduledAt, ms, outcome }`, with the error when it fails. Standalone provider wakes do not send these events. This includes Vercel and Deno cron wakes by default, and Cloudflare or Netlify when you select standalone output. Without evlog, failures go to the console and runtimes with a run store keep their run history. See [Server API](https://vitehub.dev/docs/schedule/server-api#see-schedule-runs-in-logs).
 
 ## Import runtime helpers
 

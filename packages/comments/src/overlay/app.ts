@@ -1,14 +1,16 @@
-import { CommentLayer, CommentPanel } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
+import { rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
 import uiCss from "@vite-hub/ui/styles.css?inline"
-import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Teleport, toRaw, watch } from "vue"
+import { computed, createApp, defineComponent, h, nextTick, onMounted, ref, shallowRef, Teleport, toRaw, watch } from "vue"
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
+import { base64 } from "../client-files.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -132,6 +134,19 @@ function others(people: readonly RealtimePerson[], me: string | undefined): { pe
   }
   return [...byId.values()]
 }
+
+/** The open count on the Comments button. Its digits roll when it changes. */
+const OpenCount = defineComponent({
+  props: { value: { required: true, type: Number } },
+  setup(props) {
+    const element = ref<HTMLElement>()
+    // Vue renders the first count only. Later counts go through the roll, which owns the children of the element.
+    const first = String(props.value)
+    onMounted(() => element.value && rollNumber(element.value, props.value))
+    watch(() => props.value, value => element.value && rollNumber(element.value, value), { flush: "post" })
+    return () => h("span", { class: "count", ref: element }, first)
+  },
+})
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join("") || "?"
@@ -757,10 +772,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
             const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
-              class: "selection-bar",
+              class: "selection",
               "data-below": below ? "true" : undefined,
-              role: "group",
-              "aria-label": "Selected text",
               style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
               // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
@@ -773,8 +786,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
                   trackSelection()
                 }, 300), { capture: true, once: true })
               },
-              onMousedown: (event: MouseEvent) => event.preventDefault(),
-            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: () => commentOnSelection(barRange) }, [commentIcon(), "Comment"])))
+            }, h(CommentSelectionBar, { side: below ? "bottom" : "top", onComment: () => commentOnSelection(barRange) })))
           }
           if (panelTarget.value && !resolving.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
@@ -883,7 +895,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const peopleLabel = `${people.length} other ${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
-    const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
+    const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value

@@ -162,6 +162,45 @@ describe("Static Schedule runtime", () => {
     expect(keys).toEqual(["schedule:report:2026-06-12T12:00:00.000Z", "schedule:report:2026-06-12T12:01:00.000Z"])
   })
 
+  it("matches a Cloudflare trigger with weekday names to the standard cron of a Schedule", async () => {
+    const calls: string[] = []
+    const registry: ScheduleDefinitionRegistry = {
+      monday: async () => ({ cron: "0 4 * * 1", handler: async () => calls.push("monday") }),
+      weekdays: async () => ({ cron: "0 4 * * 1-5", handler: async () => calls.push("weekdays") }),
+    }
+
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * MON" }, { registry })
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * MON,TUE,WED,THU,FRI" }, { registry })
+    // Cloudflare reads weekday 1 as Sunday.
+    await executeCloudflareStaticSchedules({ cron: "0 4 * * 1" }, { registry })
+    expect(calls).toEqual(["monday", "weekdays"])
+  })
+
+  it("matches standard weekday numbers outside the Cloudflare adapter", async () => {
+    const cron = "0 4 * * 1"
+    const registry: ScheduleDefinitionRegistry = { monday: async () => ({ cron, handler: async () => "monday" }) }
+
+    await expect(executeMatchingStaticSchedules({ cron, registry })).resolves.toEqual(["monday"])
+  })
+
+  it.each(["0 4 * * MON-FRI", "0 4 * * 1"])("matches an explicitly registered Cloudflare override %s", async (cron) => {
+    const registry: ScheduleDefinitionRegistry = { report: async () => ({ cron: "0 4 * * 1", handler: async () => "report" }) }
+
+    await expect(executeCloudflareStaticSchedules({ cron }, { cronOverrides: { report: cron }, registry })).resolves.toEqual(["report"])
+  })
+
+  it("matches a generated Cloudflare override only by its registered trigger", async () => {
+    const cron = "0 4 * * 1"
+    const trigger = "0 4 * * MON"
+    const handler = vi.fn()
+    const registry: ScheduleDefinitionRegistry = { report: async () => ({ cron: "0 8 * * *", handler }) }
+    const options = { cronOverrides: { report: cron }, registry, triggerCrons: { report: trigger } }
+
+    await expect(executeCloudflareStaticSchedules({ cron }, options)).resolves.toEqual([])
+    await executeCloudflareStaticSchedules({ cron: trigger }, options)
+    expect(handler).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cron }))
+  })
+
   it("matches equivalent cron whitespace from provider events", async () => {
     const calls: string[] = []
     await executeMatchingStaticSchedules({

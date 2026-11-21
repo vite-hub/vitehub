@@ -133,7 +133,8 @@ function payloadItem(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Provider Drivers record reasoning text as commentary deltas whose id starts with the stream kind
+ * Provider Drivers record reasoning text with `message.phase: "reasoning"`. Invocations recorded before
+ * that phase existed stored it as commentary whose id starts with the stream kind
  * (`reasoning_text:<item>:<index>` or `reasoning_summary_text:<item>:<index>`), see `providerTextDeltaId`.
  */
 function isReasoning(attributes: Record<string, unknown>): boolean {

@@ -77,7 +77,7 @@ Inspection metadata reports `runtime: 'auto'` when the runtime depends on the Dr
 
 ## Verify the browser
 
-1. Run `vitehub agent info --agent <name> --json`. Confirm that the `browser` metadata shows `command`, `runtime`, `skillPath`, and `sourceKey`.
+1. Run `vitehub agent get <name> --json`. Confirm that the `browser` metadata shows `command`, `runtime`, `skillPath`, and `sourceKey`.
 2. Run the Agent once with `vitehub agent dev --agent <name> --prompt "Open https://example.com and take a screenshot"`.
 3. Confirm that the reply has no screenshot marker and the result lists the `screenshots/...` file as an artifact with `placement: 'attachment'`.
 4. For the managed runtime, confirm that the cache directory holds the prepared runtime.

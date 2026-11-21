@@ -12,8 +12,8 @@ import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
 
-/** Functions whose calls declare a managed Rate Limit. Both consume the same counters. */
-const rateLimitGuards = ["checkRateLimit", "requireRateLimit"] as const
+/** Functions whose calls declare a managed Rate Limit. They use the same counters. */
+const rateLimitGuards = ["checkRateLimit", "refundRateLimit", "requireRateLimit"] as const
 type RateLimitGuard = typeof rateLimitGuards[number]
 
 function isRateLimitGuard(name: unknown): name is RateLimitGuard {

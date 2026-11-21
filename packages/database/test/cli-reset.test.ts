@@ -125,7 +125,7 @@ describe.each(["sqlite", "postgresql"] as const)("vitehub database reset on %s",
     expect(await project.query("SELECT title FROM notes")).toEqual([])
   }, 120_000)
 
-  it("needs --force without a terminal", async () => {
+  it("needs --yes without a terminal", async () => {
     const project = await createProject(dialect)
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
@@ -134,10 +134,10 @@ describe.each(["sqlite", "postgresql"] as const)("vitehub database reset on %s",
     // Vitest has no terminal on stdin, so nothing can confirm.
     const refused = await project.run("reset")
     expect(refused.exitCode).toBe(1)
-    expect(refused.stderr).toContain("add `--force`")
+    expect(refused.stderr).toContain("add `--yes`")
     expect(await project.query("SELECT title FROM notes")).toEqual([{ title: "Groceries" }])
 
-    await expect(project.run("reset", ["--force"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.run("reset", ["--yes"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     expect(await project.query("SELECT title FROM notes")).toEqual([])
   }, 120_000)
 
@@ -145,7 +145,7 @@ describe.each(["sqlite", "postgresql"] as const)("vitehub database reset on %s",
     const project = await createProject(dialect)
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
 
-    const reset = await project.run("reset", ["--force"])
+    const reset = await project.run("reset", ["--yes"])
     expect(reset).toMatchObject({ exitCode: 0, stderr: "" })
     expect(reset.stdout).toContain("it does not exist, so there is nothing to drop")
     expect(await project.query("SELECT title FROM notes")).toEqual([])
@@ -161,7 +161,7 @@ describe("vitehub database reset refusals", () => {
     // A migration folder without its SQL file is incomplete history.
     await mkdir(join(project.database.migrationsDir, "20990101000000_broken"))
 
-    const result = await project.run("reset", ["--force"])
+    const result = await project.run("reset", ["--yes"])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("DATABASE_DROP_FAILED")
     expect(result.stderr).toContain("Its migrations cannot be read, so nothing was dropped.")
@@ -178,12 +178,12 @@ describe("vitehub database reset refusals", () => {
     await writeFile(join(legacyDir, "meta", "_journal.json"), JSON.stringify({ dialect: "sqlite", entries: [], version: "7" }))
     project.addDatabase({ connection: { url: "file:.vitehub/data/database/legacy.sqlite.db" }, dialect: "sqlite", migrationsDir: legacyDir, name: "legacy" } as ResolvedDrizzleDatabaseConfig)
 
-    const reset = await project.run("reset", ["--database", "default", "--force"])
+    const reset = await project.run("reset", ["--database", "default", "--yes"])
     expect(reset).toMatchObject({ exitCode: 0, stderr: "" })
     expect(await project.query("SELECT title FROM notes")).toEqual([])
 
     // The 0.x folder of the database that `reset` rebuilds stops it before the drop.
-    const refused = await project.run("reset", ["--database", "legacy", "--force"])
+    const refused = await project.run("reset", ["--database", "legacy", "--yes"])
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("DATABASE_MIGRATIONS_OLD_LAYOUT")
     expect(refused.stdout).not.toContain("dropped")
@@ -192,13 +192,13 @@ describe("vitehub database reset refusals", () => {
   it("refuses a remote database without --remote, and the deployed D1 database of a binding", async () => {
     const project = await createProject("sqlite")
     Object.assign(project.database, { connection: { url: "libsql://db.example.turso.io" } })
-    const remote = await project.run("reset", ["--force"])
+    const remote = await project.run("reset", ["--yes"])
     expect(remote.exitCode).toBe(1)
     expect(remote.stderr).toContain("DATABASE_DROP_FAILED")
     expect(remote.stderr).toContain("Add `--remote`")
 
     Object.assign(project.database, { cloudflare: { binding: "DB", databaseName: "notes-app" }, connection: undefined })
-    const d1 = await project.run("reset", ["--remote", "--force"])
+    const d1 = await project.run("reset", ["--remote", "--yes"])
     expect(d1.exitCode).toBe(1)
     expect(d1.stderr).toContain("`vitehub database migrate` does not apply migrations to the deployed D1 database of a binding.")
     expect(d1.stderr).toContain("`wrangler d1 migrations apply notes-app --remote`")

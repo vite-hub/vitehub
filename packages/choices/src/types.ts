@@ -1,0 +1,151 @@
+import type { AiGatewayAsk, AskModel } from "@vite-hub/gateways"
+import type { Diagnostic } from "nostics"
+
+/** The value that you map back to your data. It must be unique within its group. */
+export type ChoiceValue = string | number
+
+/** One option of a group. `value` is yours, `label`, `aliases`, and `description` are what the model reads. */
+export interface ChoiceOption<TValue extends ChoiceValue = ChoiceValue> {
+  /** Other names for the option, such as codes, abbreviations, or translations. */
+  aliases?: readonly string[]
+  /** What the option is about. An `infer` group needs it to choose an option that the text does not name. */
+  description?: string
+  /** What people call the option. */
+  label: string
+  /** Your id for the option. It comes back in the selection. */
+  value: TValue
+}
+
+type MaybePromise<T> = T | Promise<T>
+
+/** A set of options that belong to one decision, such as one filter. */
+export interface ChoiceGroup<TValue extends ChoiceValue = ChoiceValue> {
+  /** Tells the model how to read this group. Keep it short and specific to your data. */
+  hints?: string
+  /**
+   * `false` (default): choose only an option that the text names. `true`: choose the option that fits the text best,
+   * also when the text does not name it, such as a project for a bug report. Needs `multiple: false`.
+   * An `infer` group has no "none" answer. Add an option for "anything else" if you need one.
+   */
+  infer?: boolean
+  /** What people call the group, such as "Supplier". */
+  label: string
+  /** `true` (default): any number of options, each included or excluded. `false`: at most one option. */
+  multiple?: boolean
+  /** A list, or a function that loads the list for one request. Annotate the parameter of the function: its type is the `context` of `resolve()`. */
+  options: readonly ChoiceOption<TValue>[] | ((context: never) => MaybePromise<readonly ChoiceOption<TValue>[]>)
+}
+
+export type ChoiceGroups = Record<string, ChoiceGroup>
+
+export interface ChoicesLimits {
+  /** Most options in one group. Default 100. */
+  options: number
+  /** Most groups. Default 40. */
+  groups: number
+  /** Longest text in characters. Default 300. */
+  text: number
+  /** Most options in all groups together. Default 100. */
+  totalOptions: number
+}
+
+export interface ChoicesThresholds {
+  /** The lowest probability that decides one option. Default 0.5. */
+  option?: number
+  /** The lowest probability that the options can express the text. Default 0.6. Not asked when every group infers. */
+  supported?: number
+}
+
+export interface ChoicesDefinition<TGroups extends ChoiceGroups> {
+  /** Asks TypeSafe Jev, or any object with `ask()`: `typesafe()`, `vercel()`, or `cloudflare()` from `vite-hub/gateways`. Set `gateway` or `model`. */
+  gateway?: { ask: AiGatewayAsk }
+  groups: TGroups
+  /** Tells the model what the options are about. It is added to every question. */
+  hints?: string
+  limits?: Partial<ChoicesLimits>
+  /** Asks any AI SDK model instead of Jev, such as `openai("gpt-5.1-mini")`. It needs the `ai` package. Set `gateway` or `model`. */
+  model?: AskModel
+  /** A label for logs and the CLI. It never connects anything. */
+  name?: string
+  thresholds?: ChoicesThresholds
+}
+
+type OptionValue<TOptions> = TOptions extends readonly ChoiceOption<infer TValue>[]
+  ? TValue
+  : TOptions extends (context: never) => infer TResult
+    ? Awaited<TResult> extends readonly ChoiceOption<infer TValue> [] ? TValue : never
+    : never
+
+export type GroupValue<TGroup> = TGroup extends { options: infer TOptions } ? OptionValue<TOptions> : never
+
+/** A group with `multiple` left as `true`: the options the text includes and excludes. */
+export interface MultipleSelection<TValue extends ChoiceValue = ChoiceValue> {
+  exclude: TValue[]
+  include: TValue[]
+}
+
+/** A group with `multiple: false`: the best option, or `null`, and every option by probability. */
+export interface SingleSelection<TValue extends ChoiceValue = ChoiceValue> {
+  /** The probability of `value`, from 0 to 1. It is `0` when `value` is `null`. */
+  confidence: number
+  /** Every option, from the most to the least likely. */
+  ranked: { probability: number, value: TValue }[]
+  /** The best option when it is above `thresholds.option`, else `null`. */
+  value: TValue | null
+}
+
+/** The result for each group, typed from the options that you declared. */
+export type ChoicesSelection<TGroups> = {
+  [K in keyof TGroups]: TGroups[K] extends { multiple: false }
+    ? SingleSelection<Extract<GroupValue<TGroups[K]>, ChoiceValue>>
+    : MultipleSelection<Extract<GroupValue<TGroups[K]>, ChoiceValue>>
+}
+
+/**
+ * Why `resolve()` returned no selection. Check `error.code`. `DECISIONS_R0002`: a group or option is invalid or over a
+ * limit. `DECISIONS_R0003`: the text is empty or too long. `DECISIONS_R0004`: the options cannot express the text.
+ * `DECISIONS_R0005`: the gateway request failed, with the gateway error in `cause`. `DECISIONS_R0006`: the model left a
+ * question without an answer. `defineChoices()` throws `DECISIONS_R0001`, so it never comes back here.
+ */
+export type ChoicesError =
+  | Diagnostic<unknown, "DECISIONS_R0002">
+  | Diagnostic<unknown, "DECISIONS_R0003">
+  | Diagnostic<unknown, "DECISIONS_R0004">
+  | Diagnostic<unknown, "DECISIONS_R0005">
+  | Diagnostic<unknown, "DECISIONS_R0006">
+
+export type ChoicesResult<TData> = readonly [error: ChoicesError, data?: undefined] | readonly [error: undefined, data: TData]
+
+export interface ChoicesRequest<TContext> {
+  /** Passed to `options` functions. Put what they need here, such as the tenant. */
+  context: TContext
+  /** Cancels the request to the gateway. */
+  signal?: AbortSignal
+}
+
+/** What `resolve()` would send, without sending it. */
+export interface ChoicesPlan {
+  /** The questions for `gateway.ask()`. One per option of a multiple group, one per single group, and `supported` unless every group infers. */
+  questions: Record<string, unknown>
+  /** The state for `gateway.ask()`. */
+  state: { groups: { hints?: string, infer?: true, label: string, multiple: boolean, options: { aliases?: readonly string[], label: string, value: ChoiceValue }[] }[], query: string }
+}
+
+type UnionToIntersection<TUnion> = (TUnion extends unknown ? (value: TUnion) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never
+
+type OptionsContext<TGroup> = TGroup extends { options: (context: infer TContext) => unknown } ? TContext : never
+
+/** The `context` that `resolve()` needs: the parameter types of the `options` functions of the groups. `unknown` when no group needs one. */
+export type GroupsContext<TGroups> = UnionToIntersection<{ [K in keyof TGroups]: OptionsContext<TGroups[K]> }[keyof TGroups]>
+
+export type ChoicesArgs<TContext> = unknown extends TContext
+  ? [request?: { signal?: AbortSignal }]
+  : [request: ChoicesRequest<TContext> & { context: TContext }]
+
+export interface Choices<TGroups extends ChoiceGroups> {
+  /** Shows the questions and the state that `resolve()` would send. Nothing leaves your server. */
+  inspect: (text: string, ...args: ChoicesArgs<GroupsContext<TGroups>>) => Promise<ChoicesResult<ChoicesPlan>>
+  readonly name: string | undefined
+  /** Asks the gateway which options the text names. It returns `[error, selection]` and never throws. */
+  resolve: (text: string, ...args: ChoicesArgs<GroupsContext<TGroups>>) => Promise<ChoicesResult<ChoicesSelection<TGroups>>>
+}

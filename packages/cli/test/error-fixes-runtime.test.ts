@@ -17,7 +17,7 @@ it("gives each CLI code a fix and its own docs page", () => {
   for (const code of fixedCodes) {
     const error = cliErrorDiagnostics[code]({ message: "m" })
     expect(error.fix, code).toMatch(/\S/)
-    expect(error.docs, code).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
+    expect(error.docs, code).toBe(`https://vitehub.dev/docs/cli/diagnostics/${code.toLowerCase()}`)
   }
 })
 
@@ -29,7 +29,7 @@ it("gives the split CLI codes a fix", () => {
 it("keeps the host fix of a missing credential, and documents a general one", () => {
   for (const code of credentialCodes) {
     expect(cliErrorDiagnostics[code]({ host: "vercel" }).fix, code).toContain("VERCEL_TOKEN")
-    expect(cliErrorDiagnostics[code]({ host: "vercel" }).docs, code).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
+    expect(cliErrorDiagnostics[code]({ host: "vercel" }).docs, code).toBe(`https://vitehub.dev/docs/cli/diagnostics/${code.toLowerCase()}`)
   }
   expect(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: "Set VERCEL_TOKEN.", host: "vercel" }).fix).toBe("Set VERCEL_TOKEN.")
 })

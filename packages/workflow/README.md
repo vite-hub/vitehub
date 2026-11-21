@@ -1,10 +1,10 @@
 # @vite-hub/workflow
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
-  <img alt="Workflow" src="https://comark-ui.onmax.me/badge.svg?label=Workflow&amp;value=durable+steps">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
+  <img alt="Workflow" src="https://img.shields.io/static/v1?label=Workflow&amp;message=durable+steps&amp;color=blue">
 </p>
 
 `@vite-hub/workflow` discovers named long-running work and exposes one provider-neutral API for starting and inspecting runs.
@@ -37,20 +37,22 @@ The former `workflow.database` option was never connected to Named Databases. It
 // server/workflows/onboard-user.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
-export default defineWorkflow("onboard-user", async (payload: { email: string }, { id, provider }) => {
-  const idempotencyKey = `onboard-user:${payload.email}`;
-  const user = await upsertUser(payload.email, { idempotencyKey });
-  await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, id, provider }) => {
+    const idempotencyKey = `onboard-user:${payload.email}`;
+    const user = await upsertUser(payload.email, { idempotencyKey });
+    await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
 
-  return { id, provider };
+    return { id, provider };
+  },
 });
 ```
 
 Both external operations receive keys derived from stable input. Preserve that idempotency when adding side effects so retrying a completed operation does not duplicate it.
 
-ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder name is the Workflow name. Pass the same name to `defineWorkflow(name, handler)` and to the runtime helpers. A definition that passes another name fails with `WORKFLOW_C0019` when the Workflow loads.
+ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder path is the Workflow name. `defineWorkflow()` takes one object and no name. Pass the name to the runtime helpers.
 
-The handler gets `(payload, context)`. Annotate `payload` to type it. `context` has `id`, `name`, `provider`, and `steps`.
+The handler gets one object with `payload`, `id`, `name`, `provider`, `sleep`, and `steps`. Pass the payload type as the type argument of `defineWorkflow()`. ViteHub writes the names and payload types to `.vitehub/workflow.d.ts`, so `startWorkflow("onboard-user", payload)` checks both.
 
 ## Call typed steps
 
@@ -60,9 +62,11 @@ A folder Workflow runs its numbered files as steps. `01.create-user.ts` becomes 
 // server/workflows/onboard-user/index.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
-export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload);
-  return await steps.sendWelcome(user);
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload);
+    return await steps.sendWelcome(user);
+  },
 });
 ```
 
@@ -80,7 +84,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
+The Vite Integration writes `.vitehub/workflow.d.ts`. A step name shared by multiple folders accepts only inputs that all those steps accept and can return any of their result types. A call to a step that has no file is a type error. At runtime, only the current folder's steps are available. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
 ## Configure the driver
 
@@ -193,18 +197,18 @@ The other runtime helpers are:
 
 - `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
 - `cancelWorkflow()` cancels a Cloudflare run with `instance.terminate()`, a native Vercel run, or a pending or running OpenWorkflow run. A finished run keeps its status, and a missing run reports `unknown`.
-- `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
+- `resumeWorkflow(token, value)` sends `value` to a run that waits on `context.createSignal()`, or resumes a Workflow DevKit hook token on Vercel.
 - `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
 
-`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, `runs-show`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs show <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports the `runtime/dev-runs` module, by file path. It holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. The three commands fail there with `WORKFLOW_RUNS_UNAVAILABLE`.
+`hubWorkflow()` contributes the `workflow.start`, `get`, `cancel`, `resume`, `runs-list`, and `runs-clear` operations. In `vite dev`, the dev Nitro plugin records every inline run in the memory of the dev server: its status, times, result, error, and each step of a folder Workflow. `vitehub workflow runs list` lists the newest runs first, `vitehub workflow runs get <runId>` shows one with its steps, and `vitehub workflow runs clear --yes` removes them all. The history keeps the newest 200 runs until the dev server restarts. It does not include runs that a Cloudflare binding, OpenWorkflow, or a native Vercel Workflow executes. Only the dev Nitro plugin imports the `runtime/dev-runs` module, by file path. It holds the history. The production runtime has only an empty recorder slot, so a build does not include the history code and never records runs. `runs list` and `runs clear` fail there with `WORKFLOW_RUNS_UNAVAILABLE`, and `runs get` reads the run from the provider, without steps.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. Every provider returns the same plain value, so a `Date` comes back as a string and `undefined` fields are dropped. Return a JSON-safe value, or return a `Response` for binary data or for status and headers. When the handler returns a `Response`, `result` is a `Response`.
 
 Inline runs buffer a returned `Response` body before completion. Each inspection and duplicate start returns a fresh `Response`, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 
-Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
+Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. In `vite dev`, `getWorkflowRun()` also reads the dev run history, which keeps the newest 200 runs until the dev server restarts. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
 
 ## Start a run later
 
@@ -254,12 +258,13 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id };
 }
 
-async function inlineOnboard(payload: OnboardPayload) {
-  const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
-  return { userId: user.id };
-}
-
-export default defineWorkflow("onboard-user", inlineOnboard, { native: durableOnboard });
+export default defineWorkflow<OnboardPayload>({
+  handler: async ({ payload }) => {
+    const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
+    return { userId: user.id };
+  },
+  native: durableOnboard,
+});
 ```
 
 ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
@@ -308,11 +313,13 @@ Only a folder Workflow can sleep. Its `index.ts` calls `context.sleep()` between
 
 ```ts fragment
 // server/workflows/remind-user/index.ts, next to 01.send-welcome.ts and 02.send-reminder.ts
-export default defineWorkflow("remind-user", async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
-  await steps.sendWelcome(payload);
-  await sleep("1 day");
-  await sleep(new Date(payload.remindAt));
-  await steps.sendReminder(payload);
+export default defineWorkflow<{ email: string, remindAt: string }>({
+  handler: async ({ payload, sleep, steps }) => {
+    await steps.sendWelcome(payload);
+    await sleep("1 day");
+    await sleep(new Date(payload.remindAt));
+    await steps.sendReminder(payload);
+  },
 });
 ```
 
@@ -321,6 +328,25 @@ The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 
 After a sleep, the provider runs `index.ts` again from the start, and completed step files return their stored results. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put each side effect and each value that changes, such as `Date.now()`, in a step file. `getWorkflowRun()` lists a sleep as a step with the name `sleep-1` and the wake time in `sleepUntil` on OpenWorkflow. A sleeping Cloudflare run reports `running` with `metadata.status: "waiting"`.
 
 A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. A duration that is not in the form above throws `WORKFLOW_SLEEP_DURATION_INVALID`.
+
+A folder Workflow can wait for a value from outside the run, such as a webhook. `context.createSignal<T>()` returns `{ token, wait() }`. Give `token` to the other service, then call `wait()`. `resumeWorkflow(token, value)` sends a JSON value, and `wait()` returns it.
+
+```ts fragment
+// server/workflows/summary/index.ts
+export default defineWorkflow<{ callId: string }>({
+  handler: async ({ createSignal, payload, steps }) => {
+    const transcript = createSignal<{ text: string }>();
+    await steps.requestTranscript({ callId: payload.callId, token: transcript.token });
+    const { text } = await transcript.wait();
+    return await steps.summarize({ text });
+  },
+});
+
+// server/api/webhooks/transcript.post.ts, after the webhook signature check
+const [error] = await resumeWorkflow(body.token, { text: body.text });
+```
+
+ViteHub makes the token from the Workflow name, the run id, and the call order (`signal-1`, `signal-2`), so a replay gets the same token. The token is not a secret: check the caller before you pass a token from a request. Cloudflare waits with `step.waitForEvent()` for at most 365 days, and `resumeWorkflow()` calls `instance.sendEvent()`. OpenWorkflow waits with `step.waitForSignal()` for one year, then fails the run with `WORKFLOW_SIGNAL_TIMEOUT`. It drops a value that comes before the wait, so `resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` and the caller retries later. Inline runs wait in memory and keep an early value. Vercel does not support signals yet: `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`, and a `native` entry uses `defineHook()` from Workflow DevKit instead. A token of another provider returns `WORKFLOW_SIGNAL_TOKEN_INVALID`, and `wait()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SIGNAL`.
 
 ## Production checklist
 
@@ -344,7 +370,7 @@ A single-file Workflow runs as one root step, and a replay after a sleep would r
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.start({ email: "ada@example.com" })

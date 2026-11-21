@@ -38,7 +38,6 @@ type AgentInvocationsTable<Nullable extends boolean> = SQLiteTableWithColumns<{
   schema: undefined
 }>
 
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 // SAFETY: The explicit table type mirrors the libSQL journal columns constructed immediately below.
 const libsqlInvocationsTable = sqliteTable("vitehub_agent_invocations", {
   sequence: integer().primaryKey({ autoIncrement: true }),
@@ -51,7 +50,6 @@ const libsqlInvocationsTable = sqliteTable("vitehub_agent_invocations", {
   record: text({ mode: "json" }).$type<Omit<AgentInvocationRecord, "cursor">>().notNull(),
 }) as unknown as AgentInvocationsTable<true>
 
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 // SAFETY: The explicit table type mirrors the D1 journal columns constructed immediately below.
 const d1InvocationsTable = sqliteTable("vitehub_agent_invocations", {
   sequence: integer().primaryKey({ autoIncrement: true }),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Status } from "@vite-hub/ui";
+import { RollNumber, Status } from "@vite-hub/ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -339,7 +339,7 @@ onBeforeUnmount(() => {
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
         <UButton variant="outline" label="Publish" :loading="publishing" :disabled="loading" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
           <template #trailing>
-            <UBadge size="sm" class="tabular-nums" :label="String(pendingChanges)" />
+            <UBadge size="sm" class="tabular-nums"><RollNumber :value="pendingChanges" /></UBadge>
           </template>
         </UButton>
         <template #content>

@@ -2,7 +2,7 @@ import { ask } from "@vite-hub/gateways"
 import { defineAgent, type AgentDefinition, type AgentInvoker, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
 import { gmail, gmailClient } from "@vite-hub/agent/channels"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
-import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
+import type { GmailChannel, GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
 import { channelMessageContextKey } from "@vite-hub/agent/channels"
 import * as v from "valibot"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
@@ -240,7 +240,7 @@ function decision(message: GmailMessage, rules: Readonly<Record<string, Labeller
   }
 }
 
-type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision>
+type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision> & { readonly channels: { readonly gmail: GmailChannel } }
 export type LabellerAgent = ConfiguredAgentDefinition<LabellerOptions, LabellerDefinition>
 
 // defineAgent materializes the template once before consumers supply their options.
@@ -271,6 +271,8 @@ export const labeller: LabellerAgent = defineAgent({
     if (materializingTemplate) {
       materializingTemplate = false
       return defineAgent({
+        // The template has its Gmail Channel too, so `channels.gmail` exists on every Labeller Agent.
+        channels: { gmail: gmail({ dryRun: true }) },
         driver: { run: (): LabellerResult => { throw presetsErrorDiagnostics.PRESETS_LABELLER_LABEL_COUNT_INVALID() } },
         intercept: (): LabellerDecision | undefined => undefined,
       })

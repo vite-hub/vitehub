@@ -1,9 +1,10 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -24,6 +25,7 @@ type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
 type OpenWorkflowStepAttempt = Awaited<ReturnType<OpenWorkflowBackend["listStepAttempts"]>>["data"][number]
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
+type OpenWorkflowJsonValue = NonNullable<Parameters<OpenWorkflowClient["sendSignal"]>[0]["data"]>
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
 // A variable specifier keeps the optional OpenWorkflow packages out of host bundles. Do not build this
@@ -34,6 +36,8 @@ let openWorkflowImporter = defaultImporter
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
+  /** The registered ViteHub definitions, by name. */
+  definitions: Map<string, WorkflowDefinition>
   /** Returns the OpenWorkflow id of the first run of `name` that started with the id `key`. */
   findRunId: (name: string, key: string) => Promise<string | undefined>
   workflows: Map<string, OpenWorkflowRunnable>
@@ -248,10 +252,32 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
   }
 }
 
+/**
+ * The backend that the OpenWorkflow client and its workers use. OpenWorkflow retries a failed run by its retry policy, so
+ * only `failWorkflowRun()` knows when a run ends as `failed`. This wrapper sends `workflow.failed` then.
+ */
+function reportFailedRuns<TBackend extends OpenWorkflowBackend>(backend: TBackend, definitions: ReadonlyMap<string, WorkflowDefinition>): TBackend {
+  const failWorkflowRun: TBackend["failWorkflowRun"] = async (params) => {
+    const run = await backend.failWorkflowRun(params)
+    if (run.status === "failed") {
+      await emitWorkflowFailed(run.workflowName, run.idempotencyKey || run.id, run.error ?? params.error, definitions.get(run.workflowName))
+    }
+    return run
+  }
+  return new Proxy(backend, {
+    get(target, property) {
+      if (property === "failWorkflowRun") return failWorkflowRun
+      const value: unknown = Reflect.get(target, property)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
+
 async function createOpenWorkflowRuntime(
   options: OpenWorkflowStorageConfig,
   importer: OpenWorkflowImporter,
 ): Promise<OpenWorkflowRuntime> {
+  const definitions = new Map<string, WorkflowDefinition>()
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
     importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
     options.backend === "sqlite"
@@ -279,12 +305,13 @@ async function createOpenWorkflowRuntime(
         ? await connect()
         : await withPostgresSetupLock(await importOpenWorkflowModule<PostgresModule>("postgres", importer), options.url, options.schema, connect)
     }
-    return { backend, client: new OpenWorkflow({ backend }) }
+    return { backend, client: new OpenWorkflow({ backend: reportFailedRuns(backend, definitions) }) }
   })
 
   return {
     backend,
     client,
+    definitions,
     findRunId: createRunIdLookup(backend, options),
     workflows: new Map(),
   }
@@ -379,7 +406,7 @@ function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): 
   }
 }
 
-function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
+function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi, workflow: string): WorkflowProviderStep {
   return {
     // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
@@ -400,7 +427,31 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
     },
     // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
     sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
+    // The token is the OpenWorkflow signal name. OpenWorkflow waits one year by default and then returns null.
+    async waitForSignal(name, token) {
+      const received = await step.waitForSignal({ name, signal: token })
+      if (received === null) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TIMEOUT({ name: workflow })
+      return received.data
+    },
   }
+}
+
+/**
+ * Sends `value` to a live run that waits for the signal `token`. OpenWorkflow drops early signals and can match
+ * a wait left behind by cancellation, so check the run before sending.
+ */
+export async function resumeOpenWorkflowSignal(config: ResolvedWorkflowOptions, workflow: string, id: string, token: string, value: unknown): Promise<boolean> {
+  const runtime = await getOpenWorkflowRuntime(config)
+  return await runWorkflowProviderOperation("openworkflow", "resume-signal", async () => {
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId: await runtime.findRunId(workflow, id) ?? id })
+    if (!run || run.workflowName !== workflow || terminalOpenWorkflowStatuses.has(normalizeOpenWorkflowStatus(run.status))) return false
+    const { workflowRunIds } = await runtime.client.sendSignal({
+      // SAFETY: `resumeWorkflow()` documents that the value is JSON, as OpenWorkflow stores it.
+      data: value as OpenWorkflowJsonValue,
+      signal: token,
+    })
+    return workflowRunIds.includes(run.id)
+  })
 }
 
 export async function registerOpenWorkflowDefinition(
@@ -415,6 +466,7 @@ export async function registerOpenWorkflowDefinition(
 
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
   const openWorkflowDefinition = definition as never
+  runtime.definitions.set(name, definition)
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
     const stored = await runtime.backend.getWorkflowRun({ workflowRunId: run.id })
     return await runSerializedWorkflowHandler({
@@ -422,7 +474,7 @@ export async function registerOpenWorkflowDefinition(
       name,
       payload: input,
       provider: "openworkflow",
-      step: createOpenWorkflowProviderStep(step),
+      step: createOpenWorkflowProviderStep(step, name),
     }, openWorkflowDefinition)
   })
   runtime.workflows.set(name, workflow)

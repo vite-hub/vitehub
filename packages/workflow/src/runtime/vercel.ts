@@ -251,7 +251,7 @@ async function readVercelRunError(run: VercelRun): Promise<WorkflowRunError> {
 
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   // SAFETY: Vercel's transform attaches workflowId to the generated native handler.
-  const workflowName = (definition.options?.native as NonNullable<WorkflowDefinitionOptions<TPayload, TResult>["native"]> & { workflowId?: string } | undefined)?.workflowId
+  const workflowName = (definition.native as NonNullable<WorkflowDefinitionOptions<TPayload, TResult>["native"]> & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
     throw createWorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_INVALID",
@@ -314,7 +314,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   onDispatch?: () => void,
   startAt?: number,
 ): Promise<WorkflowRun<TPayload, TResult>> {
-  const native = definition.options?.native
+  const native = definition.native
   if (!native) {
     throw createWorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_REQUIRED",

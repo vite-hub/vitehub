@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
 
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeNitroPreset } from "@vite-hub/internal/deployment"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { dirname, relative, resolve } from "pathe"
 
 import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
@@ -36,7 +37,10 @@ export interface McpVitePluginOptions extends McpOptions {
   }
 }
 
-export type McpVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type McpVitePlugin = Plugin & {
+  nitro: { name: string, setup(nitro: { options: { dev: boolean, preset: string } }): void }
+  vitehub: ViteHubInspectionPluginMetadata
+}
 
 export const MCP_VITE_PLUGIN_NAME = "@vite-hub/mcp/vite"
 
@@ -116,9 +120,21 @@ function packageName(projectRoot: string): string | undefined {
   return typeof name === "string" && name ? name : undefined
 }
 
+// A tool call that elicits waits in the memory of one process, and the answer of the client comes in another request.
+// These presets serve every request from one process. Other hosts can send the answer to another instance.
+const oneProcessPresets = new Set(["bun", "deno-server", "node", "node-middleware", "node-server"])
+
+/** The preset of a build where `elicit()` cannot work, or `undefined` when it can. Dev runs in one process. */
+function elicitationUnsupportedHost({ dev, preset }: { dev: boolean, preset: string }): string | undefined {
+  if (dev) return undefined
+  const normalized = normalizeNitroPreset(preset)
+  return oneProcessPresets.has(normalized) ? undefined : normalized
+}
+
 interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> {
   auth: boolean | "optional"
   authMcp: string
+  elicitationUnsupportedHost: string | undefined
   name: string
   only?: "public"
   publicRoute: string | undefined
@@ -130,7 +146,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
   const field = (key: "prompts" | "resources" | "tools", prefix: string) => {
     const entries = `{ ${files[key].map((file, index) => `${JSON.stringify(file.name)}: ${prefix}${index}`).join(", ")} }`
     return options.only === "public"
-      ? `  ${key}: Object.fromEntries(Object.entries(${entries}).filter(([, ${prefix}]) => ${prefix}.public === true)),`
+      ? `  ${key}: Object.fromEntries(Object.entries(${entries}).filter(([, ${prefix}]) => ${prefix}.access === "public")),`
       : `  ${key}: ${entries},`
   }
   return [
@@ -147,6 +163,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     ...options.publicRoute ? [`  publicRoute: ${JSON.stringify(options.publicRoute)},`] : [],
     ...options.instructions === undefined ? [] : [`  instructions: ${JSON.stringify(options.instructions)},`],
     ...options.serverInfo === undefined ? [] : [`  serverInfo: ${JSON.stringify(options.serverInfo)},`],
+    ...options.elicitationUnsupportedHost ? [`  elicitationUnsupportedHost: ${JSON.stringify(options.elicitationUnsupportedHost)},`] : [],
     field("tools", "tool"),
     ...files.prompts.length ? [field("prompts", "prompt")] : [],
     ...files.resources.length ? [field("resources", "resource")] : [],
@@ -179,7 +196,7 @@ function isDefinitionFile(file: string, serverDirs: readonly string[]): boolean 
  * The app MCP server: each file in `server/mcp/tools/` is one tool, each file in `server/mcp/prompts/` one prompt, and
  * each file in `server/mcp/resources/` one resource. The server answers at `route` (`/mcp`). By default,
  * every request needs an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`, and the server answers
- * the OAuth discovery documents at the origin root. `auth: false` makes every definition public. `publicRoute` serves the tools with `public: true` to anyone.
+ * the OAuth discovery documents at the origin root. `auth: false` makes every definition public. `publicRoute` serves the tools with `access: "public"` to anyone.
  * The default export of `server/mcp.ts` gives hooks, and `.vitehub/types/mcp.d.ts` types its caller.
  */
 export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
@@ -190,30 +207,31 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   }
   const auth = options.auth ?? true
   if (publicRoute && auth !== true) {
-    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth: true. With mcp: { auth: ${JSON.stringify(auth)} }, the tools with public: true are public on ${JSON.stringify(route)} already.` })
+    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth: true. With mcp: { auth: ${JSON.stringify(auth)} }, the tools with access: "public" are public on ${JSON.stringify(route)} already.` })
   }
   const imports = { authMcp: options.imports?.authMcp ?? "@vite-hub/auth/mcp", runtime: options.imports?.runtime ?? "@vite-hub/mcp/runtime" }
   let projectRoot = process.cwd()
   let serverDirs: string[] = []
   let base = ""
+  let unsupportedHost: string | undefined
 
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
   const publicHandlerFile = () => resolve(projectRoot, generatedDir, "public.ts")
   const typesFile = () => resolve(projectRoot, ".vitehub/types/mcp.d.ts")
   const name = () => options.name ?? packageName(projectRoot) ?? "app"
-  const server = { instructions: options.instructions, serverInfo: options.serverInfo }
+  const server = () => ({ instructions: options.instructions, serverInfo: options.serverInfo, elicitationUnsupportedHost: unsupportedHost })
   const write = (writer: (file: string, contents: string) => unknown) => {
     const files = discoverAll({ rootDir: projectRoot, serverDirs })
     const publicPath = publicRoute ? `${base}${publicRoute}` : undefined
-    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
+    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server(), publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
     written.push(writer(typesFile(), renderTypes(typesFile(), files.hooks)))
-    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
+    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server(), publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }
   const fields = (kind: "prompts" | "resources" | "tools") => [
     { label: "Route", value: `${base}${route}` },
     { label: "Auth", value: auth === "optional" ? "OAuth (mcpOAuth), optional" : auth ? "OAuth (mcpOAuth)" : "public" },
-    ...publicRoute ? [{ label: "Public route", value: `${base}${publicRoute} (${kind} with public: true)` }] : [],
+    ...publicRoute ? [{ label: "Public route", value: `${base}${publicRoute} (${kind} with access: "public")` }] : [],
   ]
   const inspector = (kind: "prompts" | "resources") => ({
     kind: kind === "prompts" ? "mcp-prompt" : "mcp-resource",
@@ -243,6 +261,13 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
         }, inspector("prompts"), inspector("resources")],
       }),
     },
+    nitro: {
+      name: MCP_VITE_PLUGIN_NAME,
+      setup({ options }) {
+        unsupportedHost = elicitationUnsupportedHost(options)
+        write(writeFileIfChangedSync)
+      },
+    },
     config(config) {
       projectRoot = resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
       // SAFETY: ViteHub writes this string-array metadata through its shared Vite config contract.
@@ -252,8 +277,11 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       base = typeof kit.config.baseURL === "string" ? kit.config.baseURL.replace(/\/+$/, "") : ""
       // Nitro reads the generated files when it starts, so they exist before its config hook runs.
       write(writeFileIfChangedSync)
-      kit.addHandler({ handler: handlerFile(), route })
-      if (publicRoute) kit.addHandler({ handler: publicHandlerFile(), route: publicRoute })
+      // With `auth: true`, the route checks the access token of each request. `auth: false` and `"optional"` serve tools
+      // without a token, so the app's Auth access routes still guard the route.
+      kit.addHandler({ handler: handlerFile(), ...auth === true ? { meta: { ...ownAccessRouteMeta } } : {}, route })
+      // The public route serves only the tools with `access: "public"`.
+      if (publicRoute) kit.addHandler({ handler: publicHandlerFile(), meta: { ...ownAccessRouteMeta }, route: publicRoute })
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))

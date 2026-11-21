@@ -45,7 +45,7 @@ async function serverProcess(storage: ReturnType<typeof sharedKV>) {
   }
 }
 
-const send = (handler: { fetch: (request: Request) => Promise<Response> }) => handler.fetch(new Request("https://site.test/api/_vitehub/forms/contact", {
+const send = (handler: { fetch: (request: Request) => Promise<Response> }) => handler.fetch(new Request("https://site.test/_vitehub/forms/contact", {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ message: "Hi" }),

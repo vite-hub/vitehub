@@ -431,8 +431,7 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection<DocsApp
 /**
  * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
  * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
- * stroke and stay as they are. Not reported upstream yet (fix branch:
- * https://github.com/onmax/icon/tree/fix/customize-name-css-mode).
+ * stroke and stay as they are.
  */
 export function docsIconStroke(body: string, stroke: number): string {
   if (!body.includes('stroke-linejoin="round"')) return body

@@ -1,7 +1,8 @@
 import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
 
 import type { WorkspaceErrorCode } from "@vite-hub/workspace"
-import { registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceName, registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { DatabaseDefinition, RuntimeDrizzleDatabase } from "@vite-hub/database"
@@ -9,6 +10,14 @@ import type { DatabaseDefinition, RuntimeDrizzleDatabase } from "@vite-hub/datab
 declare const blob: BlobStorage
 declare const database: RuntimeDrizzleDatabase<typeof workspaceHistorySchema>
 declare const definition: DatabaseDefinition<typeof workspaceHistorySchema>
+declare const project: string
+if (isWorkspaceName(project)) {
+  useWorkspace(project)
+  useWorkspaceFiles(project, { mode: "write" })
+}
+else {
+  project.toUpperCase()
+}
 const store = createBlobDatabaseWorkspaceStore({ blob, database: () => database, workspace: "published-types" })
 createBlobDatabaseWorkspaceStore({ blob, database, workspace: "published-types" })
 // @ts-expect-error A Database Definition is not a Drizzle database. Pass `() => useDatabase(name).db`.

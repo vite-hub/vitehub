@@ -4,6 +4,20 @@ import { join, resolve } from "node:path"
 
 import { expect, it } from "vitest"
 
+it("types the published guards with a generated Auth registry", () => {
+  const compiler = resolve(import.meta.dirname, "../../../test/package-typecheck.mjs")
+  const result = spawnSync(process.execPath, [
+    compiler, "--ignoreConfig", "--noEmit", "--strict", "--skipLibCheck", "--module", "NodeNext", "--target", "ESNext",
+    "--pretty", "false", "test/fixtures/guard-registry.mts",
+  ], {
+    cwd: resolve(import.meta.dirname, ".."),
+    encoding: "utf8",
+    timeout: 15_000,
+  })
+  expect(result.error).toBeUndefined()
+  expect(result.status, result.stdout + result.stderr).toBe(0)
+})
+
 it("reports the removed runtime option in the published types", () => {
   const cache = resolve(import.meta.dirname, "../node_modules/.cache")
   mkdirSync(cache, { recursive: true })

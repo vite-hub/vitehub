@@ -251,6 +251,21 @@ describe("blob config", () => {
     })
   })
 
+  it.each(["NETLIFY", "NETLIFY_DEV"])("keeps the inferred Netlify store name under %s", (flag) => {
+    expect(resolveBlobViteConfig({ name: "existing-assets" }, { env: { [flag]: "true" } }).blob)
+      .toMatchObject({ store: { driver: "netlify-blobs", name: "existing-assets" } })
+  })
+
+  it.each([
+    { env: {}, hosting: "netlify" },
+    { env: { BLOB_READ_WRITE_TOKEN: "token" }, hosting: "vercel" },
+    { env: {} },
+    { env: { S3_ACCESS_KEY_ID: "key", S3_BUCKET: "assets", S3_SECRET_ACCESS_KEY: "secret" }, hosting: "cloudflare" },
+  ])("rejects a Cloudflare-only key when inference selects another driver: %j", (input) => {
+    expect(() => normalizeBlobOptions({ bucketName: "assets" }, input))
+      .toThrow(expect.objectContaining({ code: "BLOB_UNKNOWN_STORE_OPTION", message: expect.stringContaining("bucketName") }))
+  })
+
   it("normalizes explicit Netlify Blobs stores", () => {
     expect(normalizeBlobOptions({
       consistency: "strong",
@@ -432,7 +447,7 @@ describe("blob config", () => {
     expect(normalizeBlobOptions({ serve: { access: "public" } })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "default",
       },
       store: {
@@ -568,6 +583,51 @@ describe("blob config", () => {
     })
   })
 
+  it("gives each named fs store without base its own folder", () => {
+    const stores = { avatars: { driver: "fs" as const }, default: { driver: "fs" as const }, exports: { driver: "fs" as const } }
+
+    expect(normalizeBlobOptions({ stores }, { env: {} })?.stores).toEqual({
+      avatars: { base: ".vitehub/data/blob-avatars", driver: "fs" },
+      default: { base: ".vitehub/data/blob", driver: "fs" },
+      exports: { base: ".vitehub/data/blob-exports", driver: "fs" },
+    })
+    // BLOB_FS_BASE moves every store, and named stores still get their own folder next to it.
+    expect(normalizeBlobOptions({ stores }, { env: { BLOB_FS_BASE: "/var/lib/app/blob" } })?.stores).toEqual({
+      avatars: { base: "/var/lib/app/blob-avatars", driver: "fs" },
+      default: { base: "/var/lib/app/blob", driver: "fs" },
+      exports: { base: "/var/lib/app/blob-exports", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ stores: { ...stores, avatars: { base: ".data/avatars", driver: "fs" } } }, { env: {} })?.stores?.avatars).toEqual({ base: ".data/avatars", driver: "fs" })
+  })
+
+  it.each(["/var/lib/app/blob/", "/var/lib/app/blob/."])("keeps named fs and R2 fallback roots beside %s", (base) => {
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        avatars: { driver: "fs" },
+        media: { driver: "cloudflare", binding: "MEDIA" },
+      },
+    }, { dev: true, env: { BLOB_FS_BASE: base } })
+
+    expect(config?.stores?.default).toMatchObject({ base })
+    expect(config?.stores?.avatars).toMatchObject({ base: "/var/lib/app/blob-avatars" })
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: "/var/lib/app/blob-media" } })
+  })
+
+  it.each(["media/avatars", "media\\avatars", "avatars."])("rejects %s as an implicit fs folder suffix", (name) => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs" } } }, { env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "cloudflare", binding: "MEDIA" } } }, { dev: true, env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs", base: "./my-files/" } } }, { env: {} })?.stores?.[name])
+      .toMatchObject({ base: "./my-files/" })
+  })
+
+  it("requires a folder name in BLOB_FS_BASE to generate a sibling folder", () => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, media: { driver: "fs" } } }, { env: { BLOB_FS_BASE: "/" } }))
+      .toThrow(/BLOB_FS_BASE must name a folder/)
+  })
+
   it("normalizes serving from a configured named Blob store", () => {
     expect(normalizeBlobOptions({
       serve: {
@@ -587,7 +647,7 @@ describe("blob config", () => {
     })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "assets",
       },
       store: {
@@ -862,6 +922,27 @@ describe("blob config in vite dev", () => {
     })
   })
 
+  it("keeps an explicit cloudflare store on the dev runner's binding or the local fs store", () => {
+    // The Node dev runner of `vite dev` and `nuxt dev` has no R2 binding, so the store must not need one.
+    expect(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: {}, hosting: "cloudflare" })?.store).toEqual({
+      binding: "TASK_ASSETS",
+      bucketName: "task-assets",
+      driver: "cloudflare",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { binding: "BLOB", driver: "cloudflare" },
+        media: { binding: "MEDIA", driver: "cloudflare" },
+      },
+    }, { dev: true, env: {} })
+    expect(config?.stores?.default).toMatchObject({ localFallback: { base: ".vitehub/data/blob", driver: "fs" } })
+    // Each named store gets its own folder, so two buckets do not share files.
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: ".vitehub/data/blob-media", driver: "fs" } })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare", remote: true }, { dev: true, env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare", remote: true })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare" }, { env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare" })
+  })
+
   it("applies remote per named store", () => {
     const config = normalizeBlobOptions({
       stores: {
@@ -971,5 +1052,40 @@ describe("renamed Blob drivers", () => {
       fix: expect.stringContaining("Check the spelling"),
       why: "`blob.driver` \"toString\" is not a Blob driver.",
     }))
+  })
+})
+
+describe("unknown Blob store options", () => {
+  it("throws for a driver option of a store without driver, and names the driver that reads it", () => {
+    // A plain config object skips TypeScript's unknown-key check. Without `driver`, the store would ignore `token`.
+    const config = { token: "env:BLOB_READ_WRITE_TOKEN" }
+    expect(() => normalizeBlobOptions(config as never, { env: {}, hosting: "vercel" })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      fix: expect.stringContaining("Set `driver` to \"netlify-blobs\" or \"vercel\", which reads `token`."),
+      why: "`blob.token` is not an option of a Blob store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+    // The Cloudflare host reads these without `driver`.
+    expect(normalizeBlobOptions({ binding: "BLOB", bucketName: "strata-og-images" }, { env: {}, hosting: "cloudflare" })?.store).toMatchObject({ binding: "BLOB", bucketName: "strata-og-images", driver: "cloudflare" })
+  })
+
+  it("throws for an option of another driver, in a store and next to stores", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", bucketName: "assets" } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      fix: "Remove `bucketName`, or set `driver` to \"cloudflare\", which reads it.",
+      why: "`blob.bucketName` is not an option of the `fs` Blob driver.",
+    }))
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs", cacheControl: "no-store" } } } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      why: "`blob.stores.default.cacheControl` is not an option of the `fs` Blob driver.",
+    }))
+    expect(() => normalizeBlobOptions({ driver: "fs", stores: { default: { driver: "fs" } } } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_UNKNOWN_STORE_OPTION",
+      why: "`blob.driver` is not an option of a Blob store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+  })
+
+  it("keeps serve and images next to a store or stores", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", base: ".data/blob", images: false, serve: { access: "public" } }, { env: {} })).not.toThrow()
+    expect(() => normalizeBlobOptions({ images: false, serve: { access: "public" }, stores: { default: { driver: "fs", urlBaseUrl: "https://app.example" } } }, { env: {} })).not.toThrow()
   })
 })

@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -65,14 +63,13 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
+The Agent runs inline and finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
 
 ### Define the Agent
 
@@ -166,11 +163,11 @@ Each Invocation runs in a new temporary folder, deleted at the end. To give Code
 While the dev server runs, inspect the Definition and send a prompt from another terminal:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent reviewer --url http://localhost:3000
+pnpm vitehub agent get reviewer --dev --url http://localhost:3000
 pnpm vitehub agent dev --agent reviewer --url http://localhost:3000 -p "Which tools can you use?"
 ```
 
-`agent info` shows the Driver, gateway name, execution authority, tools, and instructions, without running Codex. See [Talk to an Agent during development](/docs/development/cli#talk-to-an-agent-during-development).
+`agent get` shows the Driver, gateway name, execution authority, tools, and instructions, without running Codex. See [Talk to an Agent during development](/docs/cli/agents#talk-to-an-agent-during-development).
 
 ### Connect a Channel
 
@@ -178,7 +175,7 @@ A Channel starts an Invocation from a message, such as a GitHub pull request com
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 import { openai } from 'vite-hub/gateways'
 
 export default defineAgent({
@@ -218,8 +215,8 @@ For a long-lived server:
 Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 - `agent.status()` checks that Codex is installed and signed in, and reads its quota if reported. It sends no prompt. See [Provider status](/docs/agents/provider-status).
-- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
-- The [Console](/docs/development/console) shows the trace, tool calls, and usage of each Invocation.
+- `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
+- The [Console](/docs/console) shows the trace, tool calls, and usage of each Invocation.
 
 ## Where Codex can run
 

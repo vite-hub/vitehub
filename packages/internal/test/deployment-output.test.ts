@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { removeProviderOutputArtifactDir } from "../src/build/provider-output-sources.ts"
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -14,8 +14,8 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, renameSync: vi.fn(actual.renameSync), rmSync: vi.fn(actual.rmSync) }
 })
 
-vi.mock("../src/build/esbuild.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../src/build/esbuild.ts")>(),
+vi.mock("../src/build/rolldown.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/build/rolldown.ts")>(),
   bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
     await mkdir(dirname(outfile), { recursive: true })
     await writeFile(outfile, "export default {}\n", "utf8")
@@ -86,7 +86,7 @@ describe("provider deployment outputs", () => {
     const rootDir = await createTempProject()
     const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
-    const actual = await vi.importActual<typeof import("../src/build/esbuild.ts")>("../src/build/esbuild.ts")
+    const actual = await vi.importActual<typeof import("../src/build/rolldown.ts")>("../src/build/rolldown.ts")
     const bundles: string[] = []
     vi.mocked(bundleEsmEntry).mockImplementation(async (entryFile, outfile, options) => {
       await actual.bundleEsmEntry(entryFile, outfile, options)
@@ -742,7 +742,7 @@ describe("provider deployment outputs", () => {
       createDefaultNetlifyOutputRoot,
       writeProviderDeploymentOutputs,
     } = await import("../src/build/deployment-output.ts")
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const netlifyDir = createDefaultNetlifyOutputRoot(rootDir)
     const siblingFunction = join(netlifyDir, "functions", "other.mjs")
     vi.mocked(bundleEsmEntry).mockClear()
@@ -772,7 +772,7 @@ describe("provider deployment outputs", () => {
           config: {
             name: "vitehub-agent",
             nodeBundler: "esbuild",
-            path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+            path: ["/_vitehub/agents/:agent/chat", "/_vitehub/agents/:agent/webhooks/:webhook"],
           },
           functionName: "vitehub-agent",
         }],
