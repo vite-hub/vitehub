@@ -259,6 +259,7 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/slack": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
     "@emulators/ai": "0.14.0",
     "@emulators/core": "0.14.0",
