@@ -65,7 +65,7 @@ const memberFiles = {
     "export default {",
     "  async fetch(request: Request) {",
     "    const { owner, url, secret } = await request.json()",
-    "    const [error, endpoint] = await createMemberEndpoint({ owner, name: 'Launch plan thread', agent: 't3', kind: 'url', url, secret, hosts: ['203.0.113.10'] })",
+    "    const [error, endpoint] = await createMemberEndpoint({ owner, ownerName: 'Ana Ruiz', ownerEmail: 'ana@example.com', name: 'Launch plan thread', agent: 't3', kind: 'url', url, secret, hosts: ['203.0.113.10'] })",
     "    return error ? Response.json({ code: error.code, message: error.message }, { status: 400 }) : Response.json(endpoint)",
     "  },",
     "}",
@@ -118,7 +118,10 @@ describe("Webhooks in a built Nitro 3 app", () => {
     const root = await createProject(memberFiles)
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
-    const options: ViteHubOptions = { database: true, host: "node" }
+    const port = await freePort()
+    // `console: true` takes signed operation calls, such as `vitehub webhooks endpoints --url` with a CI key.
+    const options: ViteHubOptions = { console: true, database: true, host: "node", publicUrl: `http://127.0.0.1:${port}` }
+    const ci = await consoleTestKey("CI")
     const generate = await runCli(root, [vitehub(options), sendPlugin], ["database", "generate"])
     expect(generate.stderr).toBe("")
     expect(generate.exitCode).toBe(0)
@@ -134,7 +137,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
     expect(registry).toContain("createDrizzleWebhookEndpointStore")
     expect(registry).not.toContain("dynamicQueue")
     const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
-    const server = await startBuiltServer(root, { RECEIVER_ORIGIN: `http://127.0.0.1:${address.port}`, VITEHUB_WEBHOOKS_KEY: key })
+    const server = await startBuiltServer(root, { ...ci.env, RECEIVER_ORIGIN: `http://127.0.0.1:${address.port}`, VITEHUB_WEBHOOKS_KEY: key }, { port })
     try {
       const post = (route: string, body: unknown) => server.fetch(route, { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" })
       const secret = "whsec_member_build"
@@ -158,6 +161,28 @@ describe("Webhooks in a built Nitro 3 app", () => {
       finally {
         delete process.env.MEMBER_SECRET
       }
+
+      // The app has no `server/webhooks/` files, and the member endpoints still bring the webhooks operations.
+      vi.stubEnv(`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`, ci.key.privateKey)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+      const cli = (...args: string[]) => runCli(root, [vitehub(options), sendPlugin], ["webhooks", ...args, "--url", `http://127.0.0.1:${port}`])
+      const listed = await cli("endpoints")
+      expect(listed.stderr).toBe("")
+      expect(listed.exitCode).toBe(0)
+      expect(JSON.parse(listed.stdout)).toEqual([expect.objectContaining({ owner: "user_ana", ownerName: "Ana Ruiz", agent: "t3", host: "203.0.113.10", mine: false, last: expect.objectContaining({ state: "sent", status: 202 }) })])
+      expect(listed.stdout).not.toMatch(/token=|whsec_|\/hooks|ana@example\.com/)
+      const [first] = JSON.parse(listed.stdout) as Array<{ createdAt: number, id: string }>
+      const next = await cli("endpoints", "--after", JSON.stringify({ createdAt: first!.createdAt, id: first!.id }))
+      expect(next.stderr).toBe("")
+      expect(next.exitCode).toBe(0)
+      expect(JSON.parse(next.stdout)).toEqual([])
+      // A CLI key names no person, so it never owns a member endpoint.
+      const redelivered = await cli("redeliver", sent.id)
+      expect(redelivered.exitCode).not.toBe(0)
+      expect(redelivered.stderr).toContain("WEBHOOKS_DELIVERY_NOT_OWNER")
+      expect(received).toHaveLength(1)
     }
     finally {
       server.close()

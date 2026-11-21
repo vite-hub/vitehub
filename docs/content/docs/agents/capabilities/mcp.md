@@ -405,7 +405,7 @@ Configuration errors, including a Connection whose access denies the Agent, canc
 
 ## Verify MCP connections
 
-1. `agent info` lists the MCP tools, and `agent dev` streams tool steps.
+1. `agent get` lists the MCP tools, and `agent dev` streams tool steps.
 2. Tools have normalized names such as `mcp_docs_search`.
 3. A duplicate normalized name fails before the model runs.
 

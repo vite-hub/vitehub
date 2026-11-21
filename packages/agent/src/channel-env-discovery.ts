@@ -6,6 +6,7 @@ import { discoverServerChannelModules, listMatchingFiles, listSourceFiles } from
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { simulatedChannelKinds } from "./internal/channel-simulation.ts"
+import { agentForges } from "./internal/forge-kind.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
 import type { ChannelEnvField } from "./channel-env.ts"
@@ -950,10 +951,10 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
     })
     for (const use of uses) {
       const selected = use.stringOptions?.get("forge") ?? (use.optionKeys && !use.optionKeys.has("forge") ? "github" : undefined)
-      for (const [forge, specs] of Object.entries(forgeEnv)) {
+      for (const forge of agentForges) {
         if (selected !== undefined && selected !== forge) continue
         const group = declared[forge] ??= {}
-        for (const [field, spec] of Object.entries(specs)) {
+        for (const [field, spec] of Object.entries(forgeEnv[forge])) {
           group[field] ??= { names: [...spec.names], required: false, secret: "secret" in spec && spec.secret === true }
         }
       }

@@ -19,6 +19,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, `useComments()`, and the Choices input parts | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
 | `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/motion` | The motion layer: press, toggle, select, drag, and appear motion by role, the shared spring engine, and reduced motion. No Vue, so a plain TypeScript page or a shadow root can use it | Nothing: `createViteHubUI()` and the Nuxt module install it |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
@@ -286,6 +287,24 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 ```
 
 Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
+
+## Motion
+
+Controls get the same motion from what a person does with them, not from code of their own (see [docs/design/motion.md](../../docs/design/motion.md)). `createViteHubUI()` installs the motion layer in the browser, and the Nuxt module does it through the same plugin. A pressed `button`, link, tab, radio, option, menu item, or checkbox squashes and springs back past rest. A pressed switch grows its knob instead of squashing the whole control. Non-transformable inline controls, such as links in running text, keep their layout and do not squash. A pointer press near the edge of a control stays still if a squash would risk missing the click. Under `prefers-reduced-motion`, the press stays still.
+
+- Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
+- Turn it off for the app with `createViteHubUI({ motion: false })`.
+- Without Vue, call it yourself. Pass a shadow root to watch the state attributes inside it too:
+
+```ts
+import { installMotion } from "@vite-hub/ui/motion";
+
+const host = document.createElement("div");
+document.body.append(host);
+const uninstall = installMotion(host.attachShadow({ mode: "open" }));
+```
+
+The entry also has the spring engine (`createSpring`, `springs.snappy`, `springs.soft`), reduced motion (`prefersReducedMotion`, `onReducedMotionChange`, `forceReducedMotion`), `setMotionSlowFactor(4)` to watch an effect at ¼×, and `defineMotionEffect` to add an effect for a role. The motion page in `test/browser/motion/` renders every role; `pnpm --filter @vite-hub/ui test:motion` checks it in Chromium, and `MOTION_RECORD=<dir>` records each press at ¼×.
 
 ## The ui-sdk set
 
