@@ -29,6 +29,7 @@ const templates: PlaygroundContainerTemplate[] = playgroundTemplates.map(({ snap
 
 // Tokens stay in this tab (sessionStorage). They reach the app only as environment variables of the dev server.
 const connect = defineConnect({ anthropic: true, github: true, netlify: true, openai: true, vercel: true });
+const open = ref(false);
 
 /** The address keeps the template that is open. A share link no longer matches the files, so its hash goes. */
 function keep(id: string) {
@@ -40,6 +41,7 @@ function keep(id: string) {
   <div class="vh-playground">
     <!-- The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app. -->
     <PlaygroundContainer
+      v-model:open="open"
       :templates="templates"
       :template="typeof route.query.template === 'string' ? route.query.template : undefined"
       label="playground"

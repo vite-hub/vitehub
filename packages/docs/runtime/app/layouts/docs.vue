@@ -33,19 +33,20 @@ const docsShellUi = {
           </UPageAside>
         </template>
 
-        <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-        <div id="docs-content" tabindex="-1" class="relative">
-          <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
-          <!-- A page with a collapsible sidebar, such as a playground, fills the viewport, so it has no banner. -->
-          <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
-            <span class="text-muted">{{ banner }}</span>
-          </div>
-        </div>
         <!-- The window does not scroll. A page that is taller than the viewport, such as the playground intro on a phone, scrolls in here. -->
-        <div v-if="fills" class="vh-docs-fill">
+        <div v-if="fills" id="docs-content" tabindex="-1" class="vh-docs-fill">
           <slot />
         </div>
-        <slot v-else />
+        <template v-else>
+          <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
+          <div id="docs-content" tabindex="-1" class="relative">
+            <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
+            <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
+              <span class="text-muted">{{ banner }}</span>
+            </div>
+          </div>
+          <slot />
+        </template>
       </UPage>
     </UMain>
   </DocsAppShell>
