@@ -61,7 +61,7 @@ Most Agents use the top-level option. With `tokens` or `usd`, ViteHub turns it i
 With the Vite development server running, inspect the Agent:
 
 ```bash
-vitehub agent get --agent support --json
+vitehub agent get support --json
 ```
 
 For a token or USD policy, the JSON `capabilities` list has an `id: "budget"` entry whose `metadata` shows the configuration, including policy kind and mode. It shows no usage from earlier runs.

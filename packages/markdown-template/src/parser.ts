@@ -63,7 +63,8 @@ export const htmlPlugins: ComarkPlugin[] = [inlineHtml, rawHtmlAttributes()]
 
 export const parserOptions = { autoClose: false, autoUnwrap: false, linkify: false, plugins: [...htmlPlugins, binding()] }
 
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+/** HTML tags whose text the renderer keeps as written. */
+export const literalHtmlTags: ReadonlySet<string> = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
 
 /** Whether authored HTML children are reparsed as Markdown by the template renderer. */
 export function hasMarkdownHtmlChildren([tag, attrs, ...children]: ElementNode): boolean {

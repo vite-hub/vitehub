@@ -72,8 +72,10 @@ Turns `{ "server/index.js": "..." }` into the nested tree that a WebContainer mo
 
 | Export | Description |
 | --- | --- |
-| `hubWebContainer({ routes })` | A Vite plugin that sets the isolation headers on `routes` in `vite dev` and `vite preview`. Each route starts with `/`. `/playground` matches that path only, and `/playground/**` matches it and every path below it. Throws without a route. |
-| `webContainerHeaders` | `{ "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" }`, for Nitro route rules in production. |
+| `webContainerVitePlugin({ routes })` | The Vite plugin that `vitehub({ webContainer })` adds. It sets the isolation headers on `routes` in `vite dev` and `vite preview`, and adds Nitro route rules for them. Each route starts with `/`. `/playground` matches that path only, and `/playground/**` matches it and every path below it. Throws without a route. |
+| `webContainerRouteRules(routes)` | The Nitro route rules that the plugin adds. |
+| `webContainerHeaders` | `{ "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" }`. |
+| `hubWebContainer()` | Removed. Throws `WEB_CONTAINER_PLUGIN_MOVED`. Use `vitehub({ webContainer: { routes } })`. |
 | `matchesWebContainerRoute(pathname, routes)` | Returns `true` when `pathname` matches one of the route patterns. |
 
 ## `vite-hub/web-container/snapshot`

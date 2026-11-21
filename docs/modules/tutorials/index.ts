@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { webContainerHeaders } from "@vite-hub/web-container/vite";
 import { addTemplate, addTypeTemplate, defineNuxtModule } from "nuxt/kit";
 import { buildRunnableTutorial, readWorkspaceVersions } from "./build";
 import { runnableTutorials } from "./list";
@@ -18,10 +17,8 @@ interface NitroConfig {
 /**
  * Runnable tutorials: `/learn/<slug>` shows the lesson of a docs page beside a live workspace.
  *
- * A WebContainer needs a cross-origin isolated page, so `/learn` and every page below it send
- * `webContainerHeaders`. Other pages keep their headers, so their cross-origin embeds keep working.
- * `/playground` boots the same workspace without a lesson, so it sends them too, and no other page does.
- * `app/middleware/isolation-boundary.global.ts` loads a new document for links across this boundary.
+ * A WebContainer needs a cross-origin isolated page. `webContainer.routes` in `nuxt.config.ts` makes `/learn`, every
+ * page below it, and `/playground` isolated, and ViteHub loads a new document for links across this boundary.
  *
  * At build time this module reads each lesson and its fixture, and writes:
  * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes.
@@ -41,9 +38,6 @@ export default defineNuxtModule({
 
     nuxt.options.routeRules = {
       ...nuxt.options.routeRules,
-      "/learn": { headers: { ...webContainerHeaders } },
-      "/learn/**": { headers: { ...webContainerHeaders } },
-      "/playground": { headers: { ...webContainerHeaders } },
       // A content hash names each part, so a part never changes.
       "/_tutorials/snapshots/**": { headers: { "cache-control": "public, max-age=31536000, immutable" } },
     };

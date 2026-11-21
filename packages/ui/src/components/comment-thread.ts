@@ -1,5 +1,6 @@
 import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { RollNumber } from "./motion.ts";
 import {
   consumedPointerEvents,
   pathOf,
@@ -497,7 +498,7 @@ export const CommentThread = defineComponent({
         const replies = thread.messages.length - 1;
         return h("div", { ...deliveryAttributes(thread.delivery), "data-preview": "true", "data-size": props.size, "data-slot": "comment-thread", "data-status": thread.status }, [
           first ? h(CommentReply, { compact: true, message: first, people: people.value, size: props.size, user: user.value }, { ...(slots.body ? { body: slots.body } : {}), ...(slots.status ? { status: slots.status } : {}) }) : null,
-          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
+          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, [h(RollNumber, { value: replies }), replies === 1 ? " reply" : " replies"]) : null,
         ]);
       }
       const back = props.navigation === "back";
