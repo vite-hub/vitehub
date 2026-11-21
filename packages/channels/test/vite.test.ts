@@ -83,10 +83,10 @@ describe("hubChannels", () => {
   })
 
   it.each([
-    ["server/channels/payments.ts", "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })"],
-    ["src/payments.channel.ts", "import * as channels from 'vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.stripe() })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.webhook({ secret: false }) })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels['webhook']() })"],
+    ["server/channels/payments.ts", "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: stripe() })"],
+    ["src/payments.channel.ts", "import { defineChannel } from 'vite-hub/channels'\nimport * as adapters from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: adapters.stripe() })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/channels/adapters'\nexport default channels.defineChannel({ adapter: adapters.webhook({ secret: false }) })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/agent/channels'\nexport default channels.defineChannel({ adapter: adapters['webhook']() })"],
   ])("requires the Agent plugin for inbound Channels in %s: %s", async (path, source) => {
     const root = await createTempProject()
     await mkdir(dirname(join(root, path)), { recursive: true })

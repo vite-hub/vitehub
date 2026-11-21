@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/static/v1?label=AI+SDK&amp;message=v7&amp;color=blue">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, application-owned `driver.run` logic, or `driver: "external"` for an Agent that a process outside the app runs.
 
 Keep the three pieces separate:
 
@@ -105,6 +105,21 @@ Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocati
 
 See [AI gateways](../../docs/content/docs/gateways/index.md).
 
+## External Agents
+
+`driver: "external"` defines an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner. The Agent keeps its description, Workspace, and Invocation journal. Write its runs with `importAgentSession()` from `@vite-hub/agent/sessions`. It has no runtime: `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`. Workflow discovery skips it, and Dev Loop Workspace commands (`vitehub agent dev "!cmd"`) still run.
+
+```ts
+// server/agents/coding-agent.ts
+import { defineAgent } from "@vite-hub/agent";
+
+export default defineAgent({
+  description: "Codex or Claude Code, building Nuxt projects from a product spec.",
+  workspace: "meetups",
+  driver: "external",
+});
+```
+
 ## Direct invocations
 
 `runAgent(agent, input, options?)` runs the Agent in the calling process and returns `[error, result]`. It does not throw for a failed run. `result.text` has the final text, and `result.output` has the typed Agent output: the `driver.output` schema value, the `driver.ask` answers, the `intercept` value, or the value that a `run` Driver returns. `runAgent()` consumes streamed output and `Response` bodies before it returns. `error.code` is `AGENT_RUN_FAILED` or `AGENT_RUN_CANCELLED`, and `error.cause` has the original failure.
@@ -147,6 +162,8 @@ Provider Drivers check the switch at the start of `runProvider()` in `src/provid
 - The Invocation configuration record shows `gateway: "emulate"` for the Codex model.
 
 `VITEHUB_TEST_REAL_CODEX=1 vp test run test/emulate-codex.test.ts` runs real Codex against the emulator. Install `@openai/codex@0.169.0` in this package or put that `codex` on `PATH` first. See [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator).
+
+`vitehub({ agent: { models: { emulate: true | seed } } })` starts the emulator in `vite dev`. `src/internal/model-emulation-dev.ts` owns it: the plugin in `src/vite.ts` calls `startAiEmulator()` from `src/internal/ai-emulator.ts`, the same starter as `emulateModels()`, sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL`, and logs the URL once. It also writes both as Wrangler vars when Nitro uses the `miniflare` dev runner, because that runner does not pass `process.env` to the Worker. The plugin wraps `createEnvironment` of each environment, so the emulator starts only when Vite creates a dev server, before the Nitro runner starts, and each server releases its share when it closes its environments, also on a `server.restart()` that reuses an inline plugin. The last server stops it and restores the variables. An app is a Vite root: a restart with a new seed calls `reseed()`, which replaces the rules and the seed of `POST /_ai/reset`, and a dev server of another app with another setting fails with `AGENT_EMULATOR_DEV_APPS_CONFLICT`, because the routing is process-wide. Builds, `vite preview`, config-only loads, and CLI discovery (also `vitehub env`) do not start it, and the plugin loads `@emulators/*` only on that path, so a build has no emulator import. Missing packages fail with `AGENT_EMULATOR_PACKAGES_MISSING`, and a rejected seed with `AGENT_EMULATOR_RULES_INVALID`.
 
 ## Emulated models in tests
 
@@ -293,7 +310,7 @@ export default defineAgent({
 })
 ```
 
-Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent get` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
 
 For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admissions from host CPU and memory pressure while keeping `concurrency` as a hard maximum. It does not cap I/O-heavy work to the host CPU count. When capacity reaches zero, work stays in the same FIFO queue and resumes automatically after pressure recovers. Active invocations are never preempted.
 
@@ -329,14 +346,14 @@ For model-backed drivers, put free-form guidance for configured Sources, Capabil
 
 ## CLI inspection
 
-With `hubAgent()` active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
+With `hubAgent()` active, start the Vite Development Server and run `vitehub agent get <name>`.
 The command reads the resolved Agent Definition metadata without invoking the Agent Driver, so use it to verify the selected Driver, tools, Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status before debugging model output.
 Pass `--json` for the structured inspection contract.
 
 ## Capabilities
 
 - A `webChat()` Channel exposes the Agent through the conventional `/_vitehub/agents/[agent]/chat` dispatcher. Use `webChat({ route: false })` when an Agent should not answer it, or `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
-- `ignored(reason)` from `vite-hub/agent/channels` answers a webhook that a Channel trigger does not handle with HTTP 200 `{ accepted: false, ok: true, reason }`. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
+- `ignored(reason)` from `vite-hub/channels` answers a webhook that a Channel trigger does not handle with HTTP 200 `{ accepted: false, ok: true, reason }`. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
 - `retryLater(reason)` answers HTTP 503 and `rejected(reason)` answers HTTP 400, both with `{ accepted: false, ok: false, reason }`. The sender and the webhook queue retry `retryLater()`; a `rejected()` delivery is not retried. No Invocation starts. See [Ignore a webhook](https://vitehub.dev/docs/agents/triggers#ignore-a-webhook).
 - `instructions` on `defineChannel()` from `vite-hub/channels`, on `channelAdapter(kind, options)`, and on built-in adapters such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
 - `channelAdapter(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
@@ -649,7 +666,9 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
-`githubPullRequestTrigger({ events, filter?, reviewStates?, mentions?, noFindingsReviews?, debounceMs?, invoke })` from `vite-hub/agent/channels` is a Channel trigger for the `triggers` of a github() Channel with `pullRequest` set. It matches comment and review deliveries like a `reconcile.triggers` entry, after those entries. The webhook queue runs `invoke(context, event)` once per `x-github-delivery`, after `debounceMs`, in the pull request's queue slots. `event` has the event name, `deliveryId`, `actor`, `body`, `url`, `reviewState`, `pullRequest` (with `headSha`, read from GitHub for comment deliveries), and the GitHub `payload`. `ignored(reason)` or another `Response` finishes the delivery without an Invocation; `{ input }` starts a reconcile run with `input.prompt` as the request. The queue stores the delivery before the answer, so a restart keeps it; a failed or interrupted `invoke` runs again, up to three attempts. The Channel delivery record shows `trigger.started`, then `trigger.completed` (`outcome`, `status`, `reason`) or `trigger.failed` (`error`), each with the `trigger` name. A terminal `completed` or `rejected` event keeps the `reason` of a handled answer, such as `ignored(reason)`. Server code starts the trigger on one pull request with `sendChannelTrigger('github', name, { pullRequest: { repository, number }, id?, body? })`: the run takes the pull request's queue slot, and `invoke` gets `event: 'server'` with the send's `body`. See [Run code on pull request comments and reviews](../../docs/content/docs/agents/channels.md#run-code-on-pull-request-comments-and-reviews).
+`githubPullRequestTrigger({ events, filter?, reviewStates?, mentions?, noFindingsReviews?, debounceMs?, invoke })` from `vite-hub/channels/adapters` is a Channel trigger for the `triggers` of a github() Channel with `pullRequest` set. It matches comment and review deliveries like a `reconcile.triggers` entry, after those entries. The webhook queue runs `invoke(context, event)` once per `x-github-delivery`, after `debounceMs`, in the pull request's queue slots. `event` has the event name, `deliveryId`, `actor`, `body`, `url`, `reviewState`, `pullRequest` (with `headSha`, read from GitHub for comment deliveries), and the GitHub `payload`. `ignored(reason)` or another `Response` finishes the delivery without an Invocation; `{ input }` starts a reconcile run with `input.prompt` as the request. The queue stores the delivery before the answer, so a restart keeps it; a failed or interrupted `invoke` runs again, up to three attempts. The Channel delivery record shows `trigger.started`, then `trigger.completed` (`outcome`, `status`, `reason`) or `trigger.failed` (`error`), each with the `trigger` name. A terminal `completed` or `rejected` event keeps the `reason` of a handled answer, such as `ignored(reason)`. See [Run code on pull request comments and reviews](../../docs/content/docs/agents/channels.md#run-code-on-pull-request-comments-and-reviews).
+
+Server code starts the trigger on one pull request with `sendChannelTrigger('github', name, { pullRequest: { repository, number }, id?, body? })` from `vite-hub/channels`. The run takes the pull request's queue slot, and `invoke` gets `event: 'server'` with the send's `body`.
 
 `pullRequest.reconcile.headMoves` sets what happens to reconcile runs when an account that is not a bot pushes to the pull request branch. `"notify"` (default) starts a queued run on the new head with a notice in its prompt; a running run continues. `"cancel"` drops queued runs and cancels a running run in the same server process. A `closed` event always drops queued runs and cancels running runs. The Channel watches these `pull_request` events even with `reconcile.events: []`. See [When the branch moves or the pull request closes](../../docs/content/docs/agents/channels.md#when-the-branch-moves-or-the-pull-request-closes).
 

@@ -63,6 +63,10 @@ export const webhooksErrors = /*#__PURE__*/ defineErrors({
       why: ({ id }: { id: string }) => `No webhook delivery has the id ${id}.`,
       fix: "Pass the id of a delivery that `listWebhookDeliveries()` returns.",
     },
+    WEBHOOKS_DELIVERY_NOT_OWNER: {
+      why: ({ id }: { id: string }) => `The delivery ${id} went to the agent of a member, and only that member can send it again.`,
+      fix: "Ask the member to redeliver it. In the ViteHub Console, the member signs in with the email of their app account, which must be verified. An app sends again as the member with `redeliverWebhookDelivery(id, { caller: { id: user.id } })`.",
+    },
     WEBHOOKS_DELIVERY_NOT_PENDING: {
       why: ({ id, state }: { id: string, state: string }) => `The delivery ${id} is ${state}, not pending.`,
       fix: "Flush or cancel only a pending delivery. To send a sent, dead, or cancelled delivery again, redeliver it.",
@@ -133,7 +137,7 @@ export type CreateMemberEndpointErrorCode =
   | "WEBHOOKS_STORE_FAILED"
   | "WEBHOOKS_URL_REFUSED"
 
-/** The codes that `getMemberEndpoint()`, `removeMemberEndpoint()`, and `disableMemberEndpoint()` return. */
+/** The codes that `getMemberEndpoint()`, `listMemberEndpoints()`, `removeMemberEndpoint()`, `disableMemberEndpoint()`, and `enableMemberEndpoint()` return. */
 export type MemberEndpointErrorCode =
   | "WEBHOOKS_DATABASE_MISSING"
   | "WEBHOOKS_ENDPOINT_NOT_FOUND"
@@ -150,11 +154,19 @@ export type SendToMemberEndpointErrorCode =
   | "WEBHOOKS_STORE_FAILED"
   | "WEBHOOKS_WAKE_FAILED"
 
-/** The codes that the delivery functions of `@vite-hub/webhooks/runtime` return. */
+/**
+ * The codes that the delivery functions of `@vite-hub/webhooks/runtime` return. The member codes come only from a
+ * delivery to a member endpoint.
+ */
 export type WebhookDeliveryErrorCode =
   | "WEBHOOKS_DATABASE_MISSING"
   | "WEBHOOKS_DELIVERY_ACTIVE"
   | "WEBHOOKS_DELIVERY_NOT_FOUND"
+  | "WEBHOOKS_DELIVERY_NOT_OWNER"
   | "WEBHOOKS_DELIVERY_NOT_PENDING"
+  | "WEBHOOKS_ENDPOINT_DISABLED"
+  | "WEBHOOKS_ENDPOINT_NOT_FOUND"
+  | "WEBHOOKS_KEY_INVALID"
+  | "WEBHOOKS_KEY_UNSET"
   | "WEBHOOKS_STORE_FAILED"
   | "WEBHOOKS_WAKE_FAILED"

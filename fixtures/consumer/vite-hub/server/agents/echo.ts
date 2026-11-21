@@ -1,6 +1,6 @@
 import { defineAgent } from "vite-hub/agent"
 import { workspaceShell } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels/adapters"
 
 import { renderMarkdownTemplate } from "vite-hub/markdown-template"
 

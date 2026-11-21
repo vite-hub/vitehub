@@ -336,6 +336,23 @@ describe("vitehub agent invocations delete and prune", () => {
     expect(id.chunks.stderr).toContain("delete requires an invocation id.")
   })
 
+  it.each([
+    { flags: ["--url", "app.example.com"], message: "--url must be the app URL" },
+    { flags: ["--url=http://localhost:3000/?legacy=1"], message: "--url must not contain credentials, a query, or a fragment" },
+    { flags: ["--server", "http://localhost:3000"], message: "--server is now --url" },
+  ])("leaves the journal untouched for a delete with an invalid explicit app target ($flags)", async ({ flags, message }) => {
+    const { read, rootDir } = await defaultJournal()
+    const io = output()
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    vi.mocked(createClient).mockClear()
+
+    await expect(runAgentInvocationsCli(["delete", "old-completed", "--yes", ...flags], { env: {}, rootDir, ...io }, { fetch })).resolves.toBe(1)
+    expect(io.chunks.stderr).toContain(message)
+    expect(createClient).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect((await read.list()).invocations).toHaveLength(4)
+  })
+
   it("rejects dry-run for delete without opening the journal", async () => {
     const { read, rootDir } = await defaultJournal()
     const io = output()

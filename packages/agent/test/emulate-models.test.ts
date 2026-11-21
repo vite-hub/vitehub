@@ -160,7 +160,7 @@ describe("emulateModels()", () => {
       const { emulateModels } = await import("../src/test/emulate-models.ts")
       await expect(emulateModels()).rejects.toMatchObject({
         code: "AGENT_EMULATOR_PACKAGES_MISSING",
-        message: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",
+        message: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
         fix: expect.stringContaining("pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0"),
       })
       expect(process.env.VITEHUB_MODELS).toBeUndefined()

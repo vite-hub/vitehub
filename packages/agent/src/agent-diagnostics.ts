@@ -444,6 +444,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
   "AGENT_DRAIN_MS_INVALID",
   "AGENT_EXTENDS_INVALID",
+  "AGENT_EXTERNAL_DRIVER_RUNTIME",
   "AGENT_INSTRUCTIONS_EXTEND_INVALID",
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
@@ -2242,7 +2243,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object, not a string.",
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
@@ -2270,19 +2271,19 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0497: {
       ...dynamicError,
-      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.",
+      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver.",
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent info --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get support --url http://localhost:3000.",
     },
     AGENT_R0499: {
       ...dynamicError,
-      fix: "Remove the unknown option. Run vitehub agent info --help to list the options.",
+      fix: "Remove the unknown option. Run vitehub agent get --help to list the options.",
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent info --agent <name>.",
+      fix: "Remove the extra argument. Pass one Agent name: vitehub agent get <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -2290,7 +2291,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0502: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations show <id>.",
+      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations get <id>.",
     },
     AGENT_R0503: {
       ...dynamicError,
@@ -2310,7 +2311,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0507: {
       ...dynamicError,
-      fix: "Pass the invocation ID after the action, such as vitehub agent invocations show <id>. Run vitehub agent invocations list to find it.",
+      fix: "Pass the invocation ID after the action, such as vitehub agent invocations get <id>. Run vitehub agent invocations list to find it.",
     },
     AGENT_R0508: {
       ...dynamicError,
@@ -4359,11 +4360,11 @@ const agentDiagnosticHandles = defineDiagnostics({
         option: `Unknown option ${value}.`,
         value: `${value} requires a value.`,
       })[problem],
-      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub agent conversations export <agent> <channel> <thread>`, and only the options that `vitehub agent conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
     },
     AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
       why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
-      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub agent conversations export`.",
     },
     AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
       why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
@@ -4425,9 +4426,13 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] The AI emulator of emulateModels() is closed.",
       fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
     },
+    AGENT_EMULATOR_DEV_APPS_CONFLICT: {
+      why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
+      fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
-      why: "[vitehub] emulateModels() needs the optional packages @emulators/core and @emulators/ai.",
-      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`. Read `error.cause` for the import failure.",
+      why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
     },
     AGENT_EMULATOR_RULES_INVALID: {
       why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,
@@ -4444,6 +4449,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUN: {
+      why: ({ agent }: { agent: string }) => `[vitehub] Agent ${JSON.stringify(agent)} has driver: "external", so a process outside this app runs it. ViteHub does not run it.`,
+      fix: "Run the Agent where it lives, such as Codex or Claude Code on a laptop or a CI runner, and import its session with `importAgentSession()` from `@vite-hub/agent/sessions`. To run the Agent in this app, give it a model, provider, run, or ask Driver.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUNTIME: {
+      why: "[vitehub] defineAgent({ driver: \"external\" }) cannot have a Workflow runtime. A process outside the app runs the Agent, so no Workflow can run it.",
+      fix: "Remove `runtime` from the Agent Definition. An external Agent has no runtime.",
     },
     AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
       why: "GitHub activity session links require an Agent identity.",
