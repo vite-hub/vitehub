@@ -1,11 +1,14 @@
-import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
+import { runOperation } from "@vite-hub/internal/operations"
+import * as v from "valibot"
+
+import { allowedConsoleSections, consoleOperationGranted, readConsoleOperationUser } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
 
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
-
+import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
@@ -65,11 +68,13 @@ export interface ConsoleProject {
  * Describe the project for one Console access. `console.authorize` limits the sections and the operations. With
  * `navigation`, the answer also has the sections that the Console page shows.
  */
-export async function readConsoleProject(access: ConsoleAccess, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
+export async function readConsoleProject(context: OperationContext & { access: ConsoleAccess }, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
+  const { access } = context
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
-  const operations = consoleOperationRegistry().list()
+  const registry = consoleOperationRegistry()
+  const operations = registry.list()
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
@@ -79,22 +84,19 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  const comments = sections.includes("comments") ? await countOpenComments() : undefined
+  const comments = sections.includes("comments") && operations.includes("comments.list")
+    ? await countOpenComments(registry, context)
+    : undefined
   return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }
 
 /**
- * The open threads of the Comments section, from the same reader as its table, so the Console Home shows the count
- * without one more request per app. A reader that fails gives no count, and the answer still describes the project.
+ * Use the same list operation and caller as the inbox. If the list fails, the answer still describes the project.
  */
-async function countOpenComments(): Promise<{ open: number } | undefined> {
-  const reader = consoleState().definitions?.readers?.comments
-  if (!reader) return undefined
-  try {
-    const records = await reader()
-    return { open: records.filter(record => record.cells.status === "Open").length }
-  }
-  catch {
-    return undefined
-  }
+async function countOpenComments(registry: ReturnType<typeof consoleOperationRegistry>, context: OperationContext & { access: ConsoleAccess }): Promise<{ open: number } | undefined> {
+  const user = context.user ?? await readConsoleOperationUser(context.access) ?? null
+  const result = await runOperation(registry, "comments.list", { limit: 500 }, { ...context, user })
+  if (!result.ok) return undefined
+  const threads = v.safeParse(v.array(v.object({ status: v.string() })), result.value)
+  if (threads.success) return { open: threads.output.filter(thread => thread.status === "open").length }
 }

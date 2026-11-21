@@ -1,9 +1,8 @@
 import * as v from "valibot"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleBuild, installConsoleProjectName, installConsoleSections, installConsoleVersion } from "../src/console/runtime/server/sections.ts"
@@ -38,7 +37,6 @@ async function project(headers: Record<string, string> = {}): Promise<{ status: 
 
 afterEach(() => {
   consoleState().build = undefined
-  consoleState().definitions = undefined
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
   installConsoleSections("/work/app", [])
@@ -74,18 +72,32 @@ describe("project.get", () => {
     expect((await project()).value?.build).toEqual(build)
   })
 
-  it("counts the open Comments threads for a caller who may open Comments", async () => {
-    const thread = (id: string, status: string) => ({ cells: { status }, fields: [], id })
+  it("counts open threads from the installed Comments inbox for callers with read access", async () => {
+    const list = vi.fn(() => [{ status: "open" }, { status: "resolved" }, { status: "open" }])
     installConsoleSections("/work/app", ["comments", "kv"])
-    installConsoleDefinitions("/work/app", {}, [], { comments: () => [thread("a", "Open"), thread("b", "Resolved"), thread("c", "Open")] })
+    expect((await project()).value).not.toHaveProperty("comments")
+    installConsoleOperations([{ operations: defineOperation({
+      description: "List the threads visible to this caller.",
+      input: v.strictObject({ limit: v.literal(500) }),
+      kind: "read",
+      name: "comments.list",
+      run: list,
+      section: "comments",
+    }) }])
+    installConsoleAccess({ authorize: () => ({ sections: ["comments:read"] }), mode: "open" })
     expect((await project()).value?.comments).toEqual({ open: 2 })
+    expect(list).toHaveBeenCalledOnce()
 
-    // A caller without the Comments section gets no count, and a reader that fails gives none.
     installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
     expect((await project()).value).not.toHaveProperty("comments")
+    expect(list).toHaveBeenCalledOnce()
     installConsoleAccess({ mode: "open" })
-    installConsoleDefinitions("/work/app", {}, [], { comments: () => { throw new Error("database down") } })
-    expect((await project()).value).not.toHaveProperty("comments")
+    list.mockReturnValueOnce([])
+    expect((await project()).value?.comments).toEqual({ open: 0 })
+    list.mockImplementationOnce(() => { throw new Error("database down") })
+    const failedList = await project()
+    expect(failedList.status).toBe(200)
+    expect(failedList.value).not.toHaveProperty("comments")
   })
 
   it("lists only the sections and operations that authorize allows", async () => {
