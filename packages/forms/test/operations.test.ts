@@ -11,7 +11,7 @@ it("prints submission previews without terminal controls and preserves stored da
     page: null, anchor: null, user: null, data: { message },
   }
   const list = formsOperations.find(operation => operation.name === "forms.list")!
-  const output = list.cli!.format!([row] as never)
+  const output = (list.cli || undefined)!.format!([row] as never)
   expect(output).toContain("Hello world! Next line")
   for (const control of ["\u001B", "\u0007", "\b", "\r"]) expect(output).not.toContain(control)
   expect(row.data).toEqual({ message })

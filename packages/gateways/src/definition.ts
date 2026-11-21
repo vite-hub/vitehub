@@ -19,6 +19,12 @@ export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
 export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
 
 /**
+ * Marks a gateway whose `openai-compatible` URL is the OpenAI API itself, such as `openai()`. Its `chat` model API then
+ * uses `@ai-sdk/openai`, the package that serves OpenAI, so the app needs no `@ai-sdk/openai-compatible`.
+ */
+export const aiGatewayOpenAIChat: unique symbol = Symbol.for("vitehub.aiGateway.openaiChat")
+
+/**
  * Marks a gateway whose Chat Completions endpoint accepts a JSON schema in `response_format`. A symbol key, so key
  * checks and copies skip it. `languageModel()` then sends the output schema on `api: "chat"`, not plain `json_object`.
  */
