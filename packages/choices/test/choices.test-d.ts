@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { ChoicesError } from "../src/index.ts"
 import { defineChoices } from "../src/index.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 import type { AiGatewayUsage } from "@vite-hub/gateways"
 

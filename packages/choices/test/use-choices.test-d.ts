@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineChoices } from "../src/index.ts"
 import { useChoices } from "../src/vue.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 import type { MultipleSelection, SingleSelection } from "../src/index.ts"
 import type { ChoicesSelectionOf } from "../src/vue.ts"

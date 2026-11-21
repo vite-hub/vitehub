@@ -3,16 +3,22 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { typesafe } from "@vite-hub/gateways"
 import { defineChoices, toOptions } from "../src/index.ts"
-import { wordGateway } from "./support.ts"
+import { wordGateway } from "../src/testing.ts"
 
 const suppliers = toOptions([{ code: "S1", name: "Vak Supply" }, { code: "S2", name: "Nord Parts" }, { code: "S3", name: "Vakuum Co" }], {
   label: item => item.name,
   value: item => item.code,
 })
 
-function forecast(calls: Parameters<typeof wordGateway>[0] = []) {
+/** A word gateway whose `ask()` calls you can read: `ask.mock.calls[0]` is `[state, questions, options]`. */
+function spiedGateway() {
+  const gateway = wordGateway()
+  return { ask: vi.spyOn(gateway, "ask"), gateway }
+}
+
+function forecast(gateway = wordGateway()) {
   return defineChoices({
-    gateway: wordGateway(calls),
+    gateway,
     groups: {
       chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] },
       supplier: { label: "Supplier", options: suppliers },
@@ -84,32 +90,32 @@ describe("defineChoices().resolve()", () => {
   })
 
   it("passes context to option functions and the signal to the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const seen: unknown[] = []
     const options = async (context: { tenant: string }) => {
       seen.push(context)
       return [{ label: `${context.tenant} Mill`, value: context.tenant }]
     }
-    const choices = defineChoices({ gateway: wordGateway(calls), groups: { site: { label: "Site", options } } })
+    const choices = defineChoices({ gateway, groups: { site: { label: "Site", options } } })
     const controller = new AbortController()
     const [error, selection] = await choices.resolve("acme mill", { context: { tenant: "acme" }, signal: controller.signal })
     expect(error).toBeUndefined()
     expect(seen).toEqual([{ tenant: "acme" }])
     expect(selection?.site.include).toEqual(["acme"])
-    expect(calls[0]?.signal).toBe(controller.signal)
+    expect(ask.mock.calls[0]?.[2]?.signal).toBe(controller.signal)
   })
 
   it("sends one question per option of a multiple group, one per single group, and the supported check", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    await forecast(calls).resolve("bar")
-    expect(Object.keys(calls[0]!.questions).sort()).toEqual(["g0", "g1_o0", "g1_o1", "g1_o2", "supported"])
+    const { ask, gateway } = spiedGateway()
+    await forecast(gateway).resolve("bar")
+    expect(Object.keys(ask.mock.calls[0]![1]).sort()).toEqual(["g0", "g1_o0", "g1_o1", "g1_o2", "supported"])
   })
 
   it("adds top-level hints to every question, including the supported check", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const hints = "mtop means Make to order"
     const choices = defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: {
         chart: { label: "Chart", multiple: false, options: [{ label: "Bar", value: "bar" }] },
         strategy: { label: "Strategy", options: [{ label: "Make to order", value: "mto" }] },
@@ -124,7 +130,7 @@ describe("defineChoices().resolve()", () => {
       supported: { instructions: expect.stringContaining(hints) },
     })
     await choices.resolve("mtop")
-    expect(calls[0]?.questions).toEqual(plan?.questions)
+    expect(ask.mock.calls[0]?.[1]).toEqual(plan?.questions)
   })
 })
 
@@ -178,9 +184,9 @@ describe("defineChoices() with infer", () => {
     { description: "Thai lessons and flash card decks.", label: "Thai", value: "thai" },
   ]
 
-  function router(calls: Parameters<typeof wordGateway>[0] = []) {
+  function router(gateway = wordGateway()) {
     return defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: { project: { infer: true, label: "Project", multiple: false, options: projects } },
       limits: { text: 2000 },
     })
@@ -194,16 +200,16 @@ describe("defineChoices() with infer", () => {
   })
 
   it("asks no supported check and offers no none answer", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    await router(calls).resolve("translate this")
-    expect(Object.keys(calls[0]!.questions)).toEqual(["g0"])
-    expect(calls[0]!.questions.g0).toMatchObject({
+    const { ask, gateway } = spiedGateway()
+    await router(gateway).resolve("translate this")
+    expect(Object.keys(ask.mock.calls[0]![1])).toEqual(["g0"])
+    expect(ask.mock.calls[0]![1].g0).toMatchObject({
       criteria: { "No project": projects[0]!.description, "Thai": projects[2]!.description, "ViteHub": projects[1]!.description },
       instructions: expect.stringContaining("does not have to name the option"),
     })
     // The description is sent once, in the criteria.
-    expect(JSON.stringify(calls[0]!.state)).not.toContain(projects[0]!.description)
-    expect(calls[0]!.state).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
+    expect(JSON.stringify(ask.mock.calls[0]![0])).not.toContain(projects[0]!.description)
+    expect(ask.mock.calls[0]![0]).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
   })
 
   it("keeps a weak guess out of value but ranks it", async () => {
@@ -213,25 +219,25 @@ describe("defineChoices() with infer", () => {
   })
 
   it("answers a group with one option without the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const one = defineChoices({ gateway: wordGateway(calls), groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
+    const { ask, gateway } = spiedGateway()
+    const one = defineChoices({ gateway, groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
     const [error, selection] = await one.resolve("anything")
     expect(error).toBeUndefined()
     expect(selection?.project).toEqual({ confidence: 1, ranked: [{ probability: 1, value: "vitehub" }], value: "vitehub" })
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
   })
 
   it("still checks the groups that do not infer", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
+    const { ask, gateway } = spiedGateway()
     const mixed = defineChoices({
-      gateway: wordGateway(calls),
+      gateway,
       groups: {
         project: { infer: true, label: "Project", multiple: false, options: projects },
         supplier: { label: "Supplier", options: suppliers },
       },
     })
     expect((await mixed.resolve("unsupported thai"))[0]?.code).toBe("DECISIONS_R0004")
-    const supported = JSON.stringify(calls[0]!.questions.supported)
+    const supported = JSON.stringify(ask.mock.calls[0]![1].supported)
     expect(supported).toContain("Judge only the \\\"Supplier\\\" group. Ignore every group with infer: true.")
     expect(supported).toContain("Also true when the text sets no constraint for these groups.")
     expect(supported).not.toContain("names no option at all")
@@ -303,11 +309,11 @@ describe("defineChoices().resolve() onUsage", () => {
 
 describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0003 for empty and too long text, and asks nothing", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const choices = forecast(calls)
+    const { ask, gateway } = spiedGateway()
+    const choices = forecast(gateway)
     expect((await choices.resolve("   "))[0]?.code).toBe("DECISIONS_R0003")
     expect((await choices.resolve("x".repeat(301)))[0]?.code).toBe("DECISIONS_R0003")
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
   })
 
   it("returns DECISIONS_R0002 over the limits and for duplicate values", async () => {
@@ -410,10 +416,10 @@ describe("defineChoices() errors", () => {
 
 describe("defineChoices().inspect()", () => {
   it("returns the state and questions without calling the gateway", async () => {
-    const calls: Parameters<typeof wordGateway>[0] = []
-    const [error, plan] = await forecast(calls).inspect("nord parts")
+    const { ask, gateway } = spiedGateway()
+    const [error, plan] = await forecast(gateway).inspect("nord parts")
     expect(error).toBeUndefined()
-    expect(calls).toHaveLength(0)
+    expect(ask).not.toHaveBeenCalled()
     expect(plan?.state.query).toBe("nord parts")
     expect(plan?.state.groups.map(group => group.label)).toEqual(["Chart", "Supplier"])
     expect(Object.keys(plan?.questions ?? {})).toContain("supported")

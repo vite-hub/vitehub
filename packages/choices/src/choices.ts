@@ -2,8 +2,10 @@ import { ask, askWithModel } from "@vite-hub/gateways"
 import { getPublicAiGatewayDiagnostic } from "@vite-hub/gateways/internal"
 
 import { choicesDiagnostics } from "./diagnostics.ts"
+import { resolveSelection } from "./selection-gateway.ts"
 
 import type { AiGatewayAsk, AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
+import type { SelectionGateway } from "./selection-gateway.ts"
 import type {
   ChoiceGroup,
   ChoiceGroups,
@@ -50,6 +52,10 @@ function define(message: string): never {
 
 function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | "DECISIONS_R0006", message: string): ChoicesError {
   return choicesDiagnostics[code]({ message: `[vitehub] ${message}` })
+}
+
+function unsupportedText(): ChoicesError {
+  return fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")
 }
 
 /** Exposes trusted gateway diagnostics while keeping unknown failures in `cause`. */
@@ -273,7 +279,8 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
     if (trimmed.length > limits.text) return [fail("DECISIONS_R0003", `The text has ${trimmed.length} characters. The limit is ${limits.text}.`)]
     const loaded = await loadGroups(base, limits, request?.context)
     if ("error" in loaded) return [loaded.error]
-    return [undefined, { groups: loaded.groups, plan: buildPlan(trimmed, loaded.groups, hints), text: trimmed }]
+    const plan = buildPlan(trimmed, loaded.groups, hints)
+    return [undefined, { groups: loaded.groups, plan, text: trimmed }]
   }
 
   return {
@@ -286,6 +293,19 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       const request = args[0]
       const [error, prepared] = await prepare(text, request)
       if (error) return [error]
+      const scripted = (asker as Partial<SelectionGateway>)[resolveSelection]
+      if (scripted) {
+        try {
+          request?.signal?.throwIfAborted()
+          const context = request && "context" in request ? request.context : undefined
+          const selection = await scripted(prepared.plan.state, prepared.groups.map(group => group.key), context)
+          // SAFETY: The testing gateway validates the scripted values against the loaded groups.
+          return selection ? [undefined, selection as ChoicesSelection<TGroups>] : [unsupportedText()]
+        }
+        catch (cause) {
+          return [gatewayFailed(cause)]
+        }
+      }
       let answers: AskAnswers<AskQuestions> = {}
       // Every group can be answered without the model, such as an infer group with one option.
       if (Object.keys(prepared.plan.questions).length) {
@@ -302,7 +322,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (needsSupported(prepared.groups)) {
         const supported = answers.supported
         if (typeof supported !== "object" || supported.type !== "chance") return [fail("DECISIONS_R0006", "The model did not answer the supported check.")]
-        if (probability(supported.chance) < thresholds.supported) return [fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")]
+        if (probability(supported.chance) < thresholds.supported) return [unsupportedText()]
       }
       const [readError, selection] = readSelection(answers, prepared.groups, thresholds.option)
       if (readError) return [readError]
