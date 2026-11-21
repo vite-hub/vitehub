@@ -126,7 +126,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "comark": "^0.8.1 || ^0.9.0",
-    "comark-ui": "^0.12.0",
+    "comark-ui": "^0.12.2",
     "nuxt": "catalog:nuxt-compat",
     "vue": "catalog:vue-compat"
   },
