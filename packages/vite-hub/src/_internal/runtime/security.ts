@@ -52,7 +52,7 @@ function limitBody(request: Request, limit: number): Request {
   if (limited === request) return request
   return new Proxy(limited, {
     get(target, prop) {
-      if (prop === "formData" || prop === "blob") return () => new Response(target.body, { headers: request.headers })[prop]()
+      if (prop === "formData" || prop === "blob") return async () => new Response(target.body, { headers: request.headers })[prop]()
       if (prop === "clone") return () => limitBody(request.clone(), limit)
       return Reflect.get(target, prop)
     },

@@ -126,6 +126,19 @@ describe("security.maxBodySize on a fetch host", () => {
     expect(await response.json()).toEqual({ title: "Ferry timetable", file: ["times.txt", "text/plain", "08:15 Oslo"] })
   })
 
+  it("rejects, and does not throw, when the body was already read", async () => {
+    const nitroApp = {
+      fetch: async (request: Request) => {
+        await request.text()
+        const read = request.formData()
+        return Response.json({ rejected: await read.then(() => false, () => true) })
+      },
+    }
+    installSecurity(nitroApp, { headers: [], maxBodySize: 1024 })
+    const response = await nitroApp.fetch(new Request("http://app.test/upload", { method: "POST", body: form() }))
+    expect(await response.json()).toEqual({ rejected: true })
+  })
+
   it("keeps the Content-Type on blob() and on a clone", async () => {
     const nitroApp = {
       fetch: async (request: Request) => Response.json({ clone: (await request.clone().formData()).get("title"), type: (await request.blob()).type }),
@@ -136,9 +149,13 @@ describe("security.maxBodySize on a fetch host", () => {
   })
 
   it("still answers 413 for a form over the limit", async () => {
-    const body = new FormData()
-    body.set("file", new File(["x".repeat(2048)], "big.txt"))
-    const response = await app()(new Request("http://app.test/upload", { method: "POST", body }))
+    const big = new FormData()
+    big.set("file", new File(["x".repeat(2048)], "big.txt"))
+    // Streamed without Content-Length, so the limiter counts the bytes while the route reads them.
+    const serialized = new Response(big)
+    const bytes = await serialized.text()
+    const headers = { "content-type": serialized.headers.get("content-type") ?? "" }
+    const response = await app()(new Request("http://app.test/upload", { method: "POST", headers, body: streamed(bytes, 256), duplex: "half" } as RequestInit))
     expect(response.status).toBe(413)
     expect(await response.json()).toMatchObject({ data: { code: "VITE_HUB_REQUEST_BODY_TOO_LARGE" } })
   })
