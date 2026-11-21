@@ -1,8 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { kv } from "@vite-hub/kv"
-import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 import { files, github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
@@ -18,20 +13,23 @@ import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 const cleanup: Array<() => Promise<void> | void> = []
 let fake: FakeGitHub
 
-beforeEach(async () => {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-content-mcp-"))
-  enableViteHubTestMode({ root })
-  cleanup.push(async () => {
-    await enableViteHubTestMode({ root }).reset()
-    Reflect.deleteProperty(globalThis, Symbol.for("vitehub.test"))
-    await rm(root, { recursive: true, force: true })
-  })
+beforeEach(() => {
   fake = createFakeGitHub({ owner: "acme", repo: "docs" })
   vi.stubGlobal("fetch", vi.fn(fake.fetch))
   vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token")
   vi.stubEnv("FORGES_GITHUB_TOKEN", "")
   vi.spyOn(console, "warn").mockImplementation(() => {})
-  registerContentKV(kv)
+  const values = new Map<string, unknown>()
+  registerContentKV({
+    async get<T>(key: string) {
+      // SAFETY: Content reads each key with the same value type it writes.
+      return [undefined, (values.get(key) as T | undefined) ?? null]
+    },
+    async set(key, value) {
+      values.set(key, structuredClone(value))
+      return [undefined, undefined]
+    },
+  })
   cleanup.push(() => registerContentKV(undefined))
 })
 

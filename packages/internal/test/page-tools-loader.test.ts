@@ -736,13 +736,40 @@ describe("loadViteHubPageTools", () => {
     expect(pill().segments).toEqual([["vitehub-tool", "comments", true], ["vitehub-tool", "console", false]])
   })
 
-  it("opens the tool that ?vitehub=<id> names", async () => {
-    page("/?vitehub=console")
+  it("opens the tool that ?vitehub=<id> names, tells it that a link picked it, and drops the query", async () => {
+    page("/guide?vitehub=console&tab=2#intro")
     session({ tools: [comments, consoleTool] })
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
-    expect(started.map(context => [context.tool.id, context.open])).toEqual([["comments", false], ["console", true]])
+    expect(started.map(context => [context.tool.id, context.open, context.linked])).toEqual([["comments", false, false], ["console", true, true]])
     expect(started[1]!.tool.hotkey).toBe("k")
+    expect(location.pathname + location.search + location.hash).toBe("/guide?tab=2#intro")
+  })
+
+  it("keeps a tool's own link parameter in the address for the tool, and drops ?vitehub", async () => {
+    page("/guide?vitehub=comments&comment=3")
+    session({ tools: [{ ...comments, param: "comment" }, consoleTool] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    expect(started.map(context => [context.tool.id, context.open, context.linked])).toEqual([["comments", true, true], ["console", false, false]])
+    expect(location.pathname + location.search).toBe("/guide?comment=3")
+  })
+
+  it("keeps ?vitehub when the session route allows no tool", async () => {
+    page("/guide?vitehub=comments")
+    session({ tools: [] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(location.search).toBe("?vitehub=comments")
+  })
+
+  it("does not call a restored tool linked", async () => {
+    page("/")
+    const sessionPath = "/restored/_vitehub/page/session"
+    sessionStorage.setItem(`vitehub-open:${sessionPath}:comments`, "true")
+    session({ tools: [comments] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load, session: sessionPath })
+    expect(started.map(context => [context.open, context.linked])).toEqual([[true, false]])
   })
 
   it("stops every tool, removes the pill and the query on exit, and keeps the hint cookie", async () => {
@@ -1326,14 +1353,14 @@ describe("the account item", () => {
     page("/guide?vitehub&tab=2")
     const fetch = session({ tools: [comments], account: { ...ada, signOut: "/portal/api/auth/sign-out" } })
     await loadViteHubPageTools({ load: modules().load })
-    const replace = vi.fn()
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    const reload = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace: vi.fn(), reload })
     fetch.mockImplementation(async () => new Response("{}", { status: 200 }))
     const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
     item.click()
-    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(fetch).toHaveBeenLastCalledWith("/portal/api/auth/sign-out", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
-    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+    expect(location.href).toBe("http://localhost:3000/guide?tab=2")
   })
 
   it("keeps the session and says so when the sign-out fails", async () => {

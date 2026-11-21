@@ -23,6 +23,7 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
 import { consoleCompareUrl } from "../client/project-link";
+import ConsoleCommentOnSite from "./console-comment-on-site.vue";
 import { consoleOpenProjectName, useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -91,6 +92,7 @@ const sectionGroups = computed(() =>
 );
 const addablePrimitives = computed(() => consoleAddablePrimitives(sections.value));
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+const commentsEnabled = computed(() => sections.value.includes("comments"));
 // The build that serves the app, from `project.get`. A development server has none.
 const projects = useConsoleProjects();
 const build = computed(() => projects.info.value?.build);
@@ -217,7 +219,11 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="console-home">
       <template #header>
-        <ConsolePageHeader title="Overview" :toggle="false" />
+        <ConsolePageHeader title="Overview" :toggle="false">
+          <template v-if="commentsEnabled" #right>
+            <ConsoleCommentOnSite />
+          </template>
+        </ConsolePageHeader>
       </template>
 
       <template #body>

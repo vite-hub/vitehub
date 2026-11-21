@@ -128,6 +128,15 @@ describe("the Comments list in the pill's window", () => {
     expect(window.confirm).not.toHaveBeenCalled()
   })
 
+  it("turns comment mode on from a ?vitehub=comments link and leaves a clean address", async () => {
+    await site(true)
+    history.replaceState(null, "", "/?vitehub=comments&tab=2")
+    await loadViteHubPageTools({ load: () => import("../src/overlay/index.ts") })
+    const bar = document.querySelector("vitehub-pill")!.querySelector<HTMLElement>("vitehub-tool[slot=comments]")!
+    await vi.waitFor(() => expect(commentsButton(bar)?.textContent).toBe("Click anywhere"))
+    expect(location.pathname + location.search).toBe("/?tab=2")
+  })
+
   it("starts the Comments tool from a ?comment=<n> link after exit and opens that thread", async () => {
     const { comments } = await site(true)
     const [, thread] = await comments.create({ page: "/", anchor, body: "Linked comment", author: ada })
@@ -139,6 +148,7 @@ describe("the Comments list in the pill's window", () => {
       await vi.waitFor(() => expect(document.querySelector("vitehub-comments")).not.toBeNull())
       const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
       await vi.waitFor(() => expect(shadow.querySelector(`[data-slot="comment-thread"][aria-label="Comment ${thread!.n}"]`)?.textContent).toContain("Linked comment"))
+      await vi.waitFor(() => expect(location.search).toBe(""))
     }
     finally {
       document.cookie = "vitehub-tools=; max-age=0"

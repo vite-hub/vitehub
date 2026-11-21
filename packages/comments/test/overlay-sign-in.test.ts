@@ -33,7 +33,7 @@ async function open(search: string, session = denied) {
   document.body.append(pill)
   start({
     bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
-    signal: new AbortController().signal, open: true, exit: vi.fn(),
+    signal: new AbortController().signal, open: true, linked: false, exit: vi.fn(),
     createWindow: () => { throw new Error("Unexpected retained window") },
     createTab: () => { throw new Error("Unexpected tab") },
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
@@ -46,6 +46,11 @@ async function open(search: string, session = denied) {
 it("keeps the sign-in prompt available when the shared session allowed the tool through the hint cookie", async () => {
   const overlay = await open("")
   expect(overlay.shadowRoot?.querySelector("a")?.textContent).toBe("Sign in with GitHub")
+})
+
+it("brings the person back to Comments after sign-in, after the loader dropped ?vitehub", async () => {
+  const overlay = await open("?tab=2#plans")
+  expect(overlay.shadowRoot?.querySelector("a")?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?tab=2&vitehub=comments#plans")}`)
 })
 
 it("offers GitHub sign-in when the person explicitly requests Comments", async () => {
@@ -94,7 +99,7 @@ it("waits for a press of the tool's button before it asks a visitor to sign in",
   document.body.append(pill)
   start({
     bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
-    signal: new AbortController().signal, open: false, exit: vi.fn(),
+    signal: new AbortController().signal, open: false, linked: false, exit: vi.fn(),
     createWindow: () => { throw new Error("Unexpected retained window") },
     createTab: () => { throw new Error("Unexpected tab") },
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
