@@ -293,7 +293,10 @@ it("does not upload an archive whose files exceed the budget despite missing siz
   const root = await tempRoot()
   const files = sourceFiles(32).map(file => ({ ...file, content: "x".repeat(1024) }))
   const workspace = createWorkspace({
-    ...defineWorkspace({ sources: { repo: custom({ files, materialize: "startup" }) } }),
+    ...defineWorkspace({
+      sources: { repo: custom({ files, materialize: "startup" }) },
+      store: { driver: "memory" },
+    }),
     name: "docs",
   })
   const list = workspace.list.bind(workspace)
@@ -312,7 +315,10 @@ it("does not upload an archive whose files exceed the budget despite missing siz
 it("cleans a partial archive and preserves cancellation instead of falling back", async () => {
   const root = await tempRoot()
   const workspace = createWorkspace({
-    ...defineWorkspace({ sources: { repo: custom({ files: sourceFiles(32), materialize: "startup" }) } }),
+    ...defineWorkspace({
+      sources: { repo: custom({ files: sourceFiles(32), materialize: "startup" }) },
+      store: { driver: "memory" },
+    }),
     name: "docs",
   })
   const abort = new AbortController()
