@@ -94,6 +94,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Repository guides only | Review the changed instructions and verify their links and command examples |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
 | Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
@@ -269,7 +270,7 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - A request to fix or build something includes a pushed branch and an open pull request, unless the request says to explore, review, plan, or hold.
 - Confirm the destination repository and check for an existing pull request before you open one.
 - Rebase onto the latest `main` before opening a pull request.
-- Before each push, run `corepack pnpm exec vp check --no-fmt <changed files>` and the `typecheck` and `test` scripts of each changed package. CI must not be the first check of your change.
+- Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](#verify-the-changed-behavior). CI must not be the first check of your change.
 - Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 - Open a real pull request, not a draft.
 - Keep one concern per pull request unless the task asks to combine work.
