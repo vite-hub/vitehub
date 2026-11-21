@@ -23,13 +23,15 @@ Use these names consistently: Server Primitives, Agent Definitions, Drivers, Inv
 
 Use the Node version required by `package.json`. For the full verification gate, install the Deno version in `.deno-version` with the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/). CI reads the same pin.
 
-The checkout requires Node.js 22.22+ on 22.x, or 24.11 or newer, to support its development tools and Nitro. Most standalone packages retain their Node.js 22.18 minimum; Queue requires Node.js 22.19. The compatibility CI job installs dependencies on Node.js 24 before switching to 22.18 for its tests.
+The checkout and every package require Node.js 24.15 or newer. The `node 24.15` CI job runs the tests for Node built-ins on exactly that version.
 
 From a clean checkout, let Corepack select pnpm from `package.json` and install the workspace dependencies. This also installs Vite+.
 
 ```sh
 corepack pnpm install --frozen-lockfile
 ```
+
+The install then builds the packages that the docs site uses and runs `nuxi prepare`. When one of these steps fails on your machine, the install still finishes and prints the failed command. Fix the package, then run `corepack pnpm --dir docs run postinstall`. That retry exits nonzero if preparation fails again. In CI (`CI` is set), the failure stops the install.
 
 Check the contributor tools without running tests:
 
@@ -92,6 +94,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Repository guides only | Review the changed instructions and verify their links and command examples |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
 | The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
 | Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
@@ -267,6 +270,8 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - A request to fix or build something includes a pushed branch and an open pull request, unless the request says to explore, review, plan, or hold.
 - Confirm the destination repository and check for an existing pull request before you open one.
 - Rebase onto the latest `main` before opening a pull request.
+- Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](#verify-the-changed-behavior). CI must not be the first check of your change.
+- Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 - Open a real pull request, not a draft.
 - Keep one concern per pull request unless the task asks to combine work.
 - Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.

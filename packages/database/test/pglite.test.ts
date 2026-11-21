@@ -176,7 +176,7 @@ describe("a Postgres Database without a server in development", () => {
     })
     const client = Reflect.get(db, "$client") as { close: () => Promise<void>, query: (query: string) => Promise<unknown> }
     const set = vi.fn()
-    await runWithDatabaseRequestStats({ req: { context: { log: { set } } } }, async () => {
+    await runWithDatabaseRequestStats({ req: { context: { log: { set, warn: vi.fn(), error: vi.fn() } } } }, async () => {
       await db.execute(sql`create table notes (id serial primary key, title text not null)`)
       await db.transaction(async (tx) => {
         await tx.insert(notes).values({ title: "first" })

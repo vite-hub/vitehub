@@ -82,7 +82,7 @@ function ticketsAgent(options: {
             },
           }),
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run: host },
@@ -107,7 +107,7 @@ function serve(agent: ReturnType<typeof ticketsAgent>["agent"], state: Awaited<R
   const options = { agentName: "support", webhookState: state }
   const stop = handler.resume(options)
   cleanups.push(stop)
-  const send = (ticket: Ticket) => handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/tickets", {
+  const send = (ticket: Ticket) => handler(new Request("https://example.com/_vitehub/agents/support/webhooks/tickets", {
     body: JSON.stringify(ticket),
     headers: { "content-type": "application/json" },
     method: "POST",

@@ -1,9 +1,10 @@
 import { createRuntimePackageResolver, isPackageResolutionMiss } from "./runtime-package-resolution.ts"
-import { access, copyFile, cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
+import { access, copyFile, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { updateRuntimePackageDirectory } from "./runtime-package-directory.ts"
+import { copyRuntimePackageFiles } from "./runtime-package-files.ts"
 import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -108,7 +109,7 @@ async function copyPackageToNodeModules(
     const targetDir = join(outputNodeModules, ...name.split("/"))
     await rm(targetDir, { force: true, recursive: true })
     const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
-    if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
+    if (!copiedTrace) await copyRuntimePackageFiles(packageDir, targetDir)
   }
 
   const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
@@ -169,15 +170,6 @@ async function copyTracedPackageFiles(
   }
 
   return true
-}
-
-async function copyPackageDirectory(packageDir: string, targetDir: string): Promise<void> {
-  await mkdir(dirname(targetDir), { recursive: true })
-  await cp(packageDir, targetDir, {
-    dereference: true,
-    filter: source => !hasNodeModulesSegment(relative(packageDir, source)),
-    recursive: true,
-  })
 }
 
 async function loadNodeFileTrace(): Promise<typeof import("@vercel/nft").nodeFileTrace> {

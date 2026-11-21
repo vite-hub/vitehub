@@ -185,7 +185,7 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+Set `health: true` in `vitehub()` to add `/_vitehub/health`. It tells
 which app version, commit, and ViteHub version are live, and whether each
 Database, KV store, and Blob store of the app answers:
 
@@ -199,14 +199,19 @@ Database, KV store, and Blob store of the app answers:
 }
 ```
 
-A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
-has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
-error goes to the server log, never to the response. Point a container health
-check or a load balancer at it:
+A Database runs `SELECT 1`, and a KV store checks for one key. For an `fs` Blob
+store, the check opens the root directory without reading objects. A directory
+that does not exist yet passes, but a file in place of the directory fails. For
+an `s3` store, the check lists up to one object, so a missing bucket fails. The
+credential needs `s3:ListBucket`. Other Blob drivers check object metadata
+without listing. Each check has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+error goes to the server log, never to the response. The
+[generated Dockerfile](#run-the-server-with-docker) checks this route. For
+your own image or a load balancer, point the health check at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
 A Docker build context often has no `.git`. Pass the commit as
@@ -300,6 +305,71 @@ MemoryMax=2G
 Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
 `.env`, because the build cannot read that file.
 
+## Run the server with Docker
+
+A production build on the `node` host also writes `.output/Dockerfile`. It is a
+runtime image for the build output. Build the image from `.output` and run it:
+
+```bash [Terminal]
+pnpm build
+docker build -t my-app .output
+docker run --init --stop-timeout 30 -p 3000:3000 --env-file .env -v my-app-data:/app/.vitehub my-app
+```
+
+```dockerfile [.output/Dockerfile]
+FROM node:24-slim
+WORKDIR /app
+COPY . .output/
+RUN ["install","-d","-o","node","-g","node","/app","/app/.vitehub"]
+USER node
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+EXPOSE 3000
+VOLUME ["/app/.vitehub"]
+STOPSIGNAL SIGTERM
+CMD ["node",".output/server/index.mjs"]
+```
+
+- The server runs as the `node` user in `/app`, as the systemd unit runs in
+  the project root. Relative data paths, such as `.vitehub/data`, resolve
+  there. Keep a named volume at `/app/.vitehub` for default stores such as the
+  Database and Queue. A separate `dataDir`, such as `/var/lib/app`, gets its
+  own named volume. Use all the mounts shown in the generated `docker run`
+  command when you replace a container. Do not mount over `/app` or
+  `/app/.output`; the server files there must come from the new image.
+- The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
+- Docker sends `SIGTERM` on stop, and ViteHub
+  [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+  A Dockerfile cannot set the stop timeout, so the comment at the top of the file
+  shows the build-time default: the `agent.shutdown.drainMs` budget rounded up
+  to seconds, plus 30. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, use
+  that budget instead. For example, `45000` needs `--stop-timeout 75`.
+  `--init` collects the child processes that Agents start.
+- When `health` is on, `HEALTHCHECK` calls the health route over plain HTTP.
+  It uses `NITRO_HOST` before `HOST` and `NITRO_PORT` before `PORT`. If you
+  change the container port, update `-p` to match. For TLS, a Unix socket, or
+  listener overrides in Nitro's server configuration, pass `--no-healthcheck`
+  to `docker run` or replace `HEALTHCHECK` in your own Dockerfile.
+- Nitro copies native packages, such as the libSQL binary, into
+  `.output/server/node_modules` for the build machine. When the output has
+  them, the image uses the CPU of the build machine (`--platform`) and its C
+  library family: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
+  build on macOS or Windows with native packages prints
+  [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
+  Matching the C library family does not guarantee binary compatibility. In a
+  clean checkout, install dependencies and build inside the Linux Node image
+  named by `ARG VITEHUB_NODE_IMAGE`, on the target CPU. Then build the generated
+  Dockerfile with that same image. For example, use `node:24-slim` on
+  `linux/amd64` for both steps. To pin the base, build the app in a Linux Node
+  image pinned to a digest and pass the same reference to
+  `docker build --build-arg VITEHUB_NODE_IMAGE="$NODE_IMAGE" -t my-app .output`,
+  where `NODE_IMAGE` holds that reference. Changing the runtime base alone
+  does not rebuild the native packages. If the app needs extra system libraries
+  or a different image layout, set `docker: false` and use your own Dockerfile.
+
+Each build replaces the file. To add system packages, such as `git`, start your
+own Dockerfile `FROM` the image that you built. Set `docker: false` in
+`vitehub()` to write no Dockerfile.
+
 ## Defaults on the node host
 
 "Several instances" means two or more Node processes behind one load balancer,
@@ -316,8 +386,8 @@ one disk, so they do not work across several instances.
 | Queue | `postgres` with a Postgres Default Database, else `local` with files under `.vitehub/data/queue`. | Yes with Postgres: every instance shares the jobs and claims due jobs from the same table. With `local`, a job runs only on the instance that accepted it. A shared volume has no lock between processes, so two instances can run the same job. |
 | Rate Limit | `kv` with shared KV, otherwise `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory` counts in one process and resets on restart. Explicit `driver: 'kv'` fails with a store that cannot share counts, such as `fs-lite`. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
-| Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | Yes with a Postgres or remote libSQL Default Database. Servers claim occurrences in `vitehub_leases`. A run can repeat if its lease expires. With a local SQLite file or no Database, run one instance. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server). |
-| Workflow | OpenWorkflow. It keeps runs in Postgres with `workflow.postgres.url`, `OPENWORKFLOW_POSTGRES_URL`, or a Postgres Default Database, else in `.vitehub/data/openworkflow.sqlite.db`. | Yes with Postgres. Each server starts the OpenWorkflow worker, and the workers share the runs. `workflow: { worker: false }` turns the worker off. The SQLite file keeps runs on one host. See [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node). |
+| Schedule | The Process Runtime runs Schedules in the server process. Set `providerOutput: false` to wake Schedules yourself. | Yes with a Postgres or remote libSQL Default Database. Servers claim occurrences in `vitehub_leases`. A run can repeat if its lease expires. With a local SQLite file or no Database, run one instance. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server). |
+| Workflow | OpenWorkflow. It picks storage in this order: `workflow.sqlite.path` or `workflow.postgres.url`, then `OPENWORKFLOW_SQLITE_PATH`, `OPENWORKFLOW_POSTGRES_URL`, a Postgres Default Database, and last `.vitehub/data/openworkflow.sqlite.db`. A Postgres `DATABASE_URL` alone fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` instead of using the SQLite file. See [Select OpenWorkflow storage](/docs/workflows/hosts#select-openworkflow-storage). | Yes with Postgres. Each server starts the OpenWorkflow worker, and the workers share the runs. `workflow: { worker: false }` turns the worker off. The SQLite file keeps runs on one host. See [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node). |
 | Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
 
 Schedule needs one instance unless the Default Database is Postgres or remote libSQL.
@@ -390,7 +460,7 @@ that an environment variable or the Default Database selects at boot shows
 correctly. Agent state, the Agent Invocation journal, and Workspace files
 report too. Run
 `vitehub durability list` to read the same report from the dev server. It is
-the `durability.list` [operation](/docs/development/operations). On a
+the `durability.list` [operation](/docs/console/operations). On a
 deployment, `--url` works when the app enables the Console, with credentials
 for the `durability` section. Server code can read the report with
 `getDurabilityReport()` from `vite-hub/runtime/durability`.

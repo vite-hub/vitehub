@@ -69,10 +69,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Nitro tasks are not enabled in this runtime.",
       fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
     },
-    VITE_HUB_AGENT_OPTION_MISSING: {
-      ...dynamicError,
-      fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
-    },
     VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
       why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
       fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
@@ -85,6 +81,22 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_CLOUDFLARE_EXPORT_CONFLICT: {
+      why: ({ file, names }: { file: string, names: string }) => `${file} exports ${names}, but the Worker entry already has an export of that name. The default export of the entry is the app.`,
+      fix: "Export each Durable Object, Workflow, or `WorkerEntrypoint` class from `server/cloudflare.ts` with a named export that no other export of the Worker uses, such as `export class Counter extends DurableObject {}`. Remove a default export.",
+    },
+    VITE_HUB_CLOUDFLARE_RESOURCE_MISSING: {
+      why: ({ file, resources }: { file: string, resources: string }) => `${file} lacks ${resources}. ViteHub generates these resources for this build, and the Worker fails when code first reads a missing one.`,
+      fix: "Check the project Wrangler config and any Nitro hook or module that edits `cloudflare.wrangler` for a step that drops or renames the entry, and remove that step. Run `vitehub inspect resources` to list the resources and their names.",
+    },
+    VITE_HUB_DEFINITION_PACKAGE_MISSING: {
+      why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
+      fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,
+    },
+    VITE_HUB_DEFINITION_ROOT_MISMATCH: {
+      why: ({ keys, projectRoot, workingDirectory }: { keys: string, projectRoot: string, workingDirectory: string }) => `\`vitehub()\` turns features on from the Definition files of ${workingDirectory}, the project of the working directory, but the Vite root is in ${projectRoot}, which has other Definition files for ${keys}.`,
+      fix: ({ keys }: { keys: string, projectRoot: string, workingDirectory: string }) => `Run Vite from the project folder, or set ${keys} to \`true\` or \`false\` in the ViteHub options.`,
+    },
     VITE_HUB_DEPLOY_CHECK_INVALID: {
       why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
       fix: "Write each `deploy.check` entry as a path that starts with `/`, without an origin and without spaces, such as `deploy: { check: [\"/\", \"/api/products\"] }`.",
@@ -93,6 +105,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
       fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
     },
+    VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
+      why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
+      fix: "Install dependencies and build the app in the Linux Node image for the target CPU. Use that same base for the generated Dockerfile with `docker build --build-arg VITEHUB_NODE_IMAGE=<image>`. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
+    },
+    VITE_HUB_HOST_PROVIDER_CONFLICT: {
+      why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
+      fix: ({ host }: { host: string }) => `Remove \`host\` from \`vitehub()\` to build for the host that the environment names. To build ${host} output on purpose, set \`VITEHUB_HOST=${host}\`.`,
+    },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
       fix: "Set `auth` in `vitehub()` and add `mcpOAuth()` from `vite-hub/auth/mcp` to server/auth.ts, or set `mcp: { auth: false }` to let anyone call every tool.",
@@ -100,6 +120,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_PACKAGE_VERSION_UNSUPPORTED: {
       why: ({ installed }: { installed: string }) => `${installed} ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.`,
       fix: ({ install }: { install: string }) => `Install the ViteHub packages of the same release as vite-hub: \`pnpm add ${install}\`. When pnpm \`overrides\`, \`resolutions\`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.`,
+    },
+    VITE_HUB_PEER_VERSION_UNSUPPORTED: {
+      why: ({ installed }: { installed: string }) => `${installed} ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as \`drizzle-orm/libsql/codecs\` not exported.`,
+      fix: ({ install }: { install: string }) => `Install a supported version in your app: \`pnpm add ${install}\`. pnpm keeps a version that the lockfile or another dependency already has, even outside the peer range of vite-hub, and only warns. When pnpm \`overrides\` or \`resolutions\` pin the package, change them too, then install again.`,
     },
     VITE_HUB_PUBLIC_URL_INVALID: {
       why: ({ value }: { value: string }) => `\`publicUrl\` must be an http or https origin without a path, but it is ${value}.`,
@@ -155,7 +179,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0137: {
       ...dynamicError,
-      fix: "Set `schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" }` in `vitehub()` to run Schedules in the server process, or `schedule: { providerOutput: false }` to start them yourself.",
+      fix: "Remove `schedule.providerOutput` from `vitehub()` to run Schedules in the server process, or set `schedule: { providerOutput: false }` to start them yourself.",
     },
     VITE_HUB_R0141: {
       ...dynamicError,
@@ -191,11 +215,11 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0113: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub agents status`.",
+      fix: "Pass an Agent name of at most 512 characters with `vitehub agent get <name>`. Use `vitehub agent list` to find the name.",
     },
     VITE_HUB_R0114: {
       ...dynamicError,
-      fix: "Pass to `vitehub agents status --agent` the name of an Agent that `vitehub agents list` shows.",
+      fix: "Pass to `vitehub agent get` the name of an Agent that `vitehub agent list` shows.",
     },
     VITE_HUB_R0095: {
       ...dynamicError,
@@ -275,7 +299,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0046: {
       ...dynamicError,
-      fix: "Change the `agents.invoke`, `invocations.cancel`, `invocations.delete`, or `invocations.undo` call as the message says, with an Agent from `vitehub agents list` and an Invocation id from `vitehub invocations list`. A 409 names what the app lacks for the action, such as Realtime for undo or an invocation store that can delete.",
+      fix: "Change the `agents.invoke`, `invocations.cancel`, `invocations.delete`, or `invocations.undo` call as the message says, with an Agent from `vitehub agent list` and an Invocation id from `vitehub agent invocations list`. A 409 names what the app lacks for the action, such as Realtime for undo or an invocation store that can delete.",
     },
     VITE_HUB_R0047: {
       ...dynamicError,
@@ -295,7 +319,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0001: {
       ...dynamicError,
-      fix: "Pass a section that `vitehub project info` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
+      fix: "Pass a section that `vitehub project get` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
     },
     VITE_HUB_C0002: {
       ...dynamicError,
@@ -319,15 +343,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0053: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub invocations capabilities`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent invocations capabilities`.",
     },
     VITE_HUB_R0054: {
       ...dynamicError,
-      fix: "Pass an Invocation id that `vitehub invocations list` shows. The journal removes old Invocations after its retention limit.",
+      fix: "Pass an Invocation id that `vitehub agent invocations list` shows. The journal removes old Invocations after its retention limit.",
     },
     VITE_HUB_R0058: {
       ...dynamicError,
-      fix: "Pass the `cursor` of the last `vitehub invocations list` result without changes, or omit `cursor` to read the first page.",
+      fix: "Pass the `cursor` from the previous `invocations.list` Console RPC result without changes, or omit `cursor` to read the first page.",
     },
     VITE_HUB_R0059: {
       ...dynamicError,
@@ -335,15 +359,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0060: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub invocations list`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent invocations list`.",
     },
     VITE_HUB_R0061: {
       ...dynamicError,
-      fix: "Pass `capability` and `triggeredBy` values of at most 512 characters to `invocations.list` (`vitehub invocations list`).",
+      fix: "Pass `capability` and `triggeredBy` values of at most 512 characters to `invocations.list` (`vitehub agent invocations list`).",
     },
     VITE_HUB_R0062: {
       ...dynamicError,
-      fix: "Pass a whole number of 1 or more as `limit` to `invocations.list` (`vitehub invocations list --limit`).",
+      fix: "Pass a whole number of 1 or more as `limit` to `invocations.list` (`vitehub agent invocations list --limit`).",
     },
     VITE_HUB_R0063: {
       ...dynamicError,
@@ -351,7 +375,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0070: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub agent usage`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent usage`.",
     },
     VITE_HUB_R0071: {
       ...dynamicError,
@@ -379,7 +403,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0005: {
       ...dynamicError,
-      fix: "Set `auth: true` in `vitehub()` and add server/auth.ts with the admin plugin of Better Auth, or remove `console.impersonation`.",
+      fix: "Add server/auth.ts with the admin plugin of Better Auth, and remove `auth: false` from `vitehub()` if it is there. Or remove `console.impersonation`.",
     },
     VITE_HUB_R0075: {
       ...dynamicError,
@@ -435,7 +459,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0089: {
       ...dynamicError,
-      fix: "Choose an Email driver for this host, such as `email: { driver: \"resend\" }` in `vitehub()`, or set `host: \"cloudflare\"`.",
+      fix: "Set `driver` for the production build, such as `email: { driver: \"resend\" }` in `vitehub()`. Use `driver: \"log\"` to send no email, or build for `host: \"cloudflare\"`.",
     },
     VITE_HUB_B0008: {
       ...dynamicError,
@@ -545,15 +569,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_LOGS_MAX_ENTRIES_INVALID: {
       why: "logs.maxEntries must be an integer from 1 to 10000.",
-      fix: "Set `maxEntries` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 1 to 10000.",
+      fix: "Set `maxEntries` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 1 to 10000.",
     },
     VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID: {
       why: "logs.maxEntryBytes must be an integer from 256 to 262144.",
-      fix: "Set `maxEntryBytes` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 256 to 262144.",
+      fix: "Set `maxEntryBytes` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 256 to 262144.",
     },
     VITE_HUB_LOGS_SOURCE_MISSING: {
-      why: "[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: \"./server/logs.ts\" } }. The local buffer is per process and has no durable history.",
-      fix: "Set `vitehub({ observability: { logs: { source: \"./server/logs.ts\" } } })` to a server file that default-exports a `LogSource`, or remove `observability.logs` from the production build.",
+      why: "[vitehub] Production Logs needs an existing source. Set logs: { source: \"./server/logs.ts\" }. The local buffer is per process and has no durable history.",
+      fix: "Set `vitehub({ logs: { source: \"./server/logs.ts\" } })` to a server file that default-exports a `LogSource`, or remove `logs` from the production build.",
     },
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",

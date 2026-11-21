@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Readable, Writable } from "node:stream"
+import { pathToFileURL } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -18,7 +21,7 @@ import {
 } from "../src/dev-endpoint.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { ViteHubDevRequestGrant, ViteHubNitroDevServer } from "../src/dev-endpoint.ts"
+import type { ViteHubDevRequestGrant, ViteHubNitroDevHandlerSource, ViteHubNitroDevServer } from "../src/dev-endpoint.ts"
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
@@ -429,25 +432,29 @@ describe("Nitro dev handler", () => {
     expect(await response.json()).toEqual({ ok: true })
   })
 
-  it("renders a Fetchable route that passes the Request to the owner export", () => {
-    expect(renderViteHubNitroDevHandler({ export: "handleTestDevRequest", module: "@vite-hub/test/runtime/console" })).toBe([
-      "import { handleTestDevRequest as handleViteHubDevRequest } from \"@vite-hub/test/runtime/console\"",
-      "",
-      "export default {",
-      "  fetch: request => handleViteHubDevRequest(request),",
-      "}",
-      "",
-    ].join("\n"))
-    expect(renderViteHubNitroDevHandler({ arguments: ['runtime-"key'], export: "handleTestDevRequest", module: "test" })).toContain('handleViteHubDevRequest(request, "runtime-\\\"key")')
-    expect(renderViteHubNitroDevHandler({ context: { serverId: "a" }, contextModules: { registry: "#test/registry" }, export: "handleTestDevRequest", module: "test" })).toBe([
-      "import { handleTestDevRequest as handleViteHubDevRequest } from \"test\"",
-      "import viteHubDevContext0 from \"#test/registry\"",
-      "",
-      "export default {",
-      "  fetch: request => handleViteHubDevRequest(request, { ...{\"serverId\":\"a\"}, \"registry\": viteHubDevContext0 }),",
-      "}",
-      "",
-    ].join("\n"))
+  it("renders a Fetchable route that passes the Request to the owner export", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-nitro-dev-route-"))
+    try {
+      await writeFile(join(directory, "owner.mjs"), "export const handleTestDevRequest = (...args) => args\n", "utf8")
+      await writeFile(join(directory, "registry.mjs"), "export default \"registry\"\n", "utf8")
+      const load = async (name: string, source: ViteHubNitroDevHandlerSource) => {
+        const file = join(directory, `${name}.mjs`)
+        await writeFile(file, renderViteHubNitroDevHandler(source), "utf8")
+        // SAFETY: The rendered route default-exports a Fetchable, and the stub owner export returns its arguments.
+        return (await import(pathToFileURL(file).href)).default as { fetch: (request: Request) => unknown[] }
+      }
+      const request = new Request(`http://localhost${runtimeRoute}`)
+      const plain = (await load("plain", { export: "handleTestDevRequest", module: "./owner.mjs" })).fetch(request)
+      expect(plain).toHaveLength(1)
+      expect(plain[0]).toBe(request)
+      const [received, context, argument] = (await load("context", { arguments: ['runtime-"key'], context: { serverId: "a" }, contextModules: { registry: "./registry.mjs" }, export: "handleTestDevRequest", module: "./owner.mjs" })).fetch(request)
+      expect(received).toBe(request)
+      expect(context).toEqual({ registry: "registry", serverId: "a" })
+      expect(argument).toBe('runtime-"key')
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
     expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 })

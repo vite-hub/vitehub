@@ -1,5 +1,5 @@
 import { h } from "vue";
-import { brandIcons, type BrandIconId } from "./brand-icons.ts";
+import { brandColors, brandIcons, type BrandIconId } from "./brand-icons.ts";
 
 const brands = {
   alibaba: { icon: "qwen", label: "Alibaba" },
@@ -8,7 +8,7 @@ const brands = {
   azure: { icon: "azure", label: "Azure" },
   bedrock: { icon: "bedrock", label: "Amazon Bedrock" },
   cerebras: { icon: "cerebras", label: "Cerebras" },
-  "claude-code": { icon: "anthropic", label: "Claude Code" },
+  "claude-code": { icon: "claude", label: "Claude Code" },
   cloudflare: { icon: "cloudflare", label: "Cloudflare" },
   codex: { icon: "openai", label: "Codex" },
   cohere: { icon: "cohere", label: "Cohere" },
@@ -28,6 +28,7 @@ const brands = {
   perplexity: { icon: "perplexity", label: "Perplexity" },
   qwen: { icon: "qwen", label: "Qwen" },
   replicate: { icon: "replicate", label: "Replicate" },
+  t3: { icon: "t3", label: "T3 Code" },
   together: { icon: "together", label: "Together AI" },
   xai: { icon: "xai", label: "xAI" },
   zai: { icon: "zai", label: "Z.AI" },
@@ -48,6 +49,7 @@ const providerAliases: Readonly<Record<string, BrandId>> = {
   "fireworks-ai": "fireworks",
   "google-vertex": "google",
   "hugging-face": "huggingface",
+  "t3-code": "t3",
   "microsoft-azure": "azure",
   mistralai: "mistral",
   "moonshot-ai": "moonshot",
@@ -139,7 +141,9 @@ export function invocationBrandMark(value: InvocationBrand | undefined, classNam
     "aria-hidden": "true",
     class: `vh-invocation-brand__logo ${className}`,
     "data-brand": value.id,
+    fill: "currentColor",
     "fill-rule": "evenodd",
+    style: brandColors[value.icon] ? { color: brandColors[value.icon] } : undefined,
     viewBox: "0 0 24 24",
   }, paths.map(path => h("path", {
     "clip-rule": path.clipRule,

@@ -20,13 +20,17 @@ export const webContainerErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         : reason === "replaces-directory" ? `WebContainer path ${path} replaces the directory ${part}.` : `Invalid WebContainer file path: ${path}`,
       fix: "Give each key of `files` a relative path to a file, such as `server/index.js`, without `..`, a leading `/`, or a path that is also a file or folder of another key.",
     },
+    WEB_CONTAINER_PLUGIN_MOVED: {
+      why: "hubWebContainer() moved into vitehub(). It now sets the isolation headers in dev, preview, and production.",
+      fix: "Remove `hubWebContainer()` from `plugins`, and pass its routes to `vitehub({ webContainer: { routes: [\"/playground/**\"] } })`, or to the `vitehub` key of `nuxt.config.ts`. Remove the Nitro `routeRules` that set `webContainerHeaders` and a route middleware that loads a new document across these routes: ViteHub adds both.",
+    },
     WEB_CONTAINER_ROUTES_MISSING: {
-      why: "hubWebContainer() needs at least one route, such as \"/playground/**\".",
-      fix: "List the pages that boot a WebContainer in the `routes` option of `hubWebContainer`, such as `routes: [\"/playground/**\"]`.",
+      why: "`webContainer` needs at least one route, such as \"/playground/**\".",
+      fix: "List the pages that boot a WebContainer in `webContainer.routes` of `vitehub()`, such as `webContainer: { routes: [\"/playground/**\"] }`.",
     },
     WEB_CONTAINER_ROUTE_INVALID: {
-      why: ({ route }: { route: string }) => `hubWebContainer() route "${route}" must start with "/".`,
-      fix: "Start each route in the `routes` option of `hubWebContainer` with `/`, such as `\"/playground/**\"`.",
+      why: ({ route }: { route: string }) => `\`webContainer\` route "${route}" must start with "/".`,
+      fix: "Start each route in `webContainer.routes` of `vitehub()` with `/`, such as `\"/playground/**\"`.",
     },
     WEB_CONTAINER_SNAPSHOT_DAMAGED: {
       why: ({ detail, url }: { detail: string, url: string }) => `The snapshot from ${url} is damaged: ${detail}`,
@@ -35,6 +39,14 @@ export const webContainerErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WEB_CONTAINER_SNAPSHOT_LINKS_FAILED: {
       why: ({ code }: { code: number }) => `Restoring the links of the snapshot exited with code ${code}.`,
       fix: "Build the snapshot again with `createNodeModulesSnapshot()` from `@vite-hub/web-container/snapshot`, and pass it to `bootWebContainer({ snapshot })`.",
+    },
+    WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH: {
+      why: ({ file, wasm }: { file?: string, wasm: boolean }) => file
+        ? `The lockfile installs ${file}, which the app does not have.`
+        : wasm
+        ? "The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it."
+        : "The lockfile does not match the app. Pass frozenLockfile: false to update it.",
+      fix: "Pass `frozenLockfile: false` to `createNodeModulesSnapshot()` to update the lockfile, then save the `lockfile` of its result.",
     },
     WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID: {
       why: "partBytes must be a positive safe integer.",

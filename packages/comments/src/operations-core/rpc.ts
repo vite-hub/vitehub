@@ -1,16 +1,22 @@
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 
+import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
+import { outboxAccountHeader, retryAfterOf, withCommentFiles } from "../client-files.ts"
+
 import type {
   CommentCreateInput,
   CommentDeleteInput,
+  CommentAttachment,
   CommentEditInput,
+  CommentFiles,
   CommentGetInput,
   CommentListQuery,
   CommentReplyInput,
   CommentsTransport,
   CommentStatusInput,
   CommentThread,
+  CommentUploadInput,
   CommentUser,
   CommentUsersInput,
 } from "./types.ts"
@@ -22,21 +28,17 @@ export interface RpcTransportOptions {
   fetch?: typeof fetch
 }
 
-/** A failed operation, with the fields that every ViteHub surface reports. */
-export class CommentsRpcError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
-  readonly details?: Record<string, unknown>
-
-  constructor(failure: { code: string, details?: Record<string, unknown>, fix?: string, message: string, status: number }) {
-    super(failure.message)
-    this.name = "CommentsRpcError"
-    this.code = failure.code
-    this.status = failure.status
-    if (failure.fix) this.fix = failure.fix
-    if (failure.details) this.details = failure.details
-  }
+interface CommentRpcResults {
+  "comments.create": CommentThread
+  "comments.delete": CommentThread | null
+  "comments.edit": CommentThread
+  "comments.get": CommentThread | null
+  "comments.list": CommentThread[]
+  "comments.reopen": CommentThread
+  "comments.reply": CommentThread
+  "comments.resolve": CommentThread
+  "comments.upload": CommentAttachment
+  "comments.users": CommentUser[]
 }
 
 /**
@@ -47,7 +49,7 @@ export class CommentsRpcError extends Error {
  */
 export function createRpcTransport(options: RpcTransportOptions = {}): CommentsTransport {
   const base = (options.base ?? "").replace(/\/+$/, "")
-  async function call<T>(operation: string, input: unknown): Promise<T> {
+  async function call<Name extends keyof CommentRpcResults>(operation: Name, input: unknown, account?: string): Promise<CommentRpcResults[Name]> {
     const send = options.fetch ?? globalThis.fetch
     let outcome: OperationRpcOutcome<{ body: unknown, response: Response }>
     try {
@@ -56,37 +58,50 @@ export function createRpcTransport(options: RpcTransportOptions = {}): CommentsT
           body,
           cache: "no-store",
           credentials: "same-origin",
-          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          headers: { "content-type": "application/json", "x-vitehub-console": "1", ...(account === undefined ? {} : { [outboxAccountHeader]: encodeURIComponent(account) }) },
           method: "POST",
         })
         return { body: await response.json().catch(() => undefined), response }
       })
     }
     catch (cause) {
-      throw new CommentsRpcError({ code: "COMMENTS_R0013", fix: "Check the connection and try again.", message: `The request failed: ${cause instanceof Error ? cause.message : String(cause)}`, status: 0 })
+      throw commentsUnansweredError(0, cause)
     }
     // SAFETY: The operation of the same name answers with the type of the transport method that called it.
-    if (outcome.ok) return outcome.value as T
-    if (outcome.error) throw new CommentsRpcError(outcome.error)
+    if (outcome.ok) return outcome.value as CommentRpcResults[Name]
+    if (outcome.error) {
+      const { message, ...failure } = outcome.error
+      throw commentsAnswerError({ ...failure, why: message, retryAfter: retryAfterOf(outcome.answer.response) })
+    }
     // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
     const { body, response } = outcome.answer
-    throw new CommentsRpcError({
-      code: isRecord(body) && typeof body.code === "string" ? body.code : "COMMENTS_R0013",
-      message: isRecord(body) && typeof body.message === "string" ? body.message : `The server answered with HTTP ${response.status}.`,
-      status: isRecord(body) && typeof body.status === "number" ? body.status : response.status,
-      ...(isRecord(body) && typeof body.fix === "string" ? { fix: body.fix } : {}),
-      ...(isRecord(body) && isRecord(body.details) ? { details: body.details } : {}),
+    const retryAfter = retryAfterOf(response)
+    if (!isRecord(body) || typeof body.code !== "string" || typeof body.message !== "string") throw commentsUnansweredError(response.status, undefined, retryAfter)
+    throw commentsAnswerError({
+      code: body.code,
+      status: typeof body.status === "number" ? body.status : response.status,
+      why: body.message,
+      ...(retryAfter === undefined ? {} : { retryAfter }),
+      ...(typeof body.fix === "string" ? { fix: body.fix } : {}),
+      ...(isRecord(body.details) ? { details: body.details } : {}),
     })
   }
+  const upload = (input: CommentUploadInput, account?: string) => call("comments.upload", input, account)
   return {
-    create: (input: CommentCreateInput) => call<CommentThread>("comments.create", input),
-    delete: (input: CommentDeleteInput) => call<CommentThread | null>("comments.delete", input),
-    edit: (input: CommentEditInput) => call<CommentThread>("comments.edit", input),
-    get: (input: CommentGetInput) => call<CommentThread | null>("comments.get", input),
-    list: (query: CommentListQuery) => call<CommentThread[]>("comments.list", query),
-    reopen: (input: CommentStatusInput) => call<CommentThread>("comments.reopen", input),
-    reply: (input: CommentReplyInput) => call<CommentThread>("comments.reply", input),
-    resolve: (input: CommentStatusInput) => call<CommentThread>("comments.resolve", input),
-    users: (input: CommentUsersInput) => call<CommentUser[]>("comments.users", input),
+    async create({ files, outbox, ...input }: CommentCreateInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, input.subject, data => upload(data, outbox?.account))
+      return call("comments.create", body, outbox?.account)
+    },
+    delete: (input: CommentDeleteInput) => call("comments.delete", input),
+    edit: (input: CommentEditInput) => call("comments.edit", input),
+    get: (input: CommentGetInput) => call("comments.get", input),
+    list: (query: CommentListQuery) => call("comments.list", query),
+    reopen: (input: CommentStatusInput) => call("comments.reopen", input),
+    async reply({ subject, files, outbox, ...input }: CommentReplyInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, subject, data => upload(data, outbox?.account))
+      return call("comments.reply", body, outbox?.account)
+    },
+    resolve: (input: CommentStatusInput) => call("comments.resolve", input),
+    users: (input: CommentUsersInput) => call("comments.users", input),
   }
 }

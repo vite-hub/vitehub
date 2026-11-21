@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { nitro } from "nitro/vite"
 import ts from "typescript"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverMcpTools, hubMcp } from "../src/vite.ts"
@@ -47,20 +49,36 @@ describe("MCP tool discovery", () => {
 })
 
 describe("hubMcp", () => {
-  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}) {
+  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}, command: "build" | "serve" = "serve") {
     const plugin = hubMcp(options)
     const config: { root: string, nitro?: { handlers?: unknown[] } } = { root, ...host }
     // SAFETY: The config hook is a plain function in this plugin.
-    ;(plugin.config as (config: object) => void)(config)
+    ;(plugin.config as (config: object, env: { command: string, mode: string }) => void)(config, { command, mode: command === "build" ? "production" : "development" })
     return { config, plugin }
   }
+
+  it.each([
+    { command: "build", fromFile: true, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: false, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: true, preset: "node-server", supported: true },
+    { command: "serve", fromFile: true, preset: "node-cluster", supported: true },
+  ] as const)("uses Nitro's resolved $preset preset for $command (from config file: $fromFile)", async ({ command, fromFile, preset, supported }) => {
+    const root = app({
+      "server/mcp/tools/add.ts": tool,
+      ...(fromFile ? { "nitro.config.ts": `export default { preset: ${JSON.stringify(preset)} }\n` } : {}),
+    })
+    await resolveConfig({ configFile: false, root, plugins: [hubMcp({ auth: false }), nitro(fromFile ? {} : { preset })] }, command)
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    if (supported) expect(entry).not.toContain("elicitationUnsupportedHost")
+    else expect(entry).toContain(`elicitationUnsupportedHost: ${JSON.stringify(preset)}`)
+  })
 
   it("checks the access token by default", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root)
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
   })
@@ -91,7 +109,7 @@ describe("hubMcp", () => {
     const { config } = configure(root, { auth: true, route: "/api/mcp/" })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/api/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/api/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/discovery.ts"), "utf8")).toContain("serveMcpOAuthDiscovery")
@@ -121,18 +139,18 @@ describe("hubMcp", () => {
     const { config } = configure(root, { auth: true }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain('route: "/portal/mcp"')
   })
 
-  it("serves the tools with public: true at publicRoute without sign-in", async () => {
+  it("serves the tools with access: \"public\" at publicRoute without sign-in", async () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config, plugin } = configure(root, { auth: true, publicRoute: "/mcp/", route: "/mcp/account" }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp/account" },
-      { handler: join(root, ".vitehub/nitro/mcp/public.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp/account" },
+      { handler: join(root, ".vitehub/nitro/mcp/public.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     const protectedEntry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
     expect(protectedEntry).toContain("verify: request => verifyMcpRequest(request)")
@@ -140,9 +158,9 @@ describe("hubMcp", () => {
     const entry = readFileSync(join(root, ".vitehub/nitro/mcp/public.ts"), "utf8")
     expect(entry).not.toContain("verifyMcpRequest")
     expect(entry).toContain('route: "/portal/mcp"')
-    expect(entry).toContain("filter(([, tool]) => tool.public === true)")
+    expect(entry).toContain("filter(([, tool]) => tool.access === \"public\")")
     const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
-    expect((await inspect().definitions?.[0]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/portal/mcp (tools with public: true)" })
+    expect((await inspect().definitions?.[0]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/portal/mcp (tools with access: \"public\")" })
   })
 
   it("serves prompts and resources, the configured server info, and lists them for `vitehub inspect`", async () => {
@@ -160,13 +178,13 @@ describe("hubMcp", () => {
     expect(entry).toContain("  resources: { \"changelog\": resource0 },")
     expect(entry).toContain("  instructions: \"Read the skill first.\",")
     expect(entry).toContain(`  serverInfo: ${JSON.stringify(serverInfo)},`)
-    expect(readFileSync(join(root, ".vitehub/nitro/mcp/public.ts"), "utf8")).toContain("filter(([, prompt]) => prompt.public === true)")
+    expect(readFileSync(join(root, ".vitehub/nitro/mcp/public.ts"), "utf8")).toContain("filter(([, prompt]) => prompt.access === \"public\")")
 
     const inspect = plugin.vitehub.inspect as () => ViteHubInspectionContributor
     const inspectors = inspect().definitions ?? []
     expect(inspectors.map(inspector => inspector.kind)).toEqual(["mcp-tool", "mcp-prompt", "mcp-resource"])
     expect((await inspectors[1]?.list())?.map(entry => [entry.name, entry.file, entry.source])).toEqual([["review", "server/mcp/prompts/review.ts", "server/mcp/prompts"]])
-    expect((await inspectors[2]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/mcp/public (resources with public: true)" })
+    expect((await inspectors[2]?.list())?.[0]?.fields).toContainEqual({ label: "Public route", value: "/mcp/public (resources with access: \"public\")" })
   })
 
   it("passes the hooks of server/mcp.ts and types caller with what resolveCaller returns", () => {

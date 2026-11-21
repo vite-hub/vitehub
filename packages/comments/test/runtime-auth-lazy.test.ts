@@ -2,7 +2,7 @@ import { H3Event } from "h3"
 import { expect, it, vi } from "vitest"
 
 const auth = vi.hoisted(() => ({ loads: 0 }))
-vi.mock("@vite-hub/auth/server", () => {
+vi.mock("@vite-hub/auth/internal/server", () => {
   auth.loads++
   const user = { id: "ada", name: "Ada" }
   return {
@@ -11,10 +11,6 @@ vi.mock("@vite-hub/auth/server", () => {
     useAuth: () => ({ api: { getSession: async () => ({ user }) } }),
   }
 })
-
-vi.mock("@vite-hub/auth/internal/server", () => ({
-  createAuthForRequest: () => { throw new Error("GitHub sign-in is not configured in this test.") },
-}))
 
 it("loads ViteHub Auth on the first Comments request that needs a user, not at startup", async () => {
   // The generated Comments plugin and route import these modules when the server starts.

@@ -21,11 +21,17 @@ export function withAgentInvocationControlId<TContext extends object>(context: T
   return { ...context, [invocationControlId]: id }
 }
 
+/** An input outcome with the Driver's reason, such as why it could not steer the input. */
+export interface AgentInvocationInputResult {
+  outcome: AgentInvocationControlOutcome
+  reason?: string
+}
+
 interface AgentInvocationInputHandler {
   sendInput: (
     input: AgentRunInput,
     options: { mode: AgentInvocationInputMode },
-  ) => MaybePromise<AgentInvocationControlOutcome>
+  ) => MaybePromise<AgentInvocationControlOutcome | AgentInvocationInputResult>
   support: Partial<AgentInvocationInputSupport>
 }
 
@@ -62,13 +68,23 @@ export function agentInvocationInputSupport(invocationId: string): Partial<Agent
   return globalMap<AgentInvocationInputHandler>(invocationInputHandlersKey).get(invocationId)?.support || {}
 }
 
+export async function sendAgentInvocationInputResult(
+  invocationId: string,
+  input: AgentRunInput,
+  options: { mode: AgentInvocationInputMode },
+): Promise<AgentInvocationInputResult> {
+  const handler = globalMap<AgentInvocationInputHandler>(invocationInputHandlersKey).get(invocationId)
+  if (!handler) return { outcome: "unavailable" }
+  const result = await handler.sendInput(input, options)
+  return typeof result === "string" ? { outcome: result } : result
+}
+
 export async function sendAgentInvocationInput(
   invocationId: string,
   input: AgentRunInput,
   options: { mode: AgentInvocationInputMode },
 ): Promise<AgentInvocationControlOutcome> {
-  const handler = globalMap<AgentInvocationInputHandler>(invocationInputHandlersKey).get(invocationId)
-  return handler ? await handler.sendInput(input, options) : "unavailable"
+  return (await sendAgentInvocationInputResult(invocationId, input, options)).outcome
 }
 
 export function registerActiveAgentInvocation(

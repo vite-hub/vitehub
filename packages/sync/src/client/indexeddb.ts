@@ -1,7 +1,7 @@
 // A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
 // [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
 // mutation id. Each change is one transaction. A store is a route plus a subset, such as
-// `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+// `/_vitehub/sync/comments?{"issueId":"i1"}`.
 import { resultLifetime } from "./storage.ts"
 
 import type { SyncKey, SyncRow } from "../protocol.ts"
@@ -70,7 +70,7 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
   if (!record) return undefined
-  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults }
+  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults, ...(record.after === undefined ? {} : { after: record.after }) }
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
@@ -155,6 +155,20 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
           if (existing.result) outbox.put({ ...write, store: id } satisfies OutboxRecord)
         }
       }
+      if (change.claim) {
+        const { from, to, seqs } = change.claim
+        const claimed: number[] = []
+        result.claimed = claimed
+        for (const seq of seqs) {
+          const existing = outbox.get(seq)
+          existing.onsuccess = () => {
+            const write = existing.result as OutboxRecord | undefined
+            if (write?.account !== from || write.store !== id) return
+            outbox.put({ ...write, account: to })
+            claimed.push(seq)
+          }
+        }
+      }
       for (const [index, write] of (change.add ?? []).entries()) {
         const added = outbox.add({ ...write, store: id })
         added.onsuccess = () => {
@@ -206,11 +220,23 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
       await done(transaction)
       return ids
     },
-    async clear() {
+    async clear(options) {
       const database = await open()
-      if (!(database instanceof IDBDatabase)) return database.clear()
+      if (!(database instanceof IDBDatabase)) return database.clear(options)
       const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
-      for (const store of ["rows", "meta", "outbox", "results"]) transaction.objectStore(store).clear()
+      for (const store of ["rows", "meta", "results"]) transaction.objectStore(store).clear()
+      const outbox = transaction.objectStore("outbox")
+      if (!options?.keepWrites) outbox.clear()
+      else {
+        // The writes of an account wait for it. A write made before the first pull has no account.
+        const scan = outbox.openCursor()
+        scan.onsuccess = () => {
+          const cursor = scan.result
+          if (!cursor) return
+          if ((cursor.value as OutboxRecord).account === null) cursor.delete()
+          cursor.continue()
+        }
+      }
       await done(transaction)
     },
   }

@@ -1,0 +1,11 @@
+{
+  "name": "notes-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nuxthub/core": "^0.10.5",
+    "@nuxtjs/better-auth": "0.3.16",
+    "better-auth": "1.7.12",
+    "nuxt": "^5.0.0"
+  }
+}

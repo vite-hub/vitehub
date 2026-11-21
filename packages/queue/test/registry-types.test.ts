@@ -19,13 +19,13 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
     const handler = join(root, "welcome.queue.ts")
     await writeFile(handler, [
       `import { defineQueue } from ${JSON.stringify(importBase)}`,
-      'export default defineQueue<{ email: string }>(job => job.payload.email)',
+      'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeQueueTypes(root, [{ handler, name: "welcome" }], importBase)
     await writeFile(join(root, "consumer.ts"), [
       `import { sendQueue, useQueue, dynamicQueue } from ${JSON.stringify(importBase)}`,
-      'const [error, result] = await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 5 })',
-      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
+      'const [error, result] = await sendQueue("welcome", { email: "ada@example.test" }, { delay: "5s" })',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"',
       'else result.status satisfies "queued"',
       'const queue = await useQueue("welcome")',
       'await queue.send({ email: "ada@example.test" })',

@@ -2,12 +2,16 @@ import { rm } from "node:fs/promises"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
+
 import {
   createMemoryAgentInvocationStore,
   failInterruptedAgentInvocations,
   readAgentInvocationWorkload,
   summarizeAgentInvocationWorkload,
 } from "../src/server.ts"
+
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 
 const temporaryDirectories = new Set<string>()
 
@@ -33,15 +37,25 @@ describe("Agent Invocation host recovery", () => {
     create("new-running", "running", "2026-08-30T12:00:00.000Z")
     create("completed", "completed", "2026-08-30T09:00:00.000Z")
 
-    await expect(failInterruptedAgentInvocations(store, {
-      before: Date.parse("2026-08-30T11:00:00.000Z"),
-      recover: () => true,
-    })).resolves.toBe(1)
+    const failures: RunFailedEvent[] = []
+    const stop = onRunFailed((event) => {
+      failures.push(event)
+    })
+    try {
+      await expect(failInterruptedAgentInvocations(store, {
+        before: Date.parse("2026-08-30T11:00:00.000Z"),
+        recover: () => true,
+      })).resolves.toBe(1)
+    }
+    finally {
+      stop()
+    }
     await expect(Promise.resolve(store.get("old-pending"))).resolves.toMatchObject({
       error: { message: "The host stopped before this Agent Invocation finished." },
       status: "failed",
     })
     await expect(Promise.resolve(store.get("new-running"))).resolves.toMatchObject({ status: "running" })
+    expect(failures).toEqual([{ event: "invocation.failed", agent: null, invocationId: "old-pending", error: { message: "The host stopped before this Agent Invocation finished." }, failedAt: expect.any(String) }])
   })
 
   it("scopes shared-store recovery to the owning process host", async () => {
@@ -57,6 +71,35 @@ describe("Agent Invocation host recovery", () => {
     })).resolves.toBe(1)
     await expect(Promise.resolve(store.get("worker"))).resolves.toMatchObject({ status: "failed" })
     await expect(Promise.resolve(store.get("other"))).resolves.toMatchObject({ status: "running" })
+  })
+
+  it("does not fail or emit again from a stale recovery scan", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    let reportScanned!: () => void
+    const scanned = new Promise<void>((resolve) => { reportScanned = resolve })
+    let resume!: (recover: boolean) => void
+    const recoveryDecision = new Promise<boolean>((resolve) => { resume = resolve })
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    const stale = failInterruptedAgentInvocations(store, {
+      recover: () => {
+        reportScanned()
+        return recoveryDecision
+      },
+    })
+    try {
+      await scanned
+      await expect(failInterruptedAgentInvocations(store, { recover: () => true })).resolves.toBe(1)
+      resume(true)
+      await expect(stale).resolves.toBe(0)
+      expect(listener).toHaveBeenCalledOnce()
+    }
+    finally {
+      resume(false)
+      stop()
+    }
   })
 
   it("recovers every page without taking work claimed by another host", async () => {

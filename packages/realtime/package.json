@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",
@@ -66,6 +66,11 @@
       "types": "./dist/internal/runtime/unavailable.d.ts",
       "import": "./dist/internal/runtime/unavailable.js",
       "default": "./dist/internal/runtime/unavailable.js"
+    },
+    "./internal/server": {
+      "types": "./dist/internal/server.d.ts",
+      "import": "./dist/internal/server.js",
+      "default": "./dist/internal/server.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -166,6 +171,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -178,6 +178,26 @@ describe("toRawMarkdown", () => {
     expect(raw).toBe("| Option | Default |\n| --- | --- |\n| `driver` | `memory` |\n")
   })
 
+  it("gives agents every MCP client's steps under its name", () => {
+    const raw = convert([
+      "::mcp-install",
+      "  :::mcp-client{label=\"Claude Code\" icon=\"i-simple-icons-claude\" method=\"Terminal\"}",
+      "  1. Add the server.",
+      "  :::",
+      "",
+      "  :::mcp-client{label=\"Cursor\" install=\"cursor\"}",
+      "  1. Open the settings.",
+      "  :::",
+      "::",
+    ].join("\n"))
+
+    expect(raw).toContain("### Claude Code\n")
+    expect(raw).toContain("1. Add the server.")
+    expect(raw).toContain("### Cursor\n")
+    expect(raw).not.toContain("mcp-client")
+    expect(raw).not.toContain("mcp-install")
+  })
+
   it("unwraps the interactive support matrix for raw Markdown", () => {
     expect(convert([
       "::support-matrix",

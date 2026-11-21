@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Comments let people talk about something in your app, such as a page, an order, or a design. Each conversation is a thread. Your server decides who may read, write, and delete.
 
-In this tutorial, you write the rule for who may comment, create the database tables, and read threads from the terminal and the Console. The [Console](/docs/development/console) is the ViteHub admin app at console.vitehub.dev. It calls your app.
+In this tutorial, you write the rule for who may comment, create the database tables, and read threads from the terminal and the Console. The [Console](/docs/console) is the ViteHub admin app at console.vitehub.dev. It calls your app.
 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). You need no account and no API key. Comments are saved in your app's Database.
@@ -30,7 +30,7 @@ Add the Console to the ViteHub options of your app:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', console: { auth: false } },
+  vitehub: { console: { auth: false } },
 })
 ```
 ::::
@@ -42,7 +42,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -53,14 +53,14 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', console: { auth: false } })],
+  plugins: [vitehub({ console: { auth: false } })],
 })
 ```
 ::::
 :::
 
 - You do not turn on the Database yourself. When `server/comments.ts` exists, `vitehub()` turns it on and adds a default Database.
-- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, [link the app in the Console](/docs/development/console#in-production).
+- `console` adds the Console, so you can see the threads. `auth: false` means no sign-in. Use it only on your own computer. Before you deploy, [link the app in the Console](/docs/console/get-started#link-a-deployed-app).
 
 If you set `database: false`, the build fails with `COMMENTS_B0001`.
 
@@ -112,7 +112,7 @@ pnpm vitehub comments list --json
 pnpm vitehub comments get --input '{"id":"<id>"}'
 ```
 
-On a deployed app, the Comments section of the [Console](/docs/development/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
+On a deployed app, the Comments section of the [Console](/docs/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.
 
 ::details{summary="What the Comments section of the Console does"}
 The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.

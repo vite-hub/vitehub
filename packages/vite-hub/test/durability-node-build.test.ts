@@ -103,7 +103,37 @@ it("prints the durability table and serves with one instance", async () => {
   await expect(result.response?.json()).resolves.toEqual({ ok: true });
   expect(result.output).toContain("[vitehub] Durability (1 instance, from VITEHUB_INSTANCES):");
   expect(result.output).toMatch(/ {2}kv {2}fs-lite {2}host {2}Files in \.vitehub\/data\/kv on this host\./);
+  expect(result.output).not.toContain('KV store "default" uses');
 }, 30_000);
+
+it("lets several instances run the Schedule Process Runtime with leases in a Postgres Default Database", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-durability-schedule-"));
+  try {
+    await mkdir(join(projectRoot, "server/api"), { recursive: true });
+    await mkdir(join(projectRoot, "server/databases"), { recursive: true });
+    await mkdir(join(projectRoot, "server/schedules"), { recursive: true });
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(projectRoot, "node_modules"), "dir");
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({ private: true, type: "module" }));
+    await writeFile(join(projectRoot, "server/api/ping.get.ts"), `import { getDurabilityReport } from "vite-hub/runtime/durability"\nexport default () => getDurabilityReport()\n`);
+    await writeFile(join(projectRoot, "server/databases/default.ts"), `import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ dialect: "postgresql", connection: { url: process.env.DATABASE_URL }, schema: {} })\n`);
+    await writeFile(join(projectRoot, "server/schedules/digest.ts"), `import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 6 * * *", run: () => {} })\n`);
+    const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
+    const builder = await createBuilder({
+      logLevel: "silent",
+      plugins: [nitro() as never, vitehub({ host: "node", database: true, schedule: { runtime: { driver: "process" } } })],
+      root: projectRoot,
+    });
+    await builder.buildApp();
+    // No server listens here: the boot check reads the configuration and does not connect.
+    const result = await startBuiltServer("2", { DATABASE_URL: "postgres://vitehub:vitehub@127.0.0.1:1/vitehub" }, projectRoot);
+    expect(result.response?.status, result.output).toBe(200);
+    expect(await result.response?.json()).toMatchObject({ instances: 2, problems: [], primitives: expect.arrayContaining([
+      expect.objectContaining({ primitive: "schedule", store: "postgres", scope: "shared" }),
+    ]) });
+  } finally {
+    await rm(projectRoot, { force: true, recursive: true, maxRetries: 3 });
+  }
+}, 120_000);
 
 it("loads Definitions with deferred Nitro hooks before serving and enforces their stores", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-durability-definitions-"));
@@ -141,7 +171,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
-        workspace: { assets: false, store: { driver: "github", repository: "acme/workspaces" } },
+        workspace: { assets: false, store: { driver: "github", repo: "acme/workspaces" } },
       })],
       root: projectRoot,
     });

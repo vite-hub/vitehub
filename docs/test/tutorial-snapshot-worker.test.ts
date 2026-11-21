@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const snapshot = vi.hoisted(() => ({
   createNodeModulesSnapshot: vi.fn(),
   packSnapshot: () => [new Uint8Array([1])],
-  SnapshotLockfileMismatchError: class SnapshotLockfileMismatchError extends Error {},
 }));
 vi.mock("@vite-hub/web-container/snapshot", () => snapshot);
 
@@ -57,7 +56,7 @@ describe("tutorial snapshot lockfile retries", () => {
   });
 
   it("updates the lockfile only after a confirmed mismatch", async () => {
-    snapshot.createNodeModulesSnapshot.mockRejectedValueOnce(new snapshot.SnapshotLockfileMismatchError("stale aliases"))
+    snapshot.createNodeModulesSnapshot.mockRejectedValueOnce(Object.assign(new Error("stale aliases"), { code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH" }))
       .mockResolvedValueOnce({ snapshot: new Uint8Array([1]), lockfile: "updated" });
     await import("../modules/tutorials/snapshot-worker.mjs");
     expect(snapshot.createNodeModulesSnapshot).toHaveBeenNthCalledWith(2, { dir, lockfile, frozenLockfile: false });

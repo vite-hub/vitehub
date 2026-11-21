@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverRateLimitDeclarations } from "../src/discovery.ts"
 import { getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
-import { createCloudflareRateLimitBindings } from "../src/internal/cloudflare-bindings.ts"
+import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "../src/internal/cloudflare-bindings.ts"
 import { writeRateLimitManifest } from "../src/internal/manifest.ts"
 
 import type { RateLimitPolicy } from "../src/index.ts"
@@ -63,8 +63,34 @@ describe("Cloudflare Rate Limit bindings", () => {
   it("rejects unsupported Cloudflare guarantees", async () => {
     const strict = await projectWithDeclaration({ enforcement: "strict", limit: 10, window: "1m" })
     expect(() => createCloudflareRateLimitBindings(strict.declarations, "test")).toThrow("best-effort")
-    const window = await projectWithDeclaration({ limit: 10, window: "5m" })
-    expect(() => createCloudflareRateLimitBindings(window.declarations, "test")).toThrow("only 10s and 1m")
+    expect(() => assertCloudflareRateLimitPolicies(strict.declarations, "database")).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0015" }))
+  })
+
+  it("counts other windows in KV when the default KV store shares counts", async () => {
+    const { declarations } = await projectWithDeclaration({ enforcement: "strict", limit: 10, window: "1h" })
+    expect(createCloudflareRateLimitBindings(declarations, "test")).toEqual([])
+    for (const driver of ["database", "redis", "upstash"]) expect(() => assertCloudflareRateLimitPolicies(declarations, driver)).not.toThrow()
+    expect(() => assertCloudflareRateLimitPolicies(declarations, "cloudflare")).toThrow(expect.objectContaining({
+      code: "RATE_LIMIT_R0016",
+      message: expect.stringContaining("the default KV store uses cloudflare, which has no shared atomic increment"),
+    }))
+    expect(() => assertCloudflareRateLimitPolicies(declarations, undefined)).toThrow(expect.objectContaining({
+      code: "RATE_LIMIT_R0016",
+      message: expect.stringContaining("supports only 10s and 1m windows, so ViteHub counts other windows in KV, but the app has no KV store"),
+    }))
+  })
+
+  it("writes kv as the provider of a Rate Limit that counts in KV on Cloudflare", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-kv-window-"))
+    roots.push(root)
+    const source = { column: 1, file: join(root, "tutor.ts"), line: 1 }
+    await writeRateLimitManifest(root, [
+      { name: "tutor", policy: { limit: 5, window: "1d" }, source },
+      { name: "upload", policy: { limit: 10, window: "1m" }, source },
+    ], "cloudflare")
+
+    const manifest = JSON.parse(await readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8"))
+    expect(manifest.rateLimits.map((entry: { name: string, provider: string }) => [entry.name, entry.provider])).toEqual([["tutor", "kv"], ["upload", "cloudflare"]])
   })
 
   it("writes resolved provider guarantees to the stable manifest", async () => {

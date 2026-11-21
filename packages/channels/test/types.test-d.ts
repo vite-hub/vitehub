@@ -1,7 +1,9 @@
 import { describe, it } from "vitest"
 
-import { createChannel, defineChannel, stripe, useChannel, webhook } from "../src/index.ts"
-import type { ChannelMessage, ChannelSendOptions, StripeEvent } from "../src/index.ts"
+import { stripe, webhook } from "../src/adapters.ts"
+import type { StripeEvent } from "../src/adapters.ts"
+import { createChannel, defineChannel, useChannel } from "../src/index.ts"
+import type { ChannelMessage, ChannelSendOptions } from "../src/index.ts"
 
 declare global {
   interface ViteHubChannelDefinitionModules {
@@ -86,7 +88,7 @@ describe("Channel types", () => {
 
   it("types inbound targets from the adapter", () => {
     defineChannel({
-      adapter: webhook<{ flow_run_id: string }>({ signature: "bearer", secret: "token" }),
+      adapter: webhook<{ flow_run_id: string }>({ signature: "bearer", secret: "PREFECT_WEBHOOK_SECRET" }),
       on: {
         webhook: (event) => {
           const id: string = event.data.flow_run_id
@@ -110,20 +112,26 @@ describe("Channel types", () => {
 
   it("requires webhook verification or an explicit opt-out", () => {
     webhook({ signature: "bearer", secret: () => process.env.TOKEN })
-    webhook({ signature: "token", header: "x-gitlab-token", secret: "token" })
+    webhook({ signature: "token", header: "x-gitlab-token", secret: "GITLAB_WEBHOOK_TOKEN" })
+    webhook({ signature: "github", secret: "GITHUB_WEBHOOK_SECRET" })
+    webhook({ signature: { type: "stripe", tolerance: "10m" }, secret: "STRIPE_WEBHOOK_SECRET" })
+    // @ts-expect-error The signature names follow Webhooks: `"github"`.
+    webhook({ signature: "github-sha256", secret: "GITHUB_WEBHOOK_SECRET" })
+    // @ts-expect-error `tolerance` is a duration string.
+    webhook({ signature: { type: "stripe", tolerance: 300 }, secret: "STRIPE_WEBHOOK_SECRET" })
     webhook({ secret: false })
     // @ts-expect-error `webhook()` needs `signature` and `secret`, or `secret: false`.
     webhook()
     // @ts-expect-error A webhook without verification needs `secret: false`.
     webhook({})
     // @ts-expect-error A `secret` needs a `signature`.
-    webhook({ secret: "token" })
+    webhook({ secret: "HOOK_SECRET" })
     // @ts-expect-error A `signature` needs a `secret`.
     webhook({ signature: "bearer" })
     // @ts-expect-error `secret: false` turns verification off, so it takes no `signature`.
     webhook({ signature: "bearer", secret: false })
     // @ts-expect-error `signature: 'token'` needs a `header`.
-    webhook({ signature: "token", secret: "token" })
+    webhook({ signature: "token", secret: "HOOK_SECRET" })
     // @ts-expect-error `stripe()` always verifies.
     stripe({ secret: false })
   })

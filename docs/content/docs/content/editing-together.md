@@ -172,7 +172,6 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     realtime: { driver: 'memory' },
   },
 })
@@ -188,7 +187,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       realtime: { driver: 'memory' },
     }),
     nitro(),
@@ -205,7 +203,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       realtime: { driver: 'memory' },
     }),
   ],
@@ -213,6 +210,14 @@ export default defineConfig({
 ```
 :::
 ::
+
+Live editing and `vite-hub/content/editor` use Tiptap. The Tiptap packages are optional peers of Content, so install them in the app:
+
+```bash [Terminal]
+pnpm add @tiptap/core @tiptap/pm @tiptap/starter-kit @tiptap/extension-image @tiptap/extension-list @tiptap/extension-table
+```
+
+In Node, importing the editor without a required editor package gives `CONTENT_EDITOR_PACKAGES_MISSING` and names the missing package. A bundler can report the missing package at build time instead.
 
 `vite dev` uses the memory driver by default. A Node build shares rooms across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database, and keeps them in one process without either. Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room driver: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
@@ -241,9 +246,9 @@ const editor = contentRealtimeEditor() // the same codec the server uses
 const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 ```
 
-`contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI and installs its editor runtimes. Server and browser share one generic schema for components, named slots, task lists, tables, and media, with no node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a link to Source.
+`contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI. The app installs the Tiptap packages, as [Live editing](#live-editing) shows. Server and browser share one generic schema for components, named slots, task lists, tables, and media, with no node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a link to Source.
 
-`vite-hub/content/realtime` also exports `contentDocument(collection)`, one collection's Realtime document adapter. `contentRealtime(content, { identify, authorize, user })` defines the room yourself in `server/realtime/content.ts`, which replaces the generated one.
+`vite-hub/content/realtime` also exports `contentDocument(collection)`, one collection's Realtime document adapter. `contentRealtime(content, { identify, authorize, user })` defines the room yourself in `server/realtime/content.ts`, which replaces the generated one. Its `authorize` runs before `content.can()`. Only `true` lets the request continue. Any other result denies, `undefined` too.
 
 ## Limits
 

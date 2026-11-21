@@ -463,13 +463,13 @@ describe("agentAuth", () => {
 
     // A signed-in chat request: the session becomes the Actor, and agentAuth reads its user again from the database.
     serverMocks.getSession.mockResolvedValueOnce({ session: { id: "session_1" }, user: { email: "editor@example.com", id: "user_1" } })
-    const chat = new Request("https://example.com/api/_vitehub/agents/editor/chat", { headers: { cookie: "better-auth.session_token=token_1" } })
+    const chat = new Request("https://example.com/_vitehub/agents/editor/chat", { headers: { cookie: "better-auth.session_token=token_1" } })
     const actor = await resolve(authenticated({ required: false }), createContext({ request: chat }))
     await expect(agentAuth.user(actor)).resolves.toEqual({ email: "editor@example.com", id: "user_1", role: "editor" })
 
     // An anonymous chat request keeps the default Actor, which stands for no Auth user.
     serverMocks.getSession.mockResolvedValueOnce(null)
-    const anonymous = new Request("https://example.com/api/_vitehub/agents/editor/chat")
+    const anonymous = new Request("https://example.com/_vitehub/agents/editor/chat")
     await expect(resolve(authenticated({ required: false }), createContext({ request: anonymous }))).resolves.toBeUndefined()
     await expect(agentAuth.user(defaultInvoker)).resolves.toBeNull()
 

@@ -51,16 +51,16 @@ Authenticate each request at its trusted entry point, then authorize the operati
 Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeScript types check callers in development, but not JSON from the network or records from an earlier release. Verify webhook signatures before you pass trusted caller metadata. Take tenant, user, and session identity from the authenticated request, not from a client value.
 
 ::warning
-The [Console](/docs/development/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
+The [Console](/docs/console) can show stored KV values, prompts, model output, and tool activity. Turn it off when you do not need it.
 ::
 
-The Console endpoint takes only [signed requests](/docs/development/console#sign-console-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
+The Console endpoint takes only [signed requests](/docs/console/signed-requests) from the ViteHub Console and the CLI. `console: { auth: false }` is for development; a production build fails with `VITE_HUB_B0022`, even with `authorize` set. You can also set `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console call runs it after the signature check and before it reads data.
 
 Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
 ### Add security headers and a body limit
 
-Set `security` to add safe response headers and to refuse large request bodies, on every host.
+Built output sends three safe response headers by default, on every host. Set `security` to change them, add headers such as `X-Frame-Options`, or refuse large request bodies.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -69,7 +69,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     security: {
-      headers: { 'X-Robots-Tag': 'noindex' },
+      headers: { 'X-Frame-Options': 'SAMEORIGIN', 'X-Robots-Tag': 'noindex' },
       maxBodySize: '1mb',
     },
   },
@@ -87,7 +87,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       security: {
-        headers: { 'X-Robots-Tag': 'noindex' },
+        headers: { 'X-Frame-Options': 'SAMEORIGIN', 'X-Robots-Tag': 'noindex' },
         maxBodySize: '1mb',
       },
     }),
@@ -106,7 +106,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       security: {
-        headers: { 'X-Robots-Tag': 'noindex' },
+        headers: { 'X-Frame-Options': 'SAMEORIGIN', 'X-Robots-Tag': 'noindex' },
         maxBodySize: '1mb',
       },
     }),
@@ -116,22 +116,38 @@ export default defineConfig({
 :::
 ::
 
-- `headers: true` adds these headers to each response that does not set them itself:
+- By default, built output adds these headers to each response that does not set them itself. `vite dev` does not add them.
 
   | Header | Value |
   | --- | --- |
-  | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, in built output only |
+  | `Strict-Transport-Security` | `max-age=31536000` |
   | `X-Content-Type-Options` | `nosniff` |
   | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-  | `X-Frame-Options` | `SAMEORIGIN` |
-  | `Permissions-Policy` | `camera=(), geolocation=(), microphone=()` |
 
-- An object keeps this set and changes one header: a string replaces a value or adds a header, such as `'X-Robots-Tag': 'noindex'`, and `false` removes a header, such as `'X-Frame-Options': false` for a page that other sites embed.
+- An object keeps this set and changes one header: a string replaces a value or adds a header, and `false` removes a header. Add `'X-Frame-Options': 'SAMEORIGIN'` to stop other sites from framing your pages, `'Permissions-Policy': 'camera=(), microphone=()'` to turn off browser features, or `'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'` when every subdomain serves HTTPS. When you set `headers`, `vite dev` also sends them, without `Strict-Transport-Security`.
+- `headers: false` sends no headers.
 - A route that sets one of these headers keeps its own value.
 - Static files get the same headers. On Cloudflare and Netlify, ViteHub adds a rule to `_headers`; on Vercel, it adds a route for static files to the Build Output config. A header that `_headers` or `routeRules` already sets for any path is left out of that rule, because the host would join the two values.
-- `maxBodySize` takes bytes or a size such as `'500kb'` or `'1mb'` (1kb is 1024 bytes). A larger body gets `413` with `data.code` set to `VITE_HUB_REQUEST_BODY_TOO_LARGE`. The limit applies to every route, so raise it when the app takes file uploads.
+- `maxBodySize` takes bytes or a size such as `'500kb'` or `'1mb'` (1kb is 1024 bytes). A larger body gets `413` with `data.code` set to `VITE_HUB_REQUEST_BODY_TOO_LARGE`. The limit applies to every route, so raise it when the app takes file uploads. Default: no limit.
 - On Node, security uses the srvx Fetch bridge for native Node handlers so they receive the same headers and body limit. With a body limit, Node request bodies are buffered up to that limit before middleware runs.
 - `security` adds no Content Security Policy. Set a `Content-Security-Policy` header in `headers` or in `routeRules` when your app needs one.
+
+#### Upgrade from `headers: true`
+
+Earlier versions sent no headers unless you set `headers`, and `headers: true` also sent `X-Frame-Options: SAMEORIGIN`, a `Permissions-Policy`, and `includeSubDomains` in `Strict-Transport-Security`. To keep those headers, name them in the `security` options, in `vitehub()` or in the `vitehub` key of `nuxt.config.ts`:
+
+```diff
+ security: {
+-  headers: true,
++  headers: {
++    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
++    'X-Frame-Options': 'SAMEORIGIN',
++    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
++  },
+ },
+```
+
+An app that must send none of the default headers sets `security: { headers: false }`. Remove the `nosniff`, `Referrer-Policy`, and `Strict-Transport-Security` headers that your app sets by hand in `routeRules` or middleware, unless they use other values.
 
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 
@@ -141,7 +157,7 @@ A Queue enqueue result means accepted, not done. A retry can repeat a side effec
 
 For external effects, use the service's idempotency support. A welcome-email job can send and then fail before acknowledgement, so the retry must reuse the same idempotency key. If the service cannot deduplicate, decide how your app handles an unknown delivery result before it retries. The same rule applies to retryable Workflow steps and scheduled targets.
 
-Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/reference/runtime-context#background-work-and-cleanup). A promise started after the response is not durable work.
+Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/runtime/context#background-work-and-cleanup). A promise started after the response is not durable work.
 
 ## Open tabs after a deploy
 

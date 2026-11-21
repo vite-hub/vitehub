@@ -2,7 +2,7 @@
 title: Schedule
 layout: landing
 navigation.title: Overview
-description: Run server code at set times, as cron on Cloudflare, Vercel, Netlify, or a long-running Node process.
+description: Run server code on a schedule as native cron on Cloudflare, Vercel, or Netlify, or inside a long-running Node process.
 navigation.order: 1
 icon: i-lucide-calendar-clock
 ---
@@ -35,7 +35,7 @@ export default defineNuxtConfig({
     // Keeps Schedule Run history across restarts
     kv: true,
     // Checks for due schedules every minute
-    schedule: { runtime: { driver: 'process' } },
+    schedule: true,
   },
 })
 ```
@@ -53,7 +53,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
     nitro(),
   ],
@@ -72,7 +72,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
   ],
 })
@@ -82,11 +82,11 @@ export default defineConfig({
 
 ::product-features
   :::product-feature-item{title="One file per schedule" icon="i-lucide-file-code-2" to="/docs/schedule/configure#define-a-static-schedule"}
-  Add a file to `server/schedules`. The file name is the schedule name. Cron uses UTC unless you set `timeZone`.
+  Create a file in `server/schedules`. The file name is the schedule name. Cron uses UTC unless you set `timeZone`.
   :::
 
   :::product-feature-item{title="Test without waiting" icon="i-lucide-play-circle" to="/docs/schedule/configure#schedule-definition-options"}
-  `manual: true` lets you start a schedule at any time.
+  Set `manual: true` to start a schedule by hand at any time.
   :::
 
   :::product-feature-item{title="Uses the cron your host has" icon="i-lucide-cloud-cog" to="/docs/schedule/hosts#provider-output"}
@@ -98,7 +98,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Run on your own server" icon="i-lucide-server" to="/docs/schedule/configure#configure-the-vite-integration"}
-  On Node, one long-running process checks for due schedules each minute. Not for serverless hosts.
+  On Node, a long-running server process checks for due schedules each minute. Not for serverless hosts.
   :::
 ::
 

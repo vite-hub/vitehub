@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
+import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
 import { sqliteUrlInput } from "@vite-hub/runtime/durability"
@@ -17,11 +19,13 @@ import type { AgentInvocationsDurabilityInput } from "@vite-hub/agent/durability
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
+import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 
 // Generated code imports this vite-hub module by path. It is not a package export.
 const agentInvocationsLibsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
+const agentInvocationsPluginName = "vite-hub/agent-invocations"
 
 /**
  * Vite config key with the D1 binding of the default journal that a host framework resolved, such as Nuxt from its
@@ -111,7 +115,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`,
+    `import { installAgentInvocations } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/invocations/app")))}`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,
@@ -135,29 +139,55 @@ export async function writeAgentInvocationsNitroPlugin(options: AgentInvocations
 }
 
 /** The journal store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
-function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined): AgentInvocationsDurabilityInput | undefined {
+function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined, stateUrl: string | undefined): AgentInvocationsDurabilityInput | undefined {
   if (setting === false) return
   if (setting === "memory" || (typeof setting === "object" && setting.store === "memory")) return { store: "memory" }
   if (setting === "database") return { store: "database" }
   if (typeof setting === "object" && setting.store === "database") return { store: "database", ...(setting.database ? { database: setting.database } : {}) }
   if (d1Binding) return { store: "d1" }
   const databaseUrl = typeof setting === "object" && "databaseUrl" in setting && typeof setting.databaseUrl === "string" ? setting.databaseUrl : undefined
-  return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : {}) }
+  return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : stateUrl ? { stateUrl } : {}) }
+}
+
+/**
+ * The Postgres journal tables for the Database that `invocations: 'database'` uses: the Database of
+ * `agent.invocations`, else `default`. A Postgres Database gets them from its migrations, because the store does not
+ * create tables. This includes the implicit `default` Database when other contributions make it use Postgres.
+ * SQLite, libSQL, and D1 get nothing here: the store creates its table on first use.
+ */
+export async function agentInvocationsDatabaseContributions(context: DatabaseContributionContext, setting: AgentInvocationsDefault | undefined): Promise<DatabaseContributionEntry[]> {
+  const database = (typeof setting === "object" && "store" in setting && setting.store === "database" ? setting.database : undefined) ?? "default"
+  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = requireOptionalOwner(ownerModules.databaseConfig, "database")
+  const { collectDatabaseContributions } = requireOptionalOwner(ownerModules.databaseVite, "database")
+  // Leave this plugin out, so collecting the other contributions does not call this factory again.
+  const plugins = (await flattenPluginOptions(context.plugins)).filter(plugin => Reflect.get(plugin, "name") !== agentInvocationsPluginName)
+  const contributions = await collectDatabaseContributions(plugins, { ...context, plugins })
+  const target = discoverDatabaseDefinitions(context.rootDir, { contributions, serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
+  if (!target || readDatabaseDefinitionDialect(target.handler) !== "postgresql") return []
+  return [{
+    name: "agent-invocations",
+    database,
+    dialect: "postgresql",
+    definition: { module: "vite-hub/agent/invocations/postgres", export: "agentInvocationsPostgresSchema" },
+    tables: { agentInvocations: "vitehub_agent_invocations", agentInvocationObservations: "vitehub_agent_invocations_observations" },
+    reason: "Stores the Agent Invocations of `invocations: 'database'`. The journal does not create its tables on Postgres.",
+  }]
 }
 
 /**
  * Register a generated Nitro plugin that installs the Agent Invocation journal before other plugins.
  * Without an `agent.invocations` store, it installs the default journal, with the Console on or off.
  */
-export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOptions): Plugin & { vitehub: DurabilityPluginMetadata } {
+export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOptions): Plugin & { vitehub: DurabilityPluginMetadata & { databases: (context: DatabaseContributionContext) => Promise<DatabaseContributionEntry[]> } } {
   let d1Binding: string | undefined
   let libsql = true
   let localFileWarning: string | undefined
   return {
-    name: "vite-hub/agent-invocations",
+    name: agentInvocationsPluginName,
     vitehub: {
+      databases: async context => options.database ? await agentInvocationsDatabaseContributions(context, options.default) : [],
       durability: () => {
-        const input = journalDurabilityInput(options.default, d1Binding)
+        const input = journalDurabilityInput(options.default, d1Binding, options.stateUrl)
         return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
       },
     },

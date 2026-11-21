@@ -11,7 +11,7 @@ const checker = resolve(root, ".github/scripts/check-release-candidate.mjs")
 
 describe("release PR workflow", () => {
   it("gates tag creation on the merged commit's full verification", () => {
-    expect(workflow).toContain("danielroe/uppt/pr@6c1a9b480b0f02a3f535dedaf1a113f590aa56f2 # v0.6.12")
+    expect(workflow).toMatch(/uses: danielroe\/uppt\/pr@[0-9a-f]{40} # v\d+\.\d+\.\d+\n/)
     expect(workflow).toContain("group: release-proposal\n      cancel-in-progress: false")
     expect(workflow).toContain('live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq .commit.sha)"')
     expect(workflow).toContain("if: steps.current.outputs.current == 'true'")
@@ -29,7 +29,7 @@ describe("release PR workflow", () => {
     expect(workflow).toContain("steps.pending-release.outputs.pending != 'true'")
     expect(workflow).toContain('checkout: "false"')
     expect(workflow).toContain("packages/*")
-    expect(workflow).toContain("for workflow in ci.yml pkg-pr-new.yml; do")
+    expect(workflow).toContain("for workflow in ci.yml; do")
     expect(workflow).toContain('actions/workflows/${workflow}/runs?head_sha=${head_sha}')
     expect(workflow).toContain('select(.status == "completed" and .conclusion == "success")')
     expect(workflow).toContain('gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"')

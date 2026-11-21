@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createNodeModulesSnapshot, SnapshotLockfileMismatchError } from "../src/snapshot.ts"
+import { createNodeModulesSnapshot } from "../src/snapshot.ts"
 
 const npm = vi.hoisted(() => vi.fn())
 vi.mock("node:child_process", async () => {
@@ -73,7 +73,7 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   })
 
   it("reports a confirmed wasm alias mismatch separately", async () => {
-    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toBeInstanceOf(SnapshotLockfileMismatchError)
+    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", fix: expect.stringContaining("frozenLockfile: false") })
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
   })
 
@@ -81,7 +81,7 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
     // A packed workspace package that became an optional peer is no longer packed, but an older lockfile still lists it.
     const lockfile = JSON.stringify({ packages: { "": {}, "node_modules/@vite-hub/forge": { version: "0.1.0", resolved: "file:tarballs/vite-hub-forge-0.1.0.tgz" } } })
     const calls = npm.mock.calls.length
-    await expect(createNodeModulesSnapshot({ dir, lockfile })).rejects.toThrow(new SnapshotLockfileMismatchError("The lockfile installs tarballs/vite-hub-forge-0.1.0.tgz, which the app does not have. Pass frozenLockfile: false to update it."))
+    await expect(createNodeModulesSnapshot({ dir, lockfile })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", message: expect.stringContaining("The lockfile installs tarballs/vite-hub-forge-0.1.0.tgz, which the app does not have."), fix: expect.stringContaining("frozenLockfile: false") })
     expect(npm.mock.calls.length).toBe(calls)
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
 
