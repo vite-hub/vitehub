@@ -30,7 +30,7 @@ const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // The page tools session reads no Console data: it lists the page tools of a visitor, and the Console link it can list
 // gives no access.
-const pageRoutes = new Set(["page-session.ts"])
+const pageRoutes = new Set(["page-tools-route.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -410,7 +410,7 @@ describe("generated Console access", () => {
       expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/session"), meta: { vitehubOwnAccess: true } }),
+      expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/tools"), meta: { vitehubOwnAccess: true } }),
     ])
   })
 
@@ -430,7 +430,7 @@ describe("generated Console access", () => {
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/session`])
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/tools`])
   })
 
   it("imports console.authorize for open access", async () => {

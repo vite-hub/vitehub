@@ -26,7 +26,7 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({ generateText: mocks.generateText }),
 }));
 
-import { resolveRuntimeValue } from "@vite-hub/runtime";
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context";
 import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
 import { isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts";

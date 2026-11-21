@@ -283,7 +283,7 @@ The routes run the same actions and checks as the [comment operations](/docs/com
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page. Adds `signIn: { provider, url }` when GitHub sign-in is possible, and `github` with `signOut` once signed in. `can.delete` means the person may delete others' comments. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
+| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page. Adds `signIn: { provider, url }` when GitHub sign-in is possible, and `github` with `signOut` once signed in. `can.delete` means the person may delete others' comments. It sets no cookie: `GET /_vitehub/page/tools` owns the `vitehub-tools` hint. |
 | `GET /threads` | `read` | Lists readable threads, like `comments.list`. Search parameters: `page`, or `subjectKind` with `subjectId`, or `subjectKind` alone; `status`, `mine`, `mentions`, `revision` (at most this revision), `limit`, and `beforeId` with `beforeUpdatedAt` for the next page. `403` when the reader may not read the filter. |
 | `GET /threads/:id` | `read` | One thread, or `null` when it is missing or the reader may not read it. |
 | `GET /scopes/:scope/threads/:n` | `read` | Thread `#n` of a scope, such as `site`, or `null`. |
@@ -379,7 +379,7 @@ With `server/comments.ts` or `comments()`, the integration writes these build fi
 
 - `.vitehub/nitro/comments/handler.mjs` serves `/_vitehub/comments/**`.
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
-- `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
+- `.vitehub/nitro/comments/page-tools-route.mjs` serves `GET /_vitehub/page/tools`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.
 - `comments.mjs`, with a room driver, is the Realtime presence room definition.
 
