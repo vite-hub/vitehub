@@ -84,6 +84,7 @@ it("centers one line of a small row box on its 28px buttons, and gives a wrapped
   expect(wrapped).toMatch(/& \[data-slot="prompt-input-textarea"\] \{[^}]*flex-basis: 100%;[^}]*order: 0;[^}]*padding-block-end: 0;/);
   // The button row starts right under the last line, with no band of empty space between them.
   expect(wrapped).toMatch(/& \[data-slot="prompt-input-group"\] \{[^}]*row-gap: 0;/);
+  expect(wrapped).toMatch(/@media \(pointer: coarse\) \{\s*& \[data-slot="prompt-input-toolbar"\] > button::before \{\s*inset-block-start: 0;/);
   expect(wrapped).toMatch(/& \[data-slot="prompt-input-spacer"\] \{[^}]*display: block;/);
 });
 
@@ -102,7 +103,7 @@ it("draws one frame around the box of a new comment: the bubble's, with a firmer
   // ink, which would glow.
   const bubble = /\[data-slot="comment-layer-item"\]\[data-draft="true"\] > \[data-slot="comment-layer-popover"\] \{([^}]*)\}/.exec(stylesheet)?.[1];
   expect(bubble).toContain("--vh-bubble-edge: var(--vh-border);");
-  expect(bubble).not.toMatch(/box-shadow:[^;]*--vh-highlighted/);
+  expect(bubble).toMatch(/box-shadow:[^;]*var\(--vh-comment-shadow\)[^;]*var\(--vh-comment-shadow\)/);
   const small = /> \[data-slot="comment-layer-popover"\]:has\(> \[data-slot="comment-composer"\]\[data-size="sm"\]\) \{([^}]*)\}/.exec(stylesheet);
   expect(small?.[1]).toContain("--vh-bubble-radius: 1.125rem;");
 });

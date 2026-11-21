@@ -2461,8 +2461,8 @@
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
     box-shadow:
       0 0 0 1px var(--vh-bubble-edge),
-      0 2px 4px rgb(0 0 0 / 6%),
-      0 10px 24px -6px rgb(0 0 0 / 18%);
+      0 2px 4px color-mix(in oklab, var(--vh-comment-shadow) calc(100% / 3), transparent),
+      0 10px 24px -6px var(--vh-comment-shadow);
     transform-origin: top left;
     width: 18rem;
   }
@@ -3240,6 +3240,12 @@
 
     & [data-slot="prompt-input-spacer"] {
       display: block;
+    }
+
+    @media (pointer: coarse) {
+      & [data-slot="prompt-input-toolbar"] > button::before {
+        inset-block-start: 0;
+      }
     }
   }
 
