@@ -1,5 +1,10 @@
 // The registry build as a pure function, so the test can compare its output with the committed files.
 
+import { Validator } from "@cfworker/json-schema";
+import type { Schema } from "@cfworker/json-schema";
+import registryItemSchema from "./schema/registry-item.json" with { type: "json" };
+import registrySchema from "./schema/registry.json" with { type: "json" };
+
 interface RegistryFile {
   path: string;
   type: string;
@@ -18,7 +23,7 @@ export interface RegistryItem {
   type: string;
   registryDependencies?: string[];
   files?: RegistryFile[];
-  cssVars?: CssVars;
+  cssVars?: Partial<CssVars>;
   [key: string]: unknown;
 }
 
@@ -29,6 +34,13 @@ export interface Registry {
 }
 
 const itemSchema = "https://shadcn-vue.com/schema/registry-item.json";
+const registryValidator = new Validator(registrySchema as Schema, "7", false);
+registryValidator.addSchema(registryItemSchema as Schema, "https://ui.shadcn.com/schema/registry-item.json");
+
+function isRegistry(value: unknown): value is Registry {
+  return registryValidator.validate(value).valid;
+}
+
 // Tailwind reads these from `@theme`. The rest of the tokens are plain variables on `:root` and `.dark`.
 const themeTokens = new Set(["font-sans", "font-mono"]);
 
@@ -53,7 +65,8 @@ export function tokensToCssVars(css: string): CssVars {
 
 /** Every file to write to `docs/public/r/`: one `<name>.json` for each item, and `registry.json`. */
 export function buildRegistry(read: (path: string) => string): Record<string, string> {
-  const registry: Registry = JSON.parse(read("registry/registry.json"));
+  const registry: unknown = JSON.parse(read("registry/registry.json"));
+  if (!isRegistry(registry)) throw new Error("registry/registry.json does not match the shadcn-vue registry schema.");
   const tokens = read("src/styles/tokens.css");
   const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
   const out: Record<string, string> = {};

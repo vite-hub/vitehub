@@ -3,7 +3,7 @@ import { Validator } from "@cfworker/json-schema";
 import type { Schema } from "@cfworker/json-schema";
 import { describe, expect, it } from "vitest";
 
-import { buildRegistry } from "../registry/registry.ts";
+import { buildRegistry, tokensToCssVars } from "../registry/registry.ts";
 import type { RegistryItem } from "../registry/registry.ts";
 
 const kit = new URL("../", import.meta.url);
@@ -49,11 +49,28 @@ describe("@vitehub registry", () => {
     expect(files).toEqual(built);
   });
 
-  it("gives the style the tokens of tokens.css", () => {
-    const style = items.find((item) => item.type === "registry:style");
-    expect(style?.cssVars?.light).toMatchObject({ background: "oklch(1 0 0)", radius: "0.25rem", ring: "oklch(0.588 0.158 241.966)" });
-    expect(style?.cssVars?.dark).toMatchObject({ background: "oklch(0 0 0)", foreground: "oklch(0.985 0 0)" });
-    expect(Object.keys(style?.cssVars?.theme ?? {})).toEqual(["font-sans", "font-mono"]);
+  it("puts fonts in theme and keeps light and dark tokens separate", () => {
+    const css = `:root {
+  --font-sans: sans-serif;
+  --font-mono: monospace;
+  --background: white;
+}
+:is(.dark, [data-theme="dark"]) {
+  --background: black;
+}`;
+    expect(tokensToCssVars(css)).toEqual({
+      theme: { "font-sans": "sans-serif", "font-mono": "monospace" },
+      light: { background: "white" },
+      dark: { background: "black" },
+    });
+    expect(items.find((item) => item.type === "registry:style")?.cssVars).toEqual(tokensToCssVars(read("src/styles/tokens.css")));
+  });
+
+  it("rejects an invalid registry item before reading its files", () => {
+    expect(() => buildRegistry((path) => {
+      expect(path).toBe("registry/registry.json");
+      return JSON.stringify({ name: "vitehub", homepage: "https://vitehub.dev", items: [{ name: "invalid", type: "registry:file", files: [{ type: "registry:file" }] }] });
+    })).toThrow("registry/registry.json does not match the shadcn-vue registry schema.");
   });
 
   it("declares the CSS package shadcn-vue imports when adding the skill after the style", () => {
