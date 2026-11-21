@@ -1,4 +1,6 @@
-import { onBeforeUnmount, onMounted } from "vue";
+import { type InjectionKey, onBeforeUnmount, onMounted, type Ref } from "vue";
+
+export const commentThreadPortals: InjectionKey<Set<Ref<HTMLElement | undefined>>> = Symbol("comment-thread-portals");
 
 // A pointerdown that a composer or a thread already used. The comment layer skips it, so one click never does two things.
 export const consumedPointerEvents = new WeakSet<Event>();

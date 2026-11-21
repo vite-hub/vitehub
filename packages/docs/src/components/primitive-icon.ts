@@ -16,10 +16,7 @@ export function resolvePrimitiveIconName(icon: string): PrimitiveIconName | unde
   return isPrimitiveIconName(name) ? name : undefined;
 }
 
-/**
- * Inline SVG of a `@vite-hub/icons` icon, so the part that each icon marks with `data-motion` can move when its rail item
- * gets a pointer or keyboard focus. `styles.css` sets the motion of each icon. Strokes use currentColor.
- */
+/** Inline SVG of a `@vite-hub/icons` icon. Strokes use currentColor. */
 export const PrimitiveIcon = defineComponent({
   name: "PrimitiveIcon",
   props: {

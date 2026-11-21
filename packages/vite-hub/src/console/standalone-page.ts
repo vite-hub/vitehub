@@ -28,6 +28,9 @@ export const consolePageToolColors = { draft: "oklch(0.769 0.188 70.08)", picker
  * the one copy of the theme tokens that the server writes. The names and values match theme.css, and
  * `test/console-standalone-page.test.ts` fails when they drift. The focus rule is the theme's: one 2px blue ring, and a
  * text field turns its own frame blue.
+ *
+ * The pages have no script, so the motion layer of `@vite-hub/ui/motion` cannot run on them. A press here has no
+ * motion, and a hand-written press in CSS is not allowed (docs/design/motion.md), so the buttons only change color.
  */
 export const consoleStandaloneStyles = `
       :root {
@@ -73,8 +76,7 @@ export const consoleStandaloneStyles = `
       @media (pointer: coarse) { input { font-size: 1rem; } }
       .actions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: .5rem; }
       .actions.column { grid-auto-flow: row; }
-      a.button, button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 2.25rem; padding: 0 .875rem; border: 0; border-radius: .375rem; background: var(--ui-primary); color: var(--ui-text-inverted); font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; transition: opacity 150ms ease-out, transform 150ms ease-out; }
-      a.button:active, button:not(:disabled):active { transform: scale(.97); }
+      a.button, button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 2.25rem; padding: 0 .875rem; border: 0; border-radius: .375rem; background: var(--ui-primary); color: var(--ui-text-inverted); font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; transition: opacity 150ms ease-out; }
       a.button.secondary, button.secondary { background: transparent; color: var(--ui-text-highlighted); box-shadow: inset 0 0 0 1px var(--ui-border-accented); }
       @media (hover: hover) { a.button:hover, button:hover { opacity: .88; } a.button.secondary:hover, button.secondary:hover { opacity: 1; background: var(--ui-bg-elevated); } }
       button:disabled { opacity: .5; cursor: wait; }
@@ -94,6 +96,6 @@ export const consoleStandaloneStyles = `
       .note { color: var(--ui-text-muted); font-size: .8125rem; text-wrap: pretty; overflow-wrap: anywhere; }
       code { font-family: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace; font-size: .8125rem; color: var(--ui-text-highlighted); }
       [role=alert] { color: var(--vh-text-error); }
-      @media (prefers-reduced-motion: reduce) { a.button, button { transition: none; } a.button:active, button:active { transform: none; } }
+      @media (prefers-reduced-motion: reduce) { a.button, button { transition: none; } }
       @media (max-width: 30rem) { body { place-items: start center; background: var(--ui-bg); padding: 1rem; } main { border: 0; padding: 0; } }
 `

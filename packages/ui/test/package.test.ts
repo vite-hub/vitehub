@@ -61,11 +61,11 @@ const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url),
 
 // The root holds every component. An entry of its own is only for parts whose dependencies a chat page must not load, and
 // for modules that load without the components: the theme, which apps import from nuxt.config, and the share links.
-const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
+const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./motion/core", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./icon-swap.css", "./package.json", "./styles.css", "./theme.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
