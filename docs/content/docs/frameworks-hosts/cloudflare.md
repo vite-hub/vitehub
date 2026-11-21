@@ -324,16 +324,26 @@ Build where the deployment values are set, such as Workers Builds. A build that 
 
 ### Workers Builds
 
-Use Nitro's generated deploy command for production and non-production Workers Builds:
+With deploy config generation on (the default), ViteHub writes `npx wrangler deploy --config ./server/wrangler.json` to `.output/nitro.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. `vitehub deploy` supports this command shape, including the generated D1 migration steps and gradual Container rollout flag. It does not run arbitrary `nitro.commands.deploy` overrides or Nitro's default Wrangler command, which ViteHub keeps when `nitro.cloudflare.deployConfig` is `false`.
+
+Workers Builds runs the deploy command set on the Worker. `nitro deploy --prebuilt` uses `commands.deploy` from the loaded Nitro config, which defaults to the preset's command, not the saved `commands.deploy` in `.output/nitro.json`. With deploy config generation on, use the generated command as the Workers Builds deploy command, with paths from the project root:
 
 ```bash [Deploy command]
-pnpm exec nitro deploy --prebuilt
+npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-With deploy config generation on (the default), ViteHub writes the command to `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own. With `nitro.cloudflare.deployConfig: false`, ViteHub keeps Nitro's default command. With `database: { migrateOnDeploy: true }`, the command applies the pending D1 migrations before `wrangler deploy`, and stops when one fails. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+With `database: { migrateOnDeploy: true }`, apply the pending D1 migrations first, once for each D1 binding. When a migration fails, `&&` stops the command and the Worker does not deploy. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+
+Create each D1 database before the first deploy and give the Workers Builds API token D1 Write access (D1 Edit in the dashboard). For a named Wrangler environment, pass the same `--env` value to every migration command and to `wrangler deploy`.
+
+```bash [Deploy command]
+npx wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json && npx wrangler deploy --config .output/server/wrangler.json
+```
+
+With Sandbox, add `--containers-rollout=gradual` to `wrangler deploy`, as `nitro.json` does.
 
 ::warning
-The Workers Builds default deploy command, `npx wrangler deploy`, skips the generated command. It applies no D1 migration and prints no warning, so new code can reach production before its tables and columns.
+The default Workers Builds and Nitro prebuilt deploy commands do not apply D1 migrations or warn about pending ones. Apply the migrations first so the new code has the tables and columns it needs.
 ::
 
 With config generation and Sandbox on, ViteHub writes an explicit gradual Container rollout to `.output/nitro.json`, so the Worker and its Container application deploy together.
