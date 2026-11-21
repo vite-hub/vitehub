@@ -20,7 +20,7 @@ import type {
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreUpdateInput,
 } from "../invocations.ts"
-import type { Client, InStatement, Row } from "@libsql/client"
+import type { Client, Config, InStatement, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
 import type { ObservationRow } from "./observation-rows.ts"
@@ -219,6 +219,17 @@ interface PendingUpdate {
   resolve: (record: AgentInvocationRecord | undefined) => void
 }
 
+// Clients created by this package's @libsql/client. A checkpoint worker loads that same native addon;
+// another copy of SQLite in the process would drop this client's file locks when it closes.
+const ownedClients = new WeakSet<Client>()
+
+/** Creates a libSQL client whose WAL file the store may checkpoint on a worker thread. */
+export function createOwnedLibsqlClient(config: Config): Client {
+  const client = createClient(config)
+  ownedClients.add(client)
+  return client
+}
+
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): Required<AgentInvocationStore> {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
@@ -229,7 +240,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     size: "any",
     error: retentionError,
   })
-  const client = options.client || createClient({
+  const client = options.client || createOwnedLibsqlClient({
     ...(options.authToken ? { authToken: options.authToken } : {}),
     url: options.url!,
   })
@@ -505,7 +516,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
       }
-      const checkpoints = synchronousNormal && !options.client
+      const checkpoints = synchronousNormal && ownedClients.has(client)
       const file = checkpoints || maxSize !== false
         ? (await client.execute("PRAGMA database_list")).rows.find(row => row.name === "main")?.file
         : undefined

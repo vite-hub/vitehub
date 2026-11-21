@@ -50,15 +50,24 @@ function libsqlAddon(): string | undefined {
 }
 
 function spawn(path: string, addon: string, intervalMs: number, checkpointer: Checkpointer) {
-  const worker = new Worker(workerSource, { eval: true, workerData: { addon, intervalMs, path } })
-  worker.unref()
   const fellBack = (reason: string) => console.warn(`[vitehub] SQLite WAL checkpoints for ${path} fell back to commits: ${reason}`)
+  let worker: Worker
+  try {
+    worker = new Worker(workerSource, { eval: true, workerData: { addon, intervalMs, path } })
+  }
+  catch (error) {
+    // A host run with --permission and without --allow-worker refuses the thread here.
+    fellBack(error instanceof Error ? error.message : String(error))
+    return
+  }
   worker.on("message", (message: { error?: string }) => {
     if (message.error) fellBack(message.error)
   })
   worker.on("error", error => fellBack(error.message))
   checkpointer.exited = new Promise(resolve => worker.once("exit", resolve))
   checkpointer.worker = worker
+  // A message listener refs the worker again, so unref it last.
+  worker.unref()
 }
 
 /**

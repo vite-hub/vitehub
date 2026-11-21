@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { spawnSync } from "node:child_process"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
@@ -38,4 +39,32 @@ it("checkpoints on a worker thread so the next commit restarts the WAL", async (
     await stop?.()
     client.close()
   }
-})
+}, 30_000)
+
+const checkpointerUrl = new URL("../src/internal/sqlite-wal-checkpointer.ts", import.meta.url).href
+// Starts a 20 ms checkpointer in a child, keeps it busy long enough for the worker to spawn, then lets it end.
+// The child runs a file: under --input-type=module the eval worker would inherit ESM and lose require().
+async function runChild(flags: string[], directory: string) {
+  const script = join(directory, "child.mjs")
+  await writeFile(script, `import { startWalCheckpointer } from ${JSON.stringify(checkpointerUrl)}
+startWalCheckpointer(${JSON.stringify(join(directory, "state.db"))}, 20)
+setTimeout(() => console.log("done"), 300)
+`)
+  return spawnSync(process.execPath, [...flags, script], { encoding: "utf8", timeout: 10_000 })
+}
+
+it("lets the process exit while the worker runs", async () => {
+  directory = await mkdtemp(join(tmpdir(), "vitehub-wal-checkpoint-"))
+  const child = await runChild([], directory)
+  expect(child.signal).toBeNull()
+  expect(child.status).toBe(0)
+  expect(child.stdout).toContain("done")
+}, 30_000)
+
+it("keeps commit checkpoints when the host refuses worker threads", async () => {
+  directory = await mkdtemp(join(tmpdir(), "vitehub-wal-checkpoint-"))
+  const child = await runChild(["--permission", "--allow-fs-read=*", "--allow-fs-write=*", "--allow-addons"], directory)
+  expect(child.status).toBe(0)
+  expect(child.stdout).toContain("done")
+  expect(child.stderr).toMatch(/fell back to commits/)
+}, 30_000)
