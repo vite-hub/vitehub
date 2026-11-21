@@ -25,6 +25,7 @@ function stubClient(initial: CommentSendState) {
     start: vi.fn(() => () => {}),
     refresh: vi.fn(async () => {}),
     send: vi.fn(async () => {}),
+    pairAnother: vi.fn(async () => {}),
     allow: vi.fn(async () => {}),
     copyAgain: vi.fn(async () => {}),
     cancel: vi.fn(),

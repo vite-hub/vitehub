@@ -49,6 +49,8 @@ export interface ConsoleMemberEndpoint {
   owner: string
   ownerName: string | null
   name: string
+  /** Where the agent can be reached, such as the T3 thread it paired from. */
+  address: string | null
   kind: "url" | "inbox"
   agent: string | null
   host: string | null

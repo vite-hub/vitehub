@@ -18,6 +18,8 @@ export interface CommentSendStatus {
   agent?: CommentSendAgent
   /** The member's last send, while the agent works on it. `thread` is the URL of the agent's thread. */
   working?: { id: string, thread?: string }
+  /** The last delivery is still being attempted. */
+  pending?: boolean
   /** While the member may not send, the time in ms when the next send may go. */
   retryAt?: number
 }
@@ -42,7 +44,7 @@ export type CommentSendPairingCheck =
 
 /** The answer to a send: delivered, not delivered, or refused until `retryAt`. */
 export type CommentSendResult =
-  | { status: "sent", id: string, thread?: string }
+  | { status: "sent" | "pending", id: string, thread?: string }
   | { status: "failed", reason: string }
   | { status: "limited", retryAt: number }
 
@@ -68,7 +70,7 @@ export interface CommentSendTransport {
 
 /** What the Send segment shows. Every state has the number of waiting threads, `count`. */
 export type CommentSendState =
-  | { status: "idle", count: number, inbox: boolean }
+  | { status: "idle", count: number, inbox: boolean, canPairAnother?: true }
   | { status: "pairing", count: number, prompt: string, expiresAt: number, agent: CommentSendAgent, reason?: "expired" | "refused" }
   | { status: "confirm", count: number, agent: CommentSendAgent }
   | { status: "sending", count: number }
@@ -102,6 +104,8 @@ export interface CommentSendClient {
    * for an agent to use the code.
    */
   send: (copy?: CommentSendCopy) => Promise<void>
+  /** Starts a new pairing without changing where the regular Send button sends. */
+  pairAnother: (copy?: CommentSendCopy) => Promise<void>
   /** Allow and send N: pairs the agent that used the code and sends to it. */
   allow: () => Promise<void>
   /** Copy again, after the code expired or the agent used a URL on another host. */
@@ -153,7 +157,8 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     timer = setTimeout(() => at === step && then(), ms)
   }
   const inbox = (): boolean => Boolean(agent && !agent.host)
-  const idle = (): void => set({ status: "idle", count, inbox: inbox() })
+  const idleState = (): CommentSendState => ({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
+  const idle = (): void => set(idleState())
   const finish = (): void => {
     sendId = undefined
     thread = undefined
@@ -168,9 +173,14 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     set({ status: "limited", count, retryAt })
     later(Math.max(0, retryAt - Date.now()), () => void refresh(idle))
   }
+  const pending = (): void => {
+    set({ status: "sending", count })
+    later(statusInterval, () => void refresh(pending, true))
+  }
 
   const apply = (status: CommentSendStatus): void => {
     agent = status.agent
+    if (status.pending) return pending()
     if (status.working) {
       sendId = status.working.id
       thread = status.working.thread
@@ -186,9 +196,9 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (status.retryAt !== undefined && status.retryAt > Date.now()) return limited(status.retryAt)
     idle()
   }
-  const refresh = async (onError?: () => void): Promise<void> => {
+  const refresh = async (onError?: () => void, deliveryPending = false): Promise<void> => {
     const at = step
-    const canApply = (): boolean => at === step && !fetching && state.status !== "pairing" && state.status !== "confirm" && state.status !== "sending"
+    const canApply = (): boolean => at === step && !fetching && state.status !== "pairing" && state.status !== "confirm" && (state.status !== "sending" || deliveryPending)
     if (!canApply()) return
     const revision = countRevision
     try {
@@ -209,6 +219,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (result.status === "failed") return set({ status: "failed", count, reason: result.reason })
     if (paired) agent = paired
     if (result.status === "limited") return limited(result.retryAt)
+    if (result.status === "pending") return pending()
     sendId = result.id
     const update = updates?.get(result.id)
     thread = update?.thread ?? result.thread
@@ -296,7 +307,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
           countRevision++
           // A new count keeps the step: its timers and its answers on the way still count.
           if (state.status !== "sending") {
-            state = { ...state, count }
+            state = state.status === "idle" ? idleState() : { ...state, count }
             notify()
           }
           return
@@ -337,6 +348,10 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       if (state.status !== "failed" && count === 0) return
       if (!agent) return pair(copy)
       return deliver(() => transport.send())
+    },
+    async pairAnother(copy) {
+      if (state.status !== "idle" || !state.canPairAnother) return
+      return pair(copy)
     },
     async allow() {
       if (state.status !== "confirm" || !code) return

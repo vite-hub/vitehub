@@ -51,7 +51,7 @@ ViteHub seals the URL and the secret with AES-GCM and the key in `VITEHUB_WEBHOO
 
 ## Send to a member
 
-`sendToMemberEndpoint(owner, body, { event, key })` posts the JSON body to the member's receiver and returns `[error, { id, status }]`:
+`sendToMemberEndpoint(owner, body, { event, key, hosts })` posts the JSON body to the member's receiver and returns `[error, { id, status }]`:
 
 ```ts [server/utils/send-comments.ts]
 import { sendToMemberEndpoint } from 'vite-hub/webhooks'
@@ -69,6 +69,7 @@ export async function sendComments(userId: string, threads: Array<{ id: string, 
 
 - The receiver gets the same headers and signature as a [webhook delivery](/docs/webhooks/server-api#the-request): `x-hub-signature-256`, `x-vitehub-delivery`, and `x-vitehub-event`.
 - `key` makes the send idempotent. A send with the key of a pending, sending, or sent delivery returns that delivery and posts nothing. After a failure, the same key posts again.
+- `hosts` is optional: the hosts that the endpoint may use now. Pass the same list as to `createMemberEndpoint()`. An endpoint on another host gets [`WEBHOOKS_URL_REFUSED`](/docs/webhooks/diagnostics/webhooks_url_refused) and no delivery, so removing a host from the list stops the endpoints that it allowed before.
 - `status` is `'sent'` for a 2xx answer, `'inbox'` for an inbox, `'failed'` when the post failed, and `'pending'` when the Queue tries again.
 
 The post runs in the request, so the app needs no Queue. When the app has `queue` on, a failed post goes to the `vitehub-webhooks` Queue, which tries it again as it does for a [webhook delivery](/docs/webhooks/limits-and-errors#delivery). Without Queue, a failed post is `failed` at once, and the delivery is `dead`.
@@ -77,7 +78,7 @@ Each send is a delivery in `vitehub_webhook_deliveries`, with `webhook` set to `
 
 ## The URL guard
 
-A member gives the URL, so ViteHub checks it before it stores it and again before each post. `checkWebhookUrl(url, { hosts })` runs the same check:
+A member gives the URL, so ViteHub checks it with `hosts` before it stores it, and checks its address again before each post. `checkWebhookUrl(url, { hosts })` runs the same check:
 
 ```ts [server/utils/check-receiver.ts]
 import { checkWebhookUrl } from 'vite-hub/webhooks'
@@ -92,13 +93,23 @@ It refuses a URL that:
 
 - does not use `https`, or holds a user name or a password;
 - has a host outside `hosts`. A host does not match its subdomains;
-- names a loopback, private, link-local, or cloud metadata address, such as `127.0.0.1`, `10.0.0.1`, `169.254.169.254`, or `[::1]`;
+- names a loopback, private, link-local, or cloud metadata address, such as `127.0.0.1`, `10.0.0.1`, `169.254.169.254`, or `[::1]`, also inside IPv6: IPv4-mapped and IPv4-compatible forms, 6to4 (`2002::/16`), and NAT64 (`64:ff9b::/96`, and all of the local-use `64:ff9b:1::/48`);
 - on Node, Bun, and Deno, has a name that resolves to one of these addresses, or does not resolve.
 
 Webhooks never follows a redirect, because a redirect would send the signed body to another place.
 
+The check before each post looks at the address only. A `sendToMemberEndpoint()` call with `hosts` checks the host too, but a Queue retry and a Redeliver from the Console do not, so they can still post to an endpoint whose host you removed. Disable or remove that endpoint to stop them.
+
+What the guard can see depends on the runtime:
+
+| Runtime | Names | Who stops a private address |
+| --- | --- | --- |
+| Cloudflare Workers, deployed | Not resolved: a name passes on `hosts` alone | The platform: a Worker's `fetch()` connects only to public addresses |
+| `wrangler dev` | Not resolved | Nobody: Miniflare connects to private addresses too |
+| Node, Bun, Deno | Resolved, and refused when one address is private | The guard, at the time of the check. `fetch()` resolves the name again, so a name whose DNS changes in between reaches the new address |
+
 > [!WARNING]
-> Cloudflare Workers cannot resolve a host name, so there a name passes on `hosts` alone. Keep `hosts` to hosts that you trust, such as the default `relay.t3.codes`.
+> List in `hosts` only names whose DNS you, or a party that you trust, control, such as the default `relay.t3.codes`.
 
 ## The key
 

@@ -113,8 +113,8 @@ const list = defineWebhooksOperation<Record<string, never>, WebhookInfo[]>({
   },
 })
 
-const deliveries = defineWebhooksOperation<ListWebhookDeliveriesOptions & { owner?: string }, WebhookDelivery[]>({
-  description: "List webhook deliveries, newest first, with their state, attempts, last status, and last error. A member delivery names its endpoint as @<endpoint id>; owner lists the deliveries of a member's endpoint.",
+const deliveries = defineWebhooksOperation<ListWebhookDeliveriesOptions, WebhookDelivery[]>({
+  description: "List webhook deliveries, newest first, with their state, attempts, last status, and last error. A member delivery names its endpoint as @<endpoint id>; owner lists the deliveries of a member's endpoints.",
   input: v.strictObject({
     webhook: v.optional(v.pipe(v.string(), v.minLength(1), v.description("The webhook name, or @<endpoint id> for a member endpoint."))),
     owner: v.optional(v.pipe(v.string(), v.minLength(1), v.description("The member who owns the endpoint, such as the Auth user id."))),
@@ -124,13 +124,7 @@ const deliveries = defineWebhooksOperation<ListWebhookDeliveriesOptions & { owne
   }),
   kind: "read",
   name: "webhooks.deliveries",
-  run: async ({ owner, ...input }) => {
-    if (owner === undefined) return unwrap(async () => (await runtime()).listWebhookDeliveries(input))
-    const endpoint = await unwrap(async () => (await members()).getMemberEndpoint(owner))
-    const webhook = endpoint ? `@${endpoint.id}` : undefined
-    if (!webhook || (input.webhook !== undefined && input.webhook !== webhook)) return []
-    return unwrap(async () => (await runtime()).listWebhookDeliveries({ ...input, webhook }))
-  },
+  run: input => unwrap(async () => (await runtime()).listWebhookDeliveries(input)),
 })
 
 const pending = defineWebhooksOperation<{ webhook?: string, limit?: number }, WebhookDelivery[]>({

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentSend } from "../src/client.ts"
+import { createCommentSend, createCommentSendTransport } from "../src/client.ts"
 
 import type { CommentSendAgent, CommentSendEvent, CommentSendPairingCheck, CommentSendResult, CommentSendStatus, CommentSendTransport } from "../src/client.ts"
 
@@ -82,7 +82,58 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
+it("allows the code on the page that started pairing", async () => {
+  let page = "/original"
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({ data: { code: "paired-code" } }))
+  const transport = createCommentSendTransport({ page: () => page, fetch })
+  const pairing = await transport.startPairing()
+  page = "/another-page"
+  await transport.allow(pairing.code)
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+    "/_vitehub/comments/send/start?page=%2Foriginal",
+    "/_vitehub/comments/send/allow?page=%2Foriginal",
+  ])
+})
+
 describe("createCommentSend", () => {
+  it("polls queued deliveries even with pushed events and retries a dead batch", async () => {
+    const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    server.results.push({ status: "pending", id: "send-1" })
+    await send.send()
+    server.setStatus({ count: 2, agent: t3, pending: true })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(send.state.status).toBe("sending")
+
+    server.setStatus({ count: 2, agent: t3 })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(send.state).toEqual({ status: "idle", count: 2, inbox: false, canPairAnother: true })
+    server.results.push({ status: "sent", id: "send-2" })
+    await send.send()
+    expect(send.state.status).toBe("sent")
+    stop()
+  })
+
+  it("ignores a failed queued delivery poll after the client stops", async () => {
+    const server = fakeTransport({ count: 2, agent: t3 })
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    server.results.push({ status: "pending", id: "send-1" })
+    await send.send()
+
+    const poll = deferred<CommentSendStatus>()
+    const status = vi.spyOn(server.transport, "status").mockReturnValueOnce(poll.promise)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(status).toHaveBeenCalledOnce()
+    stop()
+    poll.reject(new Error("Connection lost"))
+    await flush()
+    expect(send.state).toEqual({ status: "idle", count: 0, inbox: false })
+  })
+
   it("walks all eight states: pairs in place, sends, works, and is done", async () => {
     const server = fakeTransport({ count: 2 })
     const send = createCommentSend(server.transport)
@@ -141,7 +192,7 @@ describe("createCommentSend", () => {
 
     // At the retry time, Send N comes back.
     await vi.advanceTimersByTimeAsync(10 * 60_000)
-    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
 
     expect(seen).toEqual(["idle", "pairing", "confirm", "sending", "sent", "working", "idle", "sending", "failed", "sending", "limited", "idle"])
     stop()
@@ -250,7 +301,25 @@ describe("createCommentSend", () => {
     expect(send.state.status).toBe("working")
     server.push({ type: "done", id: "send-1" })
     await flush()
-    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
+  })
+
+  it("starts a second pairing without sending to the existing agent", async () => {
+    const server = fakeTransport({ count: 0, agent: t3 }, { push: true })
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    server.push({ type: "count", count: 2 })
+    expect(send.state).toMatchObject({ status: "idle", count: 2, canPairAnother: true })
+    await send.pairAnother(copy)
+    expect(copied).toEqual([prompt])
+    expect(server.calls).not.toContain("send")
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    server.results.push({ status: "sent", id: "send-2" })
+    await send.allow()
+    expect(server.calls).toContain("allow code-1")
+    stop()
   })
 
   it("shows the agent's send on load, a limit on load, and an inbox", async () => {
@@ -263,7 +332,7 @@ describe("createCommentSend", () => {
     await flush()
     expect(working.state).toEqual({ status: "working", count: 0, agent: t3 })
     expect(limited.state).toEqual({ status: "limited", count: 4, retryAt: Date.now() + 60_000 })
-    expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true })
+    expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true, canPairAnother: true })
   })
 
   it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {
@@ -287,7 +356,7 @@ describe("createCommentSend", () => {
     await flush()
     delivery.resolve({ status: "sent", id: "old-send" })
     await allowing
-    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false, canPairAnother: true })
     expect(server.cancelled).toEqual(interrupted === "sending" ? [] : ["code-1"])
   })
 
@@ -352,7 +421,9 @@ describe("createCommentSend", () => {
     await sending
     expect(send.state).toMatchObject({ status: "sent", count: 1 })
     await vi.advanceTimersByTimeAsync(2000)
-    expect(send.state).toEqual(done ? { status: "idle", count: 1, inbox: false } : { status: "working", count: 1, agent: t3, thread })
+    expect(send.state).toEqual(done
+      ? { status: "idle", count: 1, inbox: false, canPairAnother: true }
+      : { status: "working", count: 1, agent: t3, thread })
   })
 
   it("keeps a pushed count when an earlier status response arrives", async () => {
@@ -364,7 +435,7 @@ describe("createCommentSend", () => {
     server.push({ type: "count", count: 3 })
     load.resolve({ count: 2, agent: t3 })
     await flush()
-    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false, canPairAnother: true })
   })
 
   it("handles setup failure even when the clipboard awaits the prompt", async () => {

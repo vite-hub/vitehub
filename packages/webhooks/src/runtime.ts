@@ -3,7 +3,7 @@ import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
-import { readString, serverEnv, unsealEndpoint } from "./sealing.ts"
+import { memberBodyLabel, readString, sealedMemberBodyPrefix, serverEnv, unsealEndpoint, unsealWebhooksText } from "./sealing.ts"
 import { checkWebhookUrl } from "./url-guard.ts"
 
 import type { Duration, Result, ResultError } from "@vite-hub/runtime"
@@ -239,7 +239,10 @@ export async function deliverMemberClaim(installed: InstalledWebhooks, claim: We
   const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), !retry)
   if (state !== "pending") return [undefined, { id: claim.id, status: "failed" }]
   const wakeError = await wake(installed, claim, webhookTimeoutMs)
-  if (wakeError) return [wakeError, undefined]
+  if (wakeError) {
+    await store.cancel(claim.id, Date.now())
+    return [wakeError, undefined]
+  }
   return [undefined, { id: claim.id, status: "pending" }]
 }
 
@@ -388,7 +391,13 @@ export async function postDelivery(claim: WebhookDelivery, target: Target): Prom
     if (refused) return { ok: false, status: null, failure: refused.message, final: true }
   }
   // The stored body is JSON text, so this gives the same bytes that the last send stored.
-  const body = JSON.stringify(claim.body)
+  let body = JSON.stringify(claim.body)
+  const sealed = sealedMemberBody(claim)
+  if (sealed !== undefined) {
+    const [error, opened] = await unsealWebhooksText(memberBodyLabel(claim.webhook, claim.event), sealed)
+    if (error) return { ok: false, status: null, failure: error.why, final: true }
+    body = opened
+  }
   try {
     const signed = await signWebhook(body, { provider: target.signature, secret: target.secret })
     const response = await fetch(target.url, {
@@ -467,12 +476,12 @@ export function listWebhooks(): WebhookInfo[] {
 
 /** Deliveries, newest first. */
 export function listWebhookDeliveries(options?: ListWebhookDeliveriesOptions): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(installed => installed.store.list(options))
+  return attempt(async installed => (await (options?.owner === undefined ? installed : requireMemberEndpoints()).store.list(options)).map(inspectDelivery))
 }
 
 /** Pending deliveries, the soonest due first: the debounce timers that run now. */
 export function listPendingWebhookDeliveries(options?: { webhook?: string, limit?: number }): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(installed => installed.store.pending(options))
+  return attempt(async installed => (await installed.store.pending(options)).map(inspectDelivery))
 }
 
 async function findDelivery(installed: InstalledWebhooks, id: string): Promise<WebhookDelivery> {
@@ -482,7 +491,17 @@ async function findDelivery(installed: InstalledWebhooks, id: string): Promise<W
 }
 
 export function getWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
-  return attempt(installed => findDelivery(installed, id))
+  return attempt(async installed => inspectDelivery(await findDelivery(installed, id)))
+}
+
+function sealedMemberBody(delivery: WebhookDelivery): string | undefined {
+  if (delivery.webhook.startsWith(memberWebhookPrefix) && typeof delivery.body === "string" && delivery.body.startsWith(sealedMemberBodyPrefix)) {
+    return delivery.body.slice(sealedMemberBodyPrefix.length)
+  }
+}
+
+export function inspectDelivery(delivery: WebhookDelivery): WebhookDelivery {
+  return sealedMemberBody(delivery) === undefined ? delivery : { ...delivery, body: null }
 }
 
 /** What the delivery functions that send take. */
@@ -517,7 +536,7 @@ export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionO
     }
     const error = await wake(installed, delivery, 0)
     if (error) throw error
-    return delivery
+    return inspectDelivery(delivery)
   })
 }
 
@@ -525,7 +544,7 @@ export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionO
 export function cancelWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
   return attempt(async (installed) => {
     const delivery = await installed.store.cancel(id, Date.now())
-    if (delivery) return delivery
+    if (delivery) return inspectDelivery(delivery)
     const current = await findDelivery(installed, id)
     throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_PENDING({ id: JSON.stringify(id), state: current.state })
   })

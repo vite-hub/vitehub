@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { verifyWebhook } from "@vite-hub/env"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../src/database.ts"
-import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
+import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries } from "../src/runtime.ts"
 
 import type { Client } from "@libsql/client"
@@ -131,6 +131,22 @@ describe("checkWebhookUrl", () => {
     }
   })
 
+  it.each([
+    ["an IPv4-compatible loopback", "https://[::7f00:1]/hook", "loopback"],
+    ["an IPv4-compatible metadata address", "https://[::a9fe:a9fe]/hook", "metadata"],
+    ["a 6to4 loopback", "https://[2002:7f00:1::]/hook", "6to4 address of a loopback"],
+    ["a 6to4 metadata address", "https://[2002:a9fe:a9fe::]/hook", "6to4 address of a link-local"],
+    ["a local-use NAT64 address", "https://[64:ff9b:1::a9fe:a9fe]/hook", "local-use NAT64"],
+  ])("refuses %s", async (_, url, reason) => {
+    const [error] = await checkWebhookUrl(url)
+    expect(error).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
+    expect(error?.message).toContain(reason)
+  })
+
+  it("passes a 6to4 address of a public IPv4 address", async () => {
+    expect((await checkWebhookUrl("https://[2002:cb00:710a::1]/hook"))[0]).toBeUndefined()
+  })
+
   it("refuses a name that resolves to a private address", async () => {
     expect((await checkWebhookUrl("https://intranet.example.com/hook"))[0]?.message).toContain("resolves to a private address")
     // One private address among public ones is enough to refuse.
@@ -169,9 +185,19 @@ describe("member endpoints", () => {
     expect(endpoint).toMatchObject({ owner: "user_ana", kind: "url", host: "relay.t3.codes" })
   })
 
+  it("refuses a send to a host outside the current `hosts`, and records no delivery", async () => {
+    await connect()
+    const [error] = await sendToMemberEndpoint("user_ana", {}, { event: "comments.send", key: "narrowed", hosts: ["relay.t3.codes"] })
+    expect(error).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
+    expect(error?.message).toContain("is not relay.t3.codes")
+    expect(received).toHaveLength(0)
+    expect((await client.execute("SELECT * FROM vitehub_webhook_deliveries")).rows).toHaveLength(0)
+    expect((await sendToMemberEndpoint("user_ana", {}, { event: "comments.send", key: "allowed", hosts: [publicHost] }))[1]).toMatchObject({ status: "sent" })
+  })
+
   it("stores no plaintext URL or secret, and returns only the host", async () => {
     const endpoint = await connect()
-    expect(endpoint).toEqual({ id: expect.stringMatching(/^whe_/), owner: "user_ana", ownerName: null, ownerEmail: null, name: "Launch plan thread", kind: "url", agent: "t3", host: publicHost, disabledAt: null, disabledBy: null, createdAt: expect.any(Number), updatedAt: expect.any(Number) })
+    expect(endpoint).toEqual({ id: expect.stringMatching(/^whe_/), owner: "user_ana", ownerName: null, ownerEmail: null, name: "Launch plan thread", address: null, kind: "url", agent: "t3", host: publicHost, disabledAt: null, disabledBy: null, createdAt: expect.any(Number), updatedAt: expect.any(Number) })
     await sendToMemberEndpoint("user_ana", { threads: ["thr_1"] }, { event: "comments.send", key: "k1" })
     const rows = await client.execute("SELECT * FROM vitehub_webhook_endpoints")
     const deliveries = await client.execute("SELECT * FROM vitehub_webhook_deliveries")
@@ -260,6 +286,66 @@ describe("member endpoints", () => {
     expect(sent?.status).toBe("inbox")
     expect(received).toEqual([])
     expect((await getWebhookDelivery(sent!.id))[1]).toMatchObject({ webhook: `@${endpoint!.id}`, state: "sent", body: { threads: ["thr_1"] } })
+  })
+
+  it("keeps one endpoint per address, sends to the one with the send's address, and else to the newest", async () => {
+    const threadA = "t3-thread://v2/env-1/thread-a"
+    // A millisecond apart, so the inbox is the newest endpoint.
+    const now = Date.now()
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(now)
+    const [, a] = await createMemberEndpoint({ owner: "user_ana", name: "Thread A", agent: "t3", address: threadA, kind: "url", url: endpointUrl, secret, hosts: [publicHost] })
+    vi.setSystemTime(now + 1)
+    const [, inbox] = await createMemberEndpoint({ owner: "user_ana", name: "Claude Code", agent: "claude-code", kind: "inbox" })
+    vi.useRealTimers()
+    expect(a).toMatchObject({ address: threadA })
+    expect(inbox).toMatchObject({ address: null })
+    expect(await getMemberEndpoint("user_ana", { address: ` ${threadA} ` })).toEqual([undefined, a])
+    expect(await getMemberEndpoint("user_ana", { address: "t3-thread://v2/env-1/gone" })).toEqual([undefined, inbox])
+    expect(await getMemberEndpoint("user_ana")).toEqual([undefined, inbox])
+
+    const [, toA] = await sendToMemberEndpoint("user_ana", { n: 1 }, { event: "comments.send", key: "k1", address: ` ${threadA} ` })
+    expect(toA?.status).toBe("sent")
+    expect(received).toHaveLength(1)
+    const [, toNewest] = await sendToMemberEndpoint("user_ana", { n: 2 }, { event: "comments.send", key: "k2", address: "t3-thread://v2/env-1/gone" })
+    expect(toNewest?.status).toBe("inbox")
+    expect(received).toHaveLength(1)
+
+    // Pairing thread A again replaces its endpoint and leaves the inbox.
+    const [, again] = await createMemberEndpoint({ owner: "user_ana", name: "Thread A", agent: "t3", address: threadA, kind: "url", url: endpointUrl, secret, hosts: [publicHost] })
+    expect((await client.execute("SELECT id FROM vitehub_webhook_endpoints ORDER BY id")).rows.map(row => row.id).toSorted()).toEqual([again!.id, inbox!.id].toSorted())
+  })
+
+  it("lists the deliveries of the endpoint a send reaches, newest first, page by page", async () => {
+    expect(await listMemberDeliveries("user_mei")).toEqual([undefined, null])
+    const [, endpoint] = await createMemberEndpoint({ owner: "user_mei", name: "Codex", agent: "codex", kind: "inbox" })
+    // One millisecond apart, so newest first is one order.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    for (const n of [1, 2, 3]) {
+      vi.setSystemTime(1_800_000_000_000 + n)
+      await sendToMemberEndpoint("user_mei", { n }, { event: "comments.send", key: `k${n}` })
+    }
+    vi.useRealTimers()
+    const [, first] = await listMemberDeliveries("user_mei", { limit: 2 })
+    expect(first?.endpoint).toEqual(endpoint)
+    expect(first?.deliveries.map(delivery => delivery.body)).toEqual([{ n: 3 }, { n: 2 }])
+    const last = first!.deliveries.at(-1)!
+    const [, next] = await listMemberDeliveries("user_mei", { limit: 2, before: { createdAt: last.createdAt, id: last.id } })
+    expect(next?.deliveries.map(delivery => delivery.body)).toEqual([{ n: 1 }])
+    const [, newer] = await createMemberEndpoint({ owner: "user_mei", name: "Other inbox", address: "other", kind: "inbox" })
+    await sendToMemberEndpoint("user_mei", { n: 4 }, { event: "comments.send", key: "other", endpointId: newer!.id })
+    expect((await listMemberDeliveries("user_mei", { endpointId: endpoint!.id, limit: 1 }))[1]?.deliveries.map(delivery => delivery.body)).toEqual([{ n: 3 }])
+    expect((await listMemberDeliveries("user_mei", { address: "" }))[1]?.endpoint.id).toBe(endpoint!.id)
+    expect((await listMemberDeliveries("user_mei", { address: " other " }))[1]?.endpoint.id).toBe(newer!.id)
+    expect(await listMemberDeliveries("user_tom", { endpointId: endpoint!.id })).toEqual([undefined, null])
+    expect((await listWebhookDeliveries({ owner: "user_mei" }))[1]).toHaveLength(4)
+    expect((await listWebhookDeliveries({ owner: "user_mei", webhook: `@${endpoint!.id}` }))[1]).toHaveLength(3)
+    expect((await listWebhookDeliveries({ owner: "user_tom", webhook: `@${endpoint!.id}` }))[1]).toEqual([])
+    await removeMemberEndpoint("user_mei", endpoint!.id)
+    expect((await sendToMemberEndpoint("user_mei", {}, { event: "comments.send", key: "removed", endpointId: endpoint!.id }))[0]?.code).toBe("WEBHOOKS_ENDPOINT_NOT_FOUND")
+    // Another member's deliveries stay theirs.
+    await connect("user_tom")
+    expect((await listMemberDeliveries("user_tom"))[1]?.deliveries).toEqual([])
   })
 
   it("replaces, removes, and disables endpoints for their owner only", async () => {

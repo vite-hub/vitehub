@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process"
-import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
@@ -35,13 +35,19 @@ Deno.exit(0)
 // Nuxt runs its Nitro build apart from Vite. The Deno output must still register the Schedules with Deno.cron.
 it("registers Nuxt Schedules with Deno.cron in the Deno host output", async () => {
   // Outside the vite-hub package: the Deno output copies the packages that the server imports, vite-hub among them.
-  const root = resolve(import.meta.dirname, "../../../.cache/nuxt-deno-schedule")
-  await rm(root, { force: true, recursive: true })
+  const cache = resolve(import.meta.dirname, "../../../.cache")
+  await mkdir(cache, { recursive: true })
+  const root = await mkdtemp(join(cache, "nuxt-deno-schedule-"))
   try {
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
-    for (const name of ["@vite-hub/schedule", "nuxt", "vite-hub", "vue"]) {
-      const target = name === "vite-hub" ? resolve(import.meta.dirname, "..") : await realpath(resolve(import.meta.dirname, "../node_modules", name))
+    const packageRoot = resolve(import.meta.dirname, "..")
+    const installed = join(root, "node_modules/vite-hub")
+    await mkdir(installed)
+    for (const file of ["dist", "package.json", "tsconfig.json"]) await cp(join(packageRoot, file), join(installed, file), { recursive: true })
+    await symlink(join(packageRoot, "node_modules"), join(installed, "node_modules"), "dir")
+    for (const name of ["@vite-hub/schedule", "nuxt", "vue"]) {
+      const target = await realpath(resolve(packageRoot, "node_modules", name))
       await symlink(target, join(root, "node_modules", name), "dir")
     }
     await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module", dependencies: { "@vite-hub/schedule": "*", nuxt: "*", "vite-hub": "*", vue: "*" } }))

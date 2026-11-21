@@ -38,7 +38,7 @@ const states: Record<string, CommentSendState> = {
 /** A client that stays in one state, for a screenshot. */
 function still(state: CommentSendState): CommentSendClient {
   const noop = async () => {};
-  return { state, onChange: () => () => {}, start: () => () => {}, refresh: noop, send: noop, allow: noop, copyAgain: noop, cancel: () => {} };
+  return { state, onChange: () => () => {}, start: () => () => {}, refresh: noop, send: noop, pairAnother: noop, allow: noop, copyAgain: noop, cancel: () => {} };
 }
 
 declare global {
