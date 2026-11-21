@@ -1356,10 +1356,11 @@ export class PullRequestInbox {
    * Records that the host asks GitHub to update the PR's branch from `from` with its base, before it sends
    * the request. GitHub writes the merge commit and the response carries no SHA, so the `synchronize`
    * delivery that the host's own identity sends from `from` records the new head as the host's work. A
-   * merges API call returns the commit: pass it as `head` to record it at once.
+   * merges API call returns the commit: pass it as `head` to record it at once. Anything but a full commit
+   * SHA records nothing, so the approval does not carry over.
    */
   async registerHostUpdate(repository: string, number: number, from: string, head?: string): Promise<void> {
-    invariant(/^[a-f\d]{40}$/i.test(from) && (head === undefined || /^[a-f\d]{40}$/i.test(head)), 'the runtime registers full commit SHAs for a base update')
+    if (!/^[a-f\d]{40}$/i.test(from) || head !== undefined && !/^[a-f\d]{40}$/i.test(head)) return
     await this.transaction(async tx => {
       const s = await this.getIn(tx, repository.toLowerCase(), number)
       if (!s) return
