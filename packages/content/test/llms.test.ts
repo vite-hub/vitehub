@@ -1047,6 +1047,21 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(acceptsMarkdown("text/html, text/*, text/markdown")).toBe(false)
     expect(acceptsMarkdown("text/html;q=0, text/markdown;q=0, text/*")).toBe(false)
   })
+
+  it("skips a range whose parameters the UTF-8 page and copy do not have", async () => {
+    expect(acceptsMarkdown("text/html; charset=iso-8859-1, text/markdown")).toBe(true)
+    // The more specific HTML range refuses UTF-8 HTML, so the plain `text/html` does not decide.
+    expect(acceptsMarkdown("text/html; charset=utf-8;q=0, text/html, text/markdown")).toBe(true)
+    expect(acceptsMarkdown("text/html; charset=UTF-8, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/markdown; charset=iso-8859-1, text/html")).toBe(false)
+    // A type with a matching parameter is no more specific in the tie than the same type without one.
+    expect(acceptsMarkdown("text/markdown, text/html; charset=utf-8")).toBe(true)
+    const content = await site({ site: "https://example.com", markdown: true })
+    for (const [accept, markdown] of [["text/html; charset=iso-8859-1, text/markdown", true], ["text/html; charset=utf-8;q=0, text/html, text/markdown", true], ["text/html, text/markdown", false]] as const) {
+      const response = await app(content).request("https://example.com/blog/hello", { headers: { accept } })
+      expect(response.headers.get("content-type")?.startsWith("text/markdown"), accept).toBe(markdown)
+    }
+  })
 })
 
 // The expected text below is what `@vite-hub/docs` served on vitehub.dev on 2026-11-11, through nuxt-llms and

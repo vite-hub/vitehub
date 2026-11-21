@@ -22,6 +22,8 @@ export function markdownCopyUrl(url: string, prefix = ""): string {
 
 interface AcceptEntry {
   type: string
+  /** The media type parameters before `q`, such as `charset`. Keys and charset values are lowercase. */
+  params: Record<string, string>
   q: number
 }
 
@@ -29,40 +31,56 @@ function parseAccept(accept: string | null): AcceptEntry[] {
   if (!accept) return []
   const entries: AcceptEntry[] = []
   for (const part of accept.split(",")) {
-    const [range, ...params] = part.trim().split(";")
+    const [range, ...rest] = part.trim().split(";")
     const type = range?.trim().toLowerCase()
     if (!type) continue
     let q = 1
-    for (const param of params) {
-      const [key, value] = param.split("=")
-      if (key?.trim().toLowerCase() !== "q") continue
-      const parsed = Number.parseFloat(value?.trim() ?? "")
-      if (!Number.isNaN(parsed)) q = Math.min(Math.max(parsed, 0), 1)
+    const params: Record<string, string> = {}
+    for (const param of rest) {
+      const [rawKey, ...value] = param.split("=")
+      const key = rawKey?.trim().toLowerCase()
+      const text = value.join("=").trim().replace(/^"(.*)"$/, "$1")
+      if (!key) continue
+      if (key === "q") {
+        const parsed = Number.parseFloat(text)
+        if (!Number.isNaN(parsed)) q = Math.min(Math.max(parsed, 0), 1)
+        // Parameters after `q` are Accept extensions, not media type parameters.
+        break
+      }
+      params[key] = key === "charset" ? text.toLowerCase() : text
     }
-    entries.push({ type, q })
+    entries.push({ type, params, q })
   }
   return entries
 }
 
+/** The parameters of the HTML page and of the Markdown copy that the server sends. */
+const served: Readonly<Record<string, string>> = { charset: "utf-8" }
+
 /**
- * The range that decides `target`: the most specific one that matches it (the type itself, then `type/*`, then `*\/*`),
- * with its quality, how specific it is, and its place in the header.
+ * The range that decides `target`: the most specific one that matches it (the type with parameters, the type itself,
+ * then `type/*`, then `*\/*`), with its quality, how specific its type is, and its place in the header. A range with a
+ * parameter that the served copy does not have, such as `charset=iso-8859-1`, does not match.
  */
 function matchingRange(entries: readonly AcceptEntry[], target: string): { q: number, specificity: number, index: number } {
   const type = target.split("/")[0]
-  let best = { q: 0, specificity: 0, index: Infinity }
+  let best = { q: 0, rank: 0, specificity: 0, index: Infinity }
   for (const [index, entry] of entries.entries()) {
-    const rank = entry.type === target ? 3 : entry.type === `${type}/*` ? 2 : entry.type === "*/*" ? 1 : 0
-    if (!rank) continue
-    if (rank > best.specificity || (rank === best.specificity && entry.q > best.q)) best = { q: entry.q, specificity: rank, index }
+    const keys = Object.keys(entry.params)
+    if (keys.some(key => served[key] !== entry.params[key])) continue
+    const specificity = entry.type === target ? 3 : entry.type === `${type}/*` ? 2 : entry.type === "*/*" ? 1 : 0
+    if (!specificity) continue
+    const rank = specificity * 2 + (keys.length ? 1 : 0)
+    if (rank > best.rank || (rank === best.rank && entry.q > best.q)) best = { q: entry.q, rank, specificity, index }
   }
-  return best
+  return { q: best.q, specificity: best.specificity, index: best.index }
 }
 
 /**
  * Whether an `Accept` header asks for Markdown before HTML: `text/markdown` with a higher quality than `text/html`. At
  * the same quality, a type named exactly beats a range such as `text/*`, and else the type listed first wins. Without
- * `text/markdown` in the header, a range such as `text/*` gives Markdown only when HTML is refused.
+ * `text/markdown` in the header, a range such as `text/*` gives Markdown only when HTML is refused. Both are sent as
+ * UTF-8, so a range with another `charset` refuses them.
  */
 export function acceptsMarkdown(accept: string | null): boolean {
   const entries = parseAccept(accept)
