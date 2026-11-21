@@ -2,7 +2,7 @@ import { createRuntimePackageResolver } from "./runtime-package-resolution.ts"
 import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire, findPackageJSON } from "node:module"
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveImports, type PathConditionsMap } from "resolve-pkg-maps"
 
@@ -11,6 +11,7 @@ import type { Rolldown } from "vite"
 import type { ViteAlias } from "./bundle-options.ts"
 import { bundleEsmEntry } from "./rolldown.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { copyRuntimePackageFiles } from "./runtime-package-files.ts"
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
@@ -788,11 +789,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   copied.add(packageKey)
   if (resolve(packageDir) !== resolve(targetDir)) {
     await rm(targetDir, { force: true, recursive: true })
-    await cp(packageDir, targetDir, {
-      dereference: true,
-      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
-      recursive: true,
-    })
+    await copyRuntimePackageFiles(packageDir, targetDir)
   }
   staged.add(stagedKey)
   stagedTargets.add(targetDir)

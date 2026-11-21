@@ -48,6 +48,7 @@ export interface ConsoleCallerUser {
   id: string
   name?: string
   email?: string
+  emailVerified?: true
 }
 
 /**
@@ -200,7 +201,7 @@ export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
   const name = optionalText(parsed.user.name)
   const email = optionalText(parsed.user.email)
   if (!id || name === false || email === false) return undefined
-  const user: ConsoleCallerUser = { id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
+  const user: ConsoleCallerUser = { id, ...(name ? { name } : {}), ...(email ? { email, ...(parsed.user.emailVerified === true ? { emailVerified: true } : {}) } : {}) }
   if (parsed.team === undefined) return { via: "console", user, ...mcp, ...readOnly }
   if (!isRecord(parsed.team)) return undefined
   const teamId = optionalText(parsed.team.id)

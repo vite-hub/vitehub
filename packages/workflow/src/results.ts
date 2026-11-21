@@ -21,7 +21,8 @@ export interface WorkflowSignalView {
 }
 
 export interface WorkflowRunResult {
-  run: WorkflowRunView
+  /** `workflow.get` adds the steps of a run that `vite dev` recorded. */
+  run: WorkflowRunView | WorkflowRunDetailView
 }
 
 /** One step of a run that `vite dev` recorded. */
@@ -47,11 +48,6 @@ export interface WorkflowRunsListResult {
 /** Result of `workflow.runs-clear`: the number of recorded runs that it removed. */
 export interface WorkflowRunsClearResult {
   cleared: number
-}
-
-/** Result of `workflow.runs-show`. */
-export interface WorkflowRunsShowResult {
-  run: WorkflowRunDetailView
 }
 
 export interface WorkflowSignalResult {
