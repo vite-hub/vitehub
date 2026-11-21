@@ -1224,7 +1224,9 @@ jobs:
     name: publish preview packages
     needs:
       - ci
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: >-
+      ${{ !cancelled() && needs.ci.result == 'success' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # On main, a new push waits for the running publish instead of cancelling it.

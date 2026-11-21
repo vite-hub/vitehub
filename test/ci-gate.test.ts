@@ -100,8 +100,10 @@ fi
     const publish = workflow.jobs["publish-preview"]
     expect(publish?.name).toBe("publish preview packages")
     expect(publish?.needs).toEqual(["ci"])
-    // A status function such as always() would start the publish after a failed gate.
-    expect(publish?.if).not.toMatch(/always\(\)|failure\(\)|cancelled\(\)/)
+    expect(publish?.if).toBe([
+      "${{ !cancelled() && needs.ci.result == 'success' &&",
+      "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}",
+    ].join(" "))
   })
 
   it.each(["pull_request", "push", "workflow_dispatch"])("accepts successful checks on %s", (event) => {
