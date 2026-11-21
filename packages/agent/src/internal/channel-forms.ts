@@ -78,8 +78,8 @@ export function channelFormsOf(capabilities: readonly object[]): Map<string, Cha
   return found
 }
 
-function answerKey(binding: MessageChannelStateBinding, thread: Thread, request: ChannelFormRequest): string {
-  return `${binding.keyPrefix}channel-form:${JSON.stringify([thread.id, request.id])}`
+function answerKey(binding: MessageChannelStateBinding, threadId: string, request: ChannelFormRequest): string {
+  return `${binding.keyPrefix}channel-form:${JSON.stringify([threadId, request.id])}`
 }
 
 /** Claim a Slack form only after the answer passes Channel admission. */
@@ -89,7 +89,7 @@ export async function acceptChannelFormAnswer(binding: MessageChannelStateBindin
   if (!isRuntimeRecord(raw)) return false
   const request = readRequest(raw.request)
   if (!request || request.expiresAt <= Date.now()) return false
-  if (!await binding.state.setIfNotExists(answerKey(binding, thread, request), true, requestLifetimeMs)) return false
+  if (!await binding.state.setIfNotExists(answerKey(binding, thread.id, request), true, requestLifetimeMs)) return false
   if (request.expiresAt <= Date.now()) return false
   if (typeof raw.cardId === "string" && typeof raw.title === "string") {
     await thread.adapter.editMessage(thread.id, raw.cardId, `${raw.title}: filled in by ${message.author.fullName || message.author.userName}.`).catch(() => undefined)
@@ -111,7 +111,7 @@ export function registerChannelForms(chat: Chat, forms: Map<string, ChannelForm>
   chat.onAction(channelFormAction, async (event: ActionEvent) => {
     const request = decodeRequest(event.value)
     const form = request && forms.get(request.form)
-    if (!request || !form || !event.thread || request.expiresAt <= Date.now() || await binding.state.get(answerKey(binding, event.thread, request))) {
+    if (!request || !form || !event.thread || request.expiresAt <= Date.now() || await binding.state.get(answerKey(binding, event.thread.id, request))) {
       await event.thread?.post("This form is no longer available. Ask again.")
       return
     }
