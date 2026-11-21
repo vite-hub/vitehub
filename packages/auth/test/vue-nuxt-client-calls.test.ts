@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-// One page request of a Nuxt server: its Nuxt app, and its H3 event, whose app is Nitro's H3 app.
-type PageEvent = { url: URL, app: { fetch: ReturnType<typeof vi.fn<(request: Request) => Promise<Response>>> }, req: Request, res: { headers: Headers } }
-type PageRequest = { app: { runWithContext<T>(run: () => T): T }, event: PageEvent, fetch: PageEvent["app"]["fetch"] }
+type PageEvent = { url: URL, req: Request, res: { headers: Headers } }
+type PageRequest = { app: { runWithContext<T>(run: () => T): T }, event: PageEvent, fetch: ReturnType<typeof vi.fn<(request: Request) => Promise<Response>>> }
 
-const mocks = vi.hoisted(() => ({ request: undefined as PageRequest | undefined }))
+const mocks = vi.hoisted(() => ({ request: undefined as PageRequest | undefined, fetchByCookie: new Map<string, PageRequest["fetch"]>() }))
 
 vi.mock("#app", () => ({
   createError: (input: unknown) => Object.assign(new Error("nuxt"), input),
@@ -18,25 +17,26 @@ vi.mock("#app", () => ({
   useState: () => ({ value: null }),
 }))
 
-// Better Auth's real Vue client: only Nuxt is a stand-in.
+// Better Auth's real Vue client and Nitro's dispatcher, with a test app.
 const { createAuthClient, loadAuthClient, useAuthClient } = await import("../src/vue.ts")
 const { default: plugin } = await import("../src/runtime/vue-nuxt.ts") as {
   default: { setup: (app: { payload: object }) => Promise<void> }
 }
 
-/** A page request whose app answers `body` and sets `cookies`. */
-function pageRequest(body: unknown, cookies: string[] = []): PageRequest {
+/** A page request whose Auth endpoint answers `body` and sets `cookies`. */
+function pageRequest(body: unknown, cookies: string[] = [], token = "visitor"): PageRequest {
   const fetch = vi.fn(async (_request: Request) => {
     const headers = new Headers({ "content-type": "application/json" })
     for (const cookie of cookies) headers.append("set-cookie", cookie)
     return new Response(JSON.stringify(body), { headers })
   })
+  const cookie = `better-auth.session_token=${token}`
+  mocks.fetchByCookie.set(cookie, fetch)
   return {
     app: { runWithContext: run => run() },
     event: {
       url: new URL("http://localhost:3000/settings"),
-      app: { fetch },
-      req: new Request("http://localhost:3000/settings", { headers: { cookie: "better-auth.session_token=visitor" } }),
+      req: new Request("http://localhost:3000/settings", { headers: { cookie } }),
       res: { headers: new Headers() },
     },
     fetch,
@@ -47,6 +47,7 @@ const globalFetch = vi.fn(async () => new Response("left the process", { status:
 
 beforeEach(async () => {
   vi.stubGlobal("fetch", globalFetch)
+  vi.stubGlobal("__nitro__", { default: { fetch: (request: Request) => mocks.fetchByCookie.get(request.headers.get("cookie")!)!(request) } })
   // Better Auth's client builds an absolute URL from VERCEL_URL on the server.
   vi.stubEnv("VERCEL_URL", "my-app.vercel.app")
   mocks.request = pageRequest(null)
@@ -55,6 +56,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   mocks.request = undefined
+  mocks.fetchByCookie.clear()
   globalFetch.mockClear()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
@@ -109,9 +111,9 @@ describe("Auth client calls during Nuxt server rendering", () => {
 
   it("keeps the calls of two requests apart", async () => {
     const client = createAuthClient({ basePath: "/api/auth" })
-    const first = mocks.request = pageRequest([{ id: "first" }])
+    const first = mocks.request = pageRequest([{ id: "first" }], [], "first")
     const firstCall = client.listSessions()
-    const second = mocks.request = pageRequest([{ id: "second" }])
+    const second = mocks.request = pageRequest([{ id: "second" }], [], "second")
     const secondCall = client.listSessions()
 
     expect(await firstCall).toEqual({ data: [{ id: "first" }], error: null })

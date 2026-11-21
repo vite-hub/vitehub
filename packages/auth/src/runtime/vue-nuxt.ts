@@ -17,10 +17,9 @@ type NuxtApp = {
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
 type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
-/** The H3 event of a page request on the server. Nitro's H3 app handles the request and is `app`. */
+/** The H3 event of a page request on the server. */
 type PageEvent = {
   url: URL
-  app: { fetch(request: Request): Response | Promise<Response> }
   req: Request & { ip?: string, runtime?: unknown, waitUntil?: unknown }
   res: { headers: Headers }
 }
@@ -59,7 +58,9 @@ const unforwardedHeaders = /^(?:accept|accept-encoding|connection|content-.+|exp
  * Calls the app in-process at the origin of the page request, with its headers, so Auth resolves the same origin and
  * Better Auth reads the same cookie names, such as `__Secure-better-auth.session_token` on https.
  */
-function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
+async function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
+  if ((import.meta as ImportMeta & { client?: boolean }).client) throw new Error("Auth page fetch requires the Nuxt server")
+  const { serverFetch } = await import("nitro")
   // Concatenate: a path such as `//host/x` must stay a path of the page's origin.
   const request = new Request(`${event.url.origin}${path}`, init)
   for (const [name, value] of event.req.headers) {
@@ -67,7 +68,7 @@ function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<
   }
   // As H3's `fetchWithEvent()`: keep the client address for the rate limit and the Cloudflare bindings.
   Object.assign(request, { ip: event.req.ip, runtime: event.req.runtime, waitUntil: event.req.waitUntil })
-  return Promise.resolve(event.app.fetch(request))
+  return serverFetch(request)
 }
 
 /**

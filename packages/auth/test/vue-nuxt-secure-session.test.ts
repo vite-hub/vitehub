@@ -8,13 +8,16 @@ import type { AuthDefinition } from "../src/types.ts"
 import type { AuthPageMeta } from "../src/nuxt-types.ts"
 
 type Route = { fullPath: string, meta: { auth?: AuthPageMeta } }
-type PageEvent = { url: URL, app: { fetch(request: Request): Promise<Response> }, req: Request, res: { headers: Headers } }
+type PageEvent = { url: URL, req: Request, res: { headers: Headers } }
 
 const nuxt = vi.hoisted(() => ({
   event: undefined as PageEvent | undefined,
   middleware: undefined as ((route: Route) => unknown) | undefined,
   state: { value: undefined as unknown },
 }))
+
+const nitro = vi.hoisted(() => ({ serverFetch: vi.fn<(request: Request) => Promise<Response>>() }))
+vi.mock("nitro", () => nitro)
 
 vi.mock("#app", () => ({
   addRouteMiddleware: (_name: string, middleware: (route: Route) => unknown) => { nuxt.middleware = middleware },
@@ -27,7 +30,7 @@ vi.mock("#app", () => ({
   useRequestFetch: () => async (path: string, options: { onResponse?: (context: { response: Response }) => void }) => {
     const headers = new Headers(nuxt.event!.req.headers)
     headers.delete("host")
-    const response = await nuxt.event!.app.fetch(new Request(`http://localhost${path}`, { headers }))
+    const response = await nitro.serverFetch(new Request(`http://localhost${path}`, { headers }))
     options.onResponse?.({ response })
     if (!response.ok) throw new Error(String(response.status))
     return await response.json() as unknown
@@ -44,6 +47,7 @@ afterEach(() => {
   resetAuth()
   vi.unstubAllGlobals()
   vi.resetModules()
+  nitro.serverFetch.mockReset()
   nuxt.event = undefined
   nuxt.middleware = undefined
   nuxt.state = { value: undefined }
@@ -82,13 +86,13 @@ describe("Nuxt page guard on an https site", () => {
   ])("lets a signed-in visitor open a guarded page with $name", async ({ auth, publicUrl, url = site, headers = {} }) => {
     if (publicUrl) vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl)
     const definition = auth(memoryAdapter({ account: [], session: [], user: [], verification: [] }))
+    nitro.serverFetch.mockImplementation(request => handleAuthRequest(definition, request))
     const { cookie, names } = await signUp(definition, url, headers)
     expect(names).toContain("__Secure-better-auth.session_token")
 
     const request = new Request(`${url}/private`, { headers: { accept: "text/html", cookie, host: new URL(url).host, ...headers } })
     nuxt.event = {
       url: new URL(request.url),
-      app: { fetch: request => handleAuthRequest(definition, request) },
       req: request,
       res: { headers: new Headers() },
     }

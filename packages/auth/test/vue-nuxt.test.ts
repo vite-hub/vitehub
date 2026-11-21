@@ -18,7 +18,7 @@ type PublicConfig = { vitehubAuth?: false | { basePath?: string, signInPage?: st
 const mocks = vi.hoisted(() => ({
   config: {} as { app?: { baseURL: string }, public?: PublicConfig },
   state: { value: undefined as unknown },
-  event: {} as { url: URL, app: { fetch: (request: Request) => Promise<Response> }, req: { headers: Headers }, res: { headers: Headers } },
+  event: {} as { url: URL, req: { headers: Headers }, res: { headers: Headers } },
   payload: {} as { prerenderedAt?: number },
   app: {} as App,
   requestFetch: vi.fn<(request: Request) => Promise<Response>>(),
@@ -33,6 +33,8 @@ const mocks = vi.hoisted(() => ({
   currentRoute: { value: { fullPath: "/", meta: {} } as Route },
   middleware: undefined as Middleware | undefined,
 }))
+
+vi.mock("nitro", () => ({ serverFetch: mocks.requestFetch }))
 
 vi.mock("#app", () => ({
   createError: mocks.createError,
@@ -100,7 +102,6 @@ beforeEach(async () => {
   mocks.requestFetch.mockImplementation(answer(null))
   mocks.event = {
     url: new URL("https://app.example.com/private"),
-    app: { fetch: request => mocks.requestFetch(request) },
     req: { headers: new Headers({ cookie: "vitehub_session=1" }) },
     res: { headers: new Headers() },
   }
