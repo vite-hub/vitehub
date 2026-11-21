@@ -236,7 +236,7 @@ is a wall-clock command deadline instead.
 Before you debug model output, inspect the resolved Definition as JSON:
 
 ```bash
-pnpm vitehub agent get --agent support --json
+pnpm vitehub agent get support --json
 ```
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and

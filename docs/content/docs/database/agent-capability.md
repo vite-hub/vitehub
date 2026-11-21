@@ -83,7 +83,7 @@ The guard rejects input with several statements before it reaches the handle. A 
 ## Verify database access
 
 1. Start the dev server.
-2. Run `vitehub agent get --agent support --json`. Check that `tools` has an entry with `name: "db"`, and `capabilities` has `{ id: "db", metadata: { schemaMode: "read" } }`.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "db"`, and `capabilities` has `{ id: "db", metadata: { schemaMode: "read" } }`.
 3. Run `vitehub agent dev "How many users are there?" --agent support`. Check for a `[tool] db_query` call.
 4. Ask the Agent to run two statements in one `db_query` call. Check that the tool rejects it before it reaches the database.
 
