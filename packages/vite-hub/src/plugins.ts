@@ -42,6 +42,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
+import { miniflareDevEnvPlugin } from "./miniflare-dev-env.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
@@ -1652,6 +1653,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
   if (plan.host === "cloudflare") plugins.push(cloudflareNodeDevPlugin())
+  plugins.push(miniflareDevEnvPlugin())
   plugins.push(forgeBuildCheckPlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined

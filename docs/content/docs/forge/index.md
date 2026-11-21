@@ -2,12 +2,12 @@
 title: Forge
 layout: landing
 navigation.title: Overview
-description: Act as your GitHub App, or with a GitLab or Forgejo token, from server code. One set of env names for routes, Channels, and Agents.
+description: Act as your GitHub App, or with a GitLab, Forgejo, or Gitea token, from server code. One set of env names for routes, Channels, and Agents.
 navigation.order: 1
 icon: i-lucide-git-pull-request
 ---
 
-::product-hero{tagline="Call GitHub as your GitHub App, or GitLab and Forgejo with a token. You write no JWT or token code."}
+::product-hero{tagline="Call GitHub as your GitHub App, or GitLab, Forgejo, and Gitea with a token. You write no JWT or token code."}
   :::code-tree
   ```sh [.env]
   # Local development: the private PEM file must exist at runtime
@@ -55,7 +55,7 @@ For production, [provide credentials for your host](/docs/forge/get-started#in-p
   `provider()` returns a `forges` client, including `graphql()` on GitHub.
   :::
 
-  :::product-feature-item{title="GitHub, GitLab, and Forgejo" icon="i-lucide-git-branch" to="/docs/forge/server-api#use-gitlab-or-forgejo"}
+  :::product-feature-item{title="GitHub, GitLab, Forgejo, and Gitea" icon="i-lucide-git-branch" to="/docs/forge/server-api#use-gitlab-forgejo-or-gitea"}
   Pass `forge` and the client type follows it.
   :::
 
@@ -73,7 +73,7 @@ For production, [provide credentials for your host](/docs/forge/get-started#in-p
 ::
 
 ::agent-only
-Use Forge when server code calls GitHub, GitLab, or Forgejo as the app. Install `@vite-hub/forge` and import `useForge()` from `vite-hub/forge`. Do not write JWT or installation token code, and do not read `GH_TOKEN` or `GITHUB_TOKEN`.
+Use Forge when server code calls GitHub, GitLab, Forgejo, or Gitea as the app. Install `@vite-hub/forge` and import `useForge()` from `vite-hub/forge`. Do not write JWT or installation token code, and do not read `GH_TOKEN` or `GITHUB_TOKEN`.
 
 Get a new provider for each job. Pass `repository` so a GitHub App finds the right installation. Import Forge error classes, such as `NotFoundError`, from `@vite-hub/forge`, not from `forges`.
 

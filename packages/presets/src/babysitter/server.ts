@@ -566,6 +566,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
   }
 
+  // GitHub stamps the close with its own clock, which can run behind the host's. The login check
+  // already tells our close from a person's, so the margin only absorbs clock skew.
+  const closeClockMarginMs = 60_000;
   const forkReopenKey = (repository: string, number: number) => `fork-reopen:${repository}#${number}`;
 
   /**
@@ -585,7 +588,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (!isRuntimeRecord(issue)) continue;
         const closedBy = isRuntimeRecord(issue.closed_by) ? issue.closed_by : undefined;
         const ours = issue.state === "closed" && typeof value.login === "string" && String(closedBy?.login).toLowerCase() === value.login
-          && Date.parse(String(issue.closed_at)) >= Math.floor(Number(value.at) / 1000) * 1000;
+          && Date.parse(String(issue.closed_at)) >= Number(value.at) - closeClockMarginMs;
         const merged = isRuntimeRecord(issue.pull_request) && issue.pull_request.merged_at != null;
         if (ours && !merged) {
           await reopenPullRequest(repository, Number(number));

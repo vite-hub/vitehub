@@ -17,6 +17,7 @@ export type ForgeEnv = {
   github: Record<"appId" | "installationId" | "appOwner" | "appInstallations" | "privateKey" | "privateKeyPath" | "token" | "webhookSecret", ForgeEnvField>
   gitlab: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
   forgejo: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
+  gitea: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
 }
 
 /**
@@ -45,6 +46,11 @@ export const forgeEnv: ForgeEnv = {
     baseUrl: { names: ["VITEHUB_FORGEJO_BASE_URL", "FORGES_FORGEJO_BASE_URL"] },
     token: { names: ["VITEHUB_FORGEJO_TOKEN", "FORGES_FORGEJO_TOKEN"], secret: true },
     webhookSecret: { names: ["VITEHUB_FORGEJO_WEBHOOK_SECRET", "FORGES_FORGEJO_WEBHOOK_SECRET"], secret: true },
+  },
+  gitea: {
+    baseUrl: { names: ["VITEHUB_GITEA_BASE_URL", "FORGES_GITEA_BASE_URL"] },
+    token: { names: ["VITEHUB_GITEA_TOKEN", "FORGES_GITEA_TOKEN"], secret: true },
+    webhookSecret: { names: ["VITEHUB_GITEA_WEBHOOK_SECRET", "FORGES_GITEA_WEBHOOK_SECRET"], secret: true },
   },
 }
 
