@@ -6,6 +6,7 @@ import postgres from "postgres"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "@vite-hub/database"
+import { createNodePostgresDatabase } from "../../database/src/runtime/node-postgres.ts"
 import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { queueUnsupportedOptionsError } from "../src/errors.ts"
@@ -141,13 +142,14 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const consumer = engine({ handler: job => void ran.push(job), table: name })
     await consumer.start()
     const client = createPostgresQueueClient(consumer, "jobs")
-    const [error, sent] = await client.send({ hello: "world" }, { id: "msg-1" })
+    const [error, sent] = await client.send({ hello: "world" })
     expect(error).toBeUndefined()
-    expect(sent).toEqual({ messageId: "msg-1", status: "queued" })
+    expect(sent).toEqual({ messageId: expect.stringMatching(/^queue_/), status: "queued" })
     const [, nullSent] = await client.send(null)
     const [, emptySent] = await client.send(undefined)
     await until(async () => ran.length, count => count === 3)
-    expect(ran.find(job => job.id === "msg-1")).toEqual({ attempts: 1, id: "msg-1", payload: { hello: "world" } })
+    // The handler gets the message ID that send() returned.
+    expect(ran.find(job => job.id === sent?.messageId)).toEqual({ attempts: 1, id: sent?.messageId, payload: { hello: "world" } })
     expect(ran.find(job => job.id === nullSent!.messageId)?.payload).toBeNull()
     expect(ran.find(job => job.id === emptySent!.messageId)?.payload).toBeUndefined()
     await until(() => consumer.jobs(), jobs => jobs.length === 0)
@@ -186,7 +188,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const consumer = engine({
       connection: { client: connection },
       handler,
-      load: async () => ({ options: { concurrency: 2 }, handler }),
+      load: async () => ({ concurrency: 2, handler }),
       table: name,
     })
     try {
@@ -211,7 +213,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       started.push(job)
       await gate.promise
     }
-    const consumer = engine({ handler, load: async () => ({ options: { concurrency: 2 }, handler }), lockSeconds: 1, table: name })
+    const consumer = engine({ handler, load: async () => ({ concurrency: 2, handler }), lockSeconds: 1, table: name })
     await consumer.status()
     // Fail only renewals; claims and completion writes still work.
     await sql!.unsafe(`create function ${name}_reject_renew() returns trigger language plpgsql as $$
@@ -287,13 +289,13 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     }
   })
 
-  it("honors delaySeconds", async () => {
+  it("honors delay", async () => {
     const name = table()
     const ranAt: number[] = []
     const consumer = engine({ handler: () => void ranAt.push(Date.now()), table: name })
     await consumer.start()
     const sentAt = Date.now()
-    await createPostgresQueueClient(consumer, "jobs").send({}, { delaySeconds: 2 })
+    await createPostgresQueueClient(consumer, "jobs").send({}, { delay: "2s" })
     expect((await consumer.jobs())[0]).toMatchObject({ state: "pending" })
     await until(async () => ranAt.length, count => count === 1, 10_000)
     expect(ranAt[0]! - sentAt).toBeGreaterThanOrEqual(1900)
@@ -304,23 +306,23 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const name = table()
     const producer = engine({ table: name })
     const client = createPostgresQueueClient(producer, "jobs")
-    const [, first] = await client.send({ n: 1 }, { delaySeconds: 60, idempotencyKey: "order-1" })
-    const [, second] = await client.send({ n: 2 }, { delaySeconds: 60, idempotencyKey: "order-1" })
-    const [, batch] = await client.sendBatch([{ body: { n: 3 }, idempotencyKey: "order-2" }, { body: { n: 4 }, idempotencyKey: "order-2" }, { body: { n: 5 }, idempotencyKey: "order-1" }], { delaySeconds: 60 })
+    const [, first] = await client.send({ n: 1 }, { delay: "1m", idempotencyKey: "order-1" })
+    const [, second] = await client.send({ n: 2 }, { delay: "1m", idempotencyKey: "order-1" })
+    const [, batch] = await client.sendBatch([{ body: { n: 3 }, idempotencyKey: "order-2" }, { body: { n: 4 }, idempotencyKey: "order-2" }, { body: { n: 5 }, idempotencyKey: "order-1" }], { delay: "1m" })
     expect(second?.messageId).toBe(first?.messageId)
     expect(batch![1]!.messageId).toBe(batch![0]!.messageId)
     expect(batch![2]!.messageId).toBe(first?.messageId)
     expect(await producer.jobs()).toHaveLength(2)
     expect((await producer.job(first!.messageId!))?.payload).toEqual({ n: 1 })
     // Another Queue Definition has its own keys.
-    const [, other] = await createPostgresQueueClient(producer, "other").send({}, { delaySeconds: 60, idempotencyKey: "order-1" })
+    const [, other] = await createPostgresQueueClient(producer, "other").send({}, { delay: "1m", idempotencyKey: "order-1" })
     expect(other?.messageId).not.toBe(first?.messageId)
   })
 
   it("stores no job of a batch that breaks a rule", async () => {
     const producer = engine({ table: table() })
-    const [error] = await createPostgresQueueClient(producer, "jobs").sendBatch([{ body: 1 }, { body: 2, delaySeconds: -1 }])
-    expect(error?.code).toBe("QUEUE_PROVIDER_FAILED")
+    const [error] = await createPostgresQueueClient(producer, "jobs").sendBatch([{ body: 1 }, { body: 2, delay: "-1s" as never }])
+    expect(error?.code).toBe("RUNTIME_DURATION_INVALID")
     expect(await producer.jobs()).toEqual([])
   })
 
@@ -365,11 +367,11 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const ran: QueueJob[] = []
     setQueueRuntimeRegistry({ jobs: async () => ({ handler: (job: QueueJob) => void ran.push(job) }) })
     try {
-      startPostgresQueue({ database: "default", provider: "postgres" }, async () => ({ default: { db } }))
-      const client = await createPostgresQueueRuntimeClient({ database: "default", provider: "postgres", queue: "jobs" })
+      startPostgresQueue({ database: "default", driver: "postgres" }, async () => ({ default: { db } }))
+      const client = await createPostgresQueueRuntimeClient({ database: "default", driver: "postgres", queue: "jobs" })
       const [error] = await client.send({ n: 1 })
       expect(error).toBeUndefined()
-      await client.send({ n: 2 }, { delaySeconds: 60 })
+      await client.send({ n: 2 }, { delay: "1m" })
       await until(async () => ran.length, count => count === 1, 10_000)
       expect(ran[0]?.payload).toEqual({ n: 1 })
       // The Drizzle client returns timestamps as text. The job list still has ISO times.
@@ -391,6 +393,33 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     }
   })
 
+  it("runs jobs on the connection URL of a node-postgres Database", async () => {
+    tables.push("vitehub_queue_jobs")
+    vi.stubEnv("QUEUE_POSTGRES_URL", undefined)
+    vi.stubEnv("VITEHUB_TEST_QUEUE_DATABASE_URL", url!)
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_QUEUE_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
+    const db = createNodePostgresDatabase(definition, { binding: "DB" })
+    const queue = `node_postgres_${randomUUID()}`
+    const ran: unknown[] = []
+    const config = { database: "default", driver: "postgres" } as const
+    setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
+    setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
+    try {
+      startPostgresQueue(config, async () => ({ default: { db } }))
+      expect((await dynamicQueue.send(queue, "job"))[0]).toBeUndefined()
+      await until(async () => ran, values => values.includes("job"), 8000)
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeConfig(undefined)
+      setQueueRuntimeRegistry(undefined)
+      // The Database owns its Pool. Queue leaves it open.
+      await expect(db.execute("select 1")).resolves.toBeDefined()
+      await Reflect.get(db, "$client").end()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each(["send", "job operation", "worker poll"])("follows Database connection replacement through %s", async (refresh) => {
     tables.push("vitehub_queue_jobs")
     vi.stubEnv("QUEUE_POSTGRES_URL", undefined)
@@ -399,7 +428,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const db = createPostgresDatabase(definition, { binding: "DB" })
     const queue = `connection_${randomUUID()}`
     const ran: unknown[] = []
-    const config = { database: "default", provider: "postgres" } as const
+    const config = { database: "default", driver: "postgres" } as const
     setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
     setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
     try {
@@ -444,9 +473,9 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const factory = vi.fn(createLocalQueueRuntimeClient)
     const handler = vi.fn()
     setQueueRuntimeRegistry({ [queue]: async () => ({ handler }) })
-    if (mode === "local app") setQueueRuntimeConfig({ provider: "local" }, factory)
+    if (mode === "local app") setQueueRuntimeConfig({ driver: "local" }, factory)
     try {
-      const client = await createQueueClient({ provider: "postgres", queue })
+      const client = await createQueueClient({ driver: "postgres", queue })
       expect((await client.send("one"))[0]).toBeUndefined()
       expect((await client.sendBatch([{ body: "two" }]))[0]).toBeUndefined()
       await new Promise(resolve => setTimeout(resolve, 1200))
@@ -469,7 +498,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const client = createPostgresQueueClient(consumer, "jobs")
     const [, dead] = await client.send({}, { idempotencyKey: "order-1" })
     await until(() => consumer.jobs({ state: "dead" }), jobs => jobs.length === 1)
-    await client.send({}, { delaySeconds: 60, idempotencyKey: "order-1" })
+    await client.send({}, { delay: "1m", idempotencyKey: "order-1" })
     expect(await consumer.retry(dead!.messageId!)).toBe("duplicate")
   })
 
@@ -477,8 +506,8 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const name = table()
     const producer = engine({ table: name })
     const client = createPostgresQueueClient(producer, "jobs")
-    await client.sendBatch([{ body: 1 }, { body: 2 }], { delaySeconds: 60 })
-    await createPostgresQueueClient(producer, "other").send(3, { delaySeconds: 60 })
+    await client.sendBatch([{ body: 1 }, { body: 2 }], { delay: "1m" })
+    await createPostgresQueueClient(producer, "other").send(3, { delay: "1m" })
     expect(await producer.clear({ queue: "other" })).toBe(1)
     expect(await producer.clear({ state: "dead" })).toBe(0)
     expect(await producer.clear()).toBe(2)

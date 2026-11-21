@@ -1,10 +1,12 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
-import { installRequestStandardContext } from "@vite-hub/runtime"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
-import { commentsPassGrants } from "../operations-core/define.ts"
+import { commentsRoleGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
+import { commentsTableNames } from "../table-names.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
@@ -22,7 +24,7 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   /** The Database of `defineComments({ database })`, or undefined when the app has none. The first Comments call reads it. */
   database: () => CommentsDatabase | undefined | Promise<CommentsDatabase | undefined>
   /**
-   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * Path of the overlay script below the app base, such as `/_vitehub/comments/assets/overlay.js`. The page tools
    * loader imports it for people that may read comments.
    */
   overlay: string | false
@@ -36,6 +38,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   users?: InstallCommentsOptions["users"]
   /** The Blob store for attachments, when the app has Blob. */
   attachments?: InstallCommentsOptions["attachments"]
+  /** `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. */
+  rateLimit?: InstallCommentsOptions["rateLimit"]
   /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
   schema?: InstallCommentsOptions["schema"]
   /** The tables of a Postgres Database. Default: the SQLite tables. */
@@ -77,6 +81,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.dialect ? { dialect: options.dialect } : {}),
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
       })
     })().catch((error: unknown) => {
       building = undefined
@@ -85,6 +90,16 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     runtimeBuilds.set(options.comments, build)
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
+    // Auth `deleteAccount` deletes the messages of the user. An app without a Comments Database has none.
+    registerViteHubUserData(nitroApp, {
+      owner: "comments",
+      tables: [commentsTableNames.vitehubCommentThreads, commentsTableNames.vitehubCommentMessages],
+      async delete(userId) {
+        if (!await options.database()) return
+        const runtime = await build()
+        for (const threadId of await runtime.store.deleteUser(userId)) runtime.forge?.changed(threadId)
+      },
+    })
 
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
@@ -98,13 +113,13 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       // loads. `allowed` makes it lazy for people who may only sign in.
       // A link to a thread, `<page>?comment=<n>`, opens it.
       param: "comment",
-      grants: commentsPassGrants,
+      grants: commentsRoleGrants,
       async allowed({ request }) {
         // In a ViteHub app, the Request of the session route carries the Standard Context of the request.
         installRequestStandardContext(request)
         // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
         const event = request as Request & CommentsRequestEvent
-        const { user, gate } = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
+        const { user, gate } = await resolveCommentsIdentity(options.comments, event, options)
         const page = new URL(request.url).searchParams.get("page")
         const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
         if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true

@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { expect, it } from "vitest"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { prepareViteHubProviderSources } from "@vite-hub/internal/build/vite"
 
 import { hubAgent } from "../src/vite.ts"
@@ -17,7 +17,13 @@ it.each([
 ])("dispatches the discovered Workflow from a retained standalone Schedule (%j)", async ({ explicit, skills }) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-discovered-workflow-"))
   try {
-    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    // Externalized Runtime helpers must resolve from the standalone output too.
+    const modules = resolve(import.meta.dirname, "../../../node_modules/@vite-hub")
+    await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+    for (const name of await readdir(modules)) {
+      await symlink(join(modules, name), join(root, "node_modules/@vite-hub", name), "dir")
+    }
+    await symlink(resolve(import.meta.dirname, "../../runtime"), join(root, "node_modules/@vite-hub/runtime"), "dir")
     const agentDir = join(root, "server/agents/reporter")
     const schedule = join(root, "server/schedules/daily.ts")
     await mkdir(agentDir, { recursive: true })
@@ -37,7 +43,7 @@ it.each([
       "import reporter from '../agents/reporter/index'",
       "export default defineSchedule({ cron: '0 9 * * *', handler: async () => {",
       "  const calls = []",
-      "  setWorkflowRuntimeConfig({ provider: 'cloudflare' })",
+      "  setWorkflowRuntimeConfig({ driver: 'cloudflare' })",
       "  setWorkflowRuntimeRegistry({ reporter: async () => ({ handler: () => { throw new Error('The discovered Workflow must dispatch to the provider') } }) })",
       "  try {",
       "    const result = await startAgentInvocation(reporter, { runtime: 'cloudflare', memo: (_key, create) => create(), waitUntil: () => {}, cloudflare: { env: {",

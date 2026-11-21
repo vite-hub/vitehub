@@ -1,4 +1,4 @@
-// The generated Nitro plugin registers a loader with a literal `import('@cf-wasm/photon')`, so bundlers include
+// The generated Nitro plugin registers a loader with literal imports of `@cf-wasm/photon`, so bundlers include
 // Photon and its WebAssembly module, and the module loads on the first variant instead of at startup.
 
 /** The part of the `@cf-wasm/photon` API that ViteHub uses. */
@@ -30,6 +30,22 @@ export function photonFromModule(module: unknown): PhotonLike | undefined {
   const resize: unknown = Reflect.get(Object(module), "resize")
   // SAFETY: Only Photon modules reach this function, and these two exports identify its API.
   return image instanceof Function && resize instanceof Function ? module as PhotonLike : undefined
+}
+
+interface PhotonWithInit {
+  initPhoton: ((input: { module_or_path: unknown }) => Promise<unknown>) & { ensure(): Promise<unknown>, initialized: boolean }
+}
+
+/**
+ * Loads Photon on a Worker from its `others` entry and its compiled WebAssembly module. Nitro gives the module, or a
+ * Promise of it with `wasm.lazy`, which ViteHub turns on for Cloudflare. The `workerd` entry of Photon needs the module
+ * itself, so it fails with `wasm.lazy`.
+ */
+export async function loadWorkerPhoton(photon: Promise<PhotonWithInit>, wasm: Promise<{ default: unknown }>): Promise<PhotonWithInit> {
+  const [api, { default: compiled }] = await Promise.all([photon, wasm])
+  const module = await compiled
+  await (api.initPhoton.initialized ? api.initPhoton.ensure() : api.initPhoton({ module_or_path: module }))
+  return api
 }
 
 /** Registers how to load `@cf-wasm/photon`. The generated Nitro plugin calls it for the `photon` transformer. */

@@ -1,14 +1,14 @@
 # @vite-hub/runtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Runtime" src="https://comark-ui.onmax.me/badge.svg?label=Runtime&amp;value=context+%7C+policy+%7C+trace">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Runtime" src="https://img.shields.io/static/v1?label=Runtime&amp;message=context+%7C+policy+%7C+trace&amp;color=blue">
 </p>
 
 `@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,
 policy, approval, trace, error, lease, and execution-authority contracts used by
-ViteHub packages and custom host integrations.
+ViteHub packages and custom host integrations. User docs: [Runtime](https://vitehub.dev/docs/runtime).
 
 ## Choose an import
 
@@ -16,7 +16,7 @@ ViteHub packages and custom host integrations.
 | --------------------------------------------- | ------------------------- | --------------------------------------------------- |
 | A ViteHub application                         | `vite-hub`                | `vite-hub/runtime`                                  |
 | A reusable package or custom host integration | `@vite-hub/runtime`       | `@vite-hub/runtime`                                 |
-| Node diagnostics and process lifecycle        | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
+| Operations for the Console, the CLI, and MCP  | The same selected package | `vite-hub/operations` or `@vite-hub/runtime/operations` |
 
 Use the `vite-hub` facade when it is already your application dependency. Install
 this owner package directly when the integration should depend only on Runtime's
@@ -29,9 +29,9 @@ or Agent Definitions.
 pnpm add @vite-hub/runtime
 ```
 
-The package declares Node.js 22.18 or newer. Import the root entry for portable
-Runtime contracts. When inspected, the `/node` entry reads Node process
-information and, on Linux, `/proc` and cgroup v2 files.
+The package declares Node.js 24.15 or newer. Import the root entry for portable
+Runtime contracts. The `/operations` entry exports `defineOperation()`, its types,
+and the `vitehub: { operations }` contribution types of a Vite plugin.
 
 Trace payload inspection relies on the host's platform intrinsics. Load the
 Runtime before application code replaces platform methods. The Runtime captures
@@ -40,8 +40,8 @@ when that method is later replaced. It cannot recover the original intrinsic
 if the host replaces it before import; payload inspection is not an isolation
 boundary for code that can modify the host's JavaScript environment.
 
-Long-lived Node services can also use `createProcessReconciler()` from the `/node`
-entry to coalesce event-driven work, run periodic repair, stop admission, and await
+ViteHub packages use the private `/internal/node` entry. `createProcessReconciler()`
+lets a long-lived Node service coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
 manager should trigger that drain through `vitehub drain MAINPID [STATUS_URL]`
 from the `vite-hub` package, for example in systemd `ExecStop`. Lifecycle callbacks
@@ -53,7 +53,7 @@ status endpoint available until `vitehub drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
 ViteHub packages register their stop work with `onShutdown(nitroApp, name, drain)`
-from the `/shutdown` entry, in a Nitro plugin. Applications do not call it. When a server
+from the private `/internal/shutdown` entry, in a Nitro plugin. Applications do not call it. When a server
 that owns stop signals gets `SIGTERM` or `SIGINT`, ViteHub runs every registered drain
 in parallel and keeps HTTP open. Each drain gets the shared budget from
 `VITEHUB_SHUTDOWN_DRAIN_MS` (default 0) and an `AbortSignal` that aborts when the
@@ -128,7 +128,7 @@ binding is `unknown`.
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)
-if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+if (error) throw new HTTPError({ status: 503, message: error.why })
 await email.send(message)
 ```
 
@@ -239,7 +239,10 @@ async function list(limit: number): Promise<Result<string[], "KV_INVALID_LIMIT">
 
 const [error, keys] = await list(0)
 if (error) error.code // "KV_INVALID_LIMIT"
+if (errors.KV_INVALID_LIMIT.is(error)) error.data // data of KV_INVALID_LIMIT
 ```
+
+Check an error with the catalog. `errors.is(error)` accepts any code of the catalog, and `errors.KV_INVALID_LIMIT.is(error)` accepts one code. Both narrow `code` and `data`. They read `code` from a live Nostics error, so they also accept an error from another bundled copy or realm. `is` is not enumerable, so `Object.keys(errors)` gives only the codes, and no code can be named `is`. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Catalog definitions can also provide static or computed `data`. `defineErrors()` infers that data for each code; `ResultError<Code, Data>` can name its type explicitly. A bare `ResultError` or `ResultError<Code>` keeps data as `unknown` so it can accept any catalog error. Codes without data infer `undefined`.
 
@@ -309,6 +312,8 @@ A lease gives one caller at a time a key, such as one Schedule occurrence or one
 | `createMemoryLeaseStore()` | One process and tests | One process |
 | `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
 
+In a ViteHub app, `useLeases()` from `@vite-hub/database` returns a SQL store on the app's Database, on every driver including D1. Use `createSqlLeaseStore()` for a SQL client outside ViteHub Database.
+
 ```ts fragment
 import { createSqlLeaseStore } from '@vite-hub/runtime'
 import postgres from 'postgres'
@@ -377,17 +382,19 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app
 | Import                   | Provides                                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, public URL, and host binding APIs |
+| `@vite-hub/runtime/operations` | `defineOperation()`, operation and plugin contribution types |
 | `@vite-hub/runtime/durability` | The `Durability` contract that each primitive reports, the boot table, and the instance check |
-| `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
-| `@vite-hub/runtime/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
+| `@vite-hub/runtime/internal/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
+| `@vite-hub/runtime/internal/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
 
 Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
 ## Go deeper
 
-- [Runtime Context](https://vitehub.dev/docs/reference/runtime-context)
+- [Runtime Context](https://vitehub.dev/docs/runtime/context)
 - [Runtime policy, approvals, and traces](https://vitehub.dev/docs/agents/runtime-policy)
-- [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
+- [Runtime events](https://vitehub.dev/docs/runtime/events)
+- [Runtime error contract](https://vitehub.dev/docs/runtime/errors)
 - [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
 - [Node Runtime diagnostics](https://vitehub.dev/docs/agents/capabilities/diagnostics)
 - [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)

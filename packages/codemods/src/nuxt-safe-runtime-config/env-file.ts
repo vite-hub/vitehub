@@ -1,6 +1,6 @@
 import { camelCase } from "scule"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 
@@ -71,7 +71,7 @@ export function planFromEnvFile(keys: readonly EnvFileKey[], nuxtPaths: Record<s
   const plan: EnvSchemaPlan = { fields: [], paths: {}, followUps: [] }
   for (const entry of keys) {
     if (!entry.key.startsWith("NUXT_")) {
-      throw new CodemodError(`${file}:${entry.line} (${entry.key}): the Nuxt module accepts only NUXT_ keys. Fix the file before you migrate.`)
+      throw codemodError(`${file}:${entry.line} (${entry.key}): the Nuxt module accepts only NUXT_ keys. Fix the file before you migrate.`)
     }
     const publicKey = entry.key.startsWith("NUXT_PUBLIC_")
     const bareName = entry.key.slice(publicKey ? "NUXT_PUBLIC_".length : "NUXT_".length)

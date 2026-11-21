@@ -1,27 +1,33 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 import { defaultExportExpression, objectProperties, scanModule, staticString, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
-import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
+import { assertAuthPages } from "./access-pages.ts"
+import { accessRouteSyntaxError } from "./application-path.ts"
 import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthOptions,
   ResolvedAuthAccessRoute,
-  ResolvedAuthDatabaseConfiguration,
-  ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError, authDatabaseSchemaError } from "./database-options.ts"
+import { resolveAuthTableSpecs } from "./table-specs.ts"
+
+import type { AuthCoreModel, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField } from "./table-specs.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
   callback: boolean
   /** Local names of `authDatabase` imported from the Auth database module. */
   authDatabase: ReadonlySet<string>
+  /** The plugins of `AuthSchemaPlugin` that the Definition module and the local modules it imports call. */
+  plugins: AuthSchemaPlugin[]
 }
 
 const authDatabaseModules: ReadonlySet<string> = new Set(["@vite-hub/auth/database", "vite-hub/auth/database"])
@@ -37,6 +43,251 @@ function readAuthDatabaseImports(module: ScannedModule): Set<string> {
     }
   }
   return names
+}
+
+/** The plugin factories whose tables `authDatabase()` adds, by the module that exports them. */
+const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, AuthSchemaPlugin>>>> = {
+  "better-auth/plugins": { anonymous: "anonymous", lastLoginMethod: "lastLoginMethod", phoneNumber: "phoneNumber", twoFactor: "twoFactor", username: "username" },
+  "@better-auth/api-key": { apiKey: "apiKey" },
+  "@better-auth/stripe": { stripe: "stripe" },
+}
+
+// Vite's default `resolve.extensions`, in its order.
+const viteExtensions = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+const typeScriptSources: Readonly<Record<string, readonly string[]>> = { ".js": [".ts", ".tsx"], ".jsx": [".tsx"], ".mjs": [".mts"], ".cjs": [".cts"] }
+
+const isFile = (file: string): boolean => existsSync(file) && statSync(file).isFile()
+
+/**
+ * The file of a relative import, resolved in the order Vite uses: the file itself, the TypeScript source of a `.js`
+ * path, the path with each extension, then the `index` file of the folder.
+ */
+function resolveLocalModule(importer: string, specifier: string): string | undefined {
+  const path = resolve(dirname(importer), specifier)
+  if (isFile(path)) return path
+  const extension = Object.keys(typeScriptSources).find(item => path.endsWith(item))
+  const candidates = [
+    ...extension ? typeScriptSources[extension]!.map(item => path.slice(0, -extension.length) + item) : [],
+    ...viteExtensions.map(item => path + item),
+    ...viteExtensions.map(item => resolve(path, `index${item}`)),
+  ]
+  return candidates.find(isFile)
+}
+
+const nameOf = (node: { type: string, name?: string, value?: unknown }): string => node.type === "Identifier" ? node.name! : String(node.value)
+
+/** What one module needs from another: some export names, or the whole module. */
+type ModuleNeeds = "all" | Set<string>
+
+interface ModuleBindings {
+  /** Top-level declarations by local name. */
+  declarations: Map<string, Node[]>
+  /** Value imports from local modules, by local name. `*` is a namespace import. */
+  imports: Map<string, { file: string, imported: string }>
+  /** Local names and re-exports, by export name. */
+  exports: Map<string, { local: string } | { file: string, imported: string }>
+  /** The local modules of `export * from`. */
+  exportAll: string[]
+  /** The plugin factories that the module imports, by local name. */
+  pluginFactories: Map<string, AuthSchemaPlugin>
+}
+
+function addBoundNames(pattern: Node, names: string[]): void {
+  walk(pattern, (node) => {
+    if (node.type === "Identifier") names.push(node.name)
+    // A default value is an expression, not a bound name.
+    if (node.type === "AssignmentPattern") {
+      addBoundNames(node.left, names)
+      return false
+    }
+  })
+}
+
+function readModuleBindings(module: ScannedModule): ModuleBindings {
+  const bindings: ModuleBindings = { declarations: new Map(), imports: new Map(), exports: new Map(), exportAll: [], pluginFactories: new Map() }
+  const localFile = (specifier: string) => specifier.startsWith("./") || specifier.startsWith("../") ? resolveLocalModule(module.file, specifier) : undefined
+  const declare = (name: string, node: Node) => bindings.declarations.set(name, [...bindings.declarations.get(name) ?? [], node])
+  const readDeclaration = (declaration: Node, exported: boolean) => {
+    const names: string[] = []
+    if ((declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") && declaration.id) names.push(declaration.id.name)
+    if (declaration.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations) {
+        const bound: string[] = []
+        addBoundNames(declarator.id, bound)
+        for (const name of bound) declare(name, declarator)
+        names.push(...bound)
+      }
+    }
+    else for (const name of names) declare(name, declaration)
+    if (exported) for (const name of names) bindings.exports.set(name, { local: name })
+  }
+  for (const statement of module.program.body) {
+    if (statement.type === "ImportDeclaration") {
+      if (statement.importKind === "type") continue
+      const source = statement.source.value
+      const factories = authSchemaPluginImports[source.startsWith("better-auth/plugins/") ? "better-auth/plugins" : source]
+      const file = localFile(source)
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind === "type") continue
+        const imported = specifier.type === "ImportSpecifier" ? nameOf(specifier.imported) : specifier.type === "ImportDefaultSpecifier" ? "default" : "*"
+        if (factories && Object.hasOwn(factories, imported)) bindings.pluginFactories.set(specifier.local.name, factories[imported]!)
+        if (file) bindings.imports.set(specifier.local.name, { file, imported })
+      }
+    }
+    else if (statement.type === "ExportNamedDeclaration") {
+      if (statement.exportKind === "type") continue
+      if (statement.declaration) readDeclaration(statement.declaration, true)
+      const file = statement.source ? localFile(statement.source.value) : undefined
+      for (const specifier of statement.specifiers) {
+        if (specifier.exportKind === "type") continue
+        const local = nameOf(specifier.local)
+        if (statement.source) {
+          if (file) bindings.exports.set(nameOf(specifier.exported), { file, imported: local })
+        }
+        else bindings.exports.set(nameOf(specifier.exported), { local })
+      }
+    }
+    else if (statement.type === "ExportAllDeclaration") {
+      const file = statement.exportKind === "type" ? undefined : localFile(statement.source.value)
+      if (!file) continue
+      if (statement.exported) bindings.exports.set(nameOf(statement.exported), { file, imported: "*" })
+      else bindings.exportAll.push(file)
+    }
+    else if (statement.type === "ExportDefaultDeclaration") {
+      declare("default", statement.declaration as Node)
+      bindings.exports.set("default", { local: "default" })
+      const declaration = statement.declaration as Node
+      if ((declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") && declaration.id) declare(declaration.id.name, declaration)
+    }
+    else readDeclaration(statement as Node, false)
+  }
+  return bindings
+}
+
+/**
+ * Reads what `needs` reaches in `module`: the plugin factories that its reached code calls, and what it needs from the
+ * local modules it imports. The whole module counts for the Definition. In an imported module, only the exports that
+ * the importer uses count, with the declarations and imports that they use.
+ */
+function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: AuthSchemaPlugin[], imports: Array<[string, ModuleNeeds]> } {
+  const bindings = readModuleBindings(module)
+  const plugins = new Set<AuthSchemaPlugin>()
+  const imports: Array<[string, ModuleNeeds]> = []
+  const need = (file: string, imported: string) => imports.push([file, imported === "*" ? "all" : new Set([imported])])
+  const collectCalls = (node: Node, references?: Set<string>) => walk(node, (child) => {
+    if (child.type === "ImportDeclaration") return false
+    if (child.type === "CallExpression" && child.callee.type === "Identifier" && bindings.pluginFactories.has(child.callee.name)) plugins.add(bindings.pluginFactories.get(child.callee.name)!)
+    if (child.type === "Identifier") references?.add(child.name)
+  })
+  if (needs === "all") {
+    const references = new Set<string>()
+    collectCalls(module.program, references)
+    for (const [name, { file, imported }] of bindings.imports) if (references.has(name)) need(file, imported)
+    for (const [, target] of bindings.exports) if ("file" in target) need(target.file, target.imported)
+    return { plugins: [...plugins], imports }
+  }
+  const locals: string[] = []
+  for (const name of needs) {
+    const target = bindings.exports.get(name)
+    if (!target) for (const file of bindings.exportAll) need(file, name)
+    else if ("file" in target) need(target.file, target.imported)
+    else locals.push(target.local)
+  }
+  const reached = new Set<string>()
+  for (let local = locals.pop(); local !== undefined; local = locals.pop()) {
+    if (reached.has(local)) continue
+    reached.add(local)
+    const imported = bindings.imports.get(local)
+    if (imported) need(imported.file, imported.imported)
+    const references = new Set<string>()
+    for (const declaration of bindings.declarations.get(local) ?? []) collectCalls(declaration, references)
+    for (const reference of references) if (bindings.declarations.has(reference) || bindings.imports.has(reference)) locals.push(reference)
+  }
+  return { plugins: [...plugins], imports }
+}
+
+/**
+ * The plugins of `AuthSchemaPlugin` that the Definition module calls, and that the local modules it imports call in
+ * the exports it uses, such as `stripe()` in `src/server/auth-plugins.ts` that returns the plugins of `server/auth.ts`.
+ */
+function readDefinitionSchemaPlugins(definition: ScannedModule): AuthSchemaPlugin[] {
+  const plugins = new Set<AuthSchemaPlugin>()
+  const modules = new Map<string, ScannedModule>([[definition.file, definition]])
+  const done = new Map<string, ModuleNeeds>()
+  const queue: Array<[string, ModuleNeeds]> = [[definition.file, "all"]]
+  for (let item = queue.shift(); item; item = queue.shift()) {
+    const [file, needs] = item
+    const previous = done.get(file)
+    if (previous === "all") continue
+    const fresh: ModuleNeeds = needs === "all" ? "all" : new Set([...needs].filter(name => !previous?.has(name)))
+    if (fresh !== "all" && !fresh.size) continue
+    done.set(file, fresh === "all" ? "all" : new Set([...previous ?? [], ...fresh]))
+    let module = modules.get(file)
+    if (!module) modules.set(file, module = scanModule(readFileSync(file, "utf8"), file))
+    const result = readModuleNeeds(module, fresh)
+    for (const plugin of result.plugins) plugins.add(plugin)
+    queue.push(...result.imports)
+  }
+  return [...plugins].sort()
+}
+
+const authFieldTypes: ReadonlySet<string> = new Set(["boolean", "date", "json", "number", "number[]", "string", "string[]"])
+
+function readStaticBooleanOption(field: ObjectExpression, key: string, label: string): boolean | undefined {
+  if (!hasObjectProperty(field, key)) return
+  const value = readStaticBooleanLiteral(readObjectPropertyValue(field, key))
+  if (value === undefined) throw authDatabaseAdditionalFieldsError(`${label}.${key} must be \`true\` or \`false\``)
+  return value
+}
+
+/** One additional field, read from its object literal: the parts that shape the column. */
+function readAdditionalField(value: Expression | undefined, key: string, label: string): AuthTableField {
+  const field = objectLiteral(value && unwrapExpression(value))
+  if (!field) throw authDatabaseAdditionalFieldsError(`${label} must be an inline object, such as \`{ type: "string", required: false }\``)
+  const typeValue = readObjectPropertyValue(field, "type")
+  const unwrappedType = typeValue && unwrapExpression(typeValue)
+  // A list of values, such as `["en", "es"]`, is a string column. Better Auth checks the value.
+  const type = unwrappedType?.type === "ArrayExpression" ? "string" : staticString(unwrappedType)
+  if (!type || !authFieldTypes.has(type)) throw authDatabaseAdditionalFieldsError(`${label}.type must be one of ${[...authFieldTypes].map(name => `"${name}"`).join(", ")}, or a list of strings`)
+  const fieldName = readObjectPropertyValue(field, "fieldName")
+  if (fieldName && staticString(fieldName) !== key) throw authDatabaseSchemaError(`${label}.fieldName cannot rename the column`)
+  const spec: AuthTableField = { type: type as AuthTableField["type"] }
+  if (readStaticBooleanOption(field, "required", label)) spec.required = true
+  if (readStaticBooleanOption(field, "unique", label)) spec.unique = true
+  if (readStaticBooleanOption(field, "index", label)) spec.index = true
+  if (readStaticBooleanOption(field, "bigint", label)) spec.bigint = true
+  // A function or a computed default stays in Better Auth, which sets the value when it writes the row.
+  const defaultValue = readObjectPropertyValue(field, "defaultValue")
+  const staticDefault = defaultValue && staticValue(defaultValue)
+  if (typeof staticDefault === "string" || typeof staticDefault === "number" || typeof staticDefault === "boolean") spec.defaultValue = staticDefault
+  const references = readObjectPropertyValue(field, "references")
+  if (references) {
+    const reference = staticValue(references)
+    const model = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.model : undefined
+    const target = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.field : undefined
+    const onDelete = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.onDelete ?? "cascade" : undefined
+    if (typeof model !== "string" || typeof target !== "string" || (onDelete !== "cascade" && onDelete !== "set null")) {
+      throw authDatabaseAdditionalFieldsError(`${label}.references must be an inline object, such as \`{ model: "user", field: "id", onDelete: "cascade" }\``)
+    }
+    spec.references = { model, field: target, onDelete }
+  }
+  return spec
+}
+
+/** The `additionalFields` of each core model, which `authDatabase()` adds as columns. */
+function readAuthAdditionalFields(body: ObjectExpression | undefined): AuthSchemaOptions["additionalFields"] {
+  const result: NonNullable<AuthSchemaOptions["additionalFields"]> = {}
+  for (const model of ["user", "session", "account", "verification"] as const satisfies readonly AuthCoreModel[]) {
+    const config = objectLiteral(readObjectPropertyValue(body, model))
+    const value = readObjectPropertyValue(config, "additionalFields")
+    if (!value) continue
+    const fields = objectLiteral(unwrapExpression(value))
+    if (!fields) throw authDatabaseAdditionalFieldsError(`${model}.additionalFields must be an inline object literal, so the Auth Vite plugin can add its columns`)
+    const entries = readObjectEntries(fields)
+    if (entries.some(entry => !entry.key)) throw authDatabaseAdditionalFieldsError(`${model}.additionalFields must use static keys`)
+    if (entries.length) result[model] = Object.fromEntries(entries.map(entry => [entry.key, readAdditionalField(entry.value, entry.key, `${model}.additionalFields.${entry.key}`)]))
+  }
+  return Object.keys(result).length ? result : undefined
 }
 
 /** The object that a callback returns, from `() => ({ ... })` or the first `return { ... }` in its body. */
@@ -59,21 +310,48 @@ function readReturnedObject(callback: Expression): ObjectExpression | undefined 
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
+/** The value of a top-level `const name = value`, exported or not. */
+function topLevelConstValue(module: ScannedModule, name: string): Expression | undefined {
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.id.name === name) return declarator.init ? unwrapExpression(declarator.init) : undefined
+    }
+  }
+}
+
+/**
+ * The exported `defineAuth()` call: `export default defineAuth(...)`, or `export default auth` after a top-level
+ * `const auth: AuthDefinition<...> = defineAuth(...)`. A composite TypeScript project needs that annotation when it
+ * cannot write the inferred type of the Definition (TS7056), as with the Better Auth `apiKey()` plugin.
+ */
+function exportedDefineAuthCall(module: ScannedModule): CallExpression | undefined {
+  const exported = defaultExportExpression(module)
+  const call = exported?.type === "Identifier" ? topLevelConstValue(module, exported.name) : exported
+  return call?.type === "CallExpression" && call.callee.type === "Identifier" && call.callee.name === "defineAuth" ? call : undefined
+}
+
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const authDatabase = readAuthDatabaseImports(module)
-  const call = defaultExportExpression(module)
-  if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
+  const call = exportedDefineAuthCall(module)
+  if (!call) return
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
+  const plugins = readDefinitionSchemaPlugins(module)
+  if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
+    throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
+  }
   if (options.type === "ObjectExpression") {
     assertAuthDatabasePlacement(options, options, authDatabase)
-    return { authDatabase, body: options, callback: false }
+    return { authDatabase, body: options, callback: false, plugins }
   }
   const returned = readReturnedObject(options)
   assertAuthDatabasePlacement(options, returned, authDatabase)
-  return returned === undefined ? undefined : { authDatabase, body: returned, callback: true }
+  assertOneReturnWithPages(options)
+  return returned === undefined ? undefined : { authDatabase, body: returned, callback: true, plugins }
 }
 
 /** Owned tables must have the same target in every request and in the build-time contribution. */
@@ -92,17 +370,6 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
     })
     const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
     if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
-  }
-  const runtime = readObjectPropertyValue(body, "runtime")
-  const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
-  if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
-  for (const options of [body, runtimeBody]) {
-    for (const model of ["user", "session", "account", "verification"]) {
-      const config = objectLiteral(readObjectPropertyValue(options, model))
-      const additionalFields = readObjectPropertyValue(config, "additionalFields")
-      const fields = objectLiteral(additionalFields)
-      if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
-    }
   }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
@@ -156,15 +423,6 @@ function readStaticRouteProperty(body: ObjectExpression | undefined, property: s
   return value
 }
 
-function readStaticBooleanProperty(body: ObjectExpression | undefined, property: string, label: string): boolean | undefined {
-  if (!hasObjectProperty(body, property)) return
-  const value = readStaticBooleanLiteral(readObjectPropertyValue(body, property))
-  if (typeof value === "undefined") {
-    throw authErrorDiagnostics.AUTH_C0004({ message: `\`defineAuth()\` ${label} must be an inline boolean literal.` })
-  }
-  return value
-}
-
 function assertOnlyObjectKeys(body: ObjectExpression | undefined, allowed: Set<string>, label: string): void {
   const unknownEntry = readObjectEntries(body).find(entry => !entry.key || !allowed.has(entry.key))
   if (!unknownEntry) return
@@ -189,12 +447,18 @@ function readAuthRouteConfig(body: ObjectExpression | undefined): false | string
   throw authErrorDiagnostics.AUTH_C0008({ message: "`defineAuth()` route can only be `false` when provided." })
 }
 
+function assertLiteralAccessRoute(route: string, label: string): void {
+  const message = accessRouteSyntaxError(route, label)
+  if (message) throw authErrorDiagnostics.AUTH_C0068({ message })
+}
+
 function readAuthAccessRoute(entry: Expression | undefined, index: number): ResolvedAuthAccessRoute {
   const route = staticString(entry)
   if (typeof route !== "undefined") {
     if (!route.startsWith("/")) {
       throw authErrorDiagnostics.AUTH_C0009({ message: `\`defineAuth()\` access.routes[${index}] must start with \`/\`.` })
     }
+    assertLiteralAccessRoute(route, `access.routes[${index}]`)
     return { route }
   }
 
@@ -209,6 +473,7 @@ function readAuthAccessRoute(entry: Expression | undefined, index: number): Reso
   if (!resolvedRoute) {
     throw authErrorDiagnostics.AUTH_C0011({ message: `\`defineAuth()\` access.routes[${index}].route is required.` })
   }
+  assertLiteralAccessRoute(resolvedRoute, `access.routes[${index}].route`)
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
   const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")
@@ -232,6 +497,101 @@ function readAuthAccessRoutesConfig(body: ObjectExpression | undefined): Resolve
   return routes.elements.map((entry, index) => readAuthAccessRoute(entry === null || entry.type === "SpreadElement" ? undefined : entry, index))
 }
 
+function readAuthAccessPublicConfig(body: ObjectExpression | undefined): string[] {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access || !hasObjectProperty(access, "public")) return []
+
+  const routes = readObjectPropertyValue(access, "public")
+  if (routes?.type !== "ArrayExpression") {
+    throw authErrorDiagnostics.AUTH_C0064({ message: "`defineAuth()` access.public must be an inline array." })
+  }
+
+  return routes.elements.map((entry, index) => {
+    const route = entry === null || entry.type === "SpreadElement" ? undefined : staticString(entry)
+    if (typeof route === "undefined" || !route.startsWith("/")) {
+      throw authErrorDiagnostics.AUTH_C0064({ message: `\`defineAuth()\` access.public[${index}] must be an inline route string that starts with \`/\`.` })
+    }
+    return route
+  })
+}
+
+/** `access.signIn` and `access.afterSignIn`, which the Nuxt page guard reads at build time, like `basePath`. */
+function readAuthAccessSignInConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access) return {}
+  const resolved: Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> = {}
+  if (hasObjectProperty(access, "signIn")) {
+    const value = readObjectPropertyValue(access, "signIn")
+    const page = staticString(value)
+    const provider = objectLiteral(value)
+    if (provider && hasObjectProperty(provider, "callbackURL")) throw authErrorDiagnostics.AUTH_SIGN_IN_CALLBACK_URL_MOVED()
+    if (provider) resolved.signIn = { provider: true }
+    else if (page?.startsWith("/") && !/^\/[/\\]/.test(page)) resolved.signIn = { page }
+    else throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be an inline path that starts with one `/`, such as `'/login'`, or an inline object, such as `{ provider: 'github' }`." })
+  }
+  if (hasObjectProperty(access, "afterSignIn")) {
+    const afterSignIn = staticString(readObjectPropertyValue(access, "afterSignIn"))
+    if (!afterSignIn?.startsWith("/") || /^\/[/\\]/.test(afterSignIn)) throw authErrorDiagnostics.AUTH_AFTER_SIGN_IN_INVALID()
+    resolved.afterSignIn = afterSignIn
+  }
+  return resolved
+}
+
+/** The build reads only the first return of a callback, so access.pages in any other branch would go unguarded. */
+function assertOneReturnWithPages(options: Expression): void {
+  if (options.type !== "ArrowFunctionExpression" || options.body.type !== "BlockStatement") return
+  const returned: (Expression | null | undefined)[] = []
+  walk(options.body, (node) => {
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+    if (node.type === "ReturnStatement") returned.push(node.argument)
+  })
+  const declaresPages = (argument: Expression | null | undefined) => {
+    const body = objectLiteral(argument ? unwrapExpression(argument) : undefined)
+    if (!hasObjectProperty(body, "access")) return false
+    const access = readObjectPropertyValue(body, "access")
+    const object = objectLiteral(access && unwrapExpression(access))
+    return !object || hasObjectProperty(object, "pages")
+  }
+  if (returned.length > 1 && returned.some(declaresPages)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "A `defineAuth()` callback that sets access.pages must have one `return`, so that the build reads the same pages as every request." })
+  }
+}
+
+/** `access.pages`, which the Nuxt module turns into route rules at build time, like `access.signIn`. */
+function readAuthAccessPagesConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "pages"> {
+  if (!hasObjectProperty(body, "access")) return {}
+  const expression = readObjectPropertyValue(body, "access")
+  const unwrapped = expression && unwrapExpression(expression)
+  if (unwrapped?.type === "Identifier" && unwrapped.name === "undefined") return {}
+  const access = objectLiteral(unwrapped)
+  // A variable, a call, a spread or a computed key can hide `pages` from the build, while the Definition has it at runtime.
+  if (!access || readObjectEntries(access).some(entry => !entry.key)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access must be an inline object with only static keys, without a spread, so that the build can read access.pages." })
+  }
+  if (!hasObjectProperty(access, "pages")) return {}
+  const value = readObjectPropertyValue(access, "pages")
+  const object = objectLiteral(value && unwrapExpression(value))
+  const entries = readObjectEntries(object)
+  if (!object || entries.some(entry => !entry.key)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access.pages must be an inline object literal with string keys, such as `{ '/dashboard/**': 'user' }`." })
+  }
+  // A value that is not a literal reads as `undefined`, which the check reports with its key.
+  const pages = Object.fromEntries(entries.map(({ key, value }) => [key, value && staticValue(value)]))
+  assertAuthPages(pages)
+  return { pages }
+}
+
+/** `components.prefix`, which the Nuxt module reads at build time to name `<AuthPermission>`, like `basePath`. */
+function readAuthComponentsConfig(body: ObjectExpression | undefined): ResolvedAuthViteConfig["components"] {
+  if (!hasObjectProperty(body, "components")) return
+  const components = objectLiteral(readObjectPropertyValue(body, "components"))
+  if (!components || readObjectEntries(components).some(entry => entry.key !== "prefix")) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  if (!hasObjectProperty(components, "prefix")) return
+  const prefix = staticString(readObjectPropertyValue(components, "prefix"))
+  if (!prefix?.trim() || prefix !== prefix.trim()) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  return { prefix }
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -239,70 +599,50 @@ function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: 
   return expression?.type === "CallExpression" && expression.callee.type === "Identifier" && authDatabase.has(expression.callee.name) ? expression : undefined
 }
 
-/** The Database that gets the Better Auth tables: the name that `authDatabase()` receives, `"default"` without one. */
-function readAuthTablesConfig(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): ResolvedAuthViteConfig["tables"] {
+/**
+ * The Database that gets the Better Auth tables (the name that `authDatabase()` receives, `"default"` without one), and
+ * the plugins and additional fields that add tables and columns.
+ */
+function readAuthTablesConfig(definition: DefinitionObjectBody): ResolvedAuthViteConfig["tables"] {
+  const { authDatabase, body, plugins } = definition
   const call = readAuthDatabaseCall(body, authDatabase)
   if (!call) return false
   const [argument, ...rest] = call.arguments
-  if (argument === undefined) return { database: "default" }
-  const name = argument.type === "SpreadElement" || rest.length ? undefined : staticString(argument)
+  const name = argument === undefined ? "default" : argument.type === "SpreadElement" || rest.length ? undefined : staticString(argument)
   if (name === undefined || !name || name !== name.trim()) {
     throw authErrorDiagnostics.AUTH_C0052({ message: "`authDatabase()` takes the Database name as one inline string literal, such as `authDatabase(\"content\")`, or no argument for the `default` Database." })
   }
-  return { database: name }
+  const additionalFields = readAuthAdditionalFields(body)
+  const schema: AuthSchemaOptions = { ...(plugins.length ? { plugins } : {}), ...(additionalFields ? { additionalFields } : {}) }
+  if (!plugins.length && !additionalFields) return { database: name }
+  // Report a field that a plugin or a core table already has with another type now, not when the schema loads.
+  resolveAuthTableSpecs(schema)
+  return { database: name, schema }
 }
 
-function readAuthDatabaseConfig(body: ObjectExpression | undefined, allowRuntimeValue = false, authDatabase: ReadonlySet<string> = new Set()): ResolvedAuthDatabaseConfiguration {
-  if (!hasObjectProperty(body, "database")) return { mode: "default" }
-  if (readAuthDatabaseCall(body, authDatabase)) return { mode: "default" }
-
-  const expression = readObjectPropertyValue(body, "database")
-  const flag = readStaticBooleanLiteral(expression)
-  if (flag === true) return { mode: "default" }
-  if (flag === false) {
-    throw authErrorDiagnostics.AUTH_C0013({ message: "`defineAuth()` database cannot be `false`." })
-  }
-
-  const database = objectLiteral(expression)
-  if (typeof database === "undefined") {
-    if (allowRuntimeValue) return { mode: "default" }
-    throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
-  }
-
-  assertOnlyObjectKeys(database, new Set(["dedicated", "name"]), "database")
-
-  return {
-    dedicated: readStaticBooleanProperty(database, "dedicated", "database.dedicated") ?? false,
-    mode: "named",
-    name: readStaticStringProperty(database, "name", "database.name") ?? (() => {
-      throw authErrorDiagnostics.AUTH_C0015({ message: "`defineAuth()` database.name is required when database is an object." })
-    })(),
-  }
+/** Reports `true`, `false`, or an object literal with only `keys`: the removed placement forms, which create no storage. */
+function isPlacementLiteral(expression: Expression | undefined, keys: ReadonlySet<string>): boolean {
+  if (readStaticBooleanLiteral(expression) !== undefined) return true
+  const object = objectLiteral(expression)
+  return object !== undefined && readObjectEntries(object).every(entry => keys.has(entry.key))
 }
 
-function readAuthSecondaryStorageConfig(body: ObjectExpression | undefined, allowRuntimeValue = false): false | ResolvedAuthSecondaryStorageConfiguration {
-  if (!hasObjectProperty(body, "secondaryStorage")) return false
-
-  const expression = readObjectPropertyValue(body, "secondaryStorage")
-  const flag = readStaticBooleanLiteral(expression)
-  if (flag === true) return { mode: "default" }
-  if (flag === false) {
-    throw authErrorDiagnostics.AUTH_C0016({ message: "`defineAuth()` secondaryStorage cannot be `false`." })
+/**
+ * `database` and `secondaryStorage` take Better Auth adapters only. A static Definition can hold only `authDatabase()` or
+ * `"memory"`.
+ */
+function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: boolean, authDatabase: ReadonlySet<string>): void {
+  const database = readObjectPropertyValue(body, "database")
+  if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
+    if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+    }
   }
-
-  const secondaryStorage = objectLiteral(expression)
-  if (typeof secondaryStorage === "undefined") {
-    if (allowRuntimeValue) return false
-    throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage must be `true` or an inline object with `store`." })
-  }
-
-  assertOnlyObjectKeys(secondaryStorage, new Set(["store"]), "secondaryStorage")
-
-  return {
-    mode: "named",
-    store: readStaticStringProperty(secondaryStorage, "store", "secondaryStorage.store") ?? (() => {
-      throw authErrorDiagnostics.AUTH_C0018({ message: "`defineAuth()` secondaryStorage.store is required when secondaryStorage is an object." })
-    })(),
+  if (hasObjectProperty(body, "secondaryStorage")) {
+    const secondaryStorage = readObjectPropertyValue(body, "secondaryStorage")
+    if (!callback || isPlacementLiteral(secondaryStorage, new Set(["store"]))) {
+      throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage takes only a Better Auth adapter, from the Definition callback. `true` and `{ store }` do not create storage." })
+    }
   }
 }
 
@@ -322,20 +662,26 @@ export function resolveAuthViteConfig(
   }
   const body = definitionObject.body
   assertStaticObjectKeys(body, "options")
+  assertAuthStorageConfig(body, definitionObject.callback, definitionObject.authDatabase)
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
   const abilities = discoverAuthAbilities(rootDir, discovery)
+  const publicRoutes = readAuthAccessPublicConfig(body)
+  const components = readAuthComponentsConfig(body)
   return {
     ...(abilities ? { abilities } : {}),
     access: {
       routes: readAuthAccessRoutesConfig(body),
+      ...(publicRoutes.length ? { public: publicRoutes } : {}),
+      ...readAuthAccessSignInConfig(body),
+      ...readAuthAccessPagesConfig(body),
     },
     basePath,
-    database: readAuthDatabaseConfig(body, definitionObject.callback, definitionObject.authDatabase),
+    ...(components ? { components } : {}),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),
-    secondaryStorage: readAuthSecondaryStorageConfig(body, definitionObject.callback),
-    tables: readAuthTablesConfig(body, definitionObject.authDatabase),
+    tables: readAuthTablesConfig(definitionObject),
+    ...(!definitionObject.callback && !["database", "preset"].some(key => hasObjectProperty(body, key)) ? { implicitMemory: true as const } : {}),
   }
 }

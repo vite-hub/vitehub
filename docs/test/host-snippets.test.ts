@@ -44,7 +44,7 @@ describe("launch-critical documentation snippets", () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]
 
-    expect(contracts).toHaveLength(15)
+    expect(contracts).toHaveLength(17)
 
     // A block outside the framework tabs has one contract for every framework. A block in a tab names its framework.
     // docs/scripts/check-snippets.mjs type-checks the TypeScript blocks, so only JSON blocks need a fixture each.

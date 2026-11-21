@@ -12,7 +12,7 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 
 | Loader | Key options | Behavior |
 | --- | --- | --- |
-| `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source root. `workspacePath` sets the key. |
+| `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source root. `workspacePath` sets the key. The returned Source has that key in `key`. A Workspace puts the file at this path unless the binding sets `mount`. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Same as `file()`, with `text/markdown` as the default media type. It requires an options object. |
 | `glob(pattern)`, `glob(options)` | A pattern such as `'content/docs/**/*.md'`, or `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Finds files with `tinyglobby`. Keys are relative to `cwd` (in a pattern, the folders before the first wildcard). `prefix` adds a path before each item. `keyCache: false` turns off the key cache. Symlinks are off by default. A build bundles the files ([Hosts without a file system](#hosts-without-a-file-system)). |
 | `files(entries, options?)` | A record of path to content or a content loader, `base`, and `prefix`. | Serves files from memory. A loader runs on each read, so an `import.meta.glob()` record works. `base` is removed from each path, then a leading `./` is removed from the key. A build turns `glob()` into this. Needs no file system. |
@@ -20,7 +20,7 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. Install `@modelcontextprotocol/sdk` to use it. Agent apps already have it. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines your own loader, with inferred item types. |
 
-`github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
+`github()` needs `@vite-hub/forge`: run `pnpm add @vite-hub/forge`. Without it, the build fails with `VITE_HUB_R0136` and that command. `github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
 
 `sourceIgnores` holds reusable ignore patterns. Workspace GitHub Sources apply `sourceIgnores.defaults`. `ignore: false` turns them off; more patterns extend them.
 
@@ -53,6 +53,8 @@ The build bundles a call only when its options are literals: a string, or an obj
 
 `github()`, `mcpResources()`, and your own loaders can set a cache policy. `false` turns it off. GitHub applies it to its ref, archive, and metadata caches.
 
+The consumer of the Source reads `cache`. Today that is the Workspace, which keeps a copy of the Source content and refreshes it after `maxAge`. A reader from `useSource()` alone does not cache. To cache its reads, wrap it in [`cachedSource()`](/docs/source/server-api).
+
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `maxAge` | `number` | Consumer default | Maximum cache age in seconds. Workspace uses it to decide if its copy of the Source content is still fresh. |
@@ -62,7 +64,7 @@ The build bundles a call only when its options are literals: a string, or an obj
 `defineSource()` takes a loader with `name`, `getKeys()`, and `getItem()`. It does not take reader objects or reader factories.
 
 ```ts
-import { createSource, defineSource } from 'vite-hub/source'
+import { defineSource, useSource } from 'vite-hub/source'
 
 const articles = defineSource({
   name: 'articles',
@@ -74,7 +76,7 @@ const articles = defineSource({
   },
 })
 
-const reader = createSource(articles)
+const reader = useSource(articles)
 const article = await reader.get('article_123')
 article.data.title
 article.metadata.version
@@ -94,13 +96,13 @@ article.metadata.version
 | `getItems(ctx)` | `function` | Optional. Reads all items at once. |
 | `getMeta(key, ctx)` | `function` | Optional. Reads metadata. |
 
-- `resolveRevision()` and `prepare()` run at most once per `createSource()` or `useSource()` reader, before its first operation.
+- `resolveRevision()` and `prepare()` run at most once per `useSource()` reader, before its first operation.
 - The revision goes into the shared context, and loaders that support revisions use it for later calls. Other loaders can see origin changes. A new reader resolves a new revision.
 - `getItems()` loads all items in one call. `getMeta()` returns metadata without loading content.
 
 ### Source context
 
-`createSource()` and `useSource(name, context?)` take a partial context and pass the full `SourceContext` to each loader method.
+`useSource(nameOrSource, context?)` takes a partial context and pass the full `SourceContext` to each loader method.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |

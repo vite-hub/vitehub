@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import { distributionEntriesFromManifest } from "../vite.config.ts"
+import { renamedForwarders } from "./forwarder-owners.ts"
 
 const packageRoot = new URL("../", import.meta.url)
 const manifest: { dependencies: Record<string, string>, exports: Record<string, unknown>, peerDependencies: Record<string, string> }
@@ -14,8 +15,8 @@ const ownerPackages = new Set(Object.keys({ ...manifest.dependencies, ...manifes
  */
 const facades = Object.entries(manifest.exports).flatMap(([subpath, target]) => {
   const path = subpath.replace(/^\.\/?/, "")
-  if (!path || path.startsWith("_internal/") || !ownerPackages.has(`@vite-hub/${path.split("/")[0]}`)) return []
-  return distributionEntriesFromManifest(target).map(source => ({ owner: `@vite-hub/${path}`, source, subpath: `vite-hub/${path}` }))
+  if (!path || !ownerPackages.has(`@vite-hub/${path.split("/")[0]}`)) return []
+  return distributionEntriesFromManifest(target).map(source => ({ owner: renamedForwarders.get(subpath) ?? `@vite-hub/${path}`, source, subpath: `vite-hub/${path}` }))
 })
 
 /** The lines that a facade may contain: it re-exports its owner, and the owner's default export when it has one. */
@@ -60,7 +61,7 @@ describe("pure vite-hub facades", () => {
     const pairs: Array<[string, () => Promise<object>, () => Promise<object>]> = [
       ["vite-hub/agent", () => import("../src/agent.ts"), () => import("@vite-hub/agent")],
       ["vite-hub/agent/capabilities", () => import("../src/agent/capabilities.ts"), () => import("@vite-hub/agent/capabilities")],
-      ["vite-hub/runtime/h3", () => import("../src/runtime/h3.ts"), () => import("@vite-hub/runtime/h3")],
+      ["vite-hub/runtime", () => import("../src/runtime.ts"), () => import("@vite-hub/runtime")],
       ["vite-hub/source", () => import("../src/source.ts"), () => import("@vite-hub/source")],
       ["vite-hub/source/drizzle", () => import("../src/source/drizzle.ts"), () => import("@vite-hub/source/drizzle")],
       ["vite-hub/source/server", () => import("../src/source/server.ts"), () => import("@vite-hub/source/server")],

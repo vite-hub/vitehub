@@ -76,10 +76,11 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     fake.commit("main", { "content/posts/a.md": page("A") })
     const workspace = `preview-links-${process.pid}-${++workspaces}`
     registerWorkspace(workspace, {
-      store: { provider: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      store: { driver: "github", repo: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
       rules: { "**": { write: false } },
     })
     const content = defineContent({
+      access: "public",
       extends: [pullRequests, { workspace }] as const,
       collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() }, url: options.url ?? "/posts/:id" }) },
       sources: { site: github({ repo: "onmax/repo", ref: "main", root: "content" }) },
@@ -95,12 +96,14 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     await posts.save("b", { data: { title: "B" }, body: "New\n" })
     const before = Date.now()
     const first = await content.publish({ collection: "posts", ids: ["b"] })
+    const after = Date.now()
     expect(first.pullRequest?.number).toBe(1)
     expect(first.previews).toEqual([{ collection: "posts", id: "b", url: expect.stringMatching(/^\/pr\/1\/posts\/b\?vitehub-content-token=/), expiresAt: expect.any(Date) }])
-    // One hour, the default of content.preview.
-    const expiresIn = first.previews![0]!.expiresAt.getTime() - before
-    expect(expiresIn).toBeGreaterThan(3590_000)
-    expect(expiresIn).toBeLessThanOrEqual(3600_000)
+    // One hour, the default of content.preview, from the moment publish() signs the link: somewhere between `before`
+    // and `after`, and the token rounds it down to the second.
+    const expiresAt = first.previews![0]!.expiresAt.getTime()
+    expect(expiresAt).toBeGreaterThan(before + 3600_000 - 1000)
+    expect(expiresAt).toBeLessThanOrEqual(after + 3600_000)
 
     const link = new Request(`https://docs.example${first.previews![0]!.url}`)
     expect(await content.sources.allow("pr/1", link, "site")).toMatchObject({ allowed: true, reason: "token" })
@@ -149,7 +152,9 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     const opened = await keyless.content.publish()
     expect(opened.pullRequest?.number).toBe(1)
     expect(opened.previews).toBeUndefined()
-    expect(vi.mocked(console.warn).mock.calls.some(([message]) => String(message).includes("CONTENT_R0076"))).toBe(true)
+    // The warning prints the signing error as its cause.
+    const warning = vi.mocked(console.warn).mock.calls.find(([, message]) => String(message).includes("CONTENT_R0076"))
+    expect(warning?.[2]).toMatchObject({ code: "CONTENT_R0010" })
   })
 })
 
@@ -170,7 +175,7 @@ function docs() {
 }
 
 function app(options: ContentSourceOptions = {}) {
-  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", include: "**/*.md" }), options) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
+  const content = defineContent({ access: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", include: "**/*.md" }), options) }, previews: true, seo: { site: "https://docs.example" }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -240,7 +245,7 @@ describe("content.sources.previewLinks()", { timeout: 30_000 }, () => {
   it("fails with CONTENT_R0075 for a missing pull request and CONTENT_R0079 without previews", async () => {
     docs()
     await expect(app().sources.previewLinks(99)).rejects.toMatchObject({ code: "CONTENT_R0075" })
-    const off = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+    const off = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
     cleanup.push(() => off.dispose())
     await expect(off.sources.previewLinks(1)).rejects.toMatchObject({ code: "CONTENT_R0079" })
   })

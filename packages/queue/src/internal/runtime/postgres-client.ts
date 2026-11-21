@@ -4,7 +4,7 @@ import { listQueueDefinitionNames, loadQueueDefinition, missingQueueDefinitionEr
 
 import type { PostgresQueueConnection, PostgresQueueEngine } from "../../providers/postgres.ts"
 import type { QueueClient } from "../../types.ts"
-import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "./types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 /** The Databases of the app, as `@vite-hub/database/drizzle` exports them. */
@@ -14,6 +14,9 @@ export type PostgresQueueDatabases = Readonly<Record<string, { db: object } | un
 export type PostgresQueueDatabasesLoader = () => Promise<PostgresQueueDatabases>
 
 const postgresUrl = /^postgres(?:ql)?:\/\//i
+
+/** A Postgres Database answers this key with a function that returns its connection URL. `@vite-hub/database` sets it. */
+const databaseConnectionUrl = Symbol.for("vitehub.database.postgres.connection-url")
 
 let loadDatabases: PostgresQueueDatabasesLoader | undefined
 let closing: Promise<void> | undefined
@@ -46,9 +49,9 @@ function engineState(config: EngineConfig): EngineState {
 function startWorkers(state: EngineState, engine: PostgresQueueEngine) {
   if (!state.workers || state.started === engine) return
   state.started = engine
-  console.info(`[vitehub:queue] Queue uses the postgres provider. Jobs are in ${engine.base}. Every instance of the app takes jobs from it.`)
+  console.info(`[vitehub:queue] Queue uses the postgres driver. Jobs are in ${engine.base}. Every instance of the app takes jobs from it.`)
   engine.start().catch((error: unknown) => {
-    console.error(`[vitehub:queue] The postgres provider cannot start the workers on ${engine.base}.`, error)
+    console.error(`[vitehub:queue] The postgres driver cannot start the workers on ${engine.base}.`, error)
   })
 }
 
@@ -61,6 +64,8 @@ interface ResolvedConnection {
 /**
  * The connection of the jobs: `QUEUE_POSTGRES_URL` when it is set, else the postgres.js client of the Database that the
  * build found on Postgres. The jobs then use the connection that the Database resolves, whatever variable it reads.
+ * Another driver, such as a node-postgres Pool, cannot run the jobs, so they get a postgres.js client on the connection
+ * URL of the Database.
  */
 export async function resolvePostgresQueueConnection(
   config: { database?: string },
@@ -76,6 +81,9 @@ export async function resolvePostgresQueueConnection(
     const entry = (await databases())[config.database]
     const client: unknown = entry ? Reflect.get(entry.db, "$client") : undefined
     if (isPostgresQueueSql(client)) return { connection: { client }, key: client }
+    const readUrl: unknown = entry ? Reflect.get(entry.db, databaseConnectionUrl) : undefined
+    const databaseUrl: unknown = typeof readUrl === "function" ? readUrl() : undefined
+    if (typeof databaseUrl === "string") return { connection: { url: databaseUrl }, key: databaseUrl }
   }
   throw queueErrorDiagnostics.QUEUE_POSTGRES_MISSING_CONNECTION({ database: config.database })
 }
@@ -105,7 +113,7 @@ function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngi
     state.current = { engine, key }
     if (previous) {
       const closing = previous.close().catch((error: unknown) => {
-        console.error("[vitehub:queue] The postgres provider cannot close its previous connection.", error)
+        console.error("[vitehub:queue] The postgres driver cannot close its previous connection.", error)
       }).finally(() => retiring.delete(closing))
       retiring.add(closing)
     }
@@ -116,9 +124,9 @@ function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngi
   return pending
 }
 
-export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProviderOptions): Promise<QueueClient> {
-  if (options.provider !== "postgres") {
-    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "postgres", provider: options.provider })
+export async function createPostgresQueueRuntimeClient(options: QueueRuntimeDriverOptions): Promise<QueueClient> {
+  if (options.driver !== "postgres") {
+    throw queueErrorDiagnostics.QUEUE_DRIVER_MISMATCH({ driver: options.driver, expected: "postgres" })
   }
   if (!options.queue) throw queueErrorDiagnostics.QUEUE_MISSING_QUEUE()
   return createPostgresQueueClient(await usePostgresQueueEngine(options), options.queue, () => usePostgresQueueEngine(options))
@@ -130,13 +138,13 @@ export async function createPostgresQueueRuntimeClient(options: QueueRuntimeProv
  * the jobs are.
  */
 export function startPostgresQueue(config: false | QueueRuntimeOptions, databases?: PostgresQueueDatabasesLoader): void {
-  if (config === false || config.provider !== "postgres") return
+  if (config === false || config.driver !== "postgres") return
   assertOpen()
   loadDatabases = databases
   engineState(config).workers = true
   setQueueRuntimeJobStore(() => usePostgresQueueEngine(config))
   usePostgresQueueEngine(config).catch((error: unknown) => {
-    console.error("[vitehub:queue] The postgres provider cannot start the workers.", error)
+    console.error("[vitehub:queue] The postgres driver cannot start the workers.", error)
   })
 }
 

@@ -35,7 +35,8 @@ export default defineConfig({
         }
       : {
           agent: host === "netlify" ? { invocations: false } : true,
-          workflow: host === "netlify" ? false : true,
+          // On Node the Agent turns Workflow on by itself and runs it inline. Turning it on here would need a provider.
+          ...(host === "node" ? {} : { workflow: host !== "netlify" }),
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),
   })],

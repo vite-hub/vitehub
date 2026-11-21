@@ -1,6 +1,9 @@
-import type { KVListOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
+import type { KVPageOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { chunks } from "./batch.ts"
 
 /** The table that keeps the keys of every `database` store. Each store has its rows under its own `namespace`. */
 export const kvTable = "vitehub_kv"
@@ -55,6 +58,8 @@ export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClie
 /** Once cleanup catches up, wait this long before checking for newly expired keys. */
 const sweepIntervalMs = 60_000
 const sweepBatchSize = 1000
+/** Rows per batch statement. It keeps the parameters below SQLite's oldest limit of 999. */
+const batchRows = 200
 
 function ttlMilliseconds(ttl: number): number {
   if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
@@ -85,7 +90,8 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
   let sweeping = false
-  let sweepWarned = false
+  /** The sweep failed and has not run since. A streak of failures logs once. */
+  let sweepFailing = false
 
   async function ready(): Promise<KVSqlClient> {
     pending ??= (async () => {
@@ -131,7 +137,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   /**
    * Deletes expired rows of this namespace in background batches. A full batch lets the next write sweep again;
    * otherwise cleanup waits a minute. Reads already skip expired rows. A failed sweep, for example on a lock
-   * timeout, does not fail the write that runs it. It warns once and runs again a minute later.
+   * timeout, does not fail the write that runs it. It runs again a minute later, and a streak of failures logs once.
    */
   async function sweep(): Promise<void> {
     if (sweeping || Date.now() - sweptAt < sweepIntervalMs) return
@@ -143,11 +149,17 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const rows = await query(`delete from ${table} where (namespace, "key") in (
         select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit ${sweepBatchSize}${lock}
       ) returning 1`, [namespace])
+      sweepFailing = false
       if (rows.length === sweepBatchSize) sweptAt = 0
     }
     catch (error) {
-      if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
-      sweepWarned = true
+      if (!sweepFailing) {
+        // A write starts the sweep in the background, after its request may have answered. No `waitUntil()` reaches it.
+        logFailure({ field: "kv", fields: { op: "expiry-sweep", driver: "database", namespace }, message: "KV could not delete expired rows", error }, () => {
+          console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
+        })
+      }
+      sweepFailing = true
     }
     finally {
       sweeping = false
@@ -166,6 +178,22 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     return rows.map(row => String(row.key))
   }
 
+  async function upsert(items: readonly { key: string, value: string }[], setOptions: { ttl?: unknown } | undefined): Promise<void> {
+    void sweep()
+    const ttl = setOptions?.ttl
+    // Like other unstorage drivers, no TTL or 0 keeps the key.
+    if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
+    const ms = typeof ttl === "number" && ttl !== 0 ? ttlMilliseconds(ttl) : undefined
+    const row = `(?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})`
+    for (const batch of chunks(items, batchRows)) {
+      await query(
+        `insert into ${table} (namespace, "key", value, expires_at) values ${batch.map(() => row).join(", ")}
+         on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at`,
+        batch.flatMap(item => ms === undefined ? [namespace, item.key, item.value] : [namespace, item.key, item.value, ms]),
+      )
+    }
+  }
+
   const driver: KVRuntimeDriver = {
     name: "vitehub-kv-database",
     options,
@@ -176,18 +204,21 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const [row] = await query(`select value from ${table} where namespace = ? and "key" = ? and ${live}`, [namespace, key])
       return row ? String(row.value) : null
     },
-    async setItem(key, value, setOptions?: { ttl?: unknown }) {
-      void sweep()
-      const ttl = setOptions?.ttl
-      // Like other unstorage drivers, no TTL or 0 keeps the key.
-      if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
-      const ms = typeof ttl === "number" && ttl !== 0 ? ttlMilliseconds(ttl) : undefined
-      await query(
-        `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})
-         on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at`,
-        ms === undefined ? [namespace, key, value] : [namespace, key, value, ms],
-      )
+    // One query per 200 keys.
+    async getItems(items) {
+      const values = new Map<string, string>()
+      for (const batch of chunks([...new Set(items.map(item => item.key))], batchRows)) {
+        const rows = await query(
+          `select "key", value from ${table} where namespace = ? and "key" in (${batch.map(() => "?").join(", ")}) and ${live}`,
+          [namespace, ...batch],
+        )
+        for (const row of rows) values.set(String(row.key), String(row.value))
+      }
+      return items.map(item => ({ key: item.key, value: values.get(item.key) ?? null }))
     },
+    setItem: (key, value, setOptions?: { ttl?: unknown }) => upsert([{ key, value }], setOptions),
+    // One statement per 200 entries. kv.setMany() passes each key once, as one statement cannot update a row twice.
+    setItems: (items, setOptions?: { ttl?: unknown }) => upsert(items, setOptions),
     async removeItem(key) {
       await query(`delete from ${table} where namespace = ? and "key" = ?`, [namespace, key])
     },
@@ -196,7 +227,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const [filter, params] = prefixFilter(base)
       await query(`delete from ${table} where namespace = ?${filter}`, [namespace, ...params])
     },
-    async listKeys({ cursor, limit, prefix }: KVListOptions): Promise<KVListPage> {
+    async listKeys({ cursor, limit, prefix }: KVPageOptions): Promise<KVListPage> {
       const after = decodeCursor(cursor)
       const [filter, params] = prefixFilter(prefix)
       const rows = await query(

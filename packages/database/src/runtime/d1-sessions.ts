@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 
@@ -29,13 +29,13 @@ export function d1BookmarkCookieName(binding: string) {
 function readCookie(headers: Headers, name: string) {
   for (const part of headers.get("cookie")?.split(";") ?? []) {
     const separator = part.indexOf("=")
-    if (separator !== -1 && part.slice(0, separator).trim() === name) {
-      try {
-        return decodeURIComponent(part.slice(separator + 1).trim()) || undefined
-      }
-      catch {
-        return undefined
-      }
+    if (separator === -1 || part.slice(0, separator).trim() !== name) continue
+    try {
+      const value = decodeURIComponent(part.slice(separator + 1).trim())
+      if (value) return value
+    }
+    catch {
+      // A browser can send the cookie twice, for example from two paths. A malformed copy must not hide a valid one.
     }
   }
 }

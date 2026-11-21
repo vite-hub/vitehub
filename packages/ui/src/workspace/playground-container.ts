@@ -16,6 +16,7 @@ import {
   watch,
 } from "vue";
 import { useCopy } from "../components/copy-button.ts";
+import { ring } from "../motion/helpers/ring.ts";
 import { Status } from "../components/status.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, type PlaygroundFiles, playgroundLinkLimit, playgroundUrl, readPlaygroundHash } from "../playground/share.ts";
@@ -26,7 +27,7 @@ import { useConnectStore } from "./connect-store.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
-import { WorkspacePreview } from "./workspace-preview.ts";
+import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
@@ -163,6 +164,8 @@ const PlaygroundSession = defineComponent({
     const workspace = useWebContainer({
       files: props.files,
       port: props.port,
+      // The browser frame of the preview reads the page address and goes Back and Forward through this script.
+      previewScript: workspacePreviewScript,
       env: props.connect && store.env(props.connect),
       ...booted.snapshot && { snapshot: booted.snapshot, install: sameManifest ? false : "install" },
     });
@@ -214,7 +217,9 @@ const PlaygroundSession = defineComponent({
       selected.value = firstFile(next, next.files);
       previewPath.value = next.preview ?? "/";
       emit("change", next);
-      await workspace.setFiles(next.files, { mode: "replace" });
+      // A failed write is in the terminal. The files on disk are not the template's, so the server does not start again.
+      try { await workspace.setFiles(next.files, { mode: "replace" }); }
+      catch { return; }
       // The Vite config can differ, so the dev server starts again.
       await workspace.restart();
     }
@@ -230,7 +235,7 @@ const PlaygroundSession = defineComponent({
     // Copy link writes the share link. A link that chat apps would cut says so, in place of a toast.
     const { copy, copied } = useCopy();
     const problem = ref<string>();
-    async function copyLink() {
+    async function copyLink(button: EventTarget | null) {
       problem.value = undefined;
       const code = await encodePlaygroundLink({ template: template.value.id, files: workspace.files.value }, template.value.files);
       const url = `${location.origin}${playgroundUrl(location.pathname, code)}`;
@@ -238,7 +243,7 @@ const PlaygroundSession = defineComponent({
         problem.value = `This link would have ${(url.length / 1000).toFixed(1)} KB, and a share link can have ${playgroundLinkLimit / 1000} KB. Download the files instead.`;
         return;
       }
-      await copy(url);
+      if (await copy(url) && button instanceof HTMLElement) ring(button);
     }
 
     const context = reactive({
@@ -253,7 +258,8 @@ const PlaygroundSession = defineComponent({
 
     const source = computed({
       get: () => workspace.files.value[selected.value] ?? "",
-      set: value => void workspace.setFiles({ [selected.value]: value }),
+      // A failed write is in the terminal, and the next edit writes the file again.
+      set: value => void workspace.setFiles({ [selected.value]: value }).catch(() => {}),
     });
 
     const hasConnect = computed(() => (props.connect?.providers.length ?? 0) > 0);
@@ -306,7 +312,7 @@ const PlaygroundSession = defineComponent({
         ...props.share
           ? [
               h(UButton, { color: "neutral", icon: "i-lucide-download", label: "Download", size: "sm", variant: "ghost", onClick: () => downloadZip(workspace.files.value, zipName(props.name, template.value)) }),
-              h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Link copied" : "Copy link", size: "sm", variant: "outline", onClick: () => void copyLink() }),
+              h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Link copied" : "Copy link", size: "sm", variant: "outline", onClick: (event: MouseEvent) => void copyLink(event.currentTarget) }),
             ]
           : [],
         more,
@@ -500,7 +506,10 @@ export const PlaygroundContainer = defineComponent({
       const phone = h("aside", { class: "vh-pc-card vh-pc-phone" }, [
         h("p", { class: "vh-pc-strong" }, `The live ${props.label} runs in a desktop browser. Open this page on a desktop to edit and run the code.`),
         h("div", { class: "vh-pc-actions" }, [
-          h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Copied" : "Copy link", size: "sm", variant: "outline", onClick: () => void copyPage(location.href) }),
+          h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Copied" : "Copy link", size: "sm", variant: "outline", onClick: (event: MouseEvent) => {
+            const button = event.currentTarget;
+            void copyPage(location.href).then(ok => ok && button instanceof HTMLElement && ring(button));
+          } }),
           downloadButton(),
         ]),
       ]);

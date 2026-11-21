@@ -19,8 +19,10 @@ icon: i-lucide-circle-alert
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -51,8 +53,8 @@ Config errors throw instead, such as an unknown queue name or a missing Cloudfla
 | `QUEUE_PROVIDER_FAILED` | Every send method | `useQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `sendQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
-| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_DRIVER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_DRIVER`, `QUEUE_MISSING_DRIVER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
 
 ### Errors in a Queue handler
 
@@ -79,7 +81,7 @@ A Vercel response with `messageId: null` means the job is accepted for later pro
 
 ### QUEUE_UNSUPPORTED_OPTION
 
-The provider does not support an option. Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel rejects `contentType`. The local provider rejects `contentType`, `region`, and `retentionSeconds`. See [Queue Enqueue options](/docs/queue/server-api#queue-enqueue-options).
+The provider does not support an option. Cloudflare rejects `idempotencyKey`, `region`, and `retention`. Vercel rejects `contentType`. The local provider rejects `contentType`, `region`, and `retention`. Every provider rejects `delaySeconds` and `retentionSeconds`, which are now `delay` and `retention`. See [Queue Enqueue options](/docs/queue/server-api#queue-enqueue-options).
 
 ## Configuration errors
 
@@ -97,7 +99,7 @@ No queue has this name, or a Cloudflare queue maps to no Queue Definition. `erro
 
 ### QUEUE_DISABLED
 
-The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.provider` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
+The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.driver` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
 
 ### QUEUE_INVALID_BINDING
 
@@ -109,7 +111,7 @@ A process has one local engine per folder. Clients that ask for different dev er
 
 ### QUEUE_MISSING_QUEUE
 
-A direct local client from `createQueueClient({ provider: 'local' })` needs `queue`, the name of the queue that runs the jobs. `useQueue()` sets it for you.
+A direct local client from `createQueueClient({ driver: 'local' })` needs `queue`, the name of the queue that runs the jobs. `useQueue()` sets it for you.
 
 ### QUEUE_MISSING_REGION
 
@@ -131,9 +133,9 @@ The Postgres Queue runtime is shutting down. It rejects new sends and connection
 
 The postgres provider has no connection. It uses the Default Database's connection when the build found it on Postgres, and `QUEUE_POSTGRES_URL` otherwise. Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server.
 
-### QUEUE_PROVIDER_MISMATCH
+### QUEUE_DRIVER_MISMATCH
 
-The generated runtime got another provider. Set `queue.provider` to match the deployment host, and build again.
+The generated runtime got another driver. Set `queue.driver` to match the deployment host, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
@@ -167,19 +169,19 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 ### QUEUE_INVALID_DEFINITION
 
-`defineQueue()` received no handler function.
+`defineQueue()` did not receive one object with a `handler` function, or the object has an option that Queue does not know. The former `defineQueue(handler, options)` form fails with this code too. Run `npx vitehub migrate` to move it to `defineQueue({ handler, ...options })`.
 
 ### QUEUE_INVALID_NAME
 
 The generated Cloudflare queue name has characters that Cloudflare rejects. Use only letters, numbers, and dashes in `queue.namePrefix`.
 
-### QUEUE_INVALID_PROVIDER
+### QUEUE_INVALID_DRIVER
 
-`queue.provider` is not `cloudflare`, `vercel`, or `local`.
+`queue.driver` is not `cloudflare`, `local`, `postgres`, or `vercel`.
 
-### QUEUE_MISSING_PROVIDER
+### QUEUE_MISSING_DRIVER
 
-ViteHub cannot pick a provider for the host, such as Netlify or Deno. Set `queue.provider`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
+ViteHub cannot pick a driver for the host, such as Netlify or Deno. Set `queue.driver`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 
@@ -195,13 +197,13 @@ The `hubQueue()` plugin does not expose the Queue Nitro config, because the app 
 
 ## Local delivery
 
-The local provider is the Node host's provider when the app has no Postgres Database. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare, Vercel, and postgres apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
+The local driver is the Node host's driver when the app has no Postgres Database. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare, Vercel, and postgres apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
 
 - `sendQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server then runs the queue.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs per queue and deletes older ones. `vitehub queue list` counts them and shows the limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes them.
 - The attempt count is saved before the handler runs. If the process stops during a handler, the job runs again after restart with the next attempt number. If it stopped during the fourth attempt, the job becomes dead, so a handler that crashes the process cannot run on every restart.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before it saves completion, or if deleting the job and saving its state both fail. Make side effects safe to repeat.
-- `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at once. A dead job frees its key, so a new send with it runs.
+- `delay` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at once. A dead job frees its key, so a new send with it runs.
 - `sendBatch()` stores all jobs or none. If one file fails, it returns `QUEUE_PROVIDER_FAILED` and removes the batch's other files, so a retry does not store jobs twice.
 - `concurrency` limits how many jobs of one queue run at once. The default is 1. The local provider does not call `onError` or `callbackOptions`.
 - Jobs survive a restart on the same host and disk. A temporary container filesystem loses them, and other hosts cannot see them. In Docker, mount `.vitehub/data` as a volume.
@@ -211,7 +213,7 @@ The local provider is the Node host's provider when the app has no Postgres Data
 
 ## Postgres delivery
 
-The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. `QUEUE_POSTGRES_URL` on the server overrides it. Retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
+The postgres provider keeps jobs in the `vitehub_queue_jobs` table of a Postgres database, and every server process of the app runs them. It uses the Default Database's connection, so it reads the same variable or URL as the Database. When the Database sets `driver: 'node-postgres'`, it opens its own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides the connection. Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow [Local delivery](#local-delivery), with these differences:
 
 - The first server to start creates the table and its indexes under a transaction lock, so servers that start at once do not race.
 - A worker claims due jobs with `FOR UPDATE SKIP LOCKED`, so instances cannot take a job while its claim is held. A send wakes all workers at once with `NOTIFY`. Without one, a worker checks for due jobs every second.
@@ -229,11 +231,11 @@ In `vite dev` and `nuxt dev`, every app runs its jobs in the dev server with the
 | --- | --- | --- | --- |
 | Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
 | Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |
-| Largest `delaySeconds` | 86400 (24 hours) | 604800 (7 days) | No limit |
-| Retention | None | `retentionSeconds` from 60 to 604800, default 86400 | None |
+| Largest `delay` | `'24h'` (86400 seconds) | `'7d'` (604800 seconds) | No limit |
+| Retention | None | `retention` from `'1m'` to `'7d'`, default `'1d'` | None |
 | Largest payload | 128 KB of JSON | 100 MB of JSON | No limit |
 | Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
-| Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
+| Rejected options | `idempotencyKey`, `region`, `retention` | `contentType` | `contentType`, `region`, `retention` |
 
 The rules come from the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails the send with [`QUEUE_PROVIDER_FAILED`](#queue_provider_failed), and `error.cause` names the limit. A rejected option fails with [`QUEUE_UNSUPPORTED_OPTION`](#queue_unsupported_option) and names the build's provider, as on the host.
 
@@ -246,7 +248,7 @@ Dev differs from the host:
 - `idempotencyKey` deduplicates only while a job is pending or running. Vercel does it for the retention time, up to 24 hours.
 - `useQueue()` returns the local client, so `client.provider` is `'local'`.
 
-`vitehub queue jobs list|show|retry|clear` and the Console read stored jobs through the `queue.jobs-*` operations. In `vite dev`, a plain `Error` from a handler reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and message there. A production local server that reopens jobs stored by `vite dev` hides their stored errors that have no code. Queue errors and `ViteHubError` keep their code and message.
+`vitehub queue jobs list|get|retry|clear` and the Console read stored jobs through the `queue.jobs-*` operations. In `vite dev`, a plain `Error` from a handler reports its message and stack, and `jobs get` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and message there. A production local server that reopens jobs stored by `vite dev` hides their stored errors that have no code. Queue errors and `ViteHubError` keep their code and message.
 
 On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. An unknown message ID fails with `QUEUE_JOB_NOT_FOUND`. `retry` on a running job fails with `QUEUE_JOB_RUNNING`.
 
@@ -254,6 +256,6 @@ On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, b
 
 - A successful `sendQueue()` means the provider accepted the job. Track results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - A job can arrive more than once. Make handlers safe to rerun after a partial side effect.
-- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --provider cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
+- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --host cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
 - The local provider keeps jobs on one host. See [Local delivery](#local-delivery).
 - Vercel needs the generated topic, the `@vercel/queue` runtime, and a region if your SDK version needs one.

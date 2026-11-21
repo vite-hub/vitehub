@@ -22,8 +22,20 @@ declare module "#docs/example-sources" {
   export default examples
 }
 
-/** The docs Markdown files packed into one module in a production build, or null in development. */
+/** The size of each picture in the `public/` folders of the app and its layers, by its URL path. */
+declare module "#docs/image-sizes" {
+  const sizes: import("../../markdown.ts").DocsImageSizes
+  export default sizes
+}
+
+/** The `llms` option of the docs module. */
+declare module "#docs/agent" {
+  const agent: { llms: import("../../nuxt.ts").DocsLlmsOptions }
+  export default agent
+}
+
+/** The docs Markdown files: packed into one module in a production build, loaded one by one in development. */
 declare module "#docs/files" {
-  const files: import("../../files.ts").DocsPackedFiles | null
+  const files: import("../../files.ts").DocsFiles
   export default files
 }

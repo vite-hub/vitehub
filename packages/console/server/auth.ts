@@ -2,12 +2,15 @@ import { passkey } from "@better-auth/passkey"
 import { organization } from "better-auth/plugins"
 import { defineAuth } from "vite-hub/auth"
 import { authDatabase } from "vite-hub/auth/database"
+import { mcpOAuth } from "vite-hub/auth/mcp"
+import { useDatabase } from "vite-hub/database"
 
 import { adoptGitHubEmail, passkeySignUp, sessionTeam } from "../src/accounts.ts"
+import { consoleCliDeviceFlow, consoleDeviceDisabledPaths } from "../src/device.ts"
 import { keepConsoleSignInMethod } from "../src/sign-in-methods.ts"
 
 // Anyone can sign up with GitHub or a passkey. Each account gets a personal team, and projects belong to teams.
-export default defineAuth(({ env }) => ({
+export default defineAuth(({ env, requestOrigin }) => ({
   appName: "ViteHub Console",
   database: authDatabase(),
   socialProviders: env.auth.github.clientId
@@ -16,6 +19,8 @@ export default defineAuth(({ env }) => ({
   // A passkey account links GitHub later. Its email is a placeholder, so the GitHub email cannot match it. The account
   // hook then gives it the verified GitHub email.
   account: { accountLinking: { allowDifferentEmails: true } },
+  // The CLI gets an API key from /cli/token, approved with a team on /cli/approve, never a session.
+  disabledPaths: [...consoleDeviceDisabledPaths],
   databaseHooks: {
     // A link creates the account, and connecting GitHub again updates it. Both retry the email of a passkey account.
     account: {
@@ -43,5 +48,10 @@ export default defineAuth(({ env }) => ({
     organization({ creatorRole: "owner" }),
     passkey({ rpName: "ViteHub Console", registration: passkeySignUp }),
     keepConsoleSignInMethod(),
+    // `vitehub login`: the device flow of RFC 8628. The person approves on /device (server/routes/device.ts).
+    ...consoleCliDeviceFlow({ database: () => useDatabase("default").db }),
+    // MCP clients sign in to /mcp/account with OAuth. /oauth is the sign-in and consent page (server/routes/oauth.ts).
+    // The page shows the name that the client registered before the person signs in.
+    ...mcpOAuth({ loginPage: "/oauth", provider: { allowPublicClientPrelogin: true }, resource: `${requestOrigin}/mcp/account` }),
   ],
 }))

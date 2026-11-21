@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
@@ -22,6 +24,27 @@ describe("Sandbox runtime selection", () => {
     }, {});
 
     expect(sandbox.plan.runtime).toBe("trusted-host");
+  });
+
+  it("captures tagged runtime options when each resolution starts", async () => {
+    const firstRoot = join(tmpdir(), "vitehub-runtime-selection-first");
+    const secondRoot = join(tmpdir(), "vitehub-runtime-selection-second");
+    const runtime = { kind: "trusted-host" as const, stateRoot: firstRoot };
+    const definition = {
+      runtime,
+      home: { state: { ".cache": { key: "runtime-selection" } } },
+    };
+
+    const firstPending = resolveSandbox(definition, {});
+    runtime.stateRoot = secondRoot;
+    const secondPending = resolveSandbox(definition, {});
+    const [first, second] = await Promise.all([firstPending, secondPending]);
+
+    const expectedFirst = await resolveSandbox({ ...definition, runtime: { ...runtime, stateRoot: firstRoot } }, {});
+    const expectedSecond = await resolveSandbox(definition, {});
+    expect(first.plan.home.state).toEqual(expectedFirst.plan.home.state);
+    expect(second.plan.home.state).toEqual(expectedSecond.plan.home.state);
+    expect(first.plan.home.state).not.toEqual(second.plan.home.state);
   });
 
   it("rejects unknown built-ins and reserved custom runtime names", async () => {
@@ -136,11 +159,15 @@ describe("Sandbox runtime selection", () => {
 
   it("loads optional provider peers only where their runtime needs them", async () => {
     const dist = new URL("../dist/", import.meta.url);
-    const [index, cloudflare, vercel] = await Promise.all([
+    const [index, cloudflare, vercelEntry] = await Promise.all([
       readFile(new URL("index.js", dist), "utf8"),
       readFile(new URL("internal/cloudflare.js", dist), "utf8"),
       readFile(new URL("internal/vercel.js", dist), "utf8"),
     ]);
+    // `resolveSandbox({ runtime: "vercel" })` and Sandbox Tasks share the chunk of `createVercelRuntime`.
+    const vercelRuntimeChunk = vercelEntry.match(/createVercelRuntime } from "(\.\.\/vercel-[^"]+\.js)"/)?.[1];
+    expect(index).toContain(`import("${vercelRuntimeChunk?.slice(1)}")`);
+    const vercel = await readFile(new URL(vercelRuntimeChunk!, new URL("internal/", dist)), "utf8");
 
     expect(index).not.toContain("@cloudflare/sandbox");
     expect(index).not.toContain("@vercel/sandbox");
@@ -148,6 +175,8 @@ describe("Sandbox runtime selection", () => {
     expect(cloudflare).not.toContain("@cloudflare/sandbox");
     expect(cloudflare).not.toContain("@vercel/sandbox");
     expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
+    // Sandbox Tasks reach the SDK through the same loader as `resolveSandbox()`.
+    expect(vercelEntry).not.toContain("@vercel/sandbox");
     expect(vercel).not.toContain("@cloudflare/sandbox");
   });
 });

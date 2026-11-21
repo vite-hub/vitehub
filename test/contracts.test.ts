@@ -46,7 +46,8 @@ function exportTarget(rawTarget: unknown) {
 
 function hasExport(packageName: string, specifier: string) {
   const manifest = readPackageManifest(packageInfoByPublishName(packageName).name)
-  const subpath = specifier.slice(packageName.length)
+  // Vite resource queries select a loader; they are not part of the package export.
+  const subpath = specifier.split("?")[0]!.slice(packageName.length)
 
   if (!subpath) {
     return true
@@ -103,8 +104,8 @@ describe("package manifest contracts", () => {
         }
       }
       expect(manifest.type).toBe("module")
-      // Presets have one subpath per preset and no root entry.
-      const subpathOnly = packageName === "presets"
+      // Presets and kit expose only subpaths, with no root entry.
+      const subpathOnly = packageName === "presets" || packageName === "kit"
       expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))
@@ -216,9 +217,28 @@ describe("package manifest contracts", () => {
       for (const peer of appPeers) {
         const specifier = peers[peer]
         if (!specifier) continue
-        expect(catalogRange(peer, specifier), `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+        const range = catalogRange(peer, specifier)
+        expect(semver.validRange(range) !== null && semver.valid(range) === null, `${packageName} peer ${peer} (${specifier}) should be a range`).toBe(true)
       }
     }
+  })
+
+  it("declares Drizzle peer ranges whose highest published match is the version that ViteHub tests", () => {
+    // Drizzle publishes snapshot builds such as 1.0.0-rc.5-ab785fc. Semver ranks them above 1.0.0-rc.5, so pnpm
+    // installs one for `>=1.0.0-rc.5`. That snapshot has no drizzle-orm/d1/codecs, and an Agent build stops with MISSING_EXPORT.
+    const published = ["0.45.4", "1.0.0-rc.4", "1.0.0-rc.4-fb12281", "1.0.0-rc.5", "1.0.0-rc.5-169397b", "1.0.0-rc.5-5935859", "1.0.0-rc.5-ab785fc"]
+    const peers = ["drizzle-orm", "drizzle-kit"] as const
+    const checked: string[] = []
+    for (const packageName of packageNames) {
+      for (const peer of peers) {
+        const specifier = readPackageManifest(packageName).peerDependencies?.[peer]
+        if (!specifier) continue
+        checked.push(packageName)
+        const range = catalogRange(peer, specifier)
+        expect(semver.maxSatisfying(published, range), `${packageName} peer ${peer}@${range} installs this version`).toBe(catalogRange(peer, "catalog:database"))
+      }
+    }
+    expect(checked).toEqual(expect.arrayContaining(["agent", "database"]))
   })
 
   it("declares peer ranges that accept the versions that sibling packages depend on", () => {
@@ -340,7 +360,7 @@ describe("docs import contracts", () => {
     const documented = new Set([...reference.matchAll(/`(vite-hub(?:\/[^`]+)?)`/g)].map(match => match[1]))
 
     for (const subpath of Object.keys(manifest.exports || {})) {
-      if (subpath === "./package.json" || subpath.startsWith("./_internal/")) continue
+      if (subpath === "./package.json") continue
       const specifier = subpath === "." ? "vite-hub" : `vite-hub/${subpath.slice(2)}`
       expect(documented, `Missing framework import reference: ${specifier}`).toContain(specifier)
     }
@@ -355,7 +375,7 @@ describe("docs import contracts", () => {
     const importPattern = /(?:from\s+|import\s+)['"]((?:@vite-hub\/[^'"]+)|(?:vite-hub(?:\/[^'"]+)?))['"]/g
 
     for (const file of markdownFiles) {
-      const source = readFileSync(file, "utf8")
+      const source = readFileSync(file, "utf8").replace(/^```diff\b[^\n]*\n[\s\S]*?^```/gm, diff => diff.replace(/^-.*$/gm, ""))
       for (const match of source.matchAll(importPattern)) {
         const specifier = match[1]
         if (specifier) {

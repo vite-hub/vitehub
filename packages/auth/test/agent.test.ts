@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { agentAuth, authenticated } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
+import { returnHeaders } from "./session-result.ts"
 
 const serverMocks = vi.hoisted(() => ({
   findUserById: vi.fn(),
@@ -11,7 +13,7 @@ const serverMocks = vi.hoisted(() => ({
   getSession: vi.fn(),
 }))
 
-vi.mock("../src/server.ts", () => ({
+vi.mock("../src/internal/server.ts", () => ({
   getAuth: () => ({
     $context: Promise.resolve({ internalAdapter: { findUserById: serverMocks.findUserById } }),
     api: {
@@ -64,7 +66,7 @@ describe("authenticated", () => {
     serverMocks.useAuth.mockReset()
     serverMocks.useAuth.mockReturnValue({
       api: {
-        getSession: serverMocks.getSession,
+        getSession: returnHeaders(serverMocks.getSession),
       },
     })
   })
@@ -86,12 +88,32 @@ describe("authenticated", () => {
         disableCookieCache: true,
         disableRefresh: true,
       },
+      returnHeaders: true,
     })
     expect(invoker).toMatchObject({
       id: "user_0",
       kind: "authUser",
       label: "auth@example.com",
     })
+  })
+
+  it("sends the cookie deletions of an ended session with the response of the Agent route", async () => {
+    const request = new Request("https://example.com/api/agent", {
+      headers: { cookie: "better-auth.session_token=ended" },
+    })
+    const headers = new Headers({ "set-cookie": "better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax" })
+    // Like Better Auth: the cookies of the read come back only with `returnHeaders`.
+    serverMocks.useAuth.mockReturnValue({
+      api: {
+        getSession: async ({ returnHeaders }: { returnHeaders?: boolean }) => returnHeaders ? { headers, response: null } : null,
+      },
+    })
+
+    await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
+
+    const response = getStandardContext(request).res
+    expect(response.headers?.getSetCookie()).toEqual(["better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"])
+    expect(response.headers?.get("cache-control")).toBe("no-store")
   })
 
   it("maps an authenticated Better Auth session to an Agent Invoker by default", async () => {
@@ -436,18 +458,18 @@ describe("agentAuth", () => {
   })
 
   it("follows authenticated() from the chat request to the Auth user, and gives anonymous and Channel Actors null", async () => {
-    serverMocks.useAuth.mockReturnValue({ api: { getSession: serverMocks.getSession } })
+    serverMocks.useAuth.mockReturnValue({ api: { getSession: returnHeaders(serverMocks.getSession) } })
     serverMocks.findUserById.mockImplementation(async (id: string) => id === "user_1" ? { email: "editor@example.com", id, role: "editor" } : null)
 
     // A signed-in chat request: the session becomes the Actor, and agentAuth reads its user again from the database.
     serverMocks.getSession.mockResolvedValueOnce({ session: { id: "session_1" }, user: { email: "editor@example.com", id: "user_1" } })
-    const chat = new Request("https://example.com/api/_vitehub/agents/editor/chat", { headers: { cookie: "better-auth.session_token=token_1" } })
+    const chat = new Request("https://example.com/_vitehub/agents/editor/chat", { headers: { cookie: "better-auth.session_token=token_1" } })
     const actor = await resolve(authenticated({ required: false }), createContext({ request: chat }))
     await expect(agentAuth.user(actor)).resolves.toEqual({ email: "editor@example.com", id: "user_1", role: "editor" })
 
     // An anonymous chat request keeps the default Actor, which stands for no Auth user.
     serverMocks.getSession.mockResolvedValueOnce(null)
-    const anonymous = new Request("https://example.com/api/_vitehub/agents/editor/chat")
+    const anonymous = new Request("https://example.com/_vitehub/agents/editor/chat")
     await expect(resolve(authenticated({ required: false }), createContext({ request: anonymous }))).resolves.toBeUndefined()
     await expect(agentAuth.user(defaultInvoker)).resolves.toBeNull()
 

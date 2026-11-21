@@ -1,16 +1,6 @@
-import {
-  BranchMovedError,
-  forgeArchive,
-  forgeBlob,
-  forgeCommitFiles,
-  forgeEnv,
-  forgeErrorStatus,
-  forgeProvider,
-  readForgeEnv,
-  useForge,
-  withSignal,
-} from "@vite-hub/forge";
-import type { Forge, ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
+import type { Forge, ForgeFileChange, ForgeFileMode, GitHubProvider } from "@vite-hub/forge";
+import { abortable } from "@vite-hub/internal/abort";
+import { forgeEnv, forgeErrorStatus, forgeImportError, readForgeEnv } from "@vite-hub/internal/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
@@ -21,18 +11,17 @@ import type { GitHubReadMemory } from "./cache.ts";
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption, GitHubWorkspaceRefs } from "../../core/types.ts";
+import type { GitHubWorkspaceOption, GitHubWorkspaceRefs, WorkspaceAuthor } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
   refs?: GitHubWorkspaceRefs;
   repo?: GitHubWorkspaceOption;
-  repository?: GitHubWorkspaceOption;
   root?: GitHubWorkspaceOption;
   token?: GitHubWorkspaceOption;
 }
 
-export type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>;
+export type { GitHubProvider };
 type GitHubRepoRef = Parameters<GitHubProvider["repos"]["get"]>[0];
 export type GitFileMode = ForgeFileMode;
 
@@ -130,9 +119,19 @@ async function sendGitHub(input: string | URL | Request, init: RequestInit): Pro
   }
 }
 
-/** A lazy connection: the repository name is checked on the first request. */
+/** `@vite-hub/forge`, an optional peer. A GitHub Workspace loads it on its first request. */
+export async function loadForge(): Promise<typeof import("@vite-hub/forge")> {
+  // The import stays in the try, so esbuild leaves it for run time when the app did not install Forge.
+  try {
+    return await import("@vite-hub/forge");
+  }
+  catch (error) {
+    throw forgeImportError(error, "A GitHub Workspace");
+  }
+}
+
 /** How the Store signs in to GitHub: a token, or a GitHub App installation with its own rate limit. */
-export type GitHubCredential = { token: string } | { app: Forge<"github"> };
+export type GitHubCredential = { token: string } | { app: () => Promise<Forge<"github">> };
 
 /**
  * A lazy connection: the repository name is checked on the first request. A GitHub App credential mints an
@@ -146,7 +145,7 @@ export function connectGitHubRepository(repository: string, credential: string |
   const fetch = async (input: string | URL | Request, init?: RequestInit) => await requestGitHub(input, init, memory);
   const token = async (): Promise<string> => {
     if ("token" in signIn) return signIn.token;
-    const [error, minted] = await signIn.app.token({ repository });
+    const [error, minted] = await (await signIn.app()).token({ repository });
     if (error) throw workspaceError(`[vitehub] GitHub workspace could not get a GitHub App token for ${repository}: ${error.message}`, { cause: error });
     return minted.token;
   };
@@ -158,7 +157,7 @@ export function connectGitHubRepository(repository: string, credential: string |
       const current = await token();
       if (provider?.token !== current) {
         // Workspace owns conditional reads and immutable KV entries; do not add a second validator layer.
-        const next = { token: current, provider: forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace", conditionalRequests: false }) };
+        const next = { token: current, provider: loadForge().then(async ({ forgeProvider }) => await forgeProvider({ fetch, forge: "github", token: current, userAgent: "vitehub-workspace", conditionalRequests: false })) };
         // A failed load lets the next request try again.
         next.provider.catch(() => {
           if (provider === next) provider = undefined;
@@ -240,14 +239,17 @@ function readLocationEnv(name: string, env: Record<string, string | undefined>):
 /**
  * The GitHub App of the Server Env, when `VITEHUB_GITHUB_APP_ID` is set: its installation tokens have a rate limit of
  * their own, apart from the personal tokens of the people who share an account. Read from the active Cloudflare bindings,
- * then from `env`. `VITEHUB_GITHUB_INSTALLATION_ID` skips the lookup of the installation for the repository.
+ * then from `env`. `useForge()` picks the installation of the repository owner, as `VITEHUB_GITHUB_APP_INSTALLATIONS` and
+ * `VITEHUB_GITHUB_APP_OWNER` set it.
  */
 export function readGitHubEnvApp(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
-): Forge<"github"> | undefined {
+): (() => Promise<Forge<"github">>) | undefined {
   const lookup = (name: string): unknown => getActiveCloudflareBinding<unknown>(name) ?? env[name];
   if (!readForgeEnv(forgeEnv.github.appId, lookup)) return undefined;
-  return useForge({ env: lookup, fetch: requestGitHub, userAgent: "vitehub-workspace" });
+  let forge: Promise<Forge<"github">> | undefined;
+  // One Forge per Store, so its installation tokens stay cached between requests.
+  return () => forge ??= loadForge().then(({ useForge }) => useForge({ env: lookup, fetch: requestGitHub, userAgent: "vitehub-workspace" }));
 }
 
 /** The Server Env GitHub token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`, from the active Cloudflare bindings and then from `env`. */
@@ -265,7 +267,7 @@ export function requireGitHubOption(
 ): string {
   if (!value) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0072({
-      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
+      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repo option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
     });
   }
   return value;
@@ -325,12 +327,16 @@ export function gitFileMode(value: unknown): GitFileMode {
   return value === "120000" || value === "100755" ? value : "100644";
 }
 
+/** Fails when a GitHub store sets the renamed `repository` key, which the store would not read. */
+export function assertNoGitHubRepositoryKey(options: object): void {
+  if (Object.hasOwn(options, "repository")) throw workspaceErrorDiagnostics.WORKSPACE_RENAMED_STORE_REPOSITORY_KEY();
+}
+
 export function resolveGitHubRepositoryOption(
   options: GitHubWorkspaceOptions,
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string | undefined {
   return (
-    resolveGitHubOption(options.repository) ||
     resolveGitHubOption(options.repo) ||
     readLocationEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", env)
   );
@@ -431,6 +437,7 @@ export async function readGitHubFile(
   if (!read) {
     read = githubRequest(repository, async (provider, repo) => {
       // GitHub's Contents API truncates large files. Blob shas identify immutable bytes across repositories.
+      const { forgeBlob } = await loadForge();
       return await forgeBlob(provider, repo, entry.sha);
     }).then(async bytes => {
       if (await gitBlobSha(bytes) !== entry.sha) {
@@ -444,7 +451,7 @@ export async function readGitHubFile(
     githubBlobReads.set(readKey, read);
   }
   // Cancellation stops this caller's wait, not a download shared with other readers.
-  return (await withSignal(read, signal)).slice();
+  return (await abortable(signal, "The GitHub read was aborted.", () => read)).slice();
 }
 
 /** The last archive that each repository connection read, by commit. */
@@ -457,12 +464,13 @@ const lastArchives = new WeakMap<GitHubRepository, { ref: string; bytes: Promise
 export async function readGitHubArchive(repository: GitHubRepository, ref: string, signal?: AbortSignal): Promise<Uint8Array> {
   const pinned = /^[0-9a-f]{40}$/i.test(ref);
   const last = lastArchives.get(repository);
-  if (pinned && last?.ref === ref) return (await withSignal(last.bytes, signal)).slice();
+  if (pinned && last?.ref === ref) return (await abortable(signal, "The GitHub read was aborted.", () => last.bytes)).slice();
   const read = (async () => {
     const kvKey = pinned && hasWorkspaceKV() ? await githubKVKey(repository.name, `archive:${ref}`) : undefined;
     const stored = kvKey ? await readWorkspaceKV<string>(kvKey) : undefined;
     if (stored) return fromBase64(stored);
     const bytes = await githubRequest(repository, async (provider, repo) => {
+      const { forgeArchive } = await loadForge();
       const stream = await forgeArchive(provider, repo, { ref, signal });
       return new Uint8Array(await new Response(stream).arrayBuffer());
     });
@@ -476,7 +484,7 @@ export async function readGitHubArchive(repository: GitHubRepository, ref: strin
       if (lastArchives.get(repository) === entry) lastArchives.delete(repository);
     });
   }
-  return (await withSignal(read, signal)).slice();
+  return (await abortable(signal, "The GitHub read was aborted.", () => read)).slice();
 }
 
 /** The largest archive that goes to KV, before base64. */
@@ -600,6 +608,8 @@ export async function commitGitHubChanges(input: {
   /** Remote modes, so a write that changes or keeps a mode other than `100644` sends it. */
   remoteModes?: ReadonlyMap<string, GitFileMode>;
   repository: GitHubRepository;
+  /** The Git author. Without it, the account of the token is the author. */
+  author?: WorkspaceAuthor;
 }): Promise<string> {
   // A change without a mode goes through `commitFiles()`, which cannot set a mode.
   // Send modes only when one write needs a mode other than `100644`.
@@ -608,11 +618,13 @@ export async function commitGitHubChanges(input: {
     ...input.files.map(file => ({ content: file.bytes, path: file.fullPath, ...(needsModes ? { mode: file.mode } : {}) })),
     ...input.deletePaths.map(path => ({ content: null, path })),
   ];
+  const { BranchMovedError, forgeCommitFiles } = await loadForge();
   try {
     return await githubRequest(input.repository, async (provider, repo) => await forgeCommitFiles(provider, repo, {
       branch: input.branch,
       changes,
       message: input.message,
+      ...(input.author ? { author: input.author } : {}),
       ...(input.branchExists ? { expectedHead: input.parentSha } : { createFrom: input.parentSha }),
     }));
   }

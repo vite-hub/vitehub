@@ -1,6 +1,8 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, useId } from "vue";
 import { useCopy } from "../components/copy-button.ts";
-import { icon } from "./icons.ts";
+import { MorphText, SwapIcon } from "../components/motion.ts";
+import { ring } from "../motion/helpers/ring.ts";
+import { icon, type WorkspaceIconName } from "./icons.ts";
 
 export type UnsupportedBrowser = "safari" | "unknown";
 
@@ -52,10 +54,13 @@ export const BrowserSupportNotice = defineComponent({
     });
     onBeforeUnmount(() => document.removeEventListener("pointerdown", closeOnOutside));
 
-    async function copy() {
+    async function copy(event: MouseEvent) {
+      const button = event.currentTarget;
       const url = props.url ?? location.href;
       // Some browsers block the clipboard. The link is still in the address bar.
-      if (await copyText(url)) emit("copied", url);
+      if (!await copyText(url)) return;
+      emit("copied", url);
+      if (button instanceof HTMLElement) ring(button);
     }
 
     return () => {
@@ -70,7 +75,10 @@ export const BrowserSupportNotice = defineComponent({
             ? "This tutorial still works as text. The site owner needs to enable cross-origin isolation for the live workspace."
             : props.description),
           h("div", { class: "vh-ws-actions" }, [
-            h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [icon(copied.value ? "check" : "copy"), copied.value ? "Copied" : "Copy link"]),
+            h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [
+              h(SwapIcon, { name: copied.value ? "check" : "copy", enter: copied.value ? "draw" : "blur" }, { default: ({ name }: { name: WorkspaceIconName }) => icon(name) }),
+              h(MorphText, { text: copied.value ? "Copied" : "Copy link" }),
+            ]),
             h("div", { class: "vh-ws-popover-anchor" }, [
               h("button", {
                 "aria-controls": whyId,

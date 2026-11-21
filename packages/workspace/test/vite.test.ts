@@ -1,7 +1,7 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { pathToFileURL } from "node:url"
 
@@ -41,6 +41,14 @@ function idHook(hook: unknown): (id: string) => string | undefined {
   if (typeof handler !== "function") throw new TypeError("Expected a Vite hook.")
   // SAFETY: The Workspace resolveId and load hooks take an id and return a resolved id or module source.
   return handler as (id: string) => string | undefined
+}
+
+let registryCopies = 0
+
+async function registryKeys(source: string, root: string): Promise<string[]> {
+  const file = join(root, `registry-copy-${registryCopies++}.mjs`)
+  await writeFile(file, source)
+  return Object.keys((await import(pathToFileURL(file).href)).default)
 }
 
 function responseChunkText(chunk: unknown) {
@@ -212,7 +220,7 @@ async function createViteAssetRoot() {
   for (const name of ["docs", "notes"]) {
     await writeFile(join(root, "src", `${name}.workspace.mjs`), [
       `export default {`,
-      `  store: { provider: "memory" },`,
+      `  store: { driver: "memory" },`,
       `  sources: {`,
       `    files: {`,
       `      async getKeys() { return ["README.md"] },`,
@@ -235,9 +243,9 @@ afterEach(async () => {
 
 describe("hubWorkspace", () => {
   it.each([
-    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{ store: { provider: "memory" } }', env: {}, store: "memory", scope: "process" },
-    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{ store: { provider: "local", root: "instance-data" } }', env: {}, store: "local", scope: "host" },
-    { options: { store: { provider: "github", repository: "acme/workspaces" } }, definition: '{}', env: {}, store: "github", scope: "shared" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{ store: { driver: "memory" } }', env: {}, store: "memory", scope: "process" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{ store: { driver: "local", root: "instance-data" } }', env: {}, store: "local", scope: "host" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{}', env: {}, store: "github", scope: "shared" },
     { options: { root: ".vitehub/workspace-data" }, definition: '{}', env: { BLOB_READ_WRITE_TOKEN: "boot-token" }, store: "local", scope: "host" },
   ] as const)("reports each generated registry Definition with effective $store storage", async ({ options, definition, env, store, scope }) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
@@ -349,7 +357,7 @@ describe("hubWorkspace", () => {
     const docsId = resolveId("#vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
     const registryId = resolveId("#vitehub-workspace-registry")!
-    expect(load(registryId)).toContain('["docs"]: async () => {')
+    await expect(registryKeys(load(registryId)!, root)).resolves.toEqual(["docs"])
     expect(load(registryId)).toContain("sourceRootDir")
   })
 
@@ -361,13 +369,14 @@ describe("hubWorkspace", () => {
     await writeFile(file, "export const registry = {}\n")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const configResolved = plugin.configResolved as (config: { command: "serve" | "build", root: string }) => Promise<void>
+    const configEnvironment = testFunction(plugin.configEnvironment, (_name: string, _config: { consumer: "server" }, _env: ConfigEnv) => undefined)
     const load = idHook(plugin.load)
     const filter = Reflect.get(Object(Reflect.get(Object(plugin.load), "filter")), "id") as RegExp
     const url = pathToFileURL(file).href
     const expected = `export * from ${JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(url)}`)}`)}\n`
 
-    await configResolved({ command: "serve", root })
+    vi.stubEnv("NITRO_DEV_RUNNER", "node-worker")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     for (const id of [file, url]) {
       expect(filter.test(id)).toBe(true)
       expect(load.call({ environment: { name: "nitro" } }, id)).toBe(expected)
@@ -380,7 +389,11 @@ describe("hubWorkspace", () => {
     const unrelatedUrl = pathToFileURL(join(root, "server", "api", "files.js")).href
     expect(load.call({ environment: { name: "nitro" } }, unrelatedUrl)).toBeUndefined()
 
-    await configResolved({ command: "build", root })
+    await configEnvironment("nitro", { consumer: "server" }, { command: "build", mode: "production" })
+    expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
+
+    vi.stubEnv("NITRO_DEV_RUNNER", "miniflare")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
   })
 
@@ -402,7 +415,7 @@ describe("hubWorkspace", () => {
       resolvedUrls: { local: ["http://localhost:3000/"] },
       ssrLoadModule: vi.fn(async () => ({
         default: {
-          docs: async () => ({ default: { store: { provider: "memory" } } }),
+          docs: async () => ({ default: { store: { driver: "memory" } } }),
         },
       })),
       watcher: { on: vi.fn() },
@@ -428,13 +441,13 @@ describe("hubWorkspace", () => {
       command: "pnpm",
       definition: expect.objectContaining({
         name: "docs",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       }),
       workspace: "docs",
     }))
   })
 
-  it("contributes the Workspace operations and adds no history route", async () => {
+  it("contributes the Workspace operations", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -446,10 +459,10 @@ describe("hubWorkspace", () => {
     const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "build" | "serve", mode: string },
-    ) => Promise<{ nitro?: { handlers?: Array<{ route: string }> } }>
+    ) => Promise<{ nitro?: { handlers?: Array<{ route?: string }> } }>
     const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
-    expect(served.nitro?.handlers ?? []).toEqual([])
-    await expect(readdir(join(root, ".vitehub", "nitro", "workspace", "history-dev"))).rejects.toMatchObject({ code: "ENOENT" })
+    // Only the middleware that drops the staged writes of a failed request.
+    expect(served.nitro?.handlers ?? []).toEqual([{ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }])
   })
 
   it("streams Workspace Dev command progress from the Vite endpoint", async () => {
@@ -482,7 +495,7 @@ describe("hubWorkspace", () => {
       resolvedUrls: { local: ["http://localhost:3000/"] },
       ssrLoadModule: vi.fn(async () => ({
         default: {
-          docs: async () => ({ default: { store: { provider: "memory" } } }),
+          docs: async () => ({ default: { store: { driver: "memory" } } }),
         },
       })),
       watcher: { on: vi.fn() },
@@ -557,7 +570,7 @@ describe("hubWorkspace", () => {
       resolvedUrls: { local: ["http://localhost:3000/"] },
       ssrLoadModule: vi.fn(async () => ({
         default: {
-          docs: async () => ({ default: { store: { provider: "memory" } } }),
+          docs: async () => ({ default: { store: { driver: "memory" } } }),
         },
       })),
       watcher: { on: vi.fn() },
@@ -605,7 +618,7 @@ describe("hubWorkspace", () => {
     await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
-      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      `export default defineWorkspace({ store: { driver: "memory" } })`,
       ``,
     ].join("\n"))
 
@@ -618,7 +631,7 @@ describe("hubWorkspace", () => {
     await configResolved({ root } as never)
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"tasks": true')
-    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('["tasks"]: async () => {')
+    await expect(registryKeys(load(resolveId("#vitehub-workspace-registry")!)!, root)).resolves.toEqual(["tasks"])
     expect(load(resolveId("#vitehub/workspaces")!)).toContain('"tasks"')
   })
 
@@ -631,7 +644,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
       `import { useServerEnv } from "#vitehub/env/server"`,
       `void useServerEnv`,
-      `export default { store: { provider: "memory" }, sources: {} }`,
+      `export default { store: { driver: "memory" }, sources: {} }`,
       ``,
     ].join("\n"))
 
@@ -678,7 +691,7 @@ describe("hubWorkspace", () => {
     await mkdir(appRoot, { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
-      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      `export default defineWorkspace({ store: { driver: "memory" } })`,
       ``,
     ].join("\n"))
 
@@ -694,20 +707,20 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root: appRoot }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
     await configResolved({ command: "serve", root: appRoot })
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"mirror": true')
     await expect(readFile(join(appRoot, ".vitehub", "types", "workspace.d.ts"), "utf8")).rejects.toThrow()
-    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('["mirror"]: async () => {')
+    await expect(registryKeys(load(resolveId("#vitehub-workspace-registry")!)!, root)).resolves.toEqual(["mirror"])
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry(registry)")
     expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
-    expect(registrySource).toContain('["mirror"]: async () => {')
+    await expect(registryKeys(registrySource, root)).resolves.toEqual(["mirror"])
     expect(registrySource).toContain("../../../server/workspaces/mirror/config.ts")
   })
 
@@ -716,7 +729,7 @@ describe("hubWorkspace", () => {
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
-      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      `export default defineWorkspace({ store: { driver: "memory" } })`,
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -741,7 +754,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },`,
+      `  store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" },`,
       `})`,
       ``,
     ].join("\n"))
@@ -755,7 +768,7 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -823,7 +836,7 @@ describe("hubWorkspace", () => {
 
     it("installs only the hosted store that a definition names", async () => {
       const pluginSource = await buildPlugin({
-        mirror: `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({ store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" } })\n`,
+        mirror: `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({ store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" } })\n`,
       })
 
       expect(pluginSource).toContain(`import { installHostedGitHubWorkspaceStore } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
@@ -833,12 +846,12 @@ describe("hubWorkspace", () => {
     })
 
     it.each([
-      `export default defineWorkspace({ store: process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? { provider: "memory" } : { provider: "vercel-blob" } })`,
-      `export default defineWorkspace({ store: { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } })`,
-      `const store = { provider: process.env.VITEHUB_TEST_STORE_PROVIDER }; export default defineWorkspace({ store })`,
-      `function store() { return { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ store: store() })`,
-      `const options = { store: { provider: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ ...options })`,
-      `export default process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? defineWorkspace({ store: { provider: "memory" } }) : defineWorkspace({ store: { provider: "vercel-blob" } })`,
+      `export default defineWorkspace({ store: process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? { driver: "memory" } : { driver: "vercel" } })`,
+      `export default defineWorkspace({ store: { driver: process.env.VITEHUB_TEST_STORE_PROVIDER } })`,
+      `const store = { driver: process.env.VITEHUB_TEST_STORE_PROVIDER }; export default defineWorkspace({ store })`,
+      `function store() { return { driver: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ store: store() })`,
+      `const options = { store: { driver: process.env.VITEHUB_TEST_STORE_PROVIDER } }; export default defineWorkspace({ ...options })`,
+      `export default process.env.VITEHUB_TEST_STORE_PROVIDER === "memory" ? defineWorkspace({ store: { driver: "memory" } }) : defineWorkspace({ store: { driver: "vercel" } })`,
     ])("keeps hosted installers when a definition can select its store at runtime: %s", async (definition) => {
       const root = await createViteRoot()
       vi.stubEnv("VITEHUB_TEST_STORE_PROVIDER", "memory")
@@ -846,9 +859,9 @@ describe("hubWorkspace", () => {
         notes: `import { defineWorkspace } from "@vite-hub/workspace"\n${definition}\n`,
       }, root)
 
-      vi.stubEnv("VITEHUB_TEST_STORE_PROVIDER", "vercel-blob")
+      vi.stubEnv("VITEHUB_TEST_STORE_PROVIDER", "vercel")
       const registry = (await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)).default
-      expect((await registry.notes()).default.store.provider).toBe("vercel-blob")
+      expect((await registry.notes()).default.store.driver).toBe("vercel")
       expect(pluginSource).toContain("installHostedGitHubWorkspaceStore()")
       expect(pluginSource).toContain("installHostedCloudflareArtifactsWorkspaceStore()")
       expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
@@ -895,7 +908,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },`,
+      `  store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" },`,
       `})`,
       ``,
     ].join("\n"))
@@ -903,7 +916,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       root: "server/workspaces",
-      store: { provider: "local" },
+      store: { driver: "local" },
     })
     const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string },
@@ -914,7 +927,7 @@ describe("hubWorkspace", () => {
       root,
     }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -925,7 +938,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("installHostedGitHubWorkspaceStore()")
     expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
-    expect(pluginSource).toContain('"provider": "local"')
+    expect(pluginSource).toContain('"driver": "local"')
   })
 
   it("imports Workspace runtime files by path in the Nitro plugin", async () => {
@@ -939,7 +952,7 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -962,7 +975,7 @@ describe("hubWorkspace", () => {
     await config({ nitro: {}, root }, { command: "build", mode: "production" })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('"provider": "memory"')
+    expect(pluginSource).toContain('"driver": "memory"')
   })
 
   it.each(["netlify", "node-server"])("keeps the inferred local store implicit for %s hosting", async (hosting) => {
@@ -988,11 +1001,11 @@ describe("hubWorkspace", () => {
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "frontend", "src", "docs.workspace.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
-      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      `export default defineWorkspace({ store: { driver: "memory" } })`,
       ``,
     ].join("\n"))
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
-      `export default { store: { provider: "memory" } }`,
+      `export default { store: { driver: "memory" } }`,
       ``,
     ].join("\n"))
 
@@ -1016,8 +1029,8 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({
       store: {
         branch: "main",
-        provider: "github",
-        repository: "onmax/quiver-airtable",
+        driver: "github",
+        repo: "onmax/quiver-airtable",
         root: "app/server/workspaces/mirror",
       },
     })
@@ -1031,10 +1044,10 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime/registry"))}`)
@@ -1044,9 +1057,27 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("installHosted")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
-    expect(pluginSource).toContain('"provider": "github"')
-    expect(pluginSource).toContain('"repository": "onmax/quiver-airtable"')
+    expect(pluginSource).toContain('"driver": "github"')
+    expect(pluginSource).toContain('"repo": "onmax/quiver-airtable"')
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("registers the Nitro plugin that it writes when projectRoot is not the Vite root", async () => {
+    const root = await createViteRoot()
+    await mkdir(join(root, "service"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      projectRoot: "service",
+      store: { branch: "main", driver: "github", repo: "onmax/quiver-airtable" },
+    })
+    const config = mergedConfigHook(plugin.config)
+    const userConfig: UserConfig & { nitro?: { plugins?: string[] } } = { root }
+    await config(userConfig, { command: "build", mode: "production" })
+
+    // Nitro resolves a relative plugin against its own rootDir, which the Nitro Vite plugin sets to the Vite root.
+    const [registered] = userConfig.nitro?.plugins ?? []
+    expect(resolve(root, registered!)).toBe(join(root, "service", ".vitehub/nitro/workspace/plugin.ts"))
+    await expect(readFile(resolve(root, registered!), "utf8")).resolves.toContain("setWorkspaceRuntimeRegistry")
   })
 
   it("preserves lazy GitHub store callbacks in generated Nitro runtime setup", async () => {
@@ -1055,8 +1086,8 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({
       hosting: "cloudflare-module",
       store: {
-        provider: "github",
-        repository: () => process.env.WORKSPACE_REPO,
+        driver: "github",
+        repo: () => process.env.WORKSPACE_REPO,
         root: "app/server/workspaces/mirror",
         token: () => process.env.WORKSPACE_TOKEN,
       },
@@ -1070,18 +1101,36 @@ describe("hubWorkspace", () => {
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
         cloudflare: { nodeCompat: true },
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
         rollupConfig: { external: ["cloudflare:workers"] },
       },
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
-    expect(pluginSource).toContain('"repository": () => process.env.WORKSPACE_REPO')
+    expect(pluginSource).toContain('"repo": () => process.env.WORKSPACE_REPO')
     expect(pluginSource).toContain('"token": () => process.env.WORKSPACE_TOKEN')
     expect(pluginSource).not.toContain('"token": "********"')
+  })
+
+  it("keeps the repository root of a GitHub store with `root: ''` on Cloudflare", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      hosting: "cloudflare-module",
+      store: { driver: "github", repo: () => process.env.WORKSPACE_REPO, root: "", token: () => process.env.WORKSPACE_TOKEN },
+    } as never)
+    const config = mergedConfigHook(plugin.config) as (
+      config: { root: string },
+      env: { command: "build", mode: string },
+    ) => Promise<unknown>
+    await config({ root }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain('"root": ""')
   })
 
   it.each([
@@ -1093,7 +1142,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     if (signal !== "nitro.preset") vi.stubEnv(signal, "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "github", repository: "onmax/repo" } })
+    const plugin = hubWorkspace({ store: { driver: "github", repo: "onmax/repo" } })
     const config = mergedConfigHook(plugin.config) as (config: {
       nitro?: { preset?: string }
       root: string
@@ -1106,7 +1155,36 @@ describe("hubWorkspace", () => {
 
     expect(result.nitro?.rollupConfig).toMatchObject({ external: ["cloudflare:workers"] })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
+  })
+
+  it.each([
+    ["dev on Node", { preset: "node-server" }, "serve", false],
+    ["dev without a host", undefined, "serve", false],
+    ["dev on Cloudflare", { preset: "cloudflare-module" }, "serve", true],
+    ["a Node build", { preset: "node-server" }, "build", true],
+  ] as const)("loads the Definitions in config only when it needs their stores: %s", async (_case, nitro, command, loads) => {
+    const root = await createViteRoot()
+    // Loading a Definition runs app code, and its Nitro runtime imports print Nitro's stub warning outside Nitro.
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `globalThis.__vitehubWorkspaceDefinitionLoads = (globalThis.__vitehubWorkspaceDefinitionLoads ?? 0) + 1`,
+      `export default { store: { binding: "DOCS_FILES", driver: "cloudflare" } }`,
+      ``,
+    ].join("\n"))
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = mergedConfigHook(plugin.config) as (config: {
+      nitro?: { preset?: string }
+      plugins?: unknown[]
+      root: string
+    }, env: { command: "build" | "serve", mode: string }) => Promise<{ nitro?: { cloudflare?: { wrangler?: { artifacts?: unknown } } } }>
+
+    const result = await config({ ...(nitro ? { nitro } : {}), plugins: [{ name: "nitro:main" }], root }, { command, mode: command === "build" ? "production" : "development" })
+
+    expect(Reflect.get(globalThis, "__vitehubWorkspaceDefinitionLoads")).toBe(loads ? 1 : undefined)
+    expect(result.nitro?.cloudflare?.wrangler?.artifacts).toEqual(loads ? [{ binding: "DOCS_FILES", namespace: "vitehub" }] : undefined)
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
   })
 
   it("falls through blank Cloudflare hosting signals", async () => {
@@ -1114,7 +1192,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("NITRO_PRESET", " ")
     vi.stubEnv("SERVER_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "github", repository: "onmax/repo" } })
+    const plugin = hubWorkspace({ store: { driver: "github", repo: "onmax/repo" } })
     const config = mergedConfigHook(plugin.config) as (config: {
       root: string
     }, env: { command: "build", mode: string }) => Promise<{ nitro?: { rollupConfig?: { external?: unknown } } }>
@@ -1125,7 +1203,7 @@ describe("hubWorkspace", () => {
 
     expect(result.nitro?.rollupConfig).toMatchObject({ external: ["cloudflare:workers"] })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
   })
 
   it("does not serialize absent or blank GitHub fallbacks over Cloudflare runtime bindings", async () => {
@@ -1133,7 +1211,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "vite-hub/build-repository")
     vi.stubEnv("NITRO_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { branch: " ", provider: "github", repo: " ", root: " " } })
+    const plugin = hubWorkspace({ store: { branch: " ", driver: "github", repo: " ", root: " " } })
     const config = mergedConfigHook(plugin.config) as (config: {
       root: string
     }, env: { command: "build", mode: string }) => Promise<unknown>
@@ -1143,10 +1221,10 @@ describe("hubWorkspace", () => {
     }, { command: "build", mode: "production" })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('"provider": "github"')
+    expect(pluginSource).toContain('"driver": "github"')
     expect(pluginSource).not.toContain("vite-hub/build-repository")
     expect(pluginSource).not.toContain('"branch"')
-    expect(pluginSource).not.toContain('"repository"')
+    expect(pluginSource).not.toContain('"repo"')
     expect(pluginSource).not.toContain('".vitehub/workspaces/<workspace>"')
   })
 
@@ -1154,7 +1232,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "vite-hub/build-repository")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "github" } })
+    const plugin = hubWorkspace({ store: { driver: "github" } })
     const config = mergedConfigHook(plugin.config) as (config: {
       root: string
     }, env: { command: "build", mode: string }) => Promise<unknown>
@@ -1164,7 +1242,7 @@ describe("hubWorkspace", () => {
     }, { command: "build", mode: "production" })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('"repository": "vite-hub/build-repository"')
+    expect(pluginSource).toContain('"repo": "vite-hub/build-repository"')
     expect(pluginSource).not.toContain("setActiveCloudflareEnv")
   })
 
@@ -1174,7 +1252,7 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({
       store: {
         prefix: "workspaces",
-        provider: "vercel-blob",
+        driver: "vercel",
       },
     })
     const config = mergedConfigHook(plugin.config) as (
@@ -1187,7 +1265,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1196,7 +1274,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain(`from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
     expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime/registry"))}`)
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
-    expect(pluginSource).toContain('"provider": "vercel-blob"')
+    expect(pluginSource).toContain('"driver": "vercel"')
     expect(pluginSource).toContain('"prefix": "workspaces"')
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
   })
@@ -1215,7 +1293,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1226,7 +1304,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
-    expect(pluginSource).toContain('"provider": "vercel-blob"')
+    expect(pluginSource).toContain('"driver": "vercel"')
     expect(pluginSource).toContain('"prefix": "workspace/default"')
   })
 
@@ -1235,7 +1313,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       root: "server/workspaces",
-      store: { provider: "local" },
+      store: { driver: "local" },
     })
     const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: { plugins?: string[] }, root: string },
@@ -1247,16 +1325,16 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
-    expect(pluginSource).toContain('"provider": "local"')
+    expect(pluginSource).toContain('"driver": "local"')
     expect(pluginSource).toContain(JSON.stringify(join(root, "server", "workspaces")))
     expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
   })
@@ -1275,21 +1353,21 @@ describe("hubWorkspace", () => {
       root,
     }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
-    expect(registrySource).toContain('["docs"]: async () => {')
+    await expect(registryKeys(registrySource, root)).resolves.toEqual(["docs"])
   })
 
   it("inspects provider output for Definition-level Cloudflare Artifacts stores", async () => {
     const root = await createViteRoot()
-    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { provider: 'cloudflare-artifacts' } }\n")
+    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { driver: 'cloudflare' } }\n")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "local" } })
+    const plugin = hubWorkspace({ store: { driver: "local" } })
     const configResolved = testFunction(plugin.configResolved, async (_config: { root: string, command: string }) => {})
     await configResolved({ root, command: "build" })
 
@@ -1299,14 +1377,14 @@ describe("hubWorkspace", () => {
       path: join(createDefaultCloudflareOutputRoot(root), "wrangler.json"),
     }])
 
-    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { provider: 'local' } }\n")
+    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { driver: 'local' } }\n")
     expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([])
   })
 
   it("activates Cloudflare Artifacts bindings in the Vite-generated Nitro runtime", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "cloudflare-artifacts" } })
+    const plugin = hubWorkspace({ store: { driver: "cloudflare" } })
     const config = mergedConfigHook(plugin.config) as (
       config: { plugins?: unknown[], root: string },
       env: { command: "build", mode: string },
@@ -1326,13 +1404,13 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
   })
 
   it("preserves env-resolved Definition bindings in the Vite-generated registry", async () => {
     vi.stubEnv("WORKSPACE_ARTIFACTS_BINDING", "ENV_ARTIFACTS")
     const root = await createViteRoot()
-    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { provider: 'cloudflare-artifacts' } }\n")
+    await writeFile(join(root, "src", "docs.workspace.ts"), "export default { store: { driver: 'cloudflare' } }\n")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const config = mergedConfigHook(plugin.config) as (
@@ -1362,7 +1440,7 @@ describe("hubWorkspace", () => {
     const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
-      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
@@ -1382,7 +1460,7 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv)")
+    expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
   })
 
   it("uses discovered source roots from generated Nitro workspace registries", async () => {
@@ -1396,7 +1474,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "sync", "config.ts"), [
       `import { defineWorkspace, file } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { provider: "memory" },`,
+      `  store: { driver: "memory" },`,
       `  sources: {`,
       `    colocated: file({ path: "source.md", workspacePath: "synced/source.md", sync: true }),`,
       `  },`,
@@ -1406,7 +1484,7 @@ describe("hubWorkspace", () => {
 
     const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
-      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
     })
 
     const registry = (await import(`${pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href}?t=${Date.now()}`)).default
@@ -1429,7 +1507,7 @@ describe("hubWorkspace", () => {
     await mkdir(join(root, "app"), { recursive: true })
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
-      `export default { store: { provider: "memory" } }`,
+      `export default { store: { driver: "memory" } }`,
       ``,
     ].join("\n"))
 
@@ -1437,8 +1515,8 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({
       store: {
         branch: "main",
-        provider: "github",
-        repository: "onmax/quiver-airtable",
+        driver: "github",
+        repo: "onmax/quiver-airtable",
         root: "server/workspaces/mirror",
       },
     })
@@ -1451,13 +1529,13 @@ describe("hubWorkspace", () => {
       root: join(root, "app"),
     }, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "app", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('["mirror"]: async () => {')
+    await expect(registryKeys(await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8"), root)).resolves.toEqual(["mirror"])
   })
 
   it("keeps generated workspace files in project ViteHub state when Vite root is nested", async () => {
@@ -1466,7 +1544,7 @@ describe("hubWorkspace", () => {
     await mkdir(join(root, "frontend"), { recursive: true })
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
-      `export default { store: { provider: "memory" } }`,
+      `export default { store: { driver: "memory" } }`,
       ``,
     ].join("\n"))
 
@@ -1474,8 +1552,8 @@ describe("hubWorkspace", () => {
     const plugin = hubWorkspace({
       store: {
         branch: "main",
-        provider: "github",
-        repository: "onmax/quiver-airtable",
+        driver: "github",
+        repo: "onmax/quiver-airtable",
         root: "server/workspaces/mirror",
       },
     })
@@ -1488,13 +1566,13 @@ describe("hubWorkspace", () => {
       root: join(root, "frontend"),
     }, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "frontend", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('["mirror"]: async () => {')
+    await expect(registryKeys(await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8"), root)).resolves.toEqual(["mirror"])
   })
 
   it("materializes the workspace runtime package for Vercel build output", async () => {
@@ -1532,7 +1610,7 @@ describe("hubWorkspace", () => {
       store: {
         binding: "WORKSPACES",
         namespace: "workspaces",
-        provider: "cloudflare-artifacts",
+        driver: "cloudflare",
       },
     })
 
@@ -1580,7 +1658,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       store: {
-        provider: "vercel-blob",
+        driver: "vercel",
       },
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
@@ -1603,7 +1681,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src/docs.workspace.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { provider: "vercel-blob" },`,
+      `  store: { driver: "vercel" },`,
       `})`,
     ].join("\n"))
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
@@ -1638,7 +1716,7 @@ describe("hubWorkspace", () => {
       store: {
         binding: "WORKSPACE_FILES",
         namespace: "workspaces",
-        provider: "cloudflare-artifacts",
+        driver: "cloudflare",
       },
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
@@ -1664,10 +1742,10 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `import { useServerEnv } from "#vitehub/env/server"`,
-      `export default defineWorkspace({ rules: { "/**": { read: true, write: Boolean(useServerEnv) } } })`,
+      `export default defineWorkspace({ rules: { "/**": { write: Boolean(useServerEnv) } } })`,
       ``,
     ].join("\n"))
-    const store = { binding: "WORKSPACE_ARTIFACTS", namespace: "quiver-airtable", provider: "cloudflare-artifacts" as const }
+    const store = { binding: "WORKSPACE_ARTIFACTS", namespace: "quiver-airtable", driver: "cloudflare" as const }
     const { hubWorkspace } = await import("../src/vite.ts")
     const config = mergedConfigHook(hubWorkspace({ assets: false, root: "server/workspaces", store }).config) as (
       config: { plugins?: unknown[], root: string },
@@ -1691,17 +1769,17 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import "virtual:generated-workspace-metadata"`,
-      `// Store is configured in the module as cloudflare-artifacts.`,
-      `export default { rules: { "/**": { read: true } } }`,
+      `// Store is configured in the module as cloudflare.`,
+      `export default { rules: { "/**": { write: false } } }`,
       ``,
     ].join("\n"))
     await writeFile(join(root, "src", "notes.workspace.ts"), [
       `import "virtual:generated-workspace-metadata"`,
-      `export default { store: { provider: "memory" } }`,
+      `export default { store: { driver: "memory" } }`,
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ assets: false, store: { binding: "WORKSPACE_FILES", namespace: "workspaces", provider: "cloudflare-artifacts" } })
+    const plugin = hubWorkspace({ assets: false, store: { binding: "WORKSPACE_FILES", namespace: "workspaces", driver: "cloudflare" } })
     await testFunction(plugin.configResolved, async (_config: { command: "build", root: string }) => {})({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
     await testFunction(plugin.closeBundle, async () => {})()
@@ -1716,7 +1794,7 @@ describe("hubWorkspace", () => {
       `export default {`,
       `  binding: "DEFINITION_FILES",`,
       `  namespace: "definition-workspaces",`,
-      `  provider: "cloudflare-artifacts",`,
+      `  driver: "cloudflare",`,
       `}`,
       ``,
     ].join("\n"))
@@ -1746,7 +1824,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import "virtual:generated-workspace-metadata"`,
-      `export default { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }`,
+      `export default { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } }`,
       ``,
     ].join("\n"))
     const expected = expect.objectContaining({
@@ -1772,7 +1850,7 @@ describe("hubWorkspace", () => {
       `export const store = {`,
       `  binding: "DEFINITION_FILES",`,
       `  namespace: "definition-workspaces",`,
-      `  provider: "cloudflare-artifacts",`,
+      `  driver: "cloudflare",`,
       `}`,
       ``,
     ].join("\n"))
@@ -1799,7 +1877,7 @@ describe("hubWorkspace", () => {
 
   it("does not inspect source during Provider Output when Definitions load", async () => {
     const root = await createViteRoot()
-    await writeFile(join(root, "src", "docs.workspace.ts"), `export default { store: { provider: "memory" } }\n`)
+    await writeFile(join(root, "src", "docs.workspace.ts"), `export default { store: { driver: "memory" } }\n`)
     const assets = await import("../src/build/assets.ts")
     const createLoader = assets.createWorkspaceDefinitionLoader
     const transform = vi.fn()
@@ -1853,7 +1931,7 @@ describe("hubWorkspace", () => {
     expect(browserWrite).not.toHaveBeenCalled()
     await writeFile(join(root, "src/late.workspace.ts"), [
       `export default {`,
-      `  store: { binding: "LATE_WORKSPACE_FILES", namespace: "late", provider: "cloudflare-artifacts" },`,
+      `  store: { binding: "LATE_WORKSPACE_FILES", namespace: "late", driver: "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
@@ -1871,7 +1949,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       assets: false,
-      store: { binding: "WORKSPACE_FILES", namespace: "module", provider: "cloudflare-artifacts" },
+      store: { binding: "WORKSPACE_FILES", namespace: "module", driver: "cloudflare" },
     })
     const config = { command: "build" as const, root }
     const outputRoot = createDefaultCloudflareOutputRoot(root)
@@ -1893,7 +1971,7 @@ describe("hubWorkspace", () => {
 
     await writeFile(join(root, "src/late.workspace.ts"), [
       `export default {`,
-      `  store: { binding: "WORKSPACE_FILES", namespace: "definition", provider: "cloudflare-artifacts" },`,
+      `  store: { binding: "WORKSPACE_FILES", namespace: "definition", driver: "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
@@ -1907,7 +1985,7 @@ describe("hubWorkspace", () => {
   it("resolves definition-level Cloudflare Artifacts bindings from CommonJS definitions", async () => {
     const root = await createViteRoot()
     await rm(join(root, "src", "docs.workspace.ts"))
-    await writeFile(join(root, "src", "docs.workspace.cjs"), `module.exports = { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`)
+    await writeFile(join(root, "src", "docs.workspace.cjs"), `module.exports = { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } }\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
@@ -1927,7 +2005,7 @@ describe("hubWorkspace", () => {
   it("resolves wrapped CommonJS default Workspace Definitions", async () => {
     const root = await createViteRoot()
     await rm(join(root, "src", "docs.workspace.ts"))
-    await writeFile(join(root, "src", "docs.workspace.cjs"), `module.exports = { default: { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } } }\n`)
+    await writeFile(join(root, "src", "docs.workspace.cjs"), `module.exports = { default: { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } } }\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
@@ -1947,8 +2025,8 @@ describe("hubWorkspace", () => {
     await rm(join(root, "src", "docs.workspace.ts"))
     const esm = definitionSource.startsWith("import")
     await writeFile(join(root, "src", `workspace-stores.${esm ? "ts" : "cjs"}`), esm
-      ? `export default { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`
-      : `module.exports = { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`)
+      ? `export default { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } }\n`
+      : `module.exports = { artifactStore: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } }\n`)
     await writeFile(join(root, "src", `docs.workspace.${esm ? "ts" : "cjs"}`), `${definitionSource}\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -1964,7 +2042,7 @@ describe("hubWorkspace", () => {
   it.each(["exports.default", "module.exports.default"])("resolves %s CommonJS Workspace Definitions", async exportTarget => {
     const root = await createViteRoot()
     await rm(join(root, "src", "docs.workspace.ts"))
-    await writeFile(join(root, "src", "docs.workspace.cjs"), `${exportTarget} = { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" } }\n`)
+    await writeFile(join(root, "src", "docs.workspace.cjs"), `${exportTarget} = { store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" } }\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({ assets: false })
@@ -1982,7 +2060,7 @@ describe("hubWorkspace", () => {
   ])("resolves CommonJS Workspace store destructuring variants", async declaration => {
     const root = await createViteRoot()
     await rm(join(root, "src", "docs.workspace.ts"))
-    await writeFile(join(root, "src", "workspace-stores.cjs"), `exports.artifactStore = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" }\n`)
+    await writeFile(join(root, "src", "workspace-stores.cjs"), `exports.artifactStore = { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" }\n`)
     await writeFile(join(root, "src", "docs.workspace.cjs"), `${declaration}\nmodule.exports = { store }\n`)
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
     const { hubWorkspace } = await import("../src/vite.ts")
@@ -2011,7 +2089,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `import { namespace } from "./repository-host-context.ts"`,
       `export default {`,
-      `  store: { binding: "DEFINITION_FILES", namespace, provider: "cloudflare-artifacts" },`,
+      `  store: { binding: "DEFINITION_FILES", namespace, driver: "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
@@ -2039,7 +2117,7 @@ describe("hubWorkspace", () => {
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ assets: false, store: { provider: "memory" } })
+    const plugin = hubWorkspace({ assets: false, store: { driver: "memory" } })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
 
@@ -2052,7 +2130,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `export default {`,
-      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: process.env.WORKSPACE_PROVIDER as "cloudflare-artifacts" },`,
+      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: process.env.WORKSPACE_DRIVER as "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
@@ -2062,16 +2140,16 @@ describe("hubWorkspace", () => {
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
 
-    const previousProvider = process.env.WORKSPACE_PROVIDER
-    process.env.WORKSPACE_PROVIDER = "cloudflare-artifacts"
+    const previousDriver = process.env.WORKSPACE_DRIVER
+    process.env.WORKSPACE_DRIVER = "cloudflare"
     try {
       await configResolved({ command: "build", root })
       await prepareWorkspaceProviderOutput(plugin)
       await closeBundle.handler()
     }
     finally {
-      if (previousProvider === undefined) delete process.env.WORKSPACE_PROVIDER
-      else process.env.WORKSPACE_PROVIDER = previousProvider
+      if (previousDriver === undefined) delete process.env.WORKSPACE_DRIVER
+      else process.env.WORKSPACE_DRIVER = previousDriver
     }
 
     const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
@@ -2086,7 +2164,7 @@ describe("hubWorkspace", () => {
       `export const store = {`,
       `  binding: "DEFINITION_FILES",`,
       `  namespace: "definition-workspaces",`,
-      `  provider: "cloudflare-artifacts",`,
+      `  driver: "cloudflare",`,
       `}`,
       ``,
     ].join("\n"))
@@ -2121,11 +2199,36 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("uses the aliased Definition entry to discover Cloudflare Artifacts bindings", async () => {
+    const root = await createViteRoot()
+    const source = join(root, "src")
+    const mapped = join(root, "mapped")
+    await mkdir(mapped, { recursive: true })
+    await writeFile(join(source, "docs.workspace.ts"), 'export default { rootDir: "." }\n')
+    await writeFile(join(mapped, "docs.workspace.ts"), 'export default { store: { binding: "MAPPED_FILES", namespace: "mapped", driver: "cloudflare" } }\n')
+
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: {
+      command: "build"
+      resolve: { alias: Array<{ find: string, replacement: string }> }
+      root: string
+    }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    await configResolved({ command: "build", resolve: { alias: [{ find: source, replacement: mapped }] }, root })
+    await prepareWorkspaceProviderOutput(plugin)
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "MAPPED_FILES", namespace: "mapped" }])
+  })
+
   it.each([false, ["notes"]] as Array<false | string[]>)("emits definition-level Cloudflare Artifacts bindings independently of asset selection", async (assets) => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `export default {`,
-      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", provider: "cloudflare-artifacts" },`,
+      `  store: { binding: "DEFINITION_FILES", namespace: "definition-workspaces", driver: "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
@@ -2153,7 +2256,7 @@ describe("hubWorkspace", () => {
     await mkdir(outputRoot, { recursive: true })
     await writeFile(join(outputRoot, "wrangler.json"), appConfig, "utf8")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { provider: "memory" } })
+    const plugin = hubWorkspace({ store: { driver: "memory" } })
 
     await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
@@ -2174,13 +2277,13 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
 
     const enabledPlugin = hubWorkspace({
-      store: { binding: "WORKSPACE_FILES", namespace: "workspaces", provider: "cloudflare-artifacts" },
+      store: { binding: "WORKSPACE_FILES", namespace: "workspaces", driver: "cloudflare" },
     })
     await (enabledPlugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(enabledPlugin)
     await (enabledPlugin.closeBundle as { handler: () => Promise<void> }).handler()
 
-    const disabledPlugin = hubWorkspace({ store: { provider: "memory" } })
+    const disabledPlugin = hubWorkspace({ store: { driver: "memory" } })
     await (disabledPlugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(disabledPlugin)
     await (disabledPlugin.closeBundle as { handler: () => Promise<void> }).handler()
@@ -2200,7 +2303,7 @@ describe("hubWorkspace", () => {
     }, null, 2)}\n`, "utf8")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
-      store: { binding: "WORKSPACE_FILES", namespace: "workspaces", provider: "cloudflare-artifacts" },
+      store: { binding: "WORKSPACE_FILES", namespace: "workspaces", driver: "cloudflare" },
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
@@ -2220,13 +2323,13 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [
       `export default {`,
-      `  store: { binding: "WORKSPACE_FILES", namespace: "definition", provider: "cloudflare-artifacts" },`,
+      `  store: { binding: "WORKSPACE_FILES", namespace: "definition", driver: "cloudflare" },`,
       `}`,
       ``,
     ].join("\n"))
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
-      store: { binding: "WORKSPACE_FILES", namespace: "module", provider: "cloudflare-artifacts" },
+      store: { binding: "WORKSPACE_FILES", namespace: "module", driver: "cloudflare" },
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
@@ -2250,14 +2353,14 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
 
     const oldPlugin = hubWorkspace({
-      store: { binding: "OLD_WORKSPACE_FILES", namespace: "old", provider: "cloudflare-artifacts" },
+      store: { binding: "OLD_WORKSPACE_FILES", namespace: "old", driver: "cloudflare" },
     })
     await (oldPlugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(oldPlugin)
     await (oldPlugin.closeBundle as { handler: () => Promise<void> }).handler()
 
     const newPlugin = hubWorkspace({
-      store: { binding: "NEW_WORKSPACE_FILES", namespace: "new", provider: "cloudflare-artifacts" },
+      store: { binding: "NEW_WORKSPACE_FILES", namespace: "new", driver: "cloudflare" },
     })
     await (newPlugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(newPlugin)
@@ -2270,7 +2373,7 @@ describe("hubWorkspace", () => {
       ],
     })
 
-    const disabledPlugin = hubWorkspace({ store: { provider: "memory" } })
+    const disabledPlugin = hubWorkspace({ store: { driver: "memory" } })
     await (disabledPlugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
     await prepareWorkspaceProviderOutput(disabledPlugin)
     await (disabledPlugin.closeBundle as { handler: () => Promise<void> }).handler()
@@ -2294,10 +2397,10 @@ describe("hubWorkspace", () => {
     vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const first = hubWorkspace({
-      store: { binding: "FIRST_WORKSPACE_FILES", namespace: "first", provider: "cloudflare-artifacts" },
+      store: { binding: "FIRST_WORKSPACE_FILES", namespace: "first", driver: "cloudflare" },
     })
     const second = hubWorkspace({
-      store: { binding: "SECOND_WORKSPACE_FILES", namespace: "second", provider: "cloudflare-artifacts" },
+      store: { binding: "SECOND_WORKSPACE_FILES", namespace: "second", driver: "cloudflare" },
     })
     const config = { command: "build" as const, root }
 

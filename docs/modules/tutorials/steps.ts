@@ -60,6 +60,7 @@ export function tutorialWorkspaceFiles(tutorial: Pick<RunnableTutorialData, "fil
 
 // Nitro looks for `index.html` once per process and caches a miss, so a Vite restart in the same process does not find
 // a new page. Vite restarts on its own when `vite.config.*` changes, which is enough for config edits.
+// Remove when Nitro releases https://github.com/nitrojs/nitro/pull/5037 (https://github.com/nitrojs/nitro/issues/5038).
 const startFiles = ["index.html"];
 
 /** Whether going from `before` to `after` adds or removes a file that the dev server reads only when its process starts. */

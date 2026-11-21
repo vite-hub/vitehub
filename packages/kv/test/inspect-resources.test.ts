@@ -20,10 +20,10 @@ describe("KV resource inspection", () => {
     await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({ cloudflare: { kv: { cache: "ns-state" } } }))
     const options = {
       stores: {
-        cache: { binding: "CACHE", driver: "cloudflare-kv-binding", namespaceName: "app-cache" },
-        default: { binding: "KV", driver: "cloudflare-kv-binding" },
+        cache: { binding: "CACHE", driver: "cloudflare", namespaceName: "app-cache" },
+        default: { binding: "KV", driver: "cloudflare" },
         local: { driver: "fs-lite" },
-        pinned: { binding: "PINNED", driver: "cloudflare-kv-binding", namespaceId: "ns-config" },
+        pinned: { binding: "PINNED", driver: "cloudflare", namespaceId: "ns-config" },
       },
     } as const
 
@@ -39,5 +39,12 @@ describe("KV resource inspection", () => {
       { definition: "cache", id: "ns-state", source: "provision-state" },
       { definition: "pinned", id: "ns-config", source: "config" },
     ])
+  })
+
+  it("uses the build's host for a store without a driver", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-kv-resources-host-"))
+    directories.push(rootDir)
+    expect(inspectKVResources({}, rootDir, {})).toEqual([])
+    expect(inspectKVResources({}, rootDir, {}, "cloudflare-module")).toMatchObject([{ binding: "KV", definition: "default", kind: "cloudflare-kv-namespace" }])
   })
 })

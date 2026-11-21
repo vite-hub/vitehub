@@ -1,9 +1,11 @@
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
+import { findDefaultExportCall, objectProperties, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { isDefinitionSourceFile } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
@@ -16,7 +18,7 @@ import type { Plugin, UserConfig } from "vite"
 export const FORMS_VITE_PLUGIN_NAME = "@vite-hub/forms/vite"
 
 /** The route of every form, below the app base. */
-export const formsRoute = "/api/_vitehub/forms"
+export const formsRoute = "/_vitehub/forms"
 
 const extensions = [".ts", ".mts", ".js", ".mjs"]
 const namePattern = /^[a-z0-9][a-z0-9-]*$/
@@ -35,7 +37,7 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
     if (!existsSync(folder)) continue
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const extension = extensions.find(candidate => entry.name.endsWith(candidate))
-      if (!entry.isFile() || !extension || entry.name.endsWith(".d.ts")) continue
+      if (!entry.isFile() || !extension || !isDefinitionSourceFile(entry.name)) continue
       const name = entry.name.slice(0, -extension.length)
       const file = join(folder, entry.name)
       if (!namePattern.test(name)) {
@@ -48,6 +50,16 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
     }
   }
   return [...found.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+/** The forms that store submissions: each form that does not set `store: false` inline in `defineForm()`. */
+export function storingForms(forms: readonly DiscoveredForm[]): DiscoveredForm[] {
+  return forms.filter((form) => {
+    const options = findDefaultExportCall(scanModule(readFileSync(form.file, "utf8"), form.file), ["defineForm"])?.options
+    // A spread or dynamic key can replace an earlier explicit store value.
+    const store = options && objectProperties(options).findLast(property => property.key === "store" || property.key === undefined)
+    return store?.key !== "store" || !store.value || staticValue(store.value) !== false
+  })
 }
 
 /** Whether the app has a form. `vite-hub` uses it to turn the Database on. */
@@ -64,16 +76,22 @@ export interface FormsImports {
   email?: string
   auth?: string
   standard?: string
+  rateLimit?: string
 }
 
 export interface HubFormsOptions {
   imports?: Partial<FormsImports>
-  /** The app has a ViteHub Database: store submissions there. Without it, they stay in memory. */
+  /**
+   * The app has a ViteHub Database: store submissions there. Without it, a development server keeps them in memory, and a
+   * build fails when a form stores submissions.
+   */
   database?: boolean
   /** The app has ViteHub Email: send `notify.email` with it. */
   email?: boolean
   /** The app has ViteHub Auth: pass the signed-in user to `authorize`. */
   auth?: boolean
+  /** ViteHub Rate Limit counts in a KV store that every server process shares: count form messages there too. */
+  rateLimit?: boolean
 }
 
 const defaultImports: FormsImports = {
@@ -84,22 +102,25 @@ const defaultImports: FormsImports = {
   email: "@vite-hub/email",
   auth: "@vite-hub/auth/server",
   standard: "@vite-hub/runtime",
+  rateLimit: "@vite-hub/rate-limit",
 }
 
 /** The generated `{ fetch }` route of every form. */
-export function renderFormsHandler(forms: readonly DiscoveredForm[], options: HubFormsOptions & { imports: FormsImports }): string {
+export function renderFormsHandler(forms: readonly DiscoveredForm[], options: HubFormsOptions & { imports: FormsImports, memory?: boolean }): string {
   const { imports } = options
   const lines = [
     `import { createFormsHandler } from ${JSON.stringify(imports.runtime)}`,
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
-    ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
+    ...options.database && imports.databases ? [`import { useDatabase } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
     ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
+    ...options.rateLimit && imports.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(imports.rateLimit)}`] : [],
     ...forms.map((form, index) => `import form${index} from ${JSON.stringify(form.file)}`),
     "",
     "export default createFormsHandler({",
     `  forms: { ${forms.map((form, index) => `${JSON.stringify(form.name)}: form${index}`).join(", ")} },`,
-    ...options.database && imports.databases ? ["  databases,"] : [],
+    ...options.database && imports.databases ? ["  useDatabase,"] : [],
+    ...options.memory ? ["  memory: true,"] : [],
     ...options.email && imports.email ? ["  sendEmail: message => email.send(message),"] : [],
     ...options.auth && imports.auth
       ? [
@@ -111,6 +132,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
         ]
       : [],
     ...imports.standard ? ["  context: (request) => getStandardContext(request),"] : [],
+    ...options.rateLimit && imports.rateLimit ? ["  rateLimit: checkRateLimit,"] : [],
     "})",
     "",
   ]
@@ -119,7 +141,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
 
 /**
  * Forms in a ViteHub app: each `server/forms/<name>.ts` that default-exports `defineForm()` gets the route
- * `POST <base>api/_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
+ * `POST <base>_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
  * default Database.
  */
 export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {
@@ -158,13 +180,24 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
           await rm(directory, { force: true, recursive: true })
           return
         }
+        const dev = env?.command === "serve"
+        if (!options.database && !dev) {
+          const root = projectRoot
+          const storing = storingForms(forms).map(form => relative(root, form.file))
+          if (storing.length) {
+            throw formsDiagnostics.FORMS_B0002({ message: `[vitehub] Forms keeps submissions in the Database, but the app has no Database, so a build would lose them. These forms store submissions: ${storing.join(", ")}. Turn on \`database\` in \`vitehub()\`, or set \`store: false\` with \`notify\` or \`onSubmit\` in each form.` })
+          }
+        }
         await mkdir(directory, { recursive: true })
         const handler = join(directory, "handler.mjs")
-        await writeFile(handler, renderFormsHandler(forms, { ...options, imports }))
+        const plugin = join(directory, "plugin.mjs")
+        await writeFile(handler, renderFormsHandler(forms, { ...options, imports, memory: !options.database && dev }))
+        await writeFile(plugin, 'import handler from "./handler.mjs"\nexport default app => handler.registerUserData(app)\n')
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
         kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
+        kit.addPlugin(plugin)
         Reflect.set(config, "nitro", kit.config)
         await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)
       },

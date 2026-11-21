@@ -1,11 +1,14 @@
 export { defineAuth } from "./definition.ts"
-export { isGitHubOrgMember } from "./github.ts"
-export type { GitHubOrgMemberOptions } from "./github.ts"
-export type { AuthDuration, AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
+export { checkGitHubOrgMember } from "./github.ts"
+export { checksOwnAccess } from "./own-access.ts"
+export type { GitHubOrgMemberErrorCode, GitHubOrgMemberOptions } from "./github.ts"
+export type { AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,
   AuthAccessConfiguration,
+  AuthAccessPolicy,
+  AuthAccessPolicyContext,
   AuthAccessAuthorizationContext,
   AuthAccessAuthorize,
   AuthAccessAuthorizeResult,
@@ -15,12 +18,12 @@ export type {
   AuthAnonymousAuthorize,
   AuthAnonymousGuardedHandler,
   AuthAuthorization,
-  AuthDatabaseConfiguration,
-  AuthDatabaseReference,
+  AuthComponentsOptions,
   AuthDefinition,
   AuthDefinitionInput,
   AuthDefinitionOptions,
   AuthDefinitionResolver,
+  AuthDeleteAccountOptions,
   AuthFor,
   AuthGuardedHandler,
   AuthOptions,
@@ -28,14 +31,10 @@ export type {
   AuthReservedOption,
   AuthResolvedDefinitionOptions,
   AuthRuntimeContext,
-  AuthRuntimeConfiguration,
   AuthRuntimeEnv,
   AuthRuntimeOnlyOptions,
   AuthRuntimeOption,
   AuthRuntimeOptions,
-  AuthRuntimeOptionsResolver,
-  AuthSecondaryStorageConfiguration,
-  AuthSecondaryStorageReference,
   AuthSessionOptions,
   AuthSessionRefresh,
   AuthSessionRefreshContext,
@@ -44,8 +43,6 @@ export type {
   AuthViteHubOptions,
   DiscoveredAuthDefinition,
   RegisteredAuth,
-  ResolvedAuthDatabaseConfiguration,
-  ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
   ViteHubAuth,
 } from "./types.ts"

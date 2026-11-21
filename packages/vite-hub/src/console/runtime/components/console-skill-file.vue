@@ -5,6 +5,7 @@ import { RouterLink, useRoute } from "vue-router";
 import { consoleBytes } from "../client/format";
 import type { ConsoleSkillFile } from "../skills";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
+import Icon from "./console-icon.vue";
 import "./console-session.css";
 
 const props = defineProps<{ file: ConsoleSkillFile; paths: readonly string[] }>();
@@ -52,7 +53,7 @@ const SkillLink = defineComponent({
     <!-- No vertical padding: the tabs rest on the bottom border, so the tab line and the border are one line. -->
     <header class="flex min-h-11 flex-wrap items-center gap-x-3 border-b border-default px-3 sm:px-4">
       <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 py-3 font-mono text-xs leading-5 text-highlighted">
-        <UIcon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
+        <Icon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
       <UTabs v-if="markdown" v-model="view" :items="views" :content="false" class="self-end" aria-label="File view" />

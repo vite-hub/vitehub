@@ -157,7 +157,7 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
       </div>
       <div class="flex flex-wrap gap-2">
         <UButton variant="outline" to="/docs/getting-started/ai-resources/agent-instructions-skills" icon="i-lucide-sparkles" label="Add the ViteHub skill" />
-        <UButton variant="ghost" to="/docs/getting-started/ai-resources/mcp-server" icon="i-lucide-plug" label="Connect the MCP server" />
+        <UButton variant="ghost" to="/docs/console/mcp" icon="i-lucide-plug" label="Connect the MCP server" />
       </div>
     </section>
   </main>

@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T extends ConsoleStat">
+import { RollNumber } from "@vite-hub/ui";
 import type { ConsoleStat } from "./console-facts";
 
 /**
@@ -38,7 +39,7 @@ const columnClass = {
     class="grid"
     :class="[
       columnClass[columns],
-      framed ? 'gap-px overflow-hidden rounded-lg border border-default bg-(--ui-border)' : size === 'lg' ? 'gap-x-6 gap-y-4' : 'gap-x-4 gap-y-2',
+      framed ? 'gap-px overflow-hidden rounded-lg border border-default bg-(--border)' : size === 'lg' ? 'gap-x-6 gap-y-4' : 'gap-x-4 gap-y-2',
     ]"
     :aria-label="label"
   >
@@ -49,13 +50,13 @@ const columnClass = {
       <!-- A key number keeps its hint on the same line, so every cell stays one row tall. -->
       <dd v-if="size === 'lg'" class="flex min-w-0 items-baseline gap-1.5">
         <span class="truncate text-2xl font-semibold tracking-[-0.015em] tabular-nums text-highlighted" :title="String(item.value)">
-          <slot name="value" :item="item">{{ item.value }}</slot>
+          <slot name="value" :item="item"><RollNumber v-if="typeof item.value === 'number'" :value="item.value" /><template v-else>{{ item.value }}</template></slot>
         </span>
         <span v-if="item.hint" class="shrink-0 text-xs text-muted">{{ item.hint }}</span>
       </dd>
       <template v-else>
         <dd class="min-w-0 truncate text-[13px] tabular-nums text-highlighted" :title="String(item.value)">
-          <slot name="value" :item="item">{{ item.value }}</slot>
+          <slot name="value" :item="item"><RollNumber v-if="typeof item.value === 'number'" :value="item.value" /><template v-else>{{ item.value }}</template></slot>
         </dd>
         <dd v-if="item.hint" class="text-xs text-pretty text-muted">{{ item.hint }}</dd>
       </template>

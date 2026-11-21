@@ -66,7 +66,7 @@ describe("Email development outbox output", () => {
       }],
     })
     const server: { email: EmailClient, emailOutboxRuntimeId: string } = await import(pathToFileURL(file).href)
-    await server.email.send({ from: "hello@example.com", subject: "Public reader", to: "ada@example.com" })
+    await server.email.send({ from: "hello@example.com", subject: "Public reader", text: "Hello", to: "ada@example.com" })
     const messages = listEmailOutbox(server.emailOutboxRuntimeId).messages
     expect(messages).toHaveLength(1)
     expect(getEmailOutboxMessage(messages[0]!.id, server.emailOutboxRuntimeId)?.subject).toBe("Public reader")

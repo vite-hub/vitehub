@@ -13,7 +13,8 @@ import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
-import { consoleInvocationUrl, resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
+import { resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ConsoleInvocationLink {
@@ -35,7 +36,7 @@ export const agentConsole = {
         }
         encodeAgentRouteParam(invocation.agentName) // Reject names the Console cannot route.
         const origin = resolvePublicUrl({ agentName: invocation.agentName, request: context.request })
-        if (!origin) throw viteHubErrorDiagnostics.VITE_HUB_R0073({ message: "[vitehub] Console invocation URLs require `vitehub({ publicUrl })` or a request context." })
+        if (!origin) throw viteHubErrorDiagnostics.VITE_HUB_R0073({ message: "[vitehub] Console invocation URLs require a request context or a `vitehub({ publicUrl })` origin. With several configured origins, the request host must be one of them." })
         return consoleInvocationUrl(origin, invocation.agentName, invocation.id)
       },
     }

@@ -13,6 +13,7 @@ export interface FakeTreeEntry {
 
 export interface FakeCommit {
   author?: { date: string, email?: string, login?: string, name?: string }
+  committer?: FakeCommit["author"]
   message: string
   parents: string[]
   sha: string
@@ -135,9 +136,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     return [...next.values()]
   }
 
-  function addCommit(input: { author?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
+  function addCommit(input: { author?: FakeCommit["author"], committer?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
     const commit: FakeCommit = {
       author: input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
+      committer: input.committer ?? input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
       message: input.message,
       parents: input.parents,
       sha: fakeSha(input.sha ?? `commit-sha-${++commitIndex}`),
@@ -289,7 +291,12 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     const head = commits.get(String(variables.sha))
     if (!head) return json({ data: { repository: { object: null } } })
     const changed = ancestors(head.sha).map(commit => ({ commit, paths: [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree).keys()] }))
-    const object: Record<string, unknown> = {}
+    const object: Record<string, unknown> = {
+      recent: { nodes: changed.slice(0, 100).map(({ commit }) => ({
+        oid: commit.sha,
+        parents: { nodes: commit.parents.slice(0, 2).map(oid => ({ oid })) },
+      })) },
+    }
     for (const [alias, path] of Object.entries(variables)) {
       if (!/^p\d+$/.test(alias)) continue
       const latest = changed.find(entry => entry.paths.some(name => name === path || name.startsWith(`${String(path)}/`)))?.commit
@@ -358,7 +365,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
 
   /** The tarball of a commit, as GitHub serves it: every file under one `owner-repo-sha/` folder. */
   function archive(ref: string): Response {
-    if (state.archive) return new Response(state.archive)
+    if (state.archive) return new Response(state.archive.slice())
     const commit = resolve(ref)
     if (!commit) return failure(404, "Not Found")
     const files = Object.fromEntries(commit.tree.map(entry => [entry.path, blobs.get(entry.sha) ?? new Uint8Array()]))
@@ -516,6 +523,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       const ref = rest.slice("/git/trees/".length)
       const entries = trees.get(ref) ?? resolve(ref)?.tree
       if (!entries) return failure(404, "Not Found")
+      trees.set(`tree-${ref}`, entries)
       return json({ sha: `tree-${ref}`, tree: treeEntries(entries), truncated: state.truncated })
     }
     if (rest.startsWith("/git/ref/heads/") && method === "GET") {
@@ -527,7 +535,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       const commit = commits.get(sha)
       if (!commit) return failure(404, "Not Found")
       trees.set(`tree-of-${sha}`, commit.tree)
-      return json({ sha, message: commit.message, committer: commit.author, tree: { sha: `tree-of-${sha}` } })
+      return json({ sha, message: commit.message, committer: commit.committer, tree: { sha: `tree-of-${sha}` } })
     }
     if (rest === "/git/blobs" && method === "POST") {
       const blob = putBlob(new Uint8Array(Buffer.from(String(request.body?.content), "base64")))
@@ -545,12 +553,15 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       return json({ sha }, { status: 201 })
     }
     if (rest === "/git/commits" && method === "POST") {
+      const author = request.body?.author as { email: string, name: string } | undefined
       const commit = addCommit({
+        committer: request.body?.committer as FakeCommit["author"],
+        ...(author ? { author: { date: "2026-10-15T08:00:00Z", email: author.email, name: author.name } } : {}),
         message: String(request.body?.message),
         parents: request.body?.parents as string[],
         tree: trees.get(String(request.body?.tree)) ?? [],
       })
-      return json({ sha: commit.sha }, { status: 201 })
+      return json({ sha: commit.sha, committer: commit.committer }, { status: 201 })
     }
     if (rest === "/git/refs" && method === "POST") {
       const name = String(request.body?.ref).replace(/^refs\/heads\//, "")
@@ -653,14 +664,27 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
      * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
      * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
      */
-    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+    /**
+     * A signed webhook delivery of the branch head. `commits` are the push payload's commits with their `added`,
+     * `modified`, and `removed` paths; `before` and `forced` override the payload fields.
+     */
+    webhook(url: string, secret: string, input: { before?: string, branch?: string, commits?: Array<{ added?: string[], modified?: string[], removed?: string[] }>, event?: "ping" | "push" | (string & {}), forced?: boolean, repo?: string, signature?: string } = {}) {
       const branch = input.branch ?? "main"
       const after = branches.get(branch) ?? null
       const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
       const event = input.event ?? "push"
       const body = JSON.stringify(event === "ping"
         ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
-        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+        : {
+            ref: `refs/heads/${branch}`,
+            before: input.before ?? commits.get(after ?? "")?.parents[0] ?? "0".repeat(40),
+            after,
+            created: false,
+            deleted: false,
+            forced: input.forced ?? false,
+            repository,
+            commits: (input.commits ?? []).map(commit => ({ added: commit.added ?? [], modified: commit.modified ?? [], removed: commit.removed ?? [] })),
+          })
       const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
       return new Request(url, {
         method: "POST",

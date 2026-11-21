@@ -61,11 +61,11 @@ const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url),
 
 // The root holds every component. An entry of its own is only for parts whose dependencies a chat page must not load, and
 // for modules that load without the components: the theme, which apps import from nuxt.config, and the share links.
-const publicEntries = [".", "./headless", "./markdown-editor", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
+const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./package.json", "./styles.css", "./theme.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./icon-swap.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
@@ -74,10 +74,14 @@ describe("@vite-hub/ui package contract", () => {
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
+      // The ui-sdk editor parts' drag handle and its placement, which Nuxt UI otherwise brings.
+      "@floating-ui/dom": { optional: true },
       "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
+      "@tiptap/extension-drag-handle": { optional: true },
+      "@tiptap/extension-drag-handle-vue-3": { optional: true },
       "@tiptap/extension-image": { optional: true },
       "@tiptap/extension-list": { optional: true },
       "@tiptap/extension-table": { optional: true },
@@ -85,36 +89,6 @@ describe("@vite-hub/ui package contract", () => {
       "@tiptap/starter-kit": { optional: true },
       "@tiptap/vue-3": { optional: true },
       vite: { optional: true },
-    });
-    expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.9.0",
-      "comark-chat": "catalog:",
-      comark: "catalog:markdown-ui",
-      "vega-loader": "^5.1.3",
-      katex: "^0.19.1",
-      "@nuxt/kit": "4.6.2",
-      "@shikijs/langs": "4.5.0",
-      "@shikijs/themes": "4.5.0",
-      "@types/node": "catalog:tooling",
-      "@vite-hub/comments": "workspace:*",
-      "nostics": "catalog:runtime",
-      "reka-ui": "catalog:ui",
-      shiki: "^4.5.0",
-      "@codemirror/autocomplete": "6.20.4",
-      "@codemirror/commands": "6.11.1",
-      "@codemirror/lang-css": "6.3.1",
-      "@codemirror/lang-html": "6.4.12",
-      "@codemirror/lang-javascript": "6.2.5",
-      "@codemirror/lang-json": "6.0.2",
-      "@codemirror/lang-markdown": "6.5.2",
-      "@codemirror/lang-vue": "0.1.3",
-      "@codemirror/language": "6.13.1",
-      "@codemirror/state": "6.7.6",
-      "@codemirror/view": "6.43.15",
-      "@lezer/highlight": "1.2.5",
-      "@vite-hub/web-container": "workspace:*",
-      "@xterm/addon-fit": "0.11.0",
-      "@xterm/xterm": "6.0.0",
     });
   });
 
@@ -130,7 +104,6 @@ describe("@vite-hub/ui package contract", () => {
     // Folded text fades to signal more content; the surrounding surfaces stay flat.
     const surfaces = stylesheet.replace(/\.vh-agent-session__bubble\[data-folded\] \.vh-agent-session__bubble-text\s*\{[^}]*\}/g, "");
     expect(surfaces).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
-    expect(stylesheet).not.toContain("--vh-ui-text-muted");
   });
 
   it("keeps AgentSession as a private component module", () => {

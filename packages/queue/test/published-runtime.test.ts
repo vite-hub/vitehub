@@ -14,10 +14,6 @@ const queue = await import(distEntry.href)
 const resolvePackageImport = createRequire(import.meta.url).resolve
 
 describe("published Queue error runtime", () => {
-  it("does not publish a package-specific error constructor", () => {
-    expect(queue).not.toHaveProperty("QueueError")
-  })
-
   it("keeps the Cloudflare worker helper off the public root", () => {
     expect(queue).not.toHaveProperty("createQueueCloudflareWorker")
   })
@@ -77,7 +73,7 @@ describe("published Queue provider isolation", () => {
   it("creates a standalone Postgres producer from the published root", async () => {
     await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
       const { createQueueClient } = await import(${JSON.stringify(distEntry.href)});
-      const client = await createQueueClient({ provider: "postgres", queue: "jobs" });
+      const client = await createQueueClient({ driver: "postgres", queue: "jobs" });
       if (client.provider !== "postgres") throw new Error("Wrong provider");
       await client.native.close();
     `], { env: { ...process.env, QUEUE_POSTGRES_URL: "postgres://localhost/queue" } })
@@ -99,7 +95,7 @@ describe("published Queue provider isolation", () => {
             if (id !== "\0queue-producer") return
             return `
               import { createQueueClient } from ${JSON.stringify(fileURLToPath(distEntry))};
-              const client = await createQueueClient({ provider: "postgres", queue: "jobs" });
+              const client = await createQueueClient({ driver: "postgres", queue: "jobs" });
               if (client.provider !== "postgres") throw new Error("Wrong provider");
               await client.native.close();
             `

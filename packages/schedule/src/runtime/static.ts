@@ -4,9 +4,16 @@ import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
-import { isScheduleDue, latestCronMinute } from "./due.ts"
+import { cronWithWeekdayNames, isScheduleDue, latestCronMinute } from "./due.ts"
+import { isLoggedScheduleError, logScheduleRun, rememberLoggedScheduleError } from "./log.ts"
+import { startedSchedulesTickName } from "./started-name.ts"
+
+export { cronWithWeekdayNames }
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -14,6 +21,8 @@ export interface ExecuteStaticScheduleOptions {
   name: string
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
+  /** Called when the run's evlog event has the failure, so the caller does not log it again. */
+  onRunLogged?: () => void
 }
 
 export interface ExecuteMatchingStaticSchedulesOptions {
@@ -36,6 +45,8 @@ export interface ExecuteCloudflareStaticSchedulesOptions {
   registry: ScheduleDefinitionRegistry
   /** UTC cron that the host registered for each Schedule with a `timeZone`. */
   timeZoneCrons?: Readonly<Record<string, string>>
+  /** Generated Cloudflare trigger per Schedule name, separate from the standard cron passed to the handler. */
+  triggerCrons?: Readonly<Record<string, string>>
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
@@ -87,6 +98,25 @@ export function isScheduleCronAuthorized(authorization: string | null | undefine
 
 export function normalizeCron(cron: string): string {
   return cron.trim().split(/\s+/).join(" ")
+}
+
+/**
+ * Logs a failure that the Process Runtime reports: as an evlog event `{ schedule: { op: "runtime" } }`, else on the
+ * console. A failed run that has its run event is not logged again.
+ */
+export function logScheduleRuntimeError(error: unknown, runtimeError: Error): void {
+  if (isLoggedScheduleError(error)) return
+  logFailure({ field: "schedule", fields: { op: "runtime" }, level: "error", message: "Schedule runtime failed", error: runtimeError }, () => console.error("[vitehub:schedule]", runtimeError))
+}
+
+/**
+ * Notes that a log event has `error`, and returns it to throw on. A thrown value that is not an object cannot be
+ * noted, so it becomes the Error that `normalizeScheduleRuntimeError()` makes of it anyway.
+ */
+export function markLoggedScheduleError(error: unknown): unknown {
+  const marked = typeof error === "object" && error !== null ? error : normalizeScheduleRuntimeError(error)
+  rememberLoggedScheduleError(marked)
+  return marked
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
@@ -166,13 +196,57 @@ export function createStaticScheduleRun(
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
-  return await runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil })),
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
+  const execute = () => runInRunScopes(() => runWithScheduleWaitUntil(
+    async (waitUntil) => {
+      const run = createStaticScheduleRun({ ...options, scheduledAt, waitUntil })
+      try {
+        return await options.definition.handler(run)
+      }
+      catch (error) {
+        await emitRunFailed({ event: "schedule.failed", schedule: run.scheduleId, runId: run.id, error: toRunFailedError(error), failedAt: new Date().toISOString() })
+        throw error
+      }
+    },
     options.waitUntil,
-  )
+  ))
+  // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
+  if (options.name === startedSchedulesTickName) return await execute()
+  const run = { name: options.name, source: "static" as const, scheduledAt }
+  const startedAt = performance.now()
+  return await runWithScheduleWaitUntil(async (waitUntil) => {
+    try {
+      const value = await execute()
+      logScheduleRun(run, startedAt, "success", { waitUntil })
+      return value
+    }
+    catch (error) {
+      if (logScheduleRun(run, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), waitUntil })) options.onRunLogged?.()
+      throw error
+    }
+  }, options.waitUntil)
+}
+
+// A Cloudflare trigger carries the cron as written in wrangler.json, with weekday names. Cloudflare reads a weekday
+// number as 1-7 from Sunday, so a numeric trigger does not match the standard cron with the same text.
+function isHostCronTrigger(hostCron: string, trigger: string): boolean {
+  try {
+    return cronWithWeekdayNames(hostCron) === trigger
+  }
+  catch {
+    // A cron that does not parse matches no trigger.
+    return false
+  }
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
+  return await matchStaticSchedules(options)
+}
+
+async function matchStaticSchedules(
+  options: ExecuteMatchingStaticSchedulesOptions,
+  matchesTrigger?: (name: string, hostCron: string, trigger: string, hasOverride: boolean) => boolean,
+): Promise<unknown[]> {
   if (typeof options.cron !== "string" || !options.cron.trim()) {
     throw createScheduleError("SCHEDULE_INVALID_CRON", {
       details: invalidScheduleValueDetails("cron", options.cron),
@@ -180,15 +254,18 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   }
   const cron = normalizeCron(options.cron)
   const scheduledAt = validateScheduledAt(options.scheduledAt)
-  const runs: Array<{ name: string, run: Promise<unknown> }> = []
+  const runs: Array<{ logged: () => boolean, name: string, run: Promise<unknown> }> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
     if (!definition) continue
     const override = options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined
     const timeZoneCron = override === undefined && options.timeZoneCrons && Object.hasOwn(options.timeZoneCrons, name) ? options.timeZoneCrons[name] : undefined
-    if (normalizeCron(override ?? timeZoneCron ?? definition.cron) !== cron) continue
+    const hostCron = normalizeCron(override ?? timeZoneCron ?? definition.cron)
+    if (!(matchesTrigger ? matchesTrigger(name, hostCron, cron, override !== undefined) : hostCron === cron)) continue
     if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
-    runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
+    let logged = false
+    const run = executeStaticSchedule({ cron: matchesTrigger ? hostCron : options.cron, definition, name, onRunLogged: () => { logged = true }, scheduledAt, waitUntil: options.waitUntil })
+    runs.push({ logged: () => logged, name, run })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
@@ -196,7 +273,8 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   results.forEach((result, index) => {
     if (result.status === "fulfilled") return
     failures.push(result.reason)
-    console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    // The run's evlog event has the failure. A thrown string has no identity, so the flag of the run tells.
+    if (!runs[index]!.logged()) console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (failures.length === 1) throw failures[0]
   if (failures.length) throw new AggregateError(failures, `[vitehub:schedule] ${failures.length} schedules failed for cron "${options.cron}".`)
@@ -210,13 +288,17 @@ export async function executeCloudflareStaticSchedules(
   const scheduled = readCloudflareScheduledEvent(event)
   const hostWaitUntil = options.waitUntil ?? readCloudflareWaitUntil(event)
   return await runWithCloudflareServerEnv(event, async (waitUntil) => {
-    return await executeMatchingStaticSchedules({
+    return await matchStaticSchedules({
       cron: scheduled.cron,
       cronOverrides: options.cronOverrides,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
       timeZoneCrons: options.timeZoneCrons,
       waitUntil,
+    }, (name, hostCron, trigger, hasOverride) => {
+      const registered = options.triggerCrons && Object.hasOwn(options.triggerCrons, name) ? options.triggerCrons[name] : undefined
+      if (registered !== undefined) return normalizeCron(registered) === trigger
+      return hasOverride ? hostCron === trigger : isHostCronTrigger(hostCron, trigger)
     })
   }, hostWaitUntil)
 }
@@ -297,7 +379,7 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

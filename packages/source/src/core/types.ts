@@ -111,6 +111,13 @@ export interface FileSource<TKey extends string = string, TMetadata extends obje
   getItems?(ctx: SourceContext): Promise<SourceFile<TKey, TMetadata>[]>
 }
 
+/** `file()` and `markdown()` return a Source with one item. `key` is the key of that item. */
+export interface SingleFileSource<TKey extends string = string, TMetadata extends object = Record<string, unknown>>
+  extends FileSource<TKey, TMetadata> {
+  name: "file"
+  key: TKey
+}
+
 interface SourceFileMethods<TKey extends string> {
   read<TOptions extends ReadSourceOptions | undefined = undefined>(
     key: TKey,

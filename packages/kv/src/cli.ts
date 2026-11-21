@@ -1,17 +1,17 @@
 import type { KVDriver } from "./types.ts"
 import { readFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { extname, join, relative, resolve } from "node:path"
 
 import * as v from "valibot"
 
-import { askOnTerminal, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
+import { askOnTerminal, listSeedFiles, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { isRecord } from "@vite-hub/internal/object"
 
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "./results.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliSeed, ViteHubCliSeedOptions, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { KVDevOperation } from "./results.ts"
 import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./runtime/operations.ts"
 
@@ -21,6 +21,8 @@ export interface KVCliOptions {
   /** Asks whether `delete` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
+  /** The project root that holds `server/seed/kv/`. Defaults to the root of the CLI context. */
+  projectRoot?: () => string
 }
 
 type KVCliOption = "cursor" | "json-value" | "limit" | "prefix" | "ttl"
@@ -55,6 +57,7 @@ const kvDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const kvCommands: readonly KVCommand[] = [
@@ -64,6 +67,8 @@ const kvCommands: readonly KVCommand[] = [
   { description: "Write the value of one key.", key: true, name: "set", options: ["ttl", "json-value"], value: true },
   { description: "Delete one key.", key: true, name: "delete", options: [] },
 ]
+
+const setCommand = kvCommands.find(command => command.name === "set")!
 
 const optionUsage: Record<KVCliOption, string> = {
   "cursor": "[--cursor <cursor>]",
@@ -237,7 +242,7 @@ type KVCommandResult =
 const targetFields = { key: v.string(), store: v.string() }
 const positiveNumber = v.pipe(v.number(), v.finite(), v.gtValue(0))
 const resultSchemas = {
-  list: v.object({ cursor: v.optional(v.string()), driver: v.optional(v.picklist(["cloudflare-kv-binding", "database", "deno-kv", "fs-lite", "redis", "upstash"] satisfies KVDriver[])), keys: v.array(v.string()), limit: v.pipe(positiveNumber, v.integer()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
+  list: v.object({ cursor: v.optional(v.string()), driver: v.optional(v.picklist(["cloudflare", "database", "deno-kv", "fs-lite", "redis", "upstash"] satisfies KVDriver[])), keys: v.array(v.string()), limit: v.pipe(positiveNumber, v.integer()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
   get: v.pipe(v.object({ ...targetFields, encoding: v.optional(v.literal("base64")), found: v.boolean(), type: v.optional(v.string()), value: v.optional(v.unknown()) }), v.check(result => !result.found || (result.type !== undefined && result.value !== undefined), "found KV values require type and value"), v.check(result => result.encoding !== "base64" || v.is(v.pipe(v.string(), v.regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)), result.value))),
   has: v.object({ ...targetFields, exists: v.boolean() }),
   set: v.object({ ...targetFields, created: v.boolean(), notice: v.optional(v.string()), ttl: v.optional(positiveNumber), type: v.string() }),
@@ -370,6 +375,41 @@ export async function runKVCli(args: string[], context: KVCliContext, options: K
   return await runKVCommand(command, rest, context, options)
 }
 
+/** The folder of the KV seed files, relative to the project root. */
+const kvSeedDir = "server/seed/kv"
+
+/**
+ * Writes each file in `server/seed/kv/` to the default KV store with `kv set`. The key is the path without its
+ * extension, so `server/seed/kv/settings/theme.json` is the key `settings/theme`. A `.json` file is a JSON value, and
+ * any other file is a string.
+ */
+async function runKVSeed(seed: ViteHubCliSeedOptions, context: ViteHubCliContext, options: KVCliOptions): Promise<number | undefined> {
+  const dir = resolve(options.projectRoot?.() ?? context.rootDir, kvSeedDir)
+  const files = await listSeedFiles(dir)
+  if (!files?.length) return undefined
+  if (seed.remote && !seed.url) {
+    context.stderr.write("[vitehub] The KV seed with --remote writes the deployed app. Pass --url <url>, or set `vitehub({ publicUrl })`.\n")
+    return 1
+  }
+  const keys = new Map<string, string>()
+  for (const file of files) {
+    const key = file.slice(0, file.length - extname(file).length)
+    const other = keys.get(key)
+    if (other) {
+      context.stderr.write(`[vitehub] ${kvSeedDir}/${other} and ${kvSeedDir}/${file} are both the KV key ${key}. Keep one of them.\n`)
+      return 1
+    }
+    keys.set(key, file)
+  }
+  for (const [key, file] of keys) {
+    const path = relative(context.cwd, join(dir, file)) || join(dir, file)
+    const flags = [...extname(file) === ".json" ? ["--json-value"] : [], ...seed.url ? ["--url", seed.url] : [], ...seed.timeout ? ["--timeout", String(seed.timeout)] : []]
+    const code = await runKVCommand(setCommand, [...flags, "--", key, `@${path}`], context, options)
+    if (code !== 0) return code
+  }
+  return 0
+}
+
 export function createKVCliContributor(options: KVCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
@@ -382,5 +422,6 @@ export function createKVCliContributor(options: KVCliOptions = {}): ViteHubCliCo
       })),
       name: "kv",
     }],
+    seeds: [{ files: `${kvSeedDir}/<key>.json`, name: "kv", run: async (seed, context) => await runKVSeed(seed, context, options) } satisfies ViteHubCliSeed],
   }
 }

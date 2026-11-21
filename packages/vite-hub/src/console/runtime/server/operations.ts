@@ -1,4 +1,4 @@
-import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows, operationCall, operationSection, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
@@ -15,6 +15,8 @@ import type { Result } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleTicket } from "./tickets.ts"
+import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
 
 // Standalone runtime imports retain every operation; host builds replace these flags before bundling.
 declare global {
@@ -114,6 +116,7 @@ export function defineConsoleOperation<Input, Output>(definition: Omit<Operation
 }
 
 const agentsList = defineConsoleOperation({
+  cli: { command: "list", namespace: "agent" },
   description: "List the Agents of the app.",
   input: v.strictObject({}),
   kind: "read",
@@ -123,7 +126,7 @@ const agentsList = defineConsoleOperation({
 })
 
 const agentsInvoke = defineConsoleOperation({
-  cli: { positional: ["agent"] },
+  cli: { command: "invoke", namespace: "agent", positional: ["agent"] },
   description: "Start an Agent Invocation with a prompt.",
   input: v.strictObject({
     agent: v.pipe(text, v.minLength(1)),
@@ -296,7 +299,8 @@ const databasesTables = defineConsoleOperation({
 })
 
 const definitionsList = defineConsoleOperation({
-  cli: { positional: ["section"] },
+  // `vitehub inspect definitions` lists the Definitions in the terminal.
+  cli: false,
   description: "Read the definitions of one Console section.",
   input: v.strictObject({ section: text }),
   kind: "read",
@@ -344,16 +348,17 @@ const documentsPreview = defineConsoleOperation({
 })
 
 const envGet = defineConsoleOperation({
-  description: "Read the Server Env declarations, or the status of their values.",
-  input: v.strictObject({ status: v.optional(v.boolean()) }),
+  description: "Read the Server Env declarations. `env.inspect` reads the status of their values.",
+  input: v.strictObject({}),
   kind: "read",
   name: "env.get",
-  run: async ({ status }, context) => (await import("./env.get.ts")).default(legacyEvent("env", "GET", { query: { status: status ? "1" : undefined } }, context)),
+  run: async (_input, context) => (await import("./env.get.ts")).default(legacyEvent("env", "GET", {}, context)),
   section: "env",
 })
 
 const invocationsList = defineConsoleOperation({
-  cli: { namespace: "invocations" },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "List Agent Invocations, newest first.",
   input: v.strictObject({ agent: optionalText, capability: optionalText, cursor: optionalText, id: v.optional(v.array(text)), limit: optionalCount, triggeredBy: optionalText }),
   kind: "read",
@@ -363,7 +368,8 @@ const invocationsList = defineConsoleOperation({
 })
 
 const invocationsGet = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Read one Agent Invocation with its observations.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)), observationCount: optionalCount, observationCursor: optionalText }),
   kind: "read",
@@ -373,7 +379,8 @@ const invocationsGet = defineConsoleOperation({
 })
 
 const invocationsCancel = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Ask a running Agent Invocation to stop.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "write",
@@ -382,8 +389,20 @@ const invocationsCancel = defineConsoleOperation({
   section: "agents",
 })
 
+const invocationsUndo = defineConsoleOperation({
+  // `vitehub agent invocations` calls it.
+  cli: false,
+  description: "Ask the person's open page to put back one change an Agent made there. The page restores it only while the field still shows the Agent's value.",
+  input: v.strictObject({ change: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)) }),
+  kind: "write",
+  name: "invocations.undo",
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocation-page-undo.ts"))).undoConsolePageChange(input, context),
+  section: "agents",
+})
+
 const invocationsDelete = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Delete one finished Agent Invocation.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "destructive",
@@ -393,7 +412,8 @@ const invocationsDelete = defineConsoleOperation({
 })
 
 const invocationsCapabilities = defineConsoleOperation({
-  cli: { namespace: "invocations" },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "List the capabilities of an Agent Invocation setup.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
@@ -403,7 +423,8 @@ const invocationsCapabilities = defineConsoleOperation({
 })
 
 const invocationsWorkspace = defineConsoleOperation({
-  cli: { namespace: "invocations", positional: ["id"] },
+  // `vitehub agent invocations` calls it.
+  cli: false,
   description: "Read the Workspace files and history of one Agent Invocation.",
   input: v.strictObject({ cursor: optionalText, history: v.optional(v.boolean()), id: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
   kind: "read",
@@ -465,12 +486,13 @@ const mediaUpload = defineConsoleOperation({
 })
 
 const projectGet = defineConsoleOperation({
-  cli: { command: "info", namespace: "project" },
-  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  cli: { command: "get", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, the time and Git commit of its production build, and the sections and operations that this access may use.",
   input: v.strictObject({}),
   kind: "read",
   name: "project.get",
-  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  // The Console page opens a project with this one call, so it also gets the sections that it shows.
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access, { navigation: context.surface === "console" }),
   section: false,
 })
 
@@ -512,7 +534,8 @@ const skillsInspect = defineConsoleOperation({
 })
 
 const statusGet = defineConsoleOperation({
-  cli: { command: "status", namespace: "agents" },
+  // `vitehub agent get <name>` reads it with --url.
+  cli: false,
   description: "Read the status of an Agent: its setup and what it can do.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
@@ -525,11 +548,33 @@ const sitePagePath = v.optional(v.pipe(text, v.maxLength(2048)))
 const siteId = v.pipe(text, v.minLength(1), v.maxLength(64))
 const siteAccess = () => import("./site-access.ts")
 
-/** Site access: browsers that use the page tools without an app sign-in. See `site-access.ts`. */
+function formatSiteSessions({ sessions }: { sessions: SiteSession[] }): string {
+  if (!sessions.length) return "No browser is signed in through Site access.\n"
+  return `${table([
+    ["ID", "KIND", "PERSON", "DEVICE", "LAST SEEN", "EXPIRES"],
+    ...sessions.map(session => [session.id, session.kind, session.person.email ? `${session.person.name} <${session.person.email}>` : session.person.name, session.device, session.lastSeenAt, session.expiresAt]),
+  ])}\n`
+}
+
+function formatSiteInvites({ invites }: { invites: SiteInvite[] }): string {
+  if (!invites.length) return "No open invites.\n"
+  return `${table([
+    ["ID", "NAME", "ROLES", "PATH", "EXPIRES", "BY"],
+    ...invites.map(invite => [invite.id, invite.name, invite.grants.join(","), invite.path, invite.expiresAt, invite.createdBy.name]),
+  ])}\n`
+}
+
+function formatSiteGrants({ grants }: { grants: SiteGrant[] }): string {
+  return `${table([["ROLE", "LABEL", "GUESTS"], ...grants.map(grant => [grant.id, grant.label, grant.membersOnly ? "no, members only" : "yes"])])}\n`
+}
+
+/** Site access: the Console signs browsers in to the app for the page tools. See `site-access.ts`. */
 const siteOperations = [
   defineConsoleOperation({
-    description: "Return a one-time link that gives the browser that opens it a member pass, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
-    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()) }),
+    // A `vitehub` command signs as a key, not as a person, so the server refuses it with CONSOLE_TICKET_NO_PERSON and the fix.
+    cli: { command: "open", format: (ticket: ConsoleTicket) => `${ticket.url}\nThe link works once, until ${ticket.expiresAt}.\n`, positional: ["path"] },
+    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone. With the state of GET /_vitehub, it works only in the browser that opened that route.",
+    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()), state: v.optional(v.pipe(text, v.regex(/^[\w-]{43}$/))) }),
     kind: "write",
     mcp: false,
     name: "site.link",
@@ -537,24 +582,26 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
-    description: "List the browsers that hold a page pass: Console members and invited guests.",
+    cli: { format: formatSiteSessions },
+    description: "List the app sessions of Console members and invited guests: one per browser.",
     input: v.strictObject({}),
     kind: "read",
-    name: "site.passes",
-    run: async (_input, context) => (await siteAccess()).listPasses(context),
+    name: "site.sessions",
+    run: async (_input, context) => (await siteAccess()).listSessions(context),
     section: "site",
   }),
   defineConsoleOperation({
-    cli: { positional: ["id"] },
-    description: "Revoke the page pass of one browser.",
+    cli: { command: "revoke", format: ({ removedUser }: { removedUser: boolean }) => removedUser ? "Signed the browser out and deleted the guest.\n" : "Signed the browser out.\n", positional: ["id"] },
+    description: "Sign one browser out. Revoking a guest's browser deletes the guest.",
     input: v.strictObject({ id: siteId }),
     kind: "destructive",
-    name: "site.revoke-pass",
-    run: async ({ id }, context) => (await siteAccess()).revokePass(context, id),
+    name: "site.revoke-session",
+    run: async ({ id }, context) => (await siteAccess()).revokeSession(context, id),
     section: "site",
   }),
   defineConsoleOperation({
-    description: "Invite a guest: a one-time link that gives one browser a pass with a name and grants, such as comments.write. Guests never get the Console.",
+    cli: { format: ({ url, invite }: ConsoleTicket & { invite: SiteInvite }) => `${url}\nThe link works once, in one browser, until ${invite.expiresAt}. Revoke it with \`vitehub site revoke-invite ${invite.id}\`.\n`, positional: ["name"] },
+    description: "Invite a guest: a one-time link that signs one browser in as a new app user with a name and roles, such as comments-write. Guests never get the Console.",
     input: v.strictObject({
       expiresInDays: v.optional(v.picklist([1, 7, 30])),
       grants: v.pipe(v.array(v.pipe(text, v.maxLength(128))), v.maxLength(32)),
@@ -568,6 +615,7 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
+    cli: { format: formatSiteInvites },
     description: "List the guest invites that nobody opened yet.",
     input: v.strictObject({}),
     kind: "read",
@@ -576,7 +624,7 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
-    cli: { positional: ["id"] },
+    cli: { format: () => "Revoked the invite.\n", positional: ["id"] },
     description: "Revoke a guest invite that nobody opened yet.",
     input: v.strictObject({ id: siteId }),
     kind: "destructive",
@@ -585,7 +633,8 @@ const siteOperations = [
     section: "site",
   }),
   defineConsoleOperation({
-    description: "List the grants that a page pass may hold. Console is for members only.",
+    cli: { format: formatSiteGrants },
+    description: "List the roles that Site access gives. Console is for members only.",
     input: v.strictObject({}),
     kind: "read",
     name: "site.grants",
@@ -635,6 +684,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   documentsPreview,
   envGet,
   invocationsCancel,
+  invocationsUndo,
   invocationsCapabilities,
   invocationsDelete,
   invocationsGet,

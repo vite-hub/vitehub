@@ -1,11 +1,11 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { createAuthUsers } from "../operations-core/server.ts"
 
 import type { CommentsPeople, CommentsRequestEvent, CommentsUser } from "../types.ts"
 
 // The generated Comments plugin imports this module at startup. Better Auth loads on the first request that needs a user.
-const authServer = () => import("@vite-hub/auth/server")
+const authServer = () => import("@vite-hub/auth/internal/server")
 
 /** The ViteHub Auth user of a request, or null. Generated Comments files pass it as `session` when the app has Auth. */
 export async function commentsAuthSession(event: CommentsRequestEvent): Promise<CommentsUser | null> {

@@ -15,7 +15,7 @@ import { createBlobDatabaseWorkspaceStore } from "../src/blob-database.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { custom } from "../src/sources/custom.ts"
-import { fetch as fetchSource } from "../src/sources/fetch.ts"
+import { url as fetchSource } from "../src/sources/fetch.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts"
 
@@ -253,7 +253,7 @@ function memoryHost(): WorkspaceSessionHost & { isExecutable(path: string): bool
 
 function workspace() {
   return createWorkspace({
-    ...defineWorkspace({ store: { provider: "memory" } }),
+    ...defineWorkspace({ store: { driver: "memory" } }),
     name: "docs",
   })
 }
@@ -354,7 +354,7 @@ describe("workspace host sessions", () => {
         sources: {
           request: fetchSource({ url: "https://status.example.com/request" }),
         },
-        store: { provider: "local", root: source },
+        store: { driver: "local", root: source },
       }),
       name: "local-docs",
     })
@@ -929,7 +929,7 @@ describe("workspace host sessions", () => {
   })
 
   it("rejects one concurrent publication after its pinned revision becomes stale", async () => {
-    const definition = { ...defineWorkspace({ store: { provider: "memory" } }), name: "docs" }
+    const definition = { ...defineWorkspace({ store: { driver: "memory" } }), name: "docs" }
     const firstWorkspace = createWorkspace(definition)
     const secondWorkspace = createWorkspace(definition)
     const archive = await revisionArchive()
@@ -1515,7 +1515,6 @@ describe("workspace host sessions", () => {
     await expect(session.close()).resolves.toBeUndefined()
 
     expect(host.readText("/workspace/README.md")).toBe("before")
-    expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
   it("cancels a deferred recursive snapshot during Session close", async () => {

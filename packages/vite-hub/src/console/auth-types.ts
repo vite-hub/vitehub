@@ -2,7 +2,7 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 
 /** The signed-in user that the Console gives `console.authorize`. */
-export type ConsoleUser = AccessAuthorizationContext["user"]
+export type ConsoleUser = AccessAuthorizationContext<unknown, false>["user"]
 
 /** The request that `console.authorize` checks with `console: { auth: false }` in development. It has no signature and no user. */
 export interface ConsoleOpenAuthorizeContext {
@@ -24,6 +24,8 @@ export interface ConsoleSignedConsoleAuthorizeContext {
   team?: { id: string, role?: string }
   /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */
   key: string
+  /** `"mcp"` when the ViteHub MCP of the Console calls for `user`, such as from Claude Code. Not set for the Console page. */
+  surface?: "mcp"
   via: "console"
 }
 
@@ -71,9 +73,11 @@ export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSigne
  * - `true` allows every Console section.
  * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
  *   that section that read. `"blob:media"` allows the Blob operations on the `media` store only. An empty list is `403`.
+ *   `grants` lists the page tool roles, such as `comments-read`, that Site access gives the person when they open the
+ *   site from the Console. Without `grants`, they get the roles of every page tool.
  * - `false` is `403`. A `Response` is returned as-is.
  */
-export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
+export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[], grants?: readonly string[] }
 
 /** Decides whether one Console request may continue, and which Console sections it may use. */
 export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuthorizeResult | Promise<ConsoleAuthorizeResult>

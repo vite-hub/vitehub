@@ -11,6 +11,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/adapters.ts",
       "src/index.ts",
       "src/runtime/empty-registry.ts",
       "src/server.ts",

@@ -47,7 +47,7 @@ afterEach(async () => {
 })
 
 function server() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "content" }) }, logger: false })
+  const content = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "content" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -107,10 +107,10 @@ describe("content.history() for github() Sources", () => {
   it("keeps the cache of another Source root apart", async () => {
     fake.commit("main", { "en/guide.md": page("Guide"), "es/guide.md": page("Guía") }, { message: "Add both" })
     fake.commit("main", { "es/guide.md": page("Guía v2") }, { message: "Edit the Spanish guide" })
-    const english = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "en" }) }, logger: false })
+    const english = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "en" }) }, logger: false })
     cleanup.push(() => english.dispose())
     expect((await english.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Add both"])
-    const spanish = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main", root: "es" }) }, logger: false })
+    const spanish = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main", root: "es" }) }, logger: false })
     cleanup.push(() => spanish.dispose())
     expect((await spanish.history("/guide"))!.entries.map(entry => entry.message)).toEqual(["Edit the Spanish guide", "Add both"])
   })
@@ -128,8 +128,8 @@ describe("content.history() for github() Sources", () => {
     // All three calls read one cached page of 100 commits.
     expect(commitLists()).toHaveLength(1)
 
-    await expect(content.history("/guide", { cursor: "nope" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.history("/guide", { limit: 0 })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.history("/guide", { cursor: "nope" })).rejects.toMatchObject({ code: "CONTENT_HISTORY_CURSOR_INVALID" })
+    await expect(content.history("/guide", { limit: 0 })).rejects.toMatchObject({ code: "CONTENT_HISTORY_INPUT_INVALID" })
   })
 
   it("reads past the first page of 100 commits", async () => {

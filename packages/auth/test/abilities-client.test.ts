@@ -6,7 +6,7 @@ import type { Window } from "happy-dom"
 
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
-const { Can, createAuthClient, provideAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAbility, useSession } = await import("../src/vue.ts")
+const { AuthPermission, createAuthClient, provideAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAbility } = await import("../src/vue.ts")
 const { document } = globalThis as unknown as Window
 const author = { session: { id: "s1", expiresAt: new Date(Date.now() + 60_000).toISOString() }, user: { id: "u1", name: "Ada", email: "ada@example.com", emailVerified: true } }
 const ownPost = { authorId: "u1", published: false }
@@ -45,9 +45,9 @@ describe("configured ability clients", () => {
     const Child = defineComponent(() => {
       ability = useAbility()
       explicit = useAbility(client)
-      const state = useSession(client)
+      const state = client.useSession()
       refresh = () => state.value.refetch()
-      return () => h(Can as never, { do: "posts.edit", with: ownPost }, {
+      return () => h(AuthPermission as never, { check: "posts.edit", args: [ownPost] }, {
         default: () => h("button", "Edit"),
         denied: ({ code }: { code: string }) => h("span", code),
       })
@@ -62,8 +62,11 @@ describe("configured ability clients", () => {
     expect(ability!.can("posts.edit", ownPost)).toBe(true)
     expect(root.innerHTML).toContain("Edit")
 
-    await vi.waitFor(() => expect(requests.length).toBeGreaterThan(0))
-    await vi.waitFor(() => expect(ability!.can("posts.edit", ownPost)).toBe(true))
+    // Hydration keeps the server's session without a read. A refresh reads it at the custom path.
+    expect(requests).toEqual([])
+    await refresh!()
+    expect(requests.length).toBeGreaterThan(0)
+    expect(ability!.can("posts.edit", ownPost)).toBe(true)
     expect(explicit!.can("posts.edit", ownPost)).toBe(true)
     expect(root.innerHTML).toContain("Edit")
     expect(requests.every(url => url.endsWith("/auth/get-session"))).toBe(true)

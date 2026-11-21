@@ -1,15 +1,19 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { createKVStorage } from "./create-storage.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
-import { installCloudflareKVLimits } from "./cloudflare-kv-limits.ts"
+import { assertCloudflareKVKey, assertCloudflareKVWrite, installCloudflareKVLimits, validateCloudflareKVBatch } from "./cloudflare-kv-limits.ts"
+import { chunks, setItemsOneByOne } from "./batch.ts"
 
-import type { KVListOptions, KVListPage } from "../types.ts"
+import type { KVPageOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface CloudflareKVNamespace {
+  /** A bulk read: up to 100 keys per call. */
+  get: (keys: string[], type: "text") => Promise<unknown>
   list: (options: { cursor?: string; limit: number; prefix?: string }) => Promise<unknown>
 }
 
@@ -35,6 +39,9 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
+/** Cloudflare reads at most 100 keys in one bulk `get()`. */
+const cloudflareKVBulkGetKeys = 100
+
 const cloudflareBindingIdentities = new WeakMap<object, number>()
 let nextCloudflareBindingIdentity = 0
 
@@ -59,9 +66,33 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const driverOptions = typeof bindingName === "string"
     ? { ...options, get binding() { return getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) ?? bindingName } }
     : options
-  // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
-  const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  // SAFETY: The unstorage Cloudflare driver supplies getInstance and removeItem; this adapter installs listKeys.
+  const driver = createDriver(driverOptions) as KVRuntimeDriver & {
+    getInstance: () => CloudflareKVNamespace | Promise<CloudflareKVNamespace>
+    removeItem: NonNullable<KVRuntimeDriver["removeItem"]>
+  }
   installCloudflareKVLimits(driver)
+  driver.validateBatch = validateCloudflareKVBatch
+  driver.getItems = async (items) => {
+    for (const item of items) assertCloudflareKVKey(item.key)
+    const values = new Map<string, string | null>()
+    for (const batch of chunks([...new Set(items.map(item => item.key))], cloudflareKVBulkGetKeys)) {
+      // The instance is a Promise when unstorage still has to find the binding.
+      const page = await (await driver.getInstance()).get(batch, "text")
+      if (!(page instanceof Map)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV bulk get did not return a Map." })
+      for (const key of batch) {
+        const value: unknown = page.get(key)
+        values.set(key, typeof value === "string" ? value : null)
+      }
+    }
+    return items.map(item => ({ key: item.key, value: values.get(item.key) ?? null }))
+  }
+  // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
+  const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
+  driver.setItems = async (items, commonOptions) => {
+    for (const item of items) assertCloudflareKVWrite(item.key, item.value)
+    await setItemsOneByOneWithLimits(items, commonOptions)
+  }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
   const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
@@ -80,8 +111,8 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       cursorHistories.clear()
     }
   }
-  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
-    if (disposed) throw new Error("KV storage has been disposed.")
+  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVPageOptions): Promise<KVListPage> => {
+    invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
@@ -91,13 +122,13 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
       const cursors = continuation.history
-      const page = await driver.getInstance().list(listOptions)
+      const page = await (await driver.getInstance()).list(listOptions)
       if (!isCloudflareKVListPage(page)) {
         throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV list returned an invalid page." })
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
-        if (disposed) throw new Error("KV storage has been disposed.")
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(page.cursor!)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }
@@ -113,15 +144,26 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       throw error
     }
   }
+  // The unstorage driver clears the keys below a base. KV clears the keys that start with `prefix` as text, as `list()`
+  // matches them. It lists every key first, so a delete never moves a listing cursor.
+  driver.clear = async (prefix = "") => {
+    const keys: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await driver.listKeys({ cursor, limit: 1000, prefix })
+      keys.push(...page.keys)
+      cursor = page.cursor
+    } while (cursor)
+    for (const key of keys) await driver.removeItem(key, {})
+  }
   return driver
 }
 
 export function createCloudflareKVStorage(options: Record<string, unknown>): unknown {
   const driver = createCloudflareDriver(options)
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The storage object is extended only with the driver-backed listKeys method.
   // SAFETY: createKVStorage returns an extensible storage object; listKeys is installed before it escapes.
   const storage = createKVStorage(driver) as unknown as Record<string, unknown>
-  storage.listKeys = (listOptions: KVListOptions) => driver.listKeys({ ...listOptions, prefix: normalizeKVListPrefix(listOptions.prefix) })
+  storage.listKeys = (listOptions: KVPageOptions) => driver.listKeys({ ...listOptions, prefix: normalizeKVListPrefix(listOptions.prefix) })
   return storage
 }
 

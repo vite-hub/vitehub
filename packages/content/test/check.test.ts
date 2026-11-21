@@ -48,7 +48,7 @@ afterEach(async () => {
 })
 
 function server(options: Parameters<typeof defineContent>[0] = {}, schema?: ContentSourceOptions["schema"]) {
-  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id", ...(schema ? { schema } : {}) }) }, logger: false, ...options })
+  const content = defineContent({ access: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id", ...(schema ? { schema } : {}) }) }, logger: false, ...options })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -282,7 +282,7 @@ describe("content.sources.advance() with the check", { timeout: 30_000 }, () => 
       { key: "hello.md", path: "hello.md", content: page("Hello from Acme", "See [world](/blog/wrld).\n") },
       { key: "world.md", path: "world.md", content: page("World from Acme") },
     ]
-    const content = defineContent({ sources: { blog: contentSource({ items: async () => items }, { url: "/blog/:id" }) }, logger: false })
+    const content = defineContent({ access: "public", sources: { blog: contentSource({ items: async () => items }, { url: "/blog/:id" }) }, logger: false })
     cleanup.push(() => content.dispose())
     const result = await content.check()
     expect(result).toMatchObject({ ok: false, errors: 1, sources: [{ source: "blog", sha: null, pages: 2 }] })
@@ -375,5 +375,12 @@ describe("vitehub content check --dir", () => {
     const root = await folder({})
     expect(await cli(root, ["--schema", "schema.json"])).toMatchObject({ code: 1, stderr: expect.stringContaining("need --dir") })
     expect(await cli(root, ["--dir", "missing", "--json"])).toMatchObject({ code: 1, stdout: expect.stringContaining("CONTENT_R0069") })
+  })
+
+  it.each([["a list", "[\"title\"]"], ["a string", "\"title\""], ["null", "null"]])("rejects a --schema file that holds %s with CONTENT_R0069", async (_name, text) => {
+    const root = await folder({ "posts/hello.md": page("Hello", "Body\n"), "schema.json": text })
+    const result = await cli(root, ["--dir", "posts", "--schema", "schema.json", "--json"])
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout)).toMatchObject({ error: { code: "CONTENT_R0069", message: "Could not read the JSON Schema schema.json: the file does not hold a JSON Schema object." } })
   })
 })

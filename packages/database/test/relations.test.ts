@@ -175,10 +175,11 @@ describe("mergeDatabaseRelations", () => {
 
 describe("defineDatabase relations on libSQL", () => {
   it("queries related rows with `with`", async () => {
-    const db = defineDatabase({ connection: { url: await tempDatabaseUrl() }, relations, schema })
+    const definition = defineDatabase({ connection: { url: await tempDatabaseUrl() }, relations, schema })
+    const db = createDefinitionRuntime(definition)
     await seed(db)
 
-    expect(db.relations).toBe(relations)
+    expect(definition.relations).toBe(relations)
     await expect(db.query.users.findMany({ orderBy: { id: "asc" }, with: { posts: { orderBy: { id: "asc" }, columns: { title: true } } } })).resolves.toEqual([
       { id: 1, name: "Ada", posts: [{ title: "First" }, { title: "Second" }] },
       { id: 2, name: "Lin", posts: [{ title: "Third" }] },
@@ -192,11 +193,12 @@ describe("defineDatabase relations on libSQL", () => {
   })
 
   it("defaults to every table of the schema without relations", async () => {
-    const db = defineDatabase({ connection: { url: await tempDatabaseUrl() }, schema })
+    const definition = defineDatabase({ connection: { url: await tempDatabaseUrl() }, schema })
+    const db = createDefinitionRuntime(definition)
     await seed(db)
 
-    expect(Object.keys(db.relations).toSorted()).toEqual(["posts", "users"])
-    expect(db.relations.users.relations).toEqual({})
+    expect(Object.keys(definition.relations).toSorted()).toEqual(["posts", "users"])
+    expect(definition.relations.users.relations).toEqual({})
     await expect(db.query.users.findFirst({ where: { name: "Lin" } })).resolves.toEqual({ id: 2, name: "Lin" })
   })
 

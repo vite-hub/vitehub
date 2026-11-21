@@ -33,6 +33,16 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
+  it("limits the registry to the configured root instead of the host server directories", async () => {
+    const root = await createTempProject()
+    const expected = await writeChannel(root, "custom/server/channels/alerts.ts")
+    await writeChannel(root, "server/channels/ignored.ts")
+    const plugin = hubChannels({ projectRoot: "custom" })
+    const config = { root, configFile: false as const, plugins: [plugin], [VITEHUB_SERVER_DIRS]: [join(root, "server")] }
+    await resolveConfig(config, "serve")
+    expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ handler: expected })])
+  })
+
   it("aliases the discovered Channel registry into Nitro builds", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")
@@ -73,17 +83,17 @@ describe("hubChannels", () => {
   })
 
   it.each([
-    ["server/channels/payments.ts", "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })"],
-    ["src/payments.channel.ts", "import * as channels from 'vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.stripe() })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels.webhook() })"],
-    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nexport default channels.defineChannel({ adapter: channels['webhook']() })"],
+    ["server/channels/payments.ts", "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: stripe() })"],
+    ["src/payments.channel.ts", "import { defineChannel } from 'vite-hub/channels'\nimport * as adapters from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: adapters.stripe() })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/channels/adapters'\nexport default channels.defineChannel({ adapter: adapters.webhook({ secret: false }) })"],
+    ["server/channels/payments.ts", "import * as channels from '@vite-hub/channels'\nimport * as adapters from '@vite-hub/agent/channels'\nexport default channels.defineChannel({ adapter: adapters['webhook']() })"],
   ])("requires the Agent plugin for inbound Channels in %s: %s", async (path, source) => {
     const root = await createTempProject()
     await mkdir(dirname(join(root, path)), { recursive: true })
     await writeFile(join(root, path), source)
     const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
-    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
+    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_WEBHOOK_HOST_OFF", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
   })
 

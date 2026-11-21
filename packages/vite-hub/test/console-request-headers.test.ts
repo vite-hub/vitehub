@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { H3Event } from "h3"
 
-import { installStandardContext } from "../src/runtime/h3.ts"
+import { installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
 import { consoleRequest } from "../src/console/runtime/server/access.ts"
 import { consoleRequestURL } from "../src/console/runtime/server/request.ts"
 

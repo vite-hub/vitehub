@@ -15,7 +15,7 @@ By default it runs on your ChatGPT plan: you sign in once and need no API key. O
 The assistant needs ViteHub Agents and [Connections](/docs/connections). On Node.js it also needs Codex; a Worker build does not:
 
 ```bash [commands/install-assistant]
-pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5 @openai/codex
 ```
 
 Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
@@ -23,8 +23,8 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
-    '@vite-hub/docs/nuxt',
+    ['vite-hub/nuxt', { agent: true, connections: true, database: true }],
+    'vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
 })
@@ -32,16 +32,16 @@ export default defineNuxtConfig({
 
 For Cloudflare Workers, use `host: 'cloudflare'` instead of `'node'`.
 
-Add the Agent. It answers from the pages in `content/`:
+Add the Agent. It answers from the pages of the site:
 
 ```ts [server/agents/docs/agent.ts]
-import { docsAssistant } from '@vite-hub/docs/assistant'
+import { docsAssistant } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({ extends: docsAssistant, workspace: {} })
 ```
 
-`workspace: {}` means this Agent owns the preset's Workspace, the pages in `content/`. The build bundles the pages, so the Agent can read them on a host without a file system, such as a Worker.
+`workspace: {}` means this Agent owns the preset's Workspace, the pages of the site. The Workspace reads the pages that the site serves, so the Agent can read them on a host without a file system, such as a Worker.
 
 Add the Connection. It holds the ChatGPT grant (your saved sign-in) and lets the `docs` Agent use it:
 
@@ -96,8 +96,8 @@ On Node.js without `@openai/codex` in the app, the panel shows `AGENT_R1026` wit
 | --- | --- | --- |
 | Driver | Codex on `chatgpt()`, through the `chatgpt` Connection. In a Worker build: `{ model: 'gpt-6.1-sol', gateway: chatgpt() }`. | `driver: { gateway, model }` |
 | Instructions | Answer only from the pages, link each page used, and say when the docs do not cover a question | `driver: { instructions }`. Your text comes after these rules. |
-| Pages | A read-only Workspace with `content/**/*.md` as the `pages` Source | `workspace: { sources: { pages: glob(...) } }` |
-| Channel | `web`, a `webChat()` at `/api/_vitehub/agents/docs/chat` | `channels: { web: webChat(...) }` |
+| Pages | A read-only Workspace with every page of the site in `pages/`, at its URL path, from `docs.dir` or `docs.sources` | `workspace: { sources: { pages: glob(...) } }` |
+| Channel | `web`, a `webChat()` at `/_vitehub/agents/docs/chat` | `channels: { web: webChat(...) }` |
 | Rate limit | 30 questions per hour for the whole site, in process memory | `docsRateLimit({ limit, window, identity })` |
 | Budget | 2 answers at a time and 8 waiting. It records answers over 200,000 tokens. | `budget` |
 
@@ -106,7 +106,7 @@ Each request sends the open page's path. The server accepts only a plain path, s
 ## Customize
 
 ```ts [server/agents/docs.ts]
-import { docsAssistant, docsRateLimit } from '@vite-hub/docs/assistant'
+import { docsAssistant, docsRateLimit } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 import { openai } from 'vite-hub/gateways'
 import { glob } from 'vite-hub/workspace'
@@ -124,7 +124,7 @@ export default defineAgent({
     // Replaces the default limit: 10 questions per hour for each client address behind your proxy.
     docsRateLimit({ limit: 10, identity: 'ip', trustedIpHeaders: ['x-forwarded-for'] }),
   ],
-  // Pages in another folder, when `docs.dir` is not `content`
+  // Other files than the site's pages
   workspace: { sources: { pages: glob({ cwd: 'docs', include: ['**/*.md'], keyCache: false }) } },
 })
 ```
@@ -138,7 +138,7 @@ To use another Agent name, name the file, for example `server/agents/support.ts`
 Send a question to the chat route. `page` is the open page's path:
 
 ```bash [commands/ask]
-curl -s -X POST http://localhost:3000/api/_vitehub/agents/docs/chat \
+curl -s -X POST http://localhost:3000/_vitehub/agents/docs/chat \
   -H 'content-type: application/json' \
   --data '{"id":"t1","page":"/docs/guide/install","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"How do I install Lumen?"}]}]}'
 ```

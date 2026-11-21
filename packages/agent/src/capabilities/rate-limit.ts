@@ -27,7 +27,7 @@ export type RateLimitIdentityResolver = (
 ) => MaybePromise<string | null | undefined>
 
 /** Required Capability operations, with optional inspection methods. `createRateLimiter()` supplies all methods. */
-export type RateLimitCapabilityLimiter = Pick<RateLimiter, "capabilities" | "consume" | "policy"> & Partial<Pick<RateLimiter, "peek" | "reset">>
+export type RateLimitCapabilityLimiter = Pick<RateLimiter, "capabilities" | "consume" | "policy"> & Partial<Pick<RateLimiter, "peek" | "refund" | "reset">>
 
 export type RateLimitLimiter =
   | RateLimitCapabilityLimiter
@@ -140,13 +140,14 @@ async function resolveIdentity(
   if (identity === "ip") {
     const value = resolveIpIdentity(context, trustedIpHeaders)
     if (value) return { source: "ip", value }
-    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders and a matching request header." })
+    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) found none of the trustedIpHeaders on the request." })
   }
   return resolveAutoIdentity(context, trustedIpHeaders)
 }
 
+/** The fallback Invoker of an unidentified caller is shared by every such caller, so `auto` skips it. */
 function resolveAutoIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): { source: string, value: string } {
-  if (context.invoker.id) return { source: "invoker", value: invokerIdentity(context.invoker) }
+  if (context.invoker.id && context.invoker.kind !== "anonymous") return { source: "invoker", value: invokerIdentity(context.invoker) }
   const run = resolveRunIdentity(context)
   if (run) return { source: "run", value: run }
   const ip = resolveIpIdentity(context, trustedIpHeaders)
@@ -186,7 +187,7 @@ async function resolveScope(
 }
 
 function hasInspectionMethods(limiter: RateLimitCapabilityLimiter): limiter is RateLimiter {
-  return v.is(v.object({ peek: v.function(), reset: v.function() }), limiter)
+  return v.is(v.object({ peek: v.function(), refund: v.function(), reset: v.function() }), limiter)
 }
 
 async function resolveLimiter(
@@ -203,6 +204,7 @@ async function resolveLimiter(
     consume: resolved.consume.bind(resolved),
     policy: resolved.policy,
     peek: resolved.peek?.bind(resolved) ?? (async () => ({ limit: resolved.policy.limit, reason: "This Capability limiter does not support peek().", status: "unsupported", windowMs: resolved.policy.windowMs })),
+    refund: resolved.refund?.bind(resolved) ?? (async () => ({ reason: "This Capability limiter does not support refund().", status: "unsupported" })),
     reset: resolved.reset?.bind(resolved) ?? (async () => ({ reason: "This Capability limiter does not support reset().", status: "unsupported" })),
   }
 }
@@ -233,6 +235,12 @@ export function rateLimit(
   const id = options.id || "rate-limit"
   const identity = options.identity || "auto"
   const trustedIpHeaders = options.trustedIpHeaders?.map(header => header.trim()).filter(Boolean)
+  if (identity === "ip" && !trustedIpHeaders?.length) {
+    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders, the request headers that your host sets, such as [\"cf-connecting-ip\"]." })
+  }
+  if (trustedIpHeaders?.length && identity !== "auto" && identity !== "ip") {
+    throw agentDiagnostics.AGENT_R0161({ message: `[vitehub] rateLimit({ trustedIpHeaders }) is read only with identity "auto" or "ip". Remove trustedIpHeaders, or use identity "ip".` })
+  }
 
   return defineCapability({
     id,

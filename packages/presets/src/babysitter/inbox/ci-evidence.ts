@@ -22,9 +22,9 @@ export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => i
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
 
 /**
- * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. On
- * onmax/comark-plugins#87 and #103 the push and pull_request runs of one workflow shared a concurrency
- * group, the later one was cancelled, and the PRs waited 17 h on checks that had already passed.
+ * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. When
+ * the push and pull_request runs of one workflow share a concurrency group, the later one is cancelled,
+ * and the PR must not wait on checks that already passed.
  */
 export function newestCheckRun<T extends { id?: unknown; status?: unknown; state?: unknown; conclusion?: unknown }>(previous: T | undefined, check: T): T {
   if (!previous) return check
@@ -92,12 +92,13 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
       const parsedLog = v.safeParse(logSchema, await inbox.meta(logKey))
       let cached = parsedLog.success ? parsedLog.output : undefined
       if (!cached || cached.retryAt !== undefined && cached.retryAt <= now) {
+        const unavailable = { value: { error: 'Job log unavailable or expired; this is an API read failure, not an additional CI failure.' }, retryAt: now + 120_000, fetchedAt: now }
         try {
+          // An empty response counts as an unavailable log, as a failed read does.
           const log = await readers.readLog(`repos/${repository}/actions/jobs/${job.id}/logs`, repository)
-          if (!log) throw new Error('Empty log response')
-          cached = { value: { log: compactCiLog(log) }, fetchedAt: now }
+          cached = log ? { value: { log: compactCiLog(log) }, fetchedAt: now } : unavailable
         } catch {
-          cached = { value: { error: 'Job log unavailable or expired; this is an API read failure, not an additional CI failure.' }, retryAt: now + 120_000, fetchedAt: now }
+          cached = unavailable
         }
         await inbox.setMeta(logKey, cached)
       }

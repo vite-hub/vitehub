@@ -16,6 +16,9 @@ export type {
   BlobReferenceSchema,
 } from "./reference.ts"
 export type {
+  BlobCopyOptions,
+  BlobDeletePrefixOptions,
+  BlobDeletePrefixResult,
   BlobDriver,
   BlobErrorCode,
   BlobEnsureOptions,
@@ -34,6 +37,7 @@ export type {
   BlobMultipartPart,
   BlobMultipartUpload,
   BlobObject,
+  BlobPutCondition,
   BlobPutOptions,
   BlobSignedRequest,
   BlobSignOptions,
@@ -48,6 +52,9 @@ export type {
   BlobStoreOptions,
   BlobStoreRegistry,
   BlobType,
+  BlobBeforeUploadFile,
+  BlobBeforeUploadResult,
+  BlobDirectUploadStep,
   BlobUploadEvent,
   BlobUploadOptions,
   AzureBlobStoreConfig,

@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
+import { hubSource, inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -176,9 +176,34 @@ it.each([
   ["@vite-hub/source", ["/_vitehub/content/github", "/api/content/**"]],
 ])("adds the GitHub push webhook route when server/content.ts imports github from %s", async (module, routes) => {
   const generated = await generatedRoutes({
-    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) } })\n`,
+    "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { github } from "${module}"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, access: "public" })\n`,
   })
   expect(generated.routes).toEqual(routes)
+})
+
+it.each([true, false])("sends the pages of a push to the prewarm Queue when the app has Queue: %s", async (queue) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { github } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, access: "public" })\n`)
+    const plugin = hubSource({ contentImportBase: "vite-hub/content", queue, queueImport: "vite-hub/queue" })
+    await plugin.api.prepareSources({ projectRoot })
+    const webhook = await readFile(join(projectRoot, ".vitehub/content/github-webhook.mjs"), "utf8")
+    const queues = await plugin.vitehub.queues({ projectRoot, root: projectRoot })
+    if (!queue) {
+      expect(webhook).toContain("export default defineContentGitHubWebhookHandler(content)\n")
+      expect(queues).toEqual([])
+      return
+    }
+    expect(webhook).toContain("defineContentGitHubWebhookHandler(content, { prewarm: job => dynamicQueue.send(\"vitehub-content-prewarm\", job) })")
+    expect(webhook).toContain("import { dynamicQueue } from \"vite-hub/queue\"")
+    const module = join(projectRoot, ".vitehub/content/prewarm-queue.mjs")
+    expect(queues).toEqual([{ name: "vitehub-content-prewarm", definition: { module }, reason: expect.stringContaining("GitHub push") }])
+    expect(await readFile(module, "utf8")).toContain("export default defineQueue(job => prewarmContentPage(content, job.payload))")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
 })
 
 it.each([
@@ -197,7 +222,10 @@ it.each([
     // A plugin, so no route of the app can conflict with the preview URLs.
     expect(handlers.flatMap(handler => handler.route ?? [])).toEqual(["/_vitehub/content/github", "/api/content/**"])
     if (generated) {
-      expect(await readFile(plugin, "utf8")).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+      const source = await readFile(plugin, "utf8")
+      expect(source).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+      // In a preview request, the app base follows the prefix, so Nuxt links and data requests stay in the preview.
+      expect(source).toContain(".then(module => module.default), { app: useRuntimeConfig().app })")
       const config = mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers)
       expect(config.plugins![0]).toBe(plugin)
       expect(config.plugins).toContain("async.mjs")
@@ -220,7 +248,7 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
     const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
     const llms = join(projectRoot, ".vitehub/content/llms.mjs")
     expect(mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers).plugins![0]).toBe(plugin)
-    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/llms-full.txt", "/llms.txt", "/sitemap.md"])
+    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/:locale/llms-full.txt", "/llms-full.txt", "/llms.txt", "/sitemap.md"])
     expect(handlers.some(handler => handler.handler === join(projectRoot, ".vitehub/content/markdown.mjs"))).toBe(true)
     await access(plugin)
     await access(llms)
@@ -237,11 +265,71 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
   }
 })
 
+it("leaves /sitemap.xml and /robots.txt to the app when it serves them with appSeo", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ access: "public", seo: { sitemap: true, robots: true, rss: true } })')
+    const routes = async (appSeo?: { sitemap?: boolean, robots?: boolean }) => (await prepareSourceGeneration({ projectRoot, ...appSeo ? { appSeo } : {} })).flatMap(handler => handler.route ?? []).filter(route => ["/robots.txt", "/rss.xml", "/sitemap.xml"].includes(route)).sort()
+    expect(await routes()).toEqual(["/robots.txt", "/rss.xml", "/sitemap.xml"])
+    expect(await routes({ robots: true })).toEqual(["/rss.xml", "/sitemap.xml"])
+    expect(await routes({ sitemap: true, robots: true })).toEqual(["/rss.xml"])
+    await expect(access(join(projectRoot, ".vitehub/content/sitemap.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("adds no GitHub push webhook route without a github() Source", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,
   })
   expect(generated.routes).toEqual(["/api/content/**"])
+})
+
+it.each([
+  [false, "export default defineContentHandler(content)"],
+  [true, "export default defineContentHandler(content, { user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null })"],
+])("passes the Auth session user to the Content route when auth is %s", async (auth, line) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\n\nexport default defineContent({ authorize: ({ user }) => user !== null })\n`)
+    await prepareSourceGeneration({ projectRoot, auth, contentImportBase: "vite-hub/content" })
+    const route = await readFile(join(projectRoot, ".vitehub/content/route.mjs"), "utf8")
+    expect(route).toContain(line)
+    expect(route.includes('import { useAuth } from "#vitehub/auth/server"')).toBe(auth)
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+it("passes the Auth session user to every Content reader except robots.txt", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\n\nexport default defineContent({ authorize: ({ user }) => user !== null, previews: true, seo: { sitemap: true, robots: true, rss: true, mcp: true, llms: true } })\n`)
+    await prepareSourceGeneration({ projectRoot, auth: true, contentImportBase: "vite-hub/content" })
+    const read = (name: string) => readFile(join(projectRoot, ".vitehub/content", name), "utf8")
+    const user = "{ user: async request => (await useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }"
+    for (const [name, helper] of [["sitemap.mjs", "defineContentSitemapHandler"], ["rss.mjs", "defineContentRssHandler"], ["mcp.mjs", "defineContentMcpHandler"], ["llms.mjs", "defineContentLlmsHandler"]]) {
+      const file = await read(name!)
+      expect(file, name).toContain(`export default ${helper}(content, ${user})`)
+      expect(file, name).toContain('import { useAuth } from "#vitehub/auth/server"')
+    }
+    expect(await read("robots.mjs")).toContain("export default defineContentRobotsHandler(content)")
+    expect(await read("robots.mjs")).not.toContain("useAuth")
+    // Entries that load when the server starts import Auth on the first request that asks.
+    const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
+    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
+    expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), { app: useRuntimeConfig().app, ${lazyUser.slice(2)})`)
+    expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
 })
 
 it("removes the Collection types wrapper that earlier versions wrote", async () => {

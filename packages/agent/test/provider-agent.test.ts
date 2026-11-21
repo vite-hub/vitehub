@@ -10,6 +10,7 @@ import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -18,7 +19,8 @@ import type { StreamEvent } from "../src/messages.ts"
 import type { UIMessage } from "ai"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, getViteHubErrorShape } from "@vite-hub/runtime"
+import { traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { github } from "@vite-hub/workspace"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -85,7 +87,7 @@ import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -322,13 +324,13 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         provider: "codex", gateway: chatgpt(),
-        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", T3_MCP_BEARER_TOKEN: "capability-token" },
+        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", VITEHUB_MCP_BEARER_TOKEN: "capability-token" },
       }).generate(context(threadId) as never)
       await expect(readFile(gitMarker, "utf8")).rejects.toThrow()
       await expect(access(marker)).rejects.toThrow()
       const options = createProviderRuntime.mock.lastCall?.[0]
       const environment = JSON.parse(await readFile(output, "utf8"))
-      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "" })
+      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", VITEHUB_MCP_BEARER_TOKEN: "" })
       expect(environment.VITEHUB_CHATGPT_ACCESS_TOKEN).not.toBe("startup-test-token")
       expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
       expect(environment.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
@@ -462,7 +464,7 @@ describe("Provider Agent Driver", () => {
         const url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1]
         const configuration = JSON.parse(input.mcp!.authorizationHeader)
         expect(options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
-        expect(options?.environment?.T3_MCP_BEARER_TOKEN).toBe("")
+        expect(options?.environment?.VITEHUB_MCP_BEARER_TOKEN).toBe("")
         expect(JSON.stringify(options)).not.toContain(configuration.key)
         await writeFile(executable, `
           const { createInterface } = require("node:readline")
@@ -473,7 +475,7 @@ describe("Provider Agent Driver", () => {
               const config = message.params.config
               const authorization = config["model_providers.openai_chatgpt_plan.http_headers"].Authorization
               const response = await fetch(${JSON.stringify(url)} + "/responses", { method: "POST", headers: { authorization } })
-              const mcp = config.mcp_servers["t3-code"]
+              const mcp = config.mcp_servers["vitehub-invocation"]
               process.stderr.write(authorization.slice(7) + "\\n" + (mcp?.http_headers.Authorization.slice(7) || "") + "\\n")
               console.log(JSON.stringify({ id: message.id, result: { status: response.status, authorization, mcp, environment: process.env } }))
             }
@@ -490,7 +492,7 @@ describe("Provider Agent Driver", () => {
         ].map(message => JSON.stringify(message)).join("\n") + "\n")
         expect(await once(launched, "close")).toEqual([0, null])
         const result = JSON.parse(stdout).result
-        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } })
+        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_MCP_BEARER_TOKEN: "" } })
         expect(result.mcp).toEqual(tools ? { url: configuration.mcp.url, http_headers: { Authorization: "[REDACTED]" }, tools: { "release:check": { approval_mode: "approve" } } } : undefined)
         expect(stderr.trim().split("\n")).toEqual(tools ? ["[REDACTED]", "[REDACTED]"] : ["[REDACTED]"])
         expect(stdout + stderr).not.toContain(configuration.key)
@@ -697,6 +699,17 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
   })
 
+  // An SSH runner's login shell reads /etc/profile, which sets PATH again on Debian and drops Codex's apply_patch folder.
+  it.each([
+    ["a launch", { launch: () => ({ command: "ssh", args: ["runner"] }) }],
+    ["driver.env PATH", { env: { PATH: "/app/node_modules/.bin:/usr/bin:/bin" } }],
+  ] as const)("runs Codex without a login shell with %s", async (_name, options) => {
+    const threadId = "thread-codex-login-shell"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex", ...options }).generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('-c "allow_login_shell=false"')
+  })
+
   it.each([false, true])("keeps the primary browser environment out of auxiliary providers with launcher %s", async (customLaunch) => {
     const threadId = "thread-browser-auxiliary"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -712,7 +725,9 @@ describe("Provider Agent Driver", () => {
 
     expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_SESSION")
     expect(createProviderRuntime.mock.lastCall?.[0].environment?.PATH).not.toContain("/managed/bin")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    // Only the launch turns off login shells here, not the primary browser PATH.
+    if (customLaunch) expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain("allow_login_shell=false")
+    else expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
   })
 
@@ -729,7 +744,6 @@ describe("Provider Agent Driver", () => {
     })
     await adapter.generate(runContext as never)
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "1")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
 
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -917,7 +931,7 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
-      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "T3_MCP_BEARER_TOKEN"],
+      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "VITEHUB_MCP_BEARER_TOKEN"],
     }))
   })
 
@@ -931,7 +945,7 @@ describe("Provider Agent Driver", () => {
         const binaryPath = String(options?.settings?.binaryPath)
         const launched = spawnSync(binaryPath, [], {
           encoding: "utf8",
-          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: secret },
+          env: { ...options?.environment, VITEHUB_MCP_BEARER_TOKEN: secret },
         })
         expect(launched.status).toBe(5)
         const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
@@ -949,7 +963,7 @@ describe("Provider Agent Driver", () => {
         env: { SHORT_TOKEN: shortSecret },
         gateway: defineAiGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
         launch: {
-          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.VITEHUB_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
@@ -1188,6 +1202,37 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it.skipIf(process.platform !== "linux")("stops tool processes that left the provider process group when the pass ends", async () => {
+    const threadId = "thread-pass-setsid-leftover"
+    let leftover: number | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        // A tool command that starts a new session, like a hung `pnpm exec` that Codex gave up on.
+        const environment = createProviderRuntime.mock.lastCall?.[0].environment
+        const tool = spawn("sh", ["-c", "setsid sh -c 'echo $$; exec sleep 600 >/dev/null' &"], { env: environment, stdio: ["ignore", "pipe", "ignore"] })
+        let output = ""
+        for await (const chunk of tool.stdout) output += chunk
+        leftover = Number(output.trim())
+      },
+    })
+    // A killed orphan can stay a zombie until its new parent reaps it.
+    const running = (pid: number) => readFile(`/proc/${pid}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+      expect(leftover).toBeGreaterThan(0)
+      await expect.poll(() => running(leftover!)).toBe(false)
+    }
+    finally {
+      if (leftover) {
+        try {
+          process.kill(leftover, "SIGKILL")
+        }
+        catch {}
+      }
+    }
+  })
+
   it.each([false, true])("captures provider files before cleanup (callback failure: %s)", async (fail) => {
     const threadId = `thread-exit-evidence-${fail}`
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -1366,6 +1411,13 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
       context("thread-dynamic-launch-args") as never,
     )).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
+    await expect(createProviderAgentAdapter({
+      env: () => ({ T3_MCP_BEARER_TOKEN: "token" }),
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-old-mcp-token") as never,
+    )).rejects.toMatchObject({ code: "AGENT_MCP_BEARER_TOKEN_RENAMED" })
     await expect(createProviderAgentAdapter({
       // SAFETY: This invalid fixture exercises the runtime launch validation boundary.
       launch: () => ({ args: [1], command: "wrapper" } as never),
@@ -2983,11 +3035,13 @@ cli_auth_credentials_store = "keyring"
       tools: { pushRepair: { inputSchema: { type: "object", properties: {} }, execute: async () => ({ pushed: true }) } },
     }) as never);
     const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs);
-    expect(args).toContain('mcp_servers.t3-code.tools={"pushRepair"={approval_mode="approve"}}');
-    expect(args).toContain('bearer_token_env_var="T3_MCP_BEARER_TOKEN"');
-    expect(args).toContain('shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""');
+    expect(args).toMatch(/mcp_servers\.vitehub-invocation\.url="http:\/\/127\.0\.0\.1:\d+\/mcp"/);
+    expect(args).toContain('mcp_servers.vitehub-invocation.tools={"pushRepair"={approval_mode="approve"}}');
+    expect(args).toContain('mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"');
+    expect(args).not.toContain("mcp_servers.vitehub.");
+    expect(args).toContain('shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""');
     expect(args).not.toContain("shell_environment_policy.exclude=");
-    expect(createProviderRuntime.mock.lastCall?.[0].environment?.T3_MCP_BEARER_TOKEN).toEqual(expect.any(String));
+    expect(createProviderRuntime.mock.lastCall?.[0].environment?.VITEHUB_MCP_BEARER_TOKEN).toEqual(expect.any(String));
     expect(args).not.toContain("default_tools_approval_mode");
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "auto-accept-edits", approvalPolicy: "never", mcp: undefined }));
   });
@@ -3024,7 +3078,7 @@ cli_auth_credentials_store = "keyring"
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "text-delta",
+      "reasoning-delta",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -3033,7 +3087,7 @@ cli_auth_credentials_store = "keyring"
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
+    expect(events[1]).toEqual({ id: "reasoning_text:turn-1:0", text: "thinking", type: "reasoning-delta" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
@@ -3354,10 +3408,35 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
-    expect(events.filter(event => event.type === "text-delta")).toEqual([
-      { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_summary_text:reasoning-1:0", text: "**Reading related facts**", type: "reasoning-delta" },
       { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
     ])
+  })
+
+  it("labels Codex reasoning text as reasoning, keeps it out of the result, and keeps other progress as commentary", async () => {
+    const threadId = "thread-reasoning-phase"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "**Previewing old output**", streamKind: "reasoning_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "- Read the files", streamKind: "plan_text" }, { itemId: "plan-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_text:rs-1:0", text: "**Previewing old output**", type: "reasoning-delta" },
+      { id: "plan_text:plan-1:0", phase: "commentary", text: "- Read the files", type: "text-delta" },
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Done.", type: "text-delta" },
+    ])
+
+    runtime("thread-reasoning-result", [
+      event("content.delta", "thread-reasoning-result", { delta: "**Previewing old output**", streamKind: "reasoning_summary_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", "thread-reasoning-result", { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", "thread-reasoning-result", { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    await expect(adapter.generate(context("thread-reasoning-result") as never)).resolves.toMatchObject({ text: "Done." })
   })
 
   it("preserves a shared message identity across final content segments", async () => {
@@ -3756,7 +3835,7 @@ cli_auth_credentials_store = "keyring"
       "agent.message.delta",
       "agent.stream.finish",
     ])
-    expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
+    expect(traceLog.entries()[0]?.attributes).toMatchObject({ "message.content": "Inspecting files", "message.phase": "reasoning" })
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.output")?.attributes).toMatchObject({
       "step.id": "tool-1",
       "tool.id": "tool-1",
@@ -4385,6 +4464,168 @@ cli_auth_credentials_store = "keyring"
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
+  it("records which images reached the provider and why the others were left out", async () => {
+    const threadId = "thread-attachment-report"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 6 } }, provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const base = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate({
+      ...base,
+      messages: [
+        {
+          id: "m-1",
+          parts: [
+            // Chat message selection left this message's second image out (`triggerHistory.maxImages`).
+            { data: { modelText: "[msg 1 · photo · photo (not shown)]", omittedAttachments: [{ id: "attachment-2", mediaType: "image/png", name: "older.png", reason: "max-images" }] }, id: "message-header", type: "data-chat-message-header" },
+            { fetchData: async () => new Uint8Array([1, 2, 3]), id: "attachment-1", mediaType: "image/png", name: "screenshot.png", type: "image" },
+          ],
+          role: "user",
+        },
+        { id: "m-2", parts: [{ fetchData: async () => { throw Object.assign(new Error("Forbidden"), { status: 403 }) }, id: "attachment-1", mediaType: "image/png", name: "expired.png", type: "image" }], role: "user" },
+        { id: "m-3", parts: [{ fetchData: async () => new Uint8Array(8), id: "attachment-1", mediaType: "image/jpeg", name: "large.jpg", type: "image" }], role: "user" },
+        {
+          id: "m-4",
+          parts: [
+            { data: { modelText: "[msg 4 · photo]", omittedAttachments: [{ id: "attachment-1", mediaType: "image/png", messageId: "m-0", reason: "max-age" }] }, id: "message-header", type: "data-chat-message-header" },
+            { text: "@bot what does the screenshot show?", type: "text" },
+            { fetchData: async () => new Uint8Array([4, 5]), id: "attachment-1", mediaType: "image/png", name: "current.png", type: "image" },
+          ],
+          role: "user",
+        },
+      ],
+      runtime: { ...base.runtime, run: { messageId: "m-4", runId: `run-${threadId}`, threadId }, traceLog },
+    } as never)
+
+    const [record, ...others] = traceLog.entries().filter(entry => entry.name === "agent.input.attachments")
+    expect(others).toEqual([])
+    const directory = provider.attachmentsDirectory
+    // The message, part and file name identify each image. The staging path is not recorded.
+    expect(record?.attributes?.["input.attachments.sent"]).toEqual([
+      { bytes: 3, mediaType: "image/png", messageId: "m-1", name: "screenshot.png", origin: "history", partId: "attachment-1" },
+      { bytes: 2, mediaType: "image/png", messageId: "m-4", name: "current.png", origin: "current", partId: "attachment-1" },
+    ])
+    expect(record?.attributes).toMatchObject({
+      "input.attachments.sentBytes": 5,
+      "input.attachments.sentCount": 2,
+      "input.attachments.skipped": [
+        { mediaType: "image/png", messageId: "m-1", name: "older.png", origin: "history", partId: "attachment-2", reason: "max-images" },
+        { mediaType: "image/png", messageId: "m-0", origin: "history", partId: "attachment-1", reason: "max-age" },
+        { mediaType: "image/png", messageId: "m-2", name: "expired.png", origin: "history", partId: "attachment-1", reason: "fetch-failed:403" },
+        { mediaType: "image/jpeg", messageId: "m-3", name: "large.jpg", origin: "history", partId: "attachment-1", reason: "byte-budget" },
+      ],
+      "input.attachments.skippedCount": 4,
+    })
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ name: "screenshot.png" }), expect.objectContaining({ name: "current.png" })],
+    }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(directory as string, { force: true, recursive: true })
+  })
+
+  it.each(["claude-code", "codex"] as const)("handles an older unsupported image on a new %s thread", async (driver) => {
+    const threadId = `thread-unsupported-history-${driver}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: driver })
+    const base = context(threadId)
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2]))
+
+    await adapter.generate({
+      ...base,
+      messages: [
+        { id: "m-1", parts: [{ fetchData, mediaType: "image/bmp", name: "old.bmp", type: "image" }], role: "user" },
+        { id: "m-2", parts: [{ text: "continue without the image", type: "text" }], role: "user" },
+      ],
+      runtime: { ...base.runtime, run: { messageId: "m-2", runId: `run-${threadId}`, threadId } },
+    } as never)
+
+    if (driver === "claude-code") {
+      expect(fetchData).not.toHaveBeenCalled()
+      expect(provider.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
+    } else {
+      expect(fetchData).toHaveBeenCalledOnce()
+      expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ attachments: [expect.objectContaining({ mimeType: "image/bmp", name: "old.bmp" })] }))
+    }
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("records an image type that the provider runtime does not send as image input", async () => {
+    const threadId = "thread-attachment-report-heic"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const base = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate({
+      ...base,
+      messages: [{ id: "m-1", parts: [{ text: "what is this?", type: "text" }, { data: new Uint8Array([1, 2]), id: "attachment-1", mediaType: "image/heic", name: "photo.heic", type: "image" }], role: "user" }],
+      runtime: { ...base.runtime, run: { messageId: "m-1", runId: `run-${threadId}`, threadId }, traceLog },
+    } as never)
+
+    expect(traceLog.entries().find(entry => entry.name === "agent.input.attachments")?.attributes).toMatchObject({
+      "input.attachments.sent": [],
+      "input.attachments.skipped": [{ bytes: 2, mediaType: "image/heic", messageId: "m-1", name: "photo.heic", origin: "current", partId: "attachment-1", reason: "not-inline" }],
+    })
+    // The provider still gets the file, so the model can read it from the saved path.
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ attachments: [expect.objectContaining({ mimeType: "image/heic", name: "photo.heic" })] }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("records no images as sent when the provider rejects the turn", async () => {
+    const threadId = "thread-attachment-report-rejected"
+    const provider = runtime(threadId, [], { onSendTurn: async () => { throw new Error("turn rejected") } })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const base = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(adapter.generate({
+      ...base,
+      messages: [{ id: "m-1", parts: [{ text: "what is this?", type: "text" }, { data: new Uint8Array([1, 2]), id: "attachment-1", mediaType: "image/png", name: "screen.png", type: "image" }], role: "user" }],
+      runtime: { ...base.runtime, run: { messageId: "m-1", runId: `run-${threadId}`, threadId }, traceLog },
+    } as never)).rejects.toThrow("turn rejected")
+
+    expect(traceLog.entries().filter(entry => entry.name === "agent.input.attachments")).toEqual([])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("interrupts the turn when cancelled while the attachment record is written", async () => {
+    const threadId = "thread-attachment-report-cancelled"
+    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+    let attachmentWriteStarted!: () => void
+    const writing = new Promise<void>(resolve => attachmentWriteStarted = resolve)
+    const append = traceLog.append.bind(traceLog)
+    traceLog.append = async (entry) => {
+      if (entry.name !== "agent.input.attachments") return await append(entry)
+      attachmentWriteStarted()
+      return await new Promise(() => {})
+    }
+    const controller = new AbortController()
+    const base = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = adapter.generate({
+      ...base,
+      input: { ...base.input, abortSignal: controller.signal },
+      messages: [{ id: "m-1", parts: [{ text: "what is this?", type: "text" }, { data: new Uint8Array([1, 2]), id: "attachment-1", mediaType: "image/png", name: "screen.png", type: "image" }], role: "user" }],
+      runtime: { ...base.runtime, run: { messageId: "m-1", runId: `run-${threadId}`, threadId }, traceLog },
+    } as never)
+    await writing
+    controller.abort("cancelled")
+
+    await expect(result).rejects.toBe("cancelled")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
   it("leaves earlier images out of a resumed provider thread", async () => {
     const threadId = "thread-attachment-history-resumed"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "opaque-history-cursor" })
@@ -4564,6 +4805,53 @@ cli_auth_credentials_store = "keyring"
     expect(JSON.stringify(await result)).not.toContain("rejected successor")
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
+  })
+
+  async function activeCodexTurn(threadId: string) {
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { beforeEvent: () => finishing })
+    const invocationId = `run-${threadId}`
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    return { end: async () => { finish(); return await result }, invocationId, provider }
+  }
+
+  const chatHeader = "[Wed 2026-11-18 12:31:07 +01:00 · msg 1002 · from Gergo (id 29:gergo)]"
+  const chatFollowUp = {
+    id: "1002",
+    parts: [
+      { data: { modelText: chatHeader }, id: "message-header", type: "data-chat-message-header" as const },
+      { id: "text-0", text: "steer with the gergo message", type: "text" as const },
+    ],
+    role: "user" as const,
+  }
+
+  it("steers a group chat message with its sender header into the active turn", async () => {
+    const turn = await activeCodexTurn("thread-chat-header-steering")
+
+    await expect(sendAgentInvocationInput(turn.invocationId, { message: chatFollowUp, messages: [chatFollowUp] }, { mode: "steer" })).resolves.toBe("accepted")
+
+    expect(turn.provider.sendTurn).toHaveBeenLastCalledWith({ input: `${chatHeader}\nsteer with the gergo message`, threadId: "thread-chat-header-steering" })
+    await turn.end()
+  })
+
+  it("does not steer a chat message with an attachment or without text, and says why", async () => {
+    const turn = await activeCodexTurn("thread-chat-steering-reasons")
+    const calls = turn.provider.sendTurn.mock.calls.length
+    const withImage = { ...chatFollowUp, parts: [...chatFollowUp.parts, { data: new Uint8Array([1]), mediaType: "image/png", type: "image" as const }] }
+    const headerOnly = { ...chatFollowUp, parts: [chatFollowUp.parts[0]!] }
+
+    await expect(sendAgentInvocationInputResult(turn.invocationId, { message: withImage, messages: [withImage] }, { mode: "steer" }))
+      .resolves.toEqual({ outcome: "unsupported", reason: "attachments" })
+    await expect(sendAgentInvocationInputResult(turn.invocationId, { message: headerOnly, messages: [headerOnly] }, { mode: "steer" }))
+      .resolves.toEqual({ outcome: "unsupported", reason: "empty" })
+
+    expect(turn.provider.sendTurn).toHaveBeenCalledTimes(calls)
+    await turn.end()
   })
 
   it("advertises steering only after the initial provider turn exists", async () => {
@@ -5271,7 +5559,7 @@ cli_auth_credentials_store = "keyring"
       PATH: "/managed/bin:/caller/bin",
       LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
       DRIVER_COMMAND_VALUE: "custom",
-      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } : {}),
+      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}),
       TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
     }) }))
   })
@@ -5538,7 +5826,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("binds Workspace command directory variables to the active root", async () => {
-    const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
+    const cwd = fileURLToPath(new URL("fixtures/workspace-source-root", import.meta.url))
     const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {
       cwd,
       env: { INIT_CWD: "/host/init", OLDPWD: "/host/old", PWD: "/host/current" },
@@ -6400,7 +6688,7 @@ cli_auth_credentials_store = "keyring"
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "AGENT_R0712" })
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("colocated Skill under .agents/skills/<name>") })
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
   })
 
@@ -7023,18 +7311,32 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("times out a provider turn and releases its resources", async () => {
-    const threadId = "thread-timeout"
-    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 250 },
-    }) as never)
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-timeout"
+      let reportTurnStarted!: () => void
+      const turnStarted = new Promise<void>((resolve) => { reportTurnStarted = resolve })
+      const provider = runtime(threadId, [], {
+        afterEvents: () => new Promise(() => {}),
+        onSendTurn: async () => { reportTurnStarted() },
+      })
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = adapter.generate(context(threadId, {
+        input: { prompt: "hello", timeout: 250 },
+      }) as never)
 
-    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
-    expect(provider.close).toHaveBeenCalledOnce()
+      const rejected = expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+      // Finish filesystem setup before advancing the turn's deadline.
+      await turnStarted
+      await vi.advanceTimersByTimeAsync(250)
+      await rejected
+      expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+      expect(provider.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps a completed turn successful when provider cleanup stalls", async () => {

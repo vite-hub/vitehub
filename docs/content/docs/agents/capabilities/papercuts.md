@@ -183,7 +183,7 @@ With `cli: true`, compatible Drivers and the Agent Dev Loop get the `papercuts` 
 
 ## Verify papercut reports
 
-1. `vitehub agent info --agent <name> --json` has a `papercuts` entry in `tools` (keyed by Capability id, not tool name).
+1. `vitehub agent get <name> --json` has a `papercuts` entry in `tools` (keyed by Capability id, not tool name).
 2. Report one papercut and find a record with the returned `id` in your store or PostHog.
 
 ## Options

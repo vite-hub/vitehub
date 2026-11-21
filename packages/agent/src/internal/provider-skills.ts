@@ -1,6 +1,6 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative } from "node:path"
-import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 type SkillProvider = "claude-code" | "codex"
@@ -50,14 +50,18 @@ async function skillDirectories(root: string, skillRoot: string): Promise<string
 /**
  * Selects the Skills that the provider cannot read in its working directory.
  * These are Workspace Skills under another provider's root, Agent-owned Skills,
- * and Skills of an outer Workspace root when the provider runs in a nested checkout.
+ * Skills of an outer Workspace root when the provider runs in a nested checkout,
+ * and Skills inside mounted Sources, such as `<mount>/.agents/skills/<name>`.
  * A Skill name that the provider already reads natively is not added again.
- * Precedence by name: the working directory, then Agent-owned Skills, then the outer root.
+ * Precedence by name: the working directory, then Agent-owned Skills, then the outer root,
+ * then the Sources in declaration order.
  */
 export async function selectProviderSkills(input: {
   colocated: unknown
   cwd: string
   provider: SkillProvider
+  /** Mount paths of the Sources, relative to `workspaceRoot`, in declaration order. */
+  sources?: readonly string[]
   workspaceRoot: string
 }): Promise<Map<string, ProviderSkill>> {
   const native = nativeSkillRoots[input.provider]
@@ -82,7 +86,7 @@ export async function selectProviderSkills(input: {
     const skillRoot = skillRoots.find(root => path.startsWith(`${root}/`))
     const [name, ...rest] = skillRoot ? path.slice(skillRoot.length + 1).split("/") : []
     if (!name || name === ".." || rest.includes("..")) {
-      throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside a provider skill root." })
+      throw invariantError("discovery and agentWithSkills() put every colocated Skill under .agents/skills/<name>")
     }
     // Discovery includes root documentation, which does not belong to a Skill.
     if (!rest.length) continue
@@ -94,6 +98,13 @@ export async function selectProviderSkills(input: {
   if (input.workspaceRoot !== input.cwd) {
     for (const skillRoot of skillRoots) {
       for (const name of await skillDirectories(input.workspaceRoot, skillRoot)) add(name, { directory: join(input.workspaceRoot, skillRoot, name) })
+    }
+  }
+  for (const mount of input.sources ?? []) {
+    const sourceRoot = join(input.workspaceRoot, mount)
+    if (!await hasSafeProviderPath(input.workspaceRoot, sourceRoot)) continue
+    for (const skillRoot of skillRoots) {
+      for (const name of await skillDirectories(sourceRoot, skillRoot)) add(name, { directory: join(sourceRoot, skillRoot, name) })
     }
   }
   return skills

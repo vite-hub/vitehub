@@ -4,25 +4,25 @@ import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { QueueOptions, QueueProvider, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
+import type { QueueDriver, QueueOptions, QueueSharedOptions, ResolvedQueueOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface QueueResolutionInput {
   hosting?: string
   /**
-   * The app has a Default Database on Postgres. On a Node server without `queue.provider`, Queue then picks the
-   * `postgres` provider on the connection of that Database, so every instance shares the jobs. The Queue Vite plugin
+   * The app has a Default Database on Postgres. On a Node server without `queue.driver`, Queue then picks the
+   * `postgres` driver on the connection of that Database, so every instance shares the jobs. The Queue Vite plugin
    * reads it from the resolved config of the Database integration.
    */
   postgresDatabase?: boolean
 }
 
-const knownProviders = new Set(["cloudflare", "local", "postgres", "vercel"])
+const knownDrivers = new Set(["cloudflare", "local", "postgres", "vercel"])
 
-/** The variable that overrides the connection of the postgres provider at runtime. */
+/** The variable that overrides the connection of the postgres driver at runtime. */
 export const postgresQueueUrlVariable = "QUEUE_POSTGRES_URL"
 
-/** Default directory of the local provider, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
+/** Default directory of the local driver, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
 export const defaultLocalQueueBase = ".vitehub/data/queue"
 
 /** A self-hosted Node server has no hosted Queue, so it runs Queue Definitions in its own process. */
@@ -34,39 +34,43 @@ function readOwnOption(options: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(options, key) ? options[key] : undefined
 }
 
-/** The provider without `queue.provider`: the host's Queue, or on Node `postgres` with a Postgres Database, else `local`. */
-function inferProvider(hosting: string, postgresDatabase: boolean): QueueProvider {
+/** The driver without `queue.driver`: the host's Queue, or on Node `postgres` with a Postgres Database, else `local`. */
+function inferDriver(hosting: string, postgresDatabase: boolean): QueueDriver {
   if (hosting.includes("cloudflare")) return "cloudflare"
-  // `resolveQueueHosting()` passes the provider of a Node server as its hosting.
+  // `resolveQueueHosting()` passes the driver of a Node server as its hosting.
   if (hosting === "postgres") return "postgres"
   if (isLocalHosting(hosting)) return postgresDatabase ? "postgres" : "local"
   return "vercel"
 }
 
-function resolveProvider(options: Record<string, unknown>, hosting: string, postgresDatabase: boolean): ResolvedQueueOptions {
+function resolveDriver(options: Record<string, unknown>, hosting: string, postgresDatabase: boolean): ResolvedQueueOptions {
   const cache = readOwnOption(options, "cache")
   const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
-  const provider = readOwnOption(options, "provider")
+  const driver = readOwnOption(options, "driver")
 
-  if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw queueErrorDiagnostics.QUEUE_INVALID_PROVIDER({ provider })
+  // Without `driver`, Queue picks the host's driver, so the former `provider` key would be ignored silently.
+  if (driver === undefined && Object.hasOwn(options, "provider")) {
+    throw queueErrorDiagnostics.QUEUE_RENAMED_PROVIDER_KEY({ value: JSON.stringify(options.provider) ?? String(options.provider) })
+  }
+  if (typeof driver === "string" && !knownDrivers.has(driver)) {
+    throw queueErrorDiagnostics.QUEUE_INVALID_DRIVER({ driver })
   }
 
-  if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel") && hosting !== "postgres" && !isLocalHosting(hosting)) {
-    throw queueErrorDiagnostics.QUEUE_MISSING_PROVIDER({ hosting })
+  if (typeof driver === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel") && hosting !== "postgres" && !isLocalHosting(hosting)) {
+    throw queueErrorDiagnostics.QUEUE_MISSING_DRIVER({ hosting })
   }
 
-  const resolved = provider || inferProvider(hosting, postgresDatabase)
+  const resolved = driver || inferDriver(hosting, postgresDatabase)
 
   // The jobs use the connection of the Default Database, so they live where the app's data lives.
-  if (resolved === "postgres") return defu(postgresDatabase ? { database: "default" } : {}, shared, { provider: "postgres" as const })
+  if (resolved === "postgres") return defu(postgresDatabase ? { database: "default" } : {}, shared, { driver: "postgres" as const })
 
   if (resolved === "local") {
     const base = readOwnOption(options, "base")
     return defu(
       typeof base === "string" && base.trim() ? { base: base.trim() } : {},
       shared,
-      { base: defaultLocalQueueBase, provider: "local" as const },
+      { base: defaultLocalQueueBase, driver: "local" as const },
     )
   }
 
@@ -79,7 +83,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, post
         ...(typeof namePrefix === "string" ? { namePrefix } : {}),
       },
       shared,
-      { provider: "cloudflare" as const },
+      { driver: "cloudflare" as const },
     )
   }
 
@@ -87,7 +91,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, post
   return defu(
     typeof region === "string" ? { region } : {},
     shared,
-    { provider: "vercel" as const },
+    { driver: "vercel" as const },
   )
 }
 
@@ -96,5 +100,5 @@ export function normalizeQueueOptions(options: QueueOptions | undefined, input: 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_CONFIG()
   }
-  return resolveProvider(options || {}, normalizeHosting(input.hosting), input.postgresDatabase === true)
+  return resolveDriver(options || {}, normalizeHosting(input.hosting), input.postgresDatabase === true)
 }

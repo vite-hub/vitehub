@@ -1,10 +1,10 @@
-export { stripe, webhook } from "./adapters.ts"
+export { defineChannelTrigger, ignored, rejected, retryLater } from "./answers.ts"
 export { createChannel } from "./client.ts"
 export { defineChannel } from "./definition.ts"
 export { sendChannelTrigger } from "./trigger.ts"
 export { useChannel } from "./runtime/state.ts"
 
-export type { StripeAdapterOptions, StripeEvent } from "./adapters.ts"
+export type { ChannelTriggerDefiner, DefineChannelTrigger } from "./answers.ts"
 export type { ChannelTriggerErrorCode, ChannelTriggerReceipt } from "./trigger.ts"
 export type {
   ChannelAdapter,
@@ -27,7 +27,9 @@ export type {
   ChannelWebhookSecret,
   ChannelWebhookSignature,
   DiscoveredChannelDefinition,
+  WebhookAdapterBaseOptions,
   WebhookAdapterOptions,
+  WebhookAdapterVerification,
   WebhookChannelAdapter,
 } from "./types.ts"
 export type { ChannelDefinitionName } from "./registry-types.ts"

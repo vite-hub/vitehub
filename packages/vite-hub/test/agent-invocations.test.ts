@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -10,18 +11,9 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 
 import { defineAgent } from "../src/agent.ts"
 import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
-import { renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
-import {
-  consoleInvocationsIdentityKey,
-  consoleInvocationsIdentityRootKey,
-  consoleInvocationsKey,
-  consoleInvocationsRegistryKey,
-  consoleInvocationsRootIdentityRegistryKey,
-  consoleInvocationsRootKey,
-  installConsoleInvocationFallback,
-  resolveConsoleInvocations,
-  type ConsoleInvocationScope,
-} from "../src/console/internal.ts"
+import { agentInvocationsDatabaseContributions, renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
+import { consoleStateKey, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { vitehub } from "../src/index.ts"
 
@@ -34,16 +26,10 @@ const libsql = async () => await import("../src/internal/agent-invocations-libsq
 
 const driver = { run: () => "done" }
 const context = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
-// SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
-const scope = globalThis as ConsoleInvocationScope
 
 afterEach(() => {
   installAgentInvocations({})
-  for (const target of [scope, process]) {
-    for (const key of [consoleInvocationsKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsRootKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey]) {
-      Reflect.deleteProperty(target, key)
-    }
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
 })
 
 async function recordedAgents(agent: { invocations?: unknown }): Promise<string[]> {
@@ -129,7 +115,7 @@ describe("defineAgent({ invocations })", () => {
 
   it("records no journal for false, also with an app-wide journal and a Console journal", async () => {
     installAgentInvocations({ default: "memory" })
-    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
+    installConsoleInvocations(process.cwd(), defineAgentInvocations({ store: createMemoryAgentInvocationStore() }))
     const agent = defineAgent({ driver, invocations: false, name: "off" })
     expect(agent.invocations).toBeUndefined()
     expect(Reflect.get(agent, agentInvocationsDisabledKey)).toBe(true)
@@ -302,7 +288,7 @@ describe("vitehub({ agent: { invocations } })", () => {
   it("renders only the configured parts", () => {
     expect(renderAgentInvocationsNitroPlugin({ database: true })).toContain(`installAgentInvocations({ database: () => import("vite-hub/agent/invocations/database") })`)
     expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`installAgentInvocations({ default: "memory" })`)
-    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`)
+    expect(renderAgentInvocationsNitroPlugin({ database: false, default: "memory" })).toContain(`import { installAgentInvocations } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/invocations/app")))}`)
   })
 
   it("adds the plugin for every app with Agents, unless the app turns journals off", () => {
@@ -312,6 +298,43 @@ describe("vitehub({ agent: { invocations } })", () => {
     expect(agentInvocationsPlugin({ agent: true, database: true, host: "node" })).toBeDefined()
     expect(agentInvocationsPlugin({ agent: { invocations: "memory" }, host: "node" })).toBeDefined()
     expect(agentInvocationsPlugin({ database: true, host: "node" })).toBeUndefined()
+  })
+
+  it("adds the Postgres journal tables to the migrations of a Postgres target Database only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-postgres-"))
+    const definition = (body: string) => writeFile(join(root, "server/databases/default.ts"), `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ ${body}schema: {} })\n`)
+    try {
+      await mkdir(join(root, "server/databases"), { recursive: true })
+      await definition(`dialect: "postgresql", `)
+      const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+      const plugins = vitehub({ agent: true, database: true, host: "node" })
+      const context = { plugins, projectRoot: root, root, rootDir: root }
+      const { tables } = await collectDatabaseContributions(plugins, context)
+      expect(tables.filter(table => table.name === "agent-invocations")).toEqual([expect.objectContaining({
+        database: "default",
+        definition: { export: "agentInvocationsPostgresSchema", module: "vite-hub/agent/invocations/postgres" },
+        dialect: "postgresql",
+        plugin: "vite-hub/agent-invocations",
+      })])
+      // The contributed names are the SQL names of the tables in the schema module.
+      const { agentInvocationsPostgresSchema } = await import("@vite-hub/agent/invocations/postgres")
+      const { getTableName } = await import("drizzle-orm")
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([expect.objectContaining({
+        tables: Object.fromEntries(Object.entries(agentInvocationsPostgresSchema).map(([key, table]) => [key, getTableName(table)])),
+      })])
+      // The app-wide journal names another Database, which does not exist.
+      await expect(agentInvocationsDatabaseContributions(context, { database: "journal", store: "database" })).resolves.toEqual([])
+      await definition("")
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
+      // Without a Definition, another Postgres contribution makes the implicit `default` Database use Postgres.
+      await rm(join(root, "server/databases/default.ts"))
+      const postgresUse = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
+      await expect(agentInvocationsDatabaseContributions({ ...context, plugins: [...plugins, postgresUse] }, undefined)).resolves.toEqual([expect.objectContaining({ database: "default", dialect: "postgresql" })])
+      await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("requires Database for the Database journal and a Nitro Agent host", () => {

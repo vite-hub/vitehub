@@ -19,6 +19,6 @@ it("ignores inherited authorization params", async () => {
   const authorizations = { put: async () => undefined }
   const store = { authorizations } as unknown as ConnectionStore
   const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store })
-  const result = await runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1/callback" })
+  const result = await runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1/callback" })
   expect(new URL(result.url).searchParams.has("injected")).toBe(false)
 })

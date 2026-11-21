@@ -11,6 +11,7 @@ icon: i-lucide-circle-alert
 - Grants are encrypted with AES-GCM and the encryption key. Each row stores the key id. With a different key, the status is `needs-reconnect`.
 - The connect flow uses PKCE (`S256`), a one-time ticket that expires after 10 minutes, and a `state` cookie. Tokens never go to the browser or the CLI.
 - Connect, callback, and management routes exist in dev, and in production only with `connections: { management: { actor } }`. Each route checks the `actor` policy of the app. See [Management routes](/docs/connections/server-api#management-routes).
+- Without `management`, production serves only the callback of sign-ins that the Console starts. See [Manage Connections](/docs/console/sections#content-and-people).
 - The OAuth callback accepts a `state` once, only from the browser and manager that started the flow.
 - The routes keep the Vite `base` in management, connect, callback, and return URLs.
 - A database lease lets only one request refresh a rotating refresh token.
@@ -53,7 +54,7 @@ No allowed manager is signed in, or the authorization belongs to another actor. 
 
 ### CONNECTIONS_INVALID_ACTOR
 
-Pass `user:<id>` or `service:<id>`.
+Pass `user:<id>` or `service:<id>`. The runtime methods `approve`, `deny`, `authorize`, `complete`, `revoke`, and `setKey` require `actor` and have no default.
 
 ### CONNECTIONS_INVALID_APPROVAL
 

@@ -70,10 +70,17 @@ export function createSourceContext(input: {
     },
     env: input.env,
     git: {
-      branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
-      ref: async () => envValue(input.env, ["GIT_REF_NAME", "GITHUB_REF_NAME"]) ?? await gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      sha: async options => {
+      branch: async () => {
+        const branch = envValue(input.env, ["GIT_BRANCH", "GITHUB_HEAD_REF"])
+        if (branch) return branch
+        // GitHub sets GITHUB_REF_NAME to the tag name on a tag push, so read it only on a branch ref.
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "branch") {
+          const refName = envValue(input.env, ["GITHUB_REF_NAME"])
+          if (refName) return refName
+        }
+        return gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"])
+      },
+      commit: async options => {
         const value = envValue(input.env, ["GIT_SHA", "GITHUB_SHA"])
         if (value) return options?.short ? value.slice(0, 7) : value
         return gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"])
@@ -287,7 +294,7 @@ async function resolveBuildDeclaration(
   const valueForSchema = defaulted ? defaultValue : resolvedSource.value
   if (typeof valueForSchema === "undefined") {
     if (declaration.required) {
-      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
+      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path, source.kind === "env" ? source.names || [source.name] : [])
     }
     return { source: resolvedSource.label, status: "missing" as const, value: undefined }
   }
@@ -349,14 +356,14 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     }
     const schema = runtimeValueSchema(value)
     if (!schema) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), or env.enum().`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), env.enum(), env.list(), or env.json().`)
     }
     if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
     }
     const type = envValueTypeName(schema)
     if (value.type && value.type !== type) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), or env.enum() to parse other types.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), env.enum(), env.list(), or env.json() to parse other types.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
@@ -389,13 +396,15 @@ function setOwnValue(record: Record<string, unknown>, key: string, value: unknow
 }
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
+// A list default is an array. A JSON default is the value or its JSON text; it stays as written, because the
+// runtime parses it again and reads a string as JSON text.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
-  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : true
-  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind} default.`, success: false as const }
+  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : schema.kind === "list" ? Array.isArray(value) : true
+  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind === "list" ? "array" : schema.kind} default.`, success: false as const }
   if (!result.success) {
     throw envErrorDiagnostics.ENV_R0023({ message: `[vitehub] Invalid default for ${path}: ${result.message}` })
   }
-  return result.data
+  return schema.kind === "json" ? value : result.data
 }
 
 /** The default prefix of canonical variable names. */
@@ -451,7 +460,8 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
-        if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
+        // An empty variable counts as missing, the same as on the server.
+        if (typeof value !== "undefined" && value !== "") {
           return { label: `env:${name}`, value }
         }
       }
@@ -460,10 +470,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.branch()) }
     case "git-commit":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.commit({ short: source.short })) }
-    case "git-ref":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.ref()) }
-    case "git-sha":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.sha({ short: source.short })) }
     case "git-tag":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.tag()) }
     case "build-timestamp":

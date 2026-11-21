@@ -3,7 +3,7 @@ import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
+import { assertWorkspaceRules, listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
   noExecutionAuthority,
   normalizeExecutionAuthority,
@@ -35,9 +35,11 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { emulatedGateway, emulatedModelApi, isModelEmulationRequested, languageModelRoute } from "./internal/agent-emulation.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { withSourceSkills } from "./internal/source-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -334,7 +336,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
-  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter]) {
+  // The spread drops non-enumerable keys. Inspection, health, and Invocation telemetry read the Driver from the settings,
+  // and the generated server runtime keeps them too.
+  for (const key of [colocatedAgentSkillsSymbol, discoveredSkillsSetter, "__vitehubAgentSettings"]) {
     const descriptor = Object.getOwnPropertyDescriptor(workspaceAgent, key)
     if (descriptor) Object.defineProperty(decoratedAgent, key, descriptor)
   }
@@ -389,8 +393,11 @@ export function workspaceDefinitionFromOptions<
   const { commit: _commit, materialize, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
+  const materialized = withDefaultMaterialize(workspace, materialize)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    withDefaultMaterialize(workspace, materialize),
+    materialized.sources && usesProviderDriver(options)
+      ? { ...materialized, sources: withSourceSkills(materialized.sources) }
+      : materialized,
     staticAgentCapabilities(options.capabilities),
   ), options)
 }
@@ -441,6 +448,10 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   if (unsupported.length) {
     throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
+  // SAFETY: The key check above allows only Workspace Definition fields, and `rules` and `plugins` keep their declared types.
+  const { plugins, rules } = definition as Pick<WorkspaceDefinition, "plugins" | "rules">
+  assertWorkspaceRules(rules)
+  for (const plugin of plugins ?? []) assertWorkspaceRules(plugin?.rules)
 }
 
 function withCapabilityWorkspaceSources(
@@ -580,6 +591,14 @@ function providerDriverHasInstructions<
   return driver.kind === "provider" && driver.instructions !== undefined
 }
 
+function usesProviderDriver<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  // SAFETY: Only the presence of the driver option is read here; normalization validates it.
+  return (asUnknownBoundary(options) as { driver?: unknown }).driver !== undefined && workspaceAgentDriverKind(options) === "provider"
+}
+
 function workspaceAgentDriverKind<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -716,7 +735,7 @@ function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
-  if (driver.kind === "model" || driver.kind === "ask") return noExecutionAuthority
+  if (driver.kind === "model" || driver.kind === "ask" || driver.kind === "external") return noExecutionAuthority
   if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
@@ -744,10 +763,23 @@ function modelProviderFromId(id: string | undefined): string | undefined {
 
 /** A model on the ChatGPT plan: an OpenAI model that the Connection's grant pays for. */
 function chatgptModelMetadata(id: string): AgentInspectionModelMetadata {
+  if (isModelEmulationRequested()) return { gateway: emulatedGateway, id, provider: `${emulatedGateway}.responses` }
   return { id, provider: "openai", transport: "chatgpt" }
 }
 
+/** The model that `VITEHUB_MODELS=emulate` sends to the AI emulator, or undefined when the switch is off or the model cannot go there. */
+function emulatedModelMetadata(model: AgentModelInput | undefined, dynamic: boolean): AgentInspectionModelMetadata | undefined {
+  if (!isModelEmulationRequested()) return
+  if (model === undefined) return dynamic ? { dynamic: true, gateway: emulatedGateway } : undefined
+  const id = gatewayModelDescriptor(model)?.id.trim()
+  const route = id ? { api: emulatedModelApi(id), modelId: id } : languageModelRoute(model)
+  if (!route) return
+  return { ...(dynamic ? { dynamic: true } : {}), gateway: emulatedGateway, id: route.modelId, provider: `${emulatedGateway}.${route.api}` }
+}
+
 function modelMetadata(model: AgentModelInput | undefined, dynamic = false): AgentInspectionModelMetadata {
+  const emulated = emulatedModelMetadata(model, dynamic)
+  if (emulated) return emulated
   if (model === undefined) return dynamic ? { dynamic: true } : {}
   const gateway = gatewayModelDescriptor(model)
   if (gateway) {
@@ -958,6 +990,7 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
@@ -1004,6 +1037,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 

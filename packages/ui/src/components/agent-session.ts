@@ -1,7 +1,7 @@
 // The layout and the visual details follow T3 Code's thread view (https://github.com/pingdotgg/t3code, MIT License,
 // Copyright (c) T3 Tools Inc.): a centered timeline, a details card at the top right, and a right panel of surfaces
 // whose toggle stays in the top right corner whether the panel is open or closed.
-import { TabsContent, TabsList, TabsRoot, TabsTrigger } from "reka-ui";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 import {
   computed,
   defineComponent,
@@ -9,11 +9,13 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  useId,
   watch,
   type PropType,
   type VNode,
 } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { kitSlot } from "../internal/slot-part.ts";
 import { Markdown } from "./markdown.ts";
 
 /** A surface that the right panel can show, such as the Workspace files or the session's changes. */
@@ -126,9 +128,8 @@ export const AgentSession = defineComponent({
     "update:maximized": (_maximized: boolean) => true,
   },
   setup(props, { attrs, emit, expose, slots }) {
-    const stored = readLayout(props.storageKey);
     const known = (id: string | null | undefined) => props.surfaces.some((surface) => surface.id === id);
-    const localPanelOpen = ref(stored.panelOpen ?? props.defaultPanelOpen);
+    const localPanelOpen = ref(props.defaultPanelOpen);
     const panelOpen = computed({
       get: () => props.panelOpen ?? localPanelOpen.value,
       set: (open: boolean) => {
@@ -139,9 +140,10 @@ export const AgentSession = defineComponent({
     });
     // Like T3 Code, the inline card keeps the user's choice, and the popover that replaces it on a narrow column starts
     // closed, so a remembered card never covers the timeline.
-    const detailsOpen = ref(stored.detailsOpen ?? props.defaultDetailsOpen);
+    const detailsOpen = ref(props.defaultDetailsOpen);
     const popoverOpen = ref(false);
-    const localMaximized = ref(stored.maximized ?? false);
+    const detailsId = useId();
+    const localMaximized = ref(false);
     const maximized = computed({
       get: () => props.maximized ?? localMaximized.value,
       set: (value: boolean) => {
@@ -150,10 +152,10 @@ export const AgentSession = defineComponent({
         emit("update:maximized", value);
       },
     });
-    const width = ref(stored.width ?? props.defaultWidth);
-    const initialTabs = (stored.tabs ?? (props.defaultSurface ? [props.defaultSurface] : [])).filter(known);
+    const width = ref(props.defaultWidth);
+    const initialTabs = (props.defaultSurface ? [props.defaultSurface] : []).filter(known);
     const tabs = ref<string[]>(initialTabs);
-    const localActive = ref<string | null>(known(stored.active) ? stored.active ?? null : initialTabs[0] ?? null);
+    const localActive = ref<string | null>(initialTabs[0] ?? null);
     const active = computed({
       get: () => props.surface !== undefined ? props.surface : localActive.value,
       set: (id: string | null) => {
@@ -170,6 +172,67 @@ export const AgentSession = defineComponent({
     const bodyWidth = ref(0);
     const rootWidth = ref(0);
     const detailsInline = computed(() => bodyWidth.value >= LANE_MAX_WIDTH + DETAILS_WIDTH + 72);
+    // The popover goes away when the column gets room for the inline card, so it starts closed when the column narrows again.
+    watch(detailsInline, (inline) => {
+      if (inline) popoverOpen.value = false;
+      stopFollowing();
+    });
+
+    // CSS anchor positioning puts the floating card on the body's top end corner. Firefox ignores the transforms of an
+    // anchor (https://webstatus.dev/features/anchor-positioning-transforms), and an older browser cannot anchor at all,
+    // so the card can land elsewhere, such as away from a session in a translated container. Then script places it from
+    // the body's box on screen while it stays open.
+    const details = ref<HTMLElement>();
+    let following = false;
+    let followFrame = 0;
+    // The card's 0.75rem inset from the body's end, as in styles.css.
+    const detailsInset = () => 0.75 * (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    const detailsPlace = () => {
+      const card = details.value;
+      const box = body.value?.getBoundingClientRect();
+      if (!card || !box) return;
+      const end = getComputedStyle(card).direction === "rtl" ? box.left : document.documentElement.clientWidth - box.right;
+      Object.assign(card.style, {
+        insetBlockEnd: "auto",
+        insetBlockStart: `${box.top}px`,
+        insetInlineEnd: `${end + detailsInset()}px`,
+        insetInlineStart: "auto",
+        margin: "0",
+        maxHeight: `${box.height - detailsInset()}px`,
+      });
+    };
+    const followSoon = () => {
+      if (!followFrame) followFrame = requestAnimationFrame(() => {
+        followFrame = 0;
+        detailsPlace();
+      });
+    };
+    function stopFollowing() {
+      if (!following) return;
+      following = false;
+      cancelAnimationFrame(followFrame);
+      followFrame = 0;
+      window.removeEventListener("scroll", followSoon, true);
+      window.removeEventListener("resize", followSoon);
+      for (const name of ["inset-block-end", "inset-block-start", "inset-inline-end", "inset-inline-start", "margin", "max-height"]) details.value?.style.removeProperty(name);
+    }
+    const checkDetailsPlace = () => {
+      const card = details.value;
+      const box = body.value?.getBoundingClientRect();
+      if (following || !card || !box || !card.matches(":popover-open")) return;
+      const at = card.getBoundingClientRect();
+      const endGap = getComputedStyle(card).direction === "rtl" ? at.left - box.left : box.right - at.right;
+      if (Math.abs(at.top - box.top) < 1 && Math.abs(endGap - detailsInset()) < 1) return;
+      following = true;
+      detailsPlace();
+      window.addEventListener("scroll", followSoon, { capture: true, passive: true });
+      window.addEventListener("resize", followSoon, { passive: true });
+    };
+    const detailsToggled = (event: ToggleEvent) => {
+      popoverOpen.value = event.newState === "open";
+      if (event.newState === "open") requestAnimationFrame(checkDetailsPlace);
+      else stopFollowing();
+    };
 
     watch([panelOpen, detailsOpen, width, tabs, active, maximized], () => {
       if (!props.storageKey || typeof localStorage === "undefined") return;
@@ -190,35 +253,28 @@ export const AgentSession = defineComponent({
 
     let observer: ResizeObserver | undefined;
     onMounted(() => {
+      // Read after mount, so the first client render matches the server, which cannot read storage.
+      const stored = readLayout(props.storageKey);
+      localPanelOpen.value = stored.panelOpen ?? localPanelOpen.value;
+      detailsOpen.value = stored.detailsOpen ?? detailsOpen.value;
+      localMaximized.value = stored.maximized ?? localMaximized.value;
+      width.value = stored.width ?? width.value;
+      if (stored.tabs) tabs.value = stored.tabs.filter(known);
+      if (known(stored.active)) localActive.value = stored.active ?? null;
+      else if (stored.tabs) localActive.value = tabs.value[0] ?? null;
+      if (active.value && !tabs.value.includes(active.value)) tabs.value = [...tabs.value, active.value];
       observer = new ResizeObserver(() => {
         bodyWidth.value = body.value?.clientWidth ?? 0;
         rootWidth.value = root.value?.clientWidth ?? 0;
+        if (following) followSoon();
       });
       if (body.value) observer.observe(body.value);
       if (root.value) observer.observe(root.value);
-      document.addEventListener("pointerdown", closeDetailsPopover);
-      document.addEventListener("keydown", closeDetailsOnEscape);
     });
     onBeforeUnmount(() => {
       observer?.disconnect();
-      document.removeEventListener("pointerdown", closeDetailsPopover);
-      document.removeEventListener("keydown", closeDetailsOnEscape);
+      stopFollowing();
     });
-
-    function closeDetailsOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape" || !popoverOpen.value || detailsInline.value) return;
-      popoverOpen.value = false;
-      root.value?.querySelector<HTMLElement>("[data-slot='agent-session-details-toggle']")?.focus();
-    }
-
-    // The card floats over the timeline when the column is too narrow for it, and closes like a popover there.
-    function closeDetailsPopover(event: PointerEvent) {
-      if (!popoverOpen.value || detailsInline.value) return;
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (target.closest("[data-slot='agent-session-details'], [data-slot='agent-session-details-toggle']")) return;
-      popoverOpen.value = false;
-    }
 
     function openSurface(id: string) {
       if (!tabs.value.includes(id)) tabs.value = [...tabs.value, id];
@@ -279,7 +335,8 @@ export const AgentSession = defineComponent({
       label: string;
       iconName: string;
       pressed: boolean;
-      onClick: () => void;
+      onClick?: () => void;
+      popovertarget?: string;
     }) =>
       h("button", {
         type: "button",
@@ -289,6 +346,7 @@ export const AgentSession = defineComponent({
         "aria-pressed": options.pressed ? "true" : "false",
         title: options.label,
         onClick: options.onClick,
+        popovertarget: options.popovertarget,
       }, [icon(options.iconName)]);
 
     const detailsToggle = () =>
@@ -298,10 +356,11 @@ export const AgentSession = defineComponent({
             label: "Session details",
             iconName: "i-lucide-square-menu",
             pressed: detailsInline.value ? detailsOpen.value : popoverOpen.value,
-            onClick: () => {
-              if (detailsInline.value) detailsOpen.value = !detailsOpen.value;
-              else popoverOpen.value = !popoverOpen.value;
-            },
+            // On a narrow column the card floats over the timeline as a native popover, which closes on Escape and on
+            // a press outside it.
+            ...detailsInline.value
+              ? { onClick: () => (detailsOpen.value = !detailsOpen.value) }
+              : { popovertarget: detailsId },
           })
         : null;
 
@@ -342,73 +401,78 @@ export const AgentSession = defineComponent({
     const panel = () => {
       const surfaceById = new Map(props.surfaces.map((surface) => [surface.id, surface]));
       const current = active.value ? surfaceById.get(active.value) : undefined;
-      return h(TabsRoot, {
-        as: "aside",
-        modelValue: active.value ?? "",
-        "onUpdate:modelValue": (id: string | number) => { active.value = String(id); },
+      // `null` selects no tab while the launcher shows.
+      return h(Tabs, {
+        value: active.value,
+        "onUpdate:value": (id: string | null) => { active.value = id; },
         class: "vh-agent-session__panel",
-        "data-slot": "agent-session-panel",
         "aria-label": "Right panel",
-      }, () => [
-        h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
-          // Reka keeps the close button beside its trigger and owns keyboard focus and tab semantics.
-          h(TabsList, { class: "vh-agent-session__tabs" }, () => [
-            ...visibleTabs.value.map((id) => {
-              const surface = surfaceById.get(id);
-              if (!surface) return null;
-              const selected = id === active.value;
-              // A lone tab has nothing to close into: the panel toggle hides the panel.
-              const closable = visibleTabs.value.length > 1;
-              return h("div", {
-                key: id,
-                class: "vh-agent-session__tab",
-                "data-active": selected ? "" : undefined,
-                "data-closable": closable ? "" : undefined,
-              }, [
-                h(TabsTrigger, {
-                  value: id,
-                  class: "vh-agent-session__tab-button",
-                  onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
-                }, () => [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
-                closable
-                  ? h("button", {
-                      type: "button",
-                      class: "vh-agent-session__tab-close",
-                      "aria-label": `Close ${surface.label}`,
-                      onClick: () => closeSurface(id),
-                    }, [icon("i-lucide-x")])
-                  : null,
-              ]);
-            }),
-            h("button", {
-              type: "button",
-              class: "vh-agent-session__toggle vh-agent-session__new-tab",
-              "aria-label": "Open a surface",
-              title: "Open a surface",
-              "aria-pressed": active.value === null ? "true" : "false",
-              onClick: () => (active.value = null),
-            }, [icon("i-lucide-plus")]),
+      }, {
+        // The panel is an `aside` landmark.
+        render: kitSlot("aside", "agent-session-panel"),
+        default: () => [
+          h("div", { class: "vh-agent-session__panel-header", "data-slot": "agent-session-panel-header" }, [
+            // The kit tabs keep the close button beside its tab and own keyboard focus and tab semantics.
+            h(TabsList, { class: "vh-agent-session__tabs" }, () => [
+              ...visibleTabs.value.map((id) => {
+                const surface = surfaceById.get(id);
+                if (!surface) return null;
+                const selected = id === active.value;
+                // A lone tab has nothing to close into: the panel toggle hides the panel.
+                const closable = visibleTabs.value.length > 1;
+                return h("div", {
+                  key: id,
+                  class: "vh-agent-session__tab",
+                  "data-active": selected ? "" : undefined,
+                  "data-closable": closable ? "" : undefined,
+                }, [
+                  h(TabsTab, {
+                    value: id,
+                    class: "vh-agent-session__tab-button",
+                    onAuxclick: (event: MouseEvent) => closable && event.button === 1 && closeSurface(id),
+                  }, () => [icon(surface.icon, { class: "vh-agent-session__tab-icon" }), h("span", surface.label)]),
+                  closable
+                    ? h("button", {
+                        type: "button",
+                        class: "vh-agent-session__tab-close",
+                        "aria-label": `Close ${surface.label}`,
+                        onClick: () => closeSurface(id),
+                      }, [icon("i-lucide-x")])
+                    : null,
+                ]);
+              }),
+              h("button", {
+                type: "button",
+                class: "vh-agent-session__toggle vh-agent-session__new-tab",
+                "aria-label": "Open a surface",
+                title: "Open a surface",
+                "aria-pressed": active.value === null ? "true" : "false",
+                onClick: () => (active.value = null),
+              }, [icon("i-lucide-plus")]),
+            ]),
+            h("div", { class: "vh-agent-session__controls" }, [
+              toggle({
+                slot: "agent-session-maximize",
+                label: maximized.value ? "Restore panel size" : "Maximize panel",
+                iconName: maximized.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2",
+                pressed: maximized.value,
+                onClick: () => (maximized.value = !maximized.value),
+              }),
+              panelToggle(),
+            ]),
           ]),
-          h("div", { class: "vh-agent-session__controls" }, [
-            toggle({
-              slot: "agent-session-maximize",
-              label: maximized.value ? "Restore panel size" : "Maximize panel",
-              iconName: maximized.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2",
-              pressed: maximized.value,
-              onClick: () => (maximized.value = !maximized.value),
-            }),
-            panelToggle(),
-          ]),
-        ]),
-        current
-          ? h(TabsContent, {
-              key: current.id,
-              value: current.id,
-              class: "vh-agent-session__panel-body",
-              "data-slot": "agent-session-panel-body",
-            }, () => slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current }))
-          : h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [launcher()]),
-      ]);
+          current
+            ? h(TabsPanel, {
+                key: current.id,
+                value: current.id,
+                class: "vh-agent-session__panel-body",
+              }, {
+                render: kitSlot("div", "agent-session-panel-body"),
+                default: () => slots[`surface-${current.id}`]?.({ surface: current }) ?? slots.surface?.({ surface: current }),
+              })
+            : h("div", { class: "vh-agent-session__panel-body", "data-slot": "agent-session-panel-body" }, [launcher()]),
+        ],
+      });
     };
 
     return () => {
@@ -442,12 +506,25 @@ export const AgentSession = defineComponent({
             slots.body?.() ?? h("div", { class: "vh-agent-session__scroll", "data-slot": "agent-session-scroll" }, [
               h("div", { class: "vh-agent-session__lane", "data-slot": "agent-session-lane" }, slots.default?.()),
             ]),
-            showDetails
+            slots.details && detailsInline.value && detailsOpen.value
               ? h("aside", {
+                  key: "inline",
                   class: "vh-agent-session__details",
                   "data-slot": "agent-session-details",
                   "aria-label": "Session details",
-                }, [h("div", { class: "vh-agent-session__details-card" }, slots.details?.())])
+                }, [h("div", { class: "vh-agent-session__details-card" }, slots.details())])
+              : null,
+            slots.details && !detailsInline.value
+              ? h("aside", {
+                  key: "popover",
+                  id: detailsId,
+                  popover: "auto",
+                  class: "vh-agent-session__details",
+                  "data-slot": "agent-session-details",
+                  "aria-label": "Session details",
+                  onBeforetoggle: detailsToggled,
+                  ref: details,
+                }, popoverOpen.value ? [h("div", { class: "vh-agent-session__details-card" }, slots.details())] : [])
               : null,
           ]),
         ]),

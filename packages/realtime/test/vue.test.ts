@@ -63,7 +63,8 @@ vi.mock("y-websocket", () => ({
     wsconnected = false
     params: Record<string, string> = {}
 
-    constructor(public server: string, public room: string, public doc: Y.Doc) {
+    constructor(public server: string, public room: string, public doc: Y.Doc, options: { params?: Record<string, string> } = {}) {
+      this.params = { ...options.params }
       providers.push(this)
     }
   },
@@ -228,6 +229,7 @@ describe("useRealtimeTiptap", () => {
     responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
     await expect(second).resolves.toMatchObject([{
       code: "REALTIME_REQUEST_FAILED",
+      data: { status: 500 },
       why: "The realtime `checkpoint()` request failed with HTTP 500: publisher unavailable",
     }, undefined])
     expect(realtime.history.pending.value).toBe(false)
@@ -316,7 +318,7 @@ describe("useRealtimeTiptap", () => {
     await nextTick()
     await expect(realtime.history.checkpoint()).resolves.toMatchObject([undefined, { document: { body: "# Saved" } }])
     expect(fetch).toHaveBeenCalledOnce()
-    expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/second.md?history=checkpoint")
+    expect(fetch.mock.calls[0]![0]).toBe("/_vitehub/realtime/docs/second.md?history=checkpoint")
     scope.stop()
   })
 
@@ -365,6 +367,90 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
   })
 
+  it("returns REALTIME_SYNC_PENDING when the room is still syncing after 20 retries", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: { code: "REALTIME_SYNC_PENDING" }, message: "The realtime document is still syncing." }), { status: 409 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    const pending = realtime.history.checkpoint()
+    await vi.advanceTimersByTimeAsync(20 * 50)
+    await expect(pending).resolves.toMatchObject([{ code: "REALTIME_SYNC_PENDING", why: expect.stringContaining("`checkpoint()`") }, undefined])
+    expect(fetch).toHaveBeenCalledTimes(21)
+    scope.stop()
+  })
+
+  it.each([
+    { code: "REALTIME_SOURCE_CHANGED", status: 409 },
+    { code: "REALTIME_READ_ONLY", status: 409 },
+    { code: "REALTIME_INVALID_DOCUMENT", status: 422 },
+  ])("returns the $code that the server names, not REALTIME_REQUEST_FAILED", async ({ code, status }) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: { code }, message: "Refused." }), { status }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.save()).resolves.toMatchObject([{ code, fix: expect.any(String), why: expect.stringContaining("`save()`") }, undefined])
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
+  it("returns REALTIME_REQUEST_FAILED with the status for a 409 that names no code", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "The realtime room closed." }), { status: 409 })))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.save()).resolves.toMatchObject([{ code: "REALTIME_REQUEST_FAILED", why: "The realtime `save()` request failed with HTTP 409: The realtime room closed." }, undefined])
+    scope.stop()
+  })
+
+  it.each(["save", "checkpoint"] as const)("returns the source conflict when the room resets before the %s response", async (action) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const first = providers[1]!
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      control(first, { type: "reset", epoch: "seed-2", reason: "source-changed" })
+      init.signal?.throwIfAborted()
+      return new Response(JSON.stringify({ data: { code: "REALTIME_SOURCE_CHANGED" } }), { status: 409 })
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    const pending = action === "save" ? realtime.save() : realtime.history.checkpoint()
+    await expect(pending).resolves.toMatchObject([{ code: "REALTIME_SOURCE_CHANGED" }, undefined])
+    expect(realtime.document.value).not.toBe(first.doc)
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
+  it.each(["retry", "switch", "disable", "dispose"] as const)("does not continue a checkpoint after a room reset and %s", async (operation) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const documentId = ref("page.md")
+    const enabled = ref(true)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", documentId, { enabled }))!
+    const first = providers[1]!
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => {
+      control(first, { type: "reset", epoch: "seed-2", reason: "source-changed" })
+      if (operation === "switch") documentId.value = "other.md"
+      if (operation === "disable") enabled.value = false
+      if (operation === "dispose") scope.stop()
+      await nextTick()
+      const code = operation === "retry" ? "REALTIME_SYNC_PENDING" : "REALTIME_SOURCE_CHANGED"
+      return new Response(JSON.stringify({ data: { code } }), { status: 409 })
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject([{ code: "REALTIME_DISCONNECTED" }, undefined])
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls[0]?.[1].signal?.aborted).toBe(operation !== "retry")
+    scope.stop()
+  })
+
   it("uses an injected identity and editor schema instead of the app session and default kit", () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const identity = ref({ id: "console:ana", image: "https://example.com/ana.png", name: "Ana" })
@@ -376,6 +462,26 @@ describe("useRealtimeTiptap", () => {
     expect(session.calls).toBe(0)
     expect(realtime.extensions.value.map(extension => extension.name)).toEqual(["doc", "paragraph", "text", "callout", "collaboration", "collaborationCaret"])
     expect(providers[1]!.awareness.setLocalStateField).toHaveBeenCalledWith("user", expect.objectContaining({ id: "console:ana", name: "Ana" }))
+    scope.stop()
+  })
+
+  it("sends the editor version with the connection and reports a server on another version", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const extensions = () => [TiptapNode.create({ name: "doc", topNode: true, content: "text*" }), TiptapNode.create({ name: "text" })]
+    const scope = effectScope()
+    const [versioned, unversioned] = scope.run(() => [
+      useRealtimeTiptap("docs", ref("page.md"), { editor: { extensions, version: "2" } }),
+      useRealtimeTiptap("docs", ref("other.md")),
+    ])!
+    const provider = providers.find(item => item.room === "page.md")!
+
+    expect(provider.params).toEqual({ clientId: String(provider.doc.clientID), editor: "2" })
+    const otherProvider = providers.find(item => item.room === "other.md")!
+    expect(otherProvider.params).toEqual({ clientId: String(otherProvider.doc.clientID) })
+    control(provider, { type: "session", access: "read", epoch: "seed-1", reason: "version" })
+    expect(versioned.readOnly.value).toBe(true)
+    expect(versioned.readOnlyReason.value).toBe("version")
+    expect(unversioned.readOnly.value).toBe(false)
     scope.stop()
   })
 
@@ -526,10 +632,10 @@ describe("useRealtimeTiptap", () => {
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("guides/page.md")))!
 
     await expect(realtime.save()).resolves.toMatchObject([undefined, { digest: "saved", document: { body: "# Saved" } }])
-    expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=save")
+    expect(fetch.mock.calls[0]![0]).toBe("/_vitehub/realtime/docs/guides/page.md?document=save")
     expect(realtime.saving.value).toBe(false)
     await expect(realtime.refresh()).resolves.toEqual([undefined, { digest: "saved", reseeded: false }])
-    expect(fetch.mock.calls[1]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=refresh")
+    expect(fetch.mock.calls[1]![0]).toBe("/_vitehub/realtime/docs/guides/page.md?document=refresh")
     expect(fetch.mock.calls[1]![1].body).toBeUndefined()
     scope.stop()
   })

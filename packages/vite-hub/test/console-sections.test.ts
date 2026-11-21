@@ -32,7 +32,7 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
-  it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
+  it("derives enabled primitive sections, and Workflow only from `workflow`", () => {
     expect(resolveConsoleSectionIds({ agent: true, blob: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "agents",
       "skills",
@@ -48,16 +48,14 @@ describe("Console section preferences", () => {
       "queues",
       "schedules",
     ])
-    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, host: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, host: "netlify", workflow: { provider: "vercel" } })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: { driver: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
       "channels",
       "workflows",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ comments: true, database: true })).toEqual(["comments", "databases"])
@@ -117,19 +115,21 @@ describe("Console section routes", () => {
     }
     expect(client).toContain("subscribeConsoleNavigation(sectionsBase, addContributedRoutes)")
     expect(client).toContain("const name = consoleSectionRouteName(section)")
-    expect(client).toContain('return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" }')
+    expect(client).toContain("consolePendingSectionRoute,")
+    expect(client).toContain("return resolveConsoleSectionDeepLink(router, to, async () => {")
   })
 })
 
 describe("Console section groups", () => {
-  it("groups the rail by purpose, keeps the navigation order, and puts unknown sections last", () => {
-    const ids = ["env", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
+  it("groups the sidebar by purpose, keeps the navigation order, and puts unknown sections last", () => {
+    const ids = ["env", "agents", "usage", "comments", "blob", "databases", "auth", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
     const groups = groupConsoleSections(ids.map(id => ({ id }))).map(group => group.map(section => section.id))
     expect(groups).toEqual([
-      ["agents", "usage"],
+      ["comments"],
       ["blob", "databases", "kv", "workspaces"],
-      ["sandbox-tasks", "workflows", "queues", "schedules"],
-      ["env", "email", "rate-limits"],
+      ["auth", "email"],
+      ["agents", "usage"],
+      ["env", "rate-limits", "sandbox-tasks", "workflows", "queues", "schedules"],
       ["custom-tool"],
     ])
   })
@@ -143,9 +143,10 @@ describe("Console section groups", () => {
   })
 
   it("labels every group and resolves the group of one section", () => {
-    expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Agents", "Data", "Runtime", "Platform", "More"])
-    expect(resolveConsoleSectionGroup("usage")).toBe("agents")
+    expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Site", "Data", "Users", "AI", "Runtime", "More"])
+    expect(resolveConsoleSectionGroup("usage")).toBe("ai")
     expect(resolveConsoleSectionGroup("schedules")).toBe("runtime")
+    expect(resolveConsoleSectionGroup("connections")).toBe("runtime")
     expect(resolveConsoleSectionGroup("custom-tool")).toBe("more")
     expect(resolveConsoleSectionGroup("constructor")).toBe("more")
   })
@@ -178,6 +179,7 @@ describe("Console Go to shortcuts", () => {
       "mcp-client": "g p",
       databases: "g d",
       kv: "g k",
+      cache: "g j",
       logs: "g l",
       blob: "g b",
       workspaces: "g w",

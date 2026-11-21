@@ -1,21 +1,31 @@
+import { rm } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveAuthViteConfig } from "./config.ts"
-import { authAbilitiesCandidates, discoverAuthDefinitions } from "./discovery.ts"
+import { authDeploymentEnv } from "./deployment-env.ts"
+import { authMemoryDatabaseError } from "./database-options.ts"
+import { authAbilitiesCandidates, discoverAuthClient, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { authTableNames } from "./table-names.ts"
+import { readAuthExistingTables } from "./existing-tables.ts"
+import { authSqlName, resolveAuthTableSpecs } from "./table-specs.ts"
 
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { AuthExistingTables } from "./existing-tables.ts"
+import type { AuthSchemaOptions } from "./table-specs.ts"
 import type {
   AuthOptions,
   ResolvedAuthViteConfig,
@@ -24,11 +34,14 @@ import type {
 export { resolveAuthViteConfig }
 
 export const AUTH_ABILITIES_ID = "#vitehub/auth/abilities"
+export const AUTH_CLIENT_ID = "#vitehub/auth/client"
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
-const RESOLVED_AUTH_ABILITIES_ID = `\0${AUTH_ABILITIES_ID}`
+// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment.
+const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
+const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`
 const RESOLVED_AUTH_SERVER_ID = `\0${AUTH_SERVER_ID}`
 const authPackageName = "@vite-hub/auth"
@@ -36,7 +49,9 @@ const envServerModuleId = "#vitehub/env/server"
 const envVitePluginName = "@vite-hub/env/vite"
 const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts"
 const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
+const generatedAuthSchema = ".vitehub/auth/schema.ts"
 const cachedAccessRouteGuardName = "vite-hub/auth-cached-access-route-guard"
+const memoryDatabaseGuardName = "vite-hub/auth-memory-database-guard"
 const mergeNoExternal = createNoExternalAddition(authPackageName)
 
 type NitroConfig = Record<string, unknown>
@@ -48,6 +63,8 @@ type NitroBuild = {
 }
 
 export interface AuthVitePluginAPI {
+  /** The variables that Auth reads on the deployed host. See `authDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedAuthViteConfig | undefined
   refresh: () => ResolvedAuthViteConfig | undefined
 }
@@ -64,6 +81,7 @@ export interface AuthDatabaseContribution {
   name: "auth"
   database: string
   dialect: "postgresql" | "sqlite"
+  /** The schema module of the package, or a generated module when the Definition adds plugins or fields. */
   definition: { module: string, export: "authPostgresSchema" | "authSqliteSchema" }
   /** The schema keys and SQL names of the tables, so the Database lists them without loading the schema module. */
   tables: Readonly<Record<string, string>>
@@ -78,18 +96,37 @@ export type AuthVitePlugin = Plugin & {
 }
 
 /**
- * The dialect of the Database that gets the Auth tables, read from its Definition without running it. Without a
- * Database Definition, the Database integration adds the implicit `default` Database, which uses SQLite unless another
- * contribution needs Postgres.
+ * A module that builds the Auth tables with the plugins and additional fields of the Definition, and keeps the SQLite
+ * tables that the Database has already as `existing` describes them.
  */
-async function readTargetDialect(context: AuthDatabaseContributionContext, database: string): Promise<"postgresql" | "sqlite"> {
-  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
+function renderAuthSchemaModule(schema: AuthSchemaOptions, existing: AuthExistingTables | undefined, importBase: string): string {
+  const options = JSON.stringify(schema)
+  return [
+    "// Generated by the Auth Vite plugin from the plugins and additional fields of the Auth Definition, and from the Auth",
+    "// tables of the latest migration of the Database.",
+    `import { createAuthPostgresSchema, createAuthSqliteSchema } from ${JSON.stringify(`${importBase}/schema`)}`,
+    "",
+    `export const authSqliteSchema = createAuthSqliteSchema(${options}${existing ? `, ${JSON.stringify(existing)}` : ""})`,
+    `export const authPostgresSchema = createAuthPostgresSchema(${options})`,
+    "",
+  ].join("\n")
+}
+
+/**
+ * The dialect and the migrations folder of the Database that gets the Auth tables, read from its Definition without
+ * running it. Without a Database Definition, the Database integration adds the implicit `default` Database, which uses
+ * SQLite unless another contribution needs Postgres.
+ */
+async function readTargetDatabase(context: AuthDatabaseContributionContext, database: string): Promise<{ dialect: "postgresql" | "sqlite", migrationsDir: string }> {
+  const { discoverDatabaseDefinitions, getDefaultMigrationsDir, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
   const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
   // Forward the filtered list too: sibling factories can recursively collect contributions.
   const plugins = (await flattenPluginOptions(context.plugins)).filter(plugin => Reflect.get(plugin, "name") !== AUTH_VITE_PLUGIN_NAME)
   const contributions = await collectDatabaseContributions(plugins, { ...context, plugins })
-  const target = discoverDatabaseDefinitions(context.rootDir, { contributions, serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
-  return target ? readDatabaseDefinitionDialect(target.handler) : "sqlite"
+  const serverDirs = context.serverDirs?.slice()
+  const target = discoverDatabaseDefinitions(context.rootDir, { contributions, serverDirs }).find(definition => definition.name === database)
+  if (!target) return { dialect: "sqlite", migrationsDir: resolve(serverDirs?.[0] ?? resolve(context.rootDir, "server"), "databases", database, "migrations") }
+  return { dialect: readDatabaseDefinitionDialect(target.handler), migrationsDir: resolve(context.rootDir, getDefaultMigrationsDir(context.rootDir, target, serverDirs)) }
 }
 
 interface AuthInspectionOptions {
@@ -125,24 +162,40 @@ interface InternalAuthModuleOptions {
   importBase?: string
 }
 
-function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, runtimeServer?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
   if (!config) {
-    return "export const definition = undefined\nexport default definition\n"
+    return "export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n"
   }
+  const runtimeServer = JSON.stringify(options.runtimeServer ?? privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
+    options.testMode ? "export const getAuthApp = () => undefined" : 'export { useNitroApp as getAuthApp } from "nitro/app"',
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(`${options.importBase ?? authPackageName}/runtime/server`)}`,
+          `import { setAuthRuntimeEnvResolver } from ${runtimeServer}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "setAuthRuntimeEnvResolver(useServerEnv, definition)",
         ]
       : []),
+    // The Nuxt module guards the pages of `access.pages` that the build reads. The server stops when the Definition has others.
+    `import { checkBuiltAuthPages } from ${runtimeServer}`,
+    `checkBuiltAuthPages(definition, ${JSON.stringify(config.access.pages ?? {})})`,
     "export { definition }",
     "export default definition",
     "",
   ].join("\n")
+}
+
+export async function writeNuxtAuthDefinition(root: string, config: ResolvedAuthViteConfig): Promise<string> {
+  const file = resolve(resolveViteHubProjectRoot(root), ".vitehub/auth/definition.ts")
+  await writeFileIfChanged(file, renderAuthDefinitionModule(config, { runtimeServer: ownModule(import.meta.url, "runtime/server"), serverEnv: false }))
+  return file
+}
+
+/** Private Auth entries of the distribution. */
+function privateAuthImport(importBase: string, entry: string): string {
+  return importBase === "vite-hub/auth" ? ownModule(import.meta.url, entry) : `${importBase}/${entry}`
 }
 
 /** The rules of `shared/abilities.ts` for the server and the app, or no rules. */
@@ -151,10 +204,12 @@ function renderAuthAbilitiesModule(config: ResolvedAuthViteConfig | undefined): 
 }
 
 function renderAuthServerModule(options: { importBase?: string } = {}): string {
-  const serverImport = `${options.importBase ?? authPackageName}/server`
+  const importBase = options.importBase ?? authPackageName
+  const serverImport = `${importBase}/server`
   return [
     `export * from ${JSON.stringify(serverImport)}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
+    `export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "",
   ].join("\n")
 }
@@ -166,13 +221,19 @@ function renderAuthRouteHandler(): string {
   ].join("\n")
 }
 
+/** `access.public`, and the Auth route: sign-in and the OAuth callback must work without a session. */
+function accessPublicRoutes(config: ResolvedAuthViteConfig): string[] {
+  return [authRoutePattern(config.basePath), ...config.access.public ?? []]
+}
+
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
+  const publicRoutes = config?.access.routes.length ? `, ${JSON.stringify(accessPublicRoutes(config))}` : ""
   return [
-    `import { createLazyAuthAccessHandler } from ${JSON.stringify(`${importBase}/runtime/server`)}`,
+    `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
     // Every request runs this middleware. It loads Better Auth only for a request that an access route matches.
-    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)}))`,
+    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)})${publicRoutes})`,
     "",
   ].join("\n")
 }
@@ -191,12 +252,17 @@ function authServerTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth-server.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { abilities?: string, definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthAmbientTypes(options: { abilities?: string, client?: string, definition?: string, importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   const entries = [
     ...options.definition ? [`definition: typeof import(${JSON.stringify(options.definition)}).default`] : [],
     ...options.abilities ? [`abilities: typeof import(${JSON.stringify(options.abilities)}).default`] : [],
+    ...options.client ? [`client: typeof import(${JSON.stringify(options.client)}).default`] : [],
   ]
   const registry = entries.length ? [`interface AuthRegistry { ${entries.join("; ")} }`] : []
+  if (options.definition) {
+    const session = `Pick<import(${JSON.stringify(options.importBase ?? authPackageName)}).AuthAuthorization<{ definition: typeof import(${JSON.stringify(options.definition)}).default }>, "user" | "session">`
+    registry.push(`interface AuthRegistry { sessionResult: ${session} }`)
+  }
   // The ServerEnv import makes this file a module, so its global names need `declare global`.
   if (options.serverEnv) {
     return [
@@ -225,17 +291,20 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
+    `  export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "}",
     "",
   ].join("\n")
 }
 
-async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
+async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { client?: string, importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
   await Promise.all([
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config, options.importBase)),
     writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
       abilities: config?.abilities && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.abilities),
+      client: options.client && typeImportSpecifier(dirname(authAmbientTypesPath(root)), options.client),
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
+      importBase: options.importBase,
       serverEnv: Boolean(options.serverEnv),
     })),
     writeFileIfChanged(authServerTypesPath(root), renderAuthServerTypes(options.importBase)),
@@ -264,6 +333,14 @@ function nitroApplicationBaseURL(value: unknown): string | undefined {
   const nitro = cloneNitroConfig(value)
   const baseURL = typeof nitro.baseURL === "string" ? nitro.baseURL : "/"
   return baseURL.split("/").some(Boolean) ? baseURL : undefined
+}
+
+/** Fails a production build, not the first sign-in. `nuxt prepare` also creates Nitro, but it does not build. */
+const memoryDatabaseGuard = {
+  name: memoryDatabaseGuardName,
+  setup(nitro: NitroBuild) {
+    nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", () => Promise.reject(authMemoryDatabaseError()))
+  },
 }
 
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined, dev: boolean): NitroConfig {
@@ -295,18 +372,20 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
         }]
       : []),
   ]
-  if (!authHandlers.length) return nitro
-
   for (const handler of authHandlers) kit.addHandler(handler)
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   const merged = kit.config as NitroConfig
+  const guards = new Set([cachedAccessRouteGuardName, memoryDatabaseGuardName])
+  const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => !guards.has(Reflect.get(Object(module), "name")))
+  if (!dev && config.implicitMemory) modules.push(memoryDatabaseGuard)
+  if (modules.length || Array.isArray(merged.modules)) merged.modules = modules
   if (config.access.routes.length > 0) {
     const { routes } = config.access
-    const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => Reflect.get(Object(module), "name") !== cachedAccessRouteGuardName)
+    const publicRoutes = accessPublicRoutes(config)
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
-        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
+        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL, publicRoutes)
         // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
         // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
         nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)
@@ -320,9 +399,14 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 }
 
 export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+  // `vitehub({ auth: { redirects } })` was the only object form. Its pages are in `access` of `server/auth.ts` now.
+  const configured: unknown = options
+  if (configured !== undefined && configured !== false) throw authErrorDiagnostics.AUTH_REDIRECTS_MOVED()
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
+  // The app's `auth.client.ts`, which the default Vue client loads with Better Auth.
+  let clientFile: string | undefined
   let serverDirs: string[] | undefined
   let serverEnv = false
 
@@ -338,6 +422,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
     name: AUTH_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: () => authDeploymentEnv(runtimeConfig),
       getConfig: () => runtimeConfig,
       refresh: refreshRuntimeConfig,
     },
@@ -350,15 +435,24 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
         const discovery = { serverDirs: context.serverDirs?.slice() ?? serverDirs }
         const config = resolveAuthViteConfig(authOptions, root, discovery) ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(root), discovery)
         if (!config?.tables) return []
-        const { database } = config.tables
-        const dialect = await readTargetDialect(context, database)
+        const { database, schema } = config.tables
+        const schemaModule = resolve(config.rootDir, generatedAuthSchema)
+        const { dialect, migrationsDir } = await readTargetDatabase(context, database)
+        const tables = schema ? Object.fromEntries(Object.keys(resolveAuthTableSpecs(schema)).map(model => [model, authSqlName(model)])) : authTableNames
+        // SQLite changes a column default, a UNIQUE constraint, or a foreign key only with a table rebuild. Tables that
+        // the Database has already, such as the hand-written Better Auth tables of an app, keep them.
+        const existing = dialect === "sqlite" ? readAuthExistingTables(migrationsDir, Object.values(tables)) : undefined
+        const adopted = existing && Object.keys(existing).length ? existing : undefined
+        const generated = Boolean(schema || adopted)
+        if (generated) await writeFileIfChanged(schemaModule, renderAuthSchemaModule(schema ?? {}, adopted, importBase))
+        else await rm(schemaModule, { force: true })
         return [{
           name: "auth",
           database,
           dialect,
-          definition: { module: `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
-          tables: authTableNames,
-          reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, and the Console MCP OAuth clients and tokens of authDatabase().",
+          definition: { module: generated ? schemaModule : `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
+          tables,
+          reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, the tables and columns of the plugins and additional fields that the Auth Definition adds, and the Console MCP OAuth clients and tokens of authDatabase().",
         }]
       },
       inspect: () => {
@@ -385,12 +479,14 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig, dev)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
-      if (hasNitroHandlers || applicationBaseURL) {
+      const hasMemoryDatabaseGuard = Boolean(authConfig?.implicitMemory && !dev)
+      if (hasNitroHandlers || applicationBaseURL || hasMemoryDatabaseGuard) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }
       const contribution: UserConfig = {
-        // The optimizer resolves package #imports without Vite's virtual-module hooks.
+        // The optimizer resolves package #imports without Vite's virtual-module hooks, so a prebundled entry would load
+        // the empty fallbacks, not the app's `shared/abilities.ts` and `auth.client.ts`.
         optimizeDeps: {
           exclude: [authPackageName, "vite-hub/auth"],
           include: [`${authPackageName} > better-auth/vue`],
@@ -415,7 +511,8 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       resolved = config
       serverEnv = hasServerEnvIntegration(config)
       const runtimeConfig = refreshRuntimeConfig()
-      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(config.root), runtimeConfig, { importBase, serverEnv })
+      clientFile = options === false ? undefined : discoverAuthClient(config.root)
+      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(config.root), runtimeConfig, { client: clientFile, importBase, serverEnv })
     },
     configureServer(server) {
       const root = server.config.root
@@ -431,7 +528,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
         if (!candidates.has(resolve(file))) return
         refresh = refresh.then(async () => {
           const config = refreshRuntimeConfig()
-          await refreshAuthGeneratedFiles(projectRoot, config, { importBase, serverEnv })
+          await refreshAuthGeneratedFiles(projectRoot, config, { client: clientFile, importBase, serverEnv })
           for (const environment of Object.values(server.environments)) {
             for (const id of [RESOLVED_AUTH_ABILITIES_ID, RESOLVED_AUTH_DEFINITION_ID, RESOLVED_AUTH_SERVER_ID]) {
               const module = environment.moduleGraph.getModuleById(id)
@@ -460,28 +557,29 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       }
 
       const config = refreshRuntimeConfig()
-      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(context.server.config.root), config, { importBase, serverEnv })
+      await refreshAuthGeneratedFiles(resolveViteHubProjectRoot(context.server.config.root), config, { client: clientFile, importBase, serverEnv })
       for (const id of [RESOLVED_AUTH_ABILITIES_ID, RESOLVED_AUTH_DEFINITION_ID, RESOLVED_AUTH_SERVER_ID]) {
         const module = context.server.moduleGraph.getModuleById(id)
         if (module) context.server.moduleGraph.invalidateModule(module)
       }
     },
     resolveId: {
-      filter: { id: /^#vitehub\/auth\/(?:abilities|definition|server)$/ },
+      filter: { id: /^#vitehub\/auth\/(?:abilities|client|definition|server)$/ },
       handler(id) {
         if (id === AUTH_ABILITIES_ID) return RESOLVED_AUTH_ABILITIES_ID
+        if (id === AUTH_CLIENT_ID) return clientFile ?? RESOLVED_AUTH_CLIENT_ID
         if (id === AUTH_DEFINITION_ID) return RESOLVED_AUTH_DEFINITION_ID
         if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
       },
     },
     load: {
-      filter: { id: /^\0#vitehub\/auth\/(?:abilities|definition|server)$/ },
+      filter: { id: /^\0(?:virtual:vitehub\/auth\/(?:abilities|client)|#vitehub\/auth\/(?:definition|server))$/ },
       handler(id) {
         if (id === RESOLVED_AUTH_ABILITIES_ID) return renderAuthAbilitiesModule(runtimeConfig)
-        if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
+        if (id === RESOLVED_AUTH_CLIENT_ID) return "export default undefined\n"
+        if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv, testMode: resolved?.mode === "test" })
         if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
       },
     },
   }
 }
-

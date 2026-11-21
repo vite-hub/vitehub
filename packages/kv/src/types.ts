@@ -1,14 +1,14 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 import type { GetItemType, GetItemTypeMap } from "unstorage"
 
-export type KVDriver = "cloudflare-kv-binding" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
+export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
 
 /**
  * The atomic operations of each driver. A store returns `KV_UNSUPPORTED_OPERATION` for an atomic operation that its
- * driver does not list. `get`, `set`, `del`, `has`, `keys`, `list`, and `clear` work on every driver.
+ * driver does not list. `get`, `set`, `delete`, `has`, `list`, and `clear` work on every driver.
  */
 export interface KVDriverAtomicOperations {
-  "cloudflare-kv-binding": never
+  "cloudflare": never
   "database": "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
   "deno-kv": "setIfAbsent"
   "fs-lite": "setIfAbsent"
@@ -25,7 +25,7 @@ export type KVDriversWith<TOperation extends KVAtomicOperation> = {
 export type KVAtomicOperation = "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
 
 export interface CloudflareKVStoreConfig {
-  driver: "cloudflare-kv-binding"
+  driver: "cloudflare"
   binding?: string
   /**
    * In `vite dev`, use the real namespace: ViteHub writes `remote: true` on the Wrangler binding and does not fall back
@@ -44,6 +44,11 @@ export interface UpstashKVStoreConfig {
   remote?: true
   token?: string
   url?: string
+  /**
+   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.list()`
+   * stay inside the store. An empty value uses the default.
+   */
+  base?: string
 }
 
 export interface RedisKVStoreConfig {
@@ -118,6 +123,7 @@ export interface ResolvedCloudflareKVStoreConfig extends CloudflareKVStoreConfig
 }
 
 export interface ResolvedUpstashKVStoreConfig extends UpstashKVStoreConfig {
+  base: string
   token: string
   url: string
 }
@@ -168,25 +174,38 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "list" | "lock" | "set" | "setIfAbsent" | "setMany"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
   | "KV_INVALID_CURSOR"
+  | "KV_INVALID_CLEAR_OPTIONS"
   | "KV_INVALID_LIMIT"
+  | "KV_INVALID_OPTION"
   | "KV_INVALID_TTL"
+  | "KV_INVALID_VALUE"
+  | "KV_INVALID_WAIT"
   | "KV_KEY_TOO_LONG"
-  | "KV_METADATA_TOO_LARGE"
   | "KV_OPERATION_FAILED"
-  | "KV_TTL_TOO_SHORT"
   | "KV_UNSUPPORTED_OPERATION"
   | "KV_VALUE_TOO_LARGE"
 
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
   cursor?: string
-  /** Maximum number of keys to read. Must be a positive integer. */
+  /** Maximum number of keys to read. Must be a positive integer. Without it, the page holds every key and no cursor. */
+  limit?: number
+  /** Only keys that start with this text, so `"user"` matches `users:1`. `"users:"` matches the keys below `users`. */
+  prefix?: string
+}
+
+/** One page that a driver reads: `limit` is set. */
+export interface KVPageOptions extends KVListOptions {
   limit: number
+}
+
+export interface KVClearOptions {
+  /** Only keys that start with this text, as in `list()`. Without it, `clear()` deletes every key of the store. */
   prefix?: string
 }
 
@@ -202,9 +221,61 @@ export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined
 /** A read value: the caller's `T` without a `type`, the converted type with one. */
 type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
-export interface KVSetIfAbsentOptions {
-  /** Seconds until the key expires. `fs-lite` never expires keys, so its key stays until you delete it. */
-  ttl?: number
+/** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
+export interface KVSetOptions {
+  /**
+   * How long until the key expires: a number of seconds, or a duration such as `"1h"` or `"7 days"`. Every driver
+   * expires the key. Cloudflare KV keeps it at least 60 seconds.
+   */
+  ttl?: number | Duration
+}
+
+/** Options of `kv.lock()`. */
+export interface KVLockOptions {
+  /**
+   * How long until the lock expires, so a crashed holder never keeps it: a number of seconds, or a duration such as
+   * `"30s"`. Pick a value longer than the work. KV does not renew a lock: when the work runs longer than `ttl`, another
+   * runner can take the lock.
+   */
+  ttl: number | Duration
+  /** Seconds to wait for a held lock, polling with backoff. Default `0`: return `{ acquired: false }` at once. */
+  wait?: number
+}
+
+/** Codes that `kv.lock().run()` and `kv.lock().acquire()` return. */
+export type KVLockErrorCode = "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION"
+
+/** The data of `kv.lock().run()`: the callback's value, or `acquired: false` when another runner held the lock. */
+export type KVLockRunResult<T> = { acquired: true, value: T } | { acquired: false }
+
+/** The data of `kv.lock().acquire()`. */
+export type KVLockAcquisition =
+  | {
+    acquired: true
+    /**
+     * Deletes the lock only when this runner still holds it. Returns `true` when it deleted the lock and `false` when
+     * the lock had expired, so another runner can hold it now.
+     */
+    release(): Promise<Result<boolean, "KV_OPERATION_FAILED">>
+  }
+  | { acquired: false }
+
+/** A lock on one key. Create it with `kv.lock(key, options)`. */
+export interface KVLock {
+  /**
+   * Takes the lock, runs `fn`, and releases the lock, also when `fn` throws. An error from `fn` is thrown again after
+   * the release. Returns `{ acquired: false }` without calling `fn` when another runner holds the lock after `wait`.
+   * A release that fails returns `KV_OPERATION_FAILED` after `fn` ran; the lock then expires after `ttl`.
+   */
+  run<T>(fn: () => T): Promise<Result<KVLockRunResult<Awaited<T>>, KVLockErrorCode>>
+  /** Takes the lock and returns a `release()` function. Prefer `run()`, which always releases. */
+  acquire(): Promise<Result<KVLockAcquisition, KVLockErrorCode>>
+}
+
+/** One entry of `kv.setMany()`. */
+export interface KVEntry<T = unknown> {
+  key: string
+  value: T
 }
 
 export interface KVListPage {
@@ -219,7 +290,7 @@ export interface KVListPage {
  * Config errors, for example an unknown store name, throw.
  */
 export interface KVStorage {
-  clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  clear(options?: KVClearOptions): Promise<Result<void, "KV_INVALID_CLEAR_OPTIONS" | "KV_OPERATION_FAILED">>
   delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.
@@ -227,13 +298,21 @@ export interface KVStorage {
    * `{ b: 2, a: 1 }` are different values. Use it to free a token that only its owner may free.
    * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
-  deleteIfEquals<T = unknown>(key: string, expected: T): Promise<Result<boolean, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  deleteIfEquals<T = unknown>(key: string, expected: T): Promise<Result<boolean, "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   /**
    * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
    * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
    */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
+  /**
+   * Reads many keys in one call. Returns one value per key, in the order of `keys`, with `null` for a missing key.
+   * `options` works as in `get()` and applies to every key. Stores with a batch read use it: Cloudflare KV reads 100
+   * keys per call, Redis and Upstash use `MGET`, and the `database` driver runs one query. Other stores read the keys
+   * one by one, 16 at a time.
+   */
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
+  getMany<T = unknown, K extends KVGetType | undefined = undefined>(keys: readonly string[], options?: KVGetOptions<K>): Promise<Result<Array<KVValue<T, K> | null>, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Atomically returns and deletes a value. `{ type: "text" }` returns the stored text.
    * The drivers in {@link KVDriversWith}`<"getAndDelete">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
@@ -242,21 +321,40 @@ export interface KVStorage {
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
-   * Atomically increments a counter. The TTL is applied only when the counter is created.
+   * Atomically increments a counter. The TTL, a number of seconds or a duration such as `"1m"`, is applied only when
+   * the counter is created.
    * The drivers in {@link KVDriversWith}`<"increment">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
-  increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
-  list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
-  /** Cloudflare KV stores return `KV_KEY_TOO_LONG`, `KV_VALUE_TOO_LARGE`, `KV_METADATA_TOO_LARGE`, and `KV_TTL_TOO_SHORT` before a write that Cloudflare rejects. */
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
+  increment(key: string, ttl: number | Duration): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  list(options?: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
+  /**
+   * A lock on `key` that one runner holds at a time, across server processes that share the store. It writes a random
+   * owner token with `setIfAbsent()` and a TTL, and frees it with `deleteIfEquals()`, so a runner never deletes a lock
+   * that another runner took after it expired. Nothing renews a lock.
+   * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
+   */
+  lock(key: string, options: KVLockOptions): KVLock
+  /**
+   * Writes a value. `{ ttl }` expires it after a number of seconds or a duration such as `"1h"`; without `ttl`, the
+   * value stays until you delete or replace it.
+   * Cloudflare KV stores return `KV_KEY_TOO_LONG` and `KV_VALUE_TOO_LARGE` before a write that Cloudflare rejects.
+   */
+  set<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
+  /**
+   * Writes many keys in one call. `options` works as in `set()` and applies to every entry. When a key is in `entries`
+   * more than once, the last entry wins. A `value` of `undefined` deletes the key, as `set()` does. The writes are not
+   * atomic: when the call fails, some entries can be written. Redis sends one pipeline and the `database` driver runs one
+   * statement. Other stores write the entries one by one, 16 at a time. A Cloudflare KV store checks every entry against
+   * the Workers KV limits before it writes any.
+   */
+  setMany<T = unknown>(entries: readonly KVEntry<T>[], options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes the value only when the key has no value, in one atomic step.
    * Returns `true` when this call wrote the value and `false` when the key already had one.
    * The drivers in {@link KVDriversWith}`<"setIfAbsent">` support it. Cloudflare KV is eventually consistent and returns
    * `KV_UNSUPPORTED_OPERATION`.
    */
-  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetIfAbsentOptions): Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   /** Selects a named KV store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: KVStoreName, options?: { mode?: "write" }): KVStorage
   store(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
@@ -270,13 +368,13 @@ export interface KVStoreOptions {
 }
 
 /**
- * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `has()`, `keys()`, and `list()`.
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, and `list()`.
  * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
  * boundary against code that reads the binding directly.
  */
 export interface ReadonlyKVStorage {
   get: KVStorage["get"]
+  getMany: KVStorage["getMany"]
   has: KVStorage["has"]
-  keys: KVStorage["keys"]
   list: KVStorage["list"]
 }

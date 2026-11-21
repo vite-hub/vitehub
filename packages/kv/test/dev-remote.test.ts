@@ -40,7 +40,7 @@ function inDirectory(config: false | ResolvedKVModuleOptions): ResolvedKVModuleO
   if (!config) throw new Error("KV is disabled.")
   const store = config.store
   if (store.driver === "fs-lite") return { store: { ...store, base: join(directory, store.base) } }
-  if (store.driver === "cloudflare-kv-binding" && store.localBase) return { store: { ...store, localBase: join(directory, store.localBase) } }
+  if (store.driver === "cloudflare" && store.localBase) return { store: { ...store, localBase: join(directory, store.localBase) } }
   return config
 }
 
@@ -114,12 +114,12 @@ describe("KV in vite dev", () => {
     const upstash = stubUpstash()
 
     const { kv: config } = await resolvePlugin("serve", { remote: true })
-    expect(config).toEqual({ store: { driver: "upstash", remote: true, token: "********", url: "********" } })
+    expect(config).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", remote: true, token: "********", url: "********" } })
 
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(upstash.data.get("theme")).toBe("dark")
+    expect(upstash.data.get("vitehub:kv:default:theme")).toBe("dark")
     expect(String(upstash.fetch.mock.calls[0]?.[0])).toContain("https://upstash.test")
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith("[vitehub] KV store \"default\" is remote: `vite dev` uses the real Upstash database. Writes change real data.")
@@ -131,7 +131,7 @@ describe("KV in vite dev", () => {
 
   it("uses a local store with the Workers KV limits on the Cloudflare host without a binding", async () => {
     const { kv: config, runtime } = await resolvePlugin("serve", undefined, "cloudflare-module")
-    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding", localBase: ".vitehub/data/kv-cloudflare/KV" } })
+    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare", localBase: ".vitehub/data/kv-cloudflare/KV" } })
     // The package runtime, not the generated Cloudflare runtime, so the store can fall back.
     expect(runtime).toBeUndefined()
 
@@ -162,7 +162,7 @@ describe("KV in vite dev", () => {
   it("writes `remote: true` on the Wrangler binding of a remote Cloudflare store", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const { kv: config, nitro } = await resolvePlugin("serve", { remote: true }, "cloudflare-module")
-    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding", remote: true } })
+    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare", remote: true } })
     expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV", remote: true }])
 
     fixture.kv = inDirectory(config)
@@ -171,13 +171,13 @@ describe("KV in vite dev", () => {
   })
 
   it("shows the development store in `vitehub inspect definitions`", async () => {
-    const { plugin } = await resolvePlugin("serve", { stores: { cache: { driver: "cloudflare-kv-binding", binding: "CACHE", remote: true }, default: { driver: "fs-lite" } } })
+    const { plugin } = await resolvePlugin("serve", { stores: { cache: { driver: "cloudflare", binding: "CACHE", remote: true }, default: { driver: "fs-lite" } } })
     const inspect = typeof plugin.vitehub.inspect === "function" ? await plugin.vitehub.inspect() : plugin.vitehub.inspect
     const [inspector] = inspect?.definitions ?? []
     expect(inspector?.kind).toBe("kv")
     expect((await inspector!.list()).map(store => [store.name, store.fields])).toEqual([
       ["default", [{ label: "Driver", value: "fs-lite" }, { label: "Development", value: "Local. `fs-lite` in `.vitehub/data/kv`." }]],
-      ["cache", [{ label: "Driver", value: "cloudflare-kv-binding" }, { label: "Development", value: "Remote. `vite dev` uses the real Cloudflare KV namespace through the `CACHE` binding, so writes change real data." }]],
+      ["cache", [{ label: "Driver", value: "cloudflare" }, { label: "Development", value: "Remote. `vite dev` uses the real Cloudflare KV namespace through the `CACHE` binding, so writes change real data." }]],
     ])
   })
 
@@ -203,7 +203,7 @@ describe("KV in vite dev", () => {
     const { kv: config, nitro } = await resolvePlugin("serve", { remote }, "cloudflare-module", {
       cloudflare: { wrangler: { kv_namespaces: [namespace, manual] } },
     })
-    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding", localBase: ".vitehub/data/kv-cloudflare/KV" } })
+    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare", localBase: ".vitehub/data/kv-cloudflare/KV" } })
     expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([
       { binding: "KV", id: "namespace-id", preview_id: "preview-id" },
       manual,
@@ -242,7 +242,7 @@ describe("KV in a Vite dev server", () => {
       const worker = await server.ssrLoadModule("/worker.ts") as { disposeKVStores: () => Promise<void>, handle: () => Promise<unknown> }
       try {
         await expect(worker.handle()).resolves.toEqual([undefined, "dark"])
-        expect(upstash.data.get("theme")).toBe("dark")
+        expect(upstash.data.get(`vitehub:kv:${kind === "named" ? "remote" : "default"}:theme`)).toBe("dark")
         expect(String(upstash.fetch.mock.calls[0]![0])).toContain(upstashEnv.KV_REST_API_URL)
         expect(new Headers(upstash.fetch.mock.calls[0]![1].headers).get("authorization")).toBe(`Bearer ${upstashEnv.KV_REST_API_TOKEN}`)
         expect(warn).toHaveBeenCalledTimes(1)
@@ -262,7 +262,7 @@ describe("KV in a Vite dev server", () => {
 
   it.each([
     ["the Cloudflare preset", undefined, "cloudflare-module"],
-    ["an explicit Cloudflare store", { driver: "cloudflare-kv-binding" } satisfies KVOptions, undefined],
+    ["an explicit Cloudflare store", { driver: "cloudflare" } satisfies KVOptions, undefined],
   ])("serves %s from the local store when the runtime has no binding", async (_name, options, hosting) => {
     // A Vite SSR dev server runs in Node, like Nitro's default `node-worker` dev runner: no request has a KV binding.
     await mkdir(join(directory, "node_modules/@vite-hub"), { recursive: true })
@@ -307,7 +307,7 @@ describe("KV in a build", () => {
     expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true, experimental_remote: true }])
   })
 
-  it.each(["fs-lite", "deno-kv", "upstash", "cloudflare-kv-binding"] as const)("ignores boolean remote flags for explicit %s stores", (driver) => {
+  it.each(["fs-lite", "deno-kv", "upstash", "cloudflare"] as const)("ignores boolean remote flags for explicit %s stores", (driver) => {
     const baseline = normalizeKVOptions({ driver }, { env: {} })
     const namedBaseline = normalizeKVOptions({ stores: { default: { driver } } }, { env: {} })
     for (const remote of [true, false]) {
@@ -320,13 +320,13 @@ describe("KV in a build", () => {
 
   it("ignores `remote` and keeps env inference", async () => {
     for (const [name, value] of Object.entries(upstashEnv)) vi.stubEnv(name, value)
-    expect((await resolvePlugin("build")).kv).toEqual({ store: { driver: "upstash", token: "********", url: "********" } })
-    expect((await resolvePlugin("build", { remote: false })).kv).toEqual({ store: { driver: "upstash", token: "********", url: "********" } })
+    expect((await resolvePlugin("build")).kv).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", token: "********", url: "********" } })
+    expect((await resolvePlugin("build", { remote: false })).kv).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", token: "********", url: "********" } })
   })
 
   it("keeps the generated Cloudflare runtime and binding", async () => {
     const { kv: config, nitro, runtime } = await resolvePlugin("build", { remote: true }, "cloudflare-module")
-    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding" } })
+    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare" } })
     expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV" }])
     expect(runtime).toBe("\0#vitehub/kv/runtime")
   })

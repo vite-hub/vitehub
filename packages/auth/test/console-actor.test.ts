@@ -4,9 +4,9 @@ import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
-import { defineAuth } from "../src/index.ts";
-import { createAuthForRequest } from "../src/server.ts";
+import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -45,7 +45,7 @@ describe("Auth changes for a signed Console person", () => {
     expect(description?.actions.ban).toEqual({ enabled: false, reason: expect.stringContaining("No app user has the email of your Console account, stranger@example.com") });
     const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("No app user") });
+    expect(error).toMatchObject({ message: expect.stringContaining("No app user") });
   });
 
   it("refuses changes when the app account has no live session", async () => {
@@ -54,7 +54,19 @@ describe("Auth changes for a signed Console person", () => {
     const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" } });
     const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("Sign in to the app as operator@example.com") });
+    expect(error).toMatchObject({ message: expect.stringContaining("Sign in to the app as operator@example.com") });
+  });
+
+  it("does not renew the actor's session, whose cookie the caller never gets", async () => {
+    const fixture = await app();
+    // A session that Better Auth renews on its next read: issued two days ago, past `updateAge`.
+    const expiresAt = Date.now() + 5 * 24 * 60 * 60 * 1000;
+    fixture.database.sqlite.prepare("UPDATE session SET expiresAt = ? WHERE userId = ?").run(expiresAt, fixture.operator.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" } });
+    const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
+    expect(error).toBeUndefined();
+    const row = fixture.database.sqlite.prepare("SELECT expiresAt FROM session WHERE userId = ?").get(fixture.operator.id) as { expiresAt: number | string };
+    expect(new Date(row.expiresAt).getTime()).toBe(expiresAt);
   });
 
   it("keeps Better Auth's permissions: a person whose app account is not an admin cannot ban", async () => {
@@ -121,7 +133,7 @@ describe("Auth changes for a signed Console person", () => {
     const api = createAuthConsole({ api: {}, $context: Promise.resolve(context) } as unknown as Parameters<typeof createAuthConsole>[0], {}, undefined, { actor: { email: "operator@example.com" } });
     const [error] = await api.execute({ action: "ban", userId: "user-2" }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("keeps sessions only in cookies") });
+    expect(error).toMatchObject({ message: expect.stringContaining("keeps sessions only in cookies") });
     const [, description] = await api.describe(signedCall());
     expect(description?.actions.ban).toMatchObject({ enabled: false });
   });
@@ -130,7 +142,7 @@ describe("Auth changes for a signed Console person", () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" }, impersonation: true });
     const [error] = await api.execute({ action: "impersonate", userId: fixture.member.id }, signedCall());
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("browser's app session") });
+    expect(error).toMatchObject({ message: expect.stringContaining("browser's app session") });
     expect((await fixture.store.list({ type: "impersonation.started" })).events).toEqual([]);
   });
 });
@@ -147,26 +159,21 @@ describe("one-time values and the app session", () => {
     expect(await api.consumeVerification("ticket:b")).toEqual([undefined, null]);
   });
 
-  it("reads, lists by prefix, updates, and deletes kept values", async () => {
+  it("lists kept values by prefix and deletes them", async () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
     const later = new Date(Date.now() + 60_000);
-    await api.saveVerification("pass:a", "value-a", later);
-    await api.saveVerification("pass:b", "value-b", later);
-    await api.saveVerification("pass:old", "value-old", new Date(Date.now() - 1));
+    await api.saveVerification("invite:a", "value-a", later);
+    await api.saveVerification("invite:old", "value-old", new Date(Date.now() - 1));
     await api.saveVerification("other:c", "value-c", later);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a"]);
-    expect(await api.readVerification("pass:old")).toEqual([undefined, null]);
-    const [, listed] = await api.listVerifications("pass:");
-    expect(listed?.map((row) => [row.identifier, row.value]).sort()).toEqual([["pass:a", "value-a"], ["pass:b", "value-b"]]);
-    expect(await api.updateVerification("pass:a", "value-a2", later)).toEqual([undefined, undefined]);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, "value-a2"]);
-    expect(await api.deleteVerification("pass:a")).toEqual([undefined, undefined]);
-    expect(await api.readVerification("pass:a")).toEqual([undefined, null]);
+    const [, listed] = await api.listVerifications("invite:");
+    expect(listed?.map((row) => [row.identifier, row.value])).toEqual([["invite:a", "value-a"]]);
+    expect(await api.deleteVerification("invite:a")).toEqual([undefined, undefined]);
+    expect((await api.listVerifications("invite:"))[1]).toEqual([]);
   });
 
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
-    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } });
+    const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
     const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));
     const [saveError] = await consoles[0]!.saveVerification("ticket:memory", "value", new Date(Date.now() + 60_000));
     expect(saveError).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
@@ -183,5 +190,130 @@ describe("one-time values and the app session", () => {
       user: { id: fixture.operator.id, email: "operator@example.com" },
       impersonatedBy: null,
     }]);
+  });
+});
+
+describe("users and sessions that a host signs in", () => {
+  const browser = (cookie = "") => new Request(`${origin}/_vitehub/rpc?ticket=t`, { headers: { cookie, "user-agent": "Mozilla/5.0 (iPhone) Safari/605.1.15" } });
+
+  it("adds roles to the user with the email, and signs a browser in with a Better Auth session", async () => {
+    const fixture = await app();
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, user] = await api.hostUser({ email: "Ada@Example.com", name: "Ada", roles: ["console", "comments-read"] });
+    expect(error).toBeUndefined();
+    expect(user).toEqual({ id: fixture.member.id, roles: ["user", "console", "comments-read"] });
+    const [, headers] = await api.hostSession(fixture.member.id, browser());
+    const cookie = headers!.get("set-cookie")!;
+    expect(cookie).toMatch(/^better-auth\.session_token=[^;]+; Max-Age=\d+; Path=\/; HttpOnly; SameSite=Lax/);
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookie.split(";")[0]! }) });
+    expect(session?.user).toMatchObject({ id: fixture.member.id, role: "user,console,comments-read" });
+  });
+
+  // The name and the attributes of each Better Auth cookie, without the values, which differ for each session. The
+  // ViteHub cookies of a sign-in, such as the session marker, are the Site access route's own.
+  const cookieShape = (cookies: string[]) => cookies.filter((cookie) => /^(__Secure-)?better-auth\./.test(cookie)).map((cookie) => {
+    const [pair, ...attributes] = cookie.split("; ");
+    return [pair!.slice(0, pair!.indexOf("=")), ...attributes.map((attribute) => attribute.startsWith("Expires=") ? "Expires" : attribute).sort()].join("; ");
+  }).sort();
+
+  it.each(["http://localhost:5173", "https://app.example.com"])("sets the cookies of a normal sign-in on %s, with the cookie cache", async (origin) => {
+    const fixture = await app({ origin, session: { cookieCache: { enabled: true } } });
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
+    const signIn = await fixture.request("sign-in/email", { email: "ada@example.com", password: "passwordpassword" });
+    expect(signIn.status).toBe(200);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, headers] = await api.hostSession(fixture.member.id, new Request(`${origin}/_vitehub/rpc?ticket=t`, { headers: { "user-agent": "Mozilla/5.0 (iPhone) Safari/605.1.15" } }));
+    expect(error).toBeUndefined();
+    const cookies = headers!.getSetCookie();
+    expect(cookieShape(cookies)).toEqual(cookieShape(signIn.headers.getSetCookie()));
+    expect(cookies.every((cookie) => cookie.startsWith("__Secure-") === origin.startsWith("https:"))).toBe(true);
+    expect(cookies.every((cookie) => cookie.includes("; Secure") === origin.startsWith("https:"))).toBe(true);
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookies.map((cookie) => cookie.split(";")[0]).join("; ") }) });
+    expect(session?.user.id).toBe(fixture.member.id);
+  });
+
+  it("refuses to adopt an account whose email is not verified, so a sign-up with someone else's email gets no roles", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, user] = await api.hostUser({ email: "ada@example.com", name: "Ada", roles: ["console"] });
+    expect(user).toBeUndefined();
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
+    expect(error).toMatchObject({ message: expect.stringContaining("not verified") });
+    expect(fixture.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(fixture.member.id)).toEqual({ role: "user" });
+  });
+
+  it("makes a verified user for a new member email, so the next sign-in adopts the same account", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [, first] = await api.hostUser({ email: "grace@example.com", name: "Grace", roles: ["console"] });
+    const [error, second] = await api.hostUser({ email: "grace@example.com", name: "Grace", roles: ["comments-read"] });
+    expect(error).toBeUndefined();
+    expect(second).toEqual({ id: first!.id, roles: ["console", "comments-read"] });
+  });
+
+  it("creates a guest without an email, lists the sessions of role holders, and revokes and removes them", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [, guest] = await api.hostUser({ name: "Ana", roles: ["guest", "comments-read", "comments-write"] });
+    await api.hostSession(guest!.id, browser());
+    const [, sessions] = await api.hostSessions(["guest", "console"]);
+    expect(sessions).toEqual([expect.objectContaining({ user: expect.objectContaining({ id: guest!.id, name: "Ana", email: expect.stringMatching(/^guest-.+@guests\.invalid$/) }), roles: ["guest", "comments-read", "comments-write"], device: "Safari · iOS" })]);
+    expect(await api.revokeHostSession(sessions![0]!.id)).toEqual([undefined, { userId: guest!.id, roles: ["guest", "comments-read", "comments-write"] }]);
+    expect((await api.hostSessions(["guest"]))[1]).toEqual([]);
+    expect((await api.revokeHostSession(sessions![0]!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
+    await api.removeHostUser(guest!.id);
+    expect(fixture.database.sqlite.prepare("SELECT id FROM user WHERE id = ?").get(guest!.id)).toBeUndefined();
+  });
+
+  it.each(["member", "guest"])("revokes a %s browser by its public session ID in secondary storage", async (kind) => {
+    const cache = new Map<string, string>();
+    const fixture = await app({ secondaryStorage: {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, value) => { cache.set(key, value); },
+      delete: async (key) => { cache.delete(key); },
+      getAndDelete: async (key) => {
+        const value = cache.get(key) ?? null;
+        cache.delete(key);
+        return value;
+      },
+      increment: async (key) => {
+        const value = Number(cache.get(key) ?? 0) + 1;
+        cache.set(key, String(value));
+        return value;
+      },
+    } });
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const roles = kind === "member" ? ["console"] : ["guest", "comments-read"];
+    const [userError, user] = await api.hostUser({
+      ...(kind === "member" ? { email: "ada@example.com" } : {}),
+      name: "Browser owner",
+      roles,
+    });
+    expect(userError).toBeUndefined();
+    const [sessionError, headers] = await api.hostSession(user!.id, browser());
+    expect(sessionError).toBeUndefined();
+    const cookie = headers!.get("set-cookie")!.split(";")[0]!;
+    const session = () => fixture.auth.api.getSession({ headers: new Headers({ cookie }) });
+    const signedIn = await session();
+    expect(signedIn?.user.id).toBe(user!.id);
+    const [listError, sessions] = await api.hostSessions(roles);
+    expect(listError).toBeUndefined();
+    const listed = sessions!.find((row) => row.id === signedIn!.session.id);
+    expect(listed).toBeDefined();
+    expect(listed).not.toHaveProperty("token");
+    expect(await api.revokeHostSession(listed!.id)).toEqual([undefined, { userId: user!.id, roles: user!.roles }]);
+    expect(await session()).toBeNull();
+    expect((await api.hostSessions(roles))[1]?.some((row) => row.id === listed!.id)).toBe(false);
+    expect((await api.revokeHostSession(listed!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
+  });
+
+  it("needs admin(), which keeps the roles", async () => {
+    const fixture = await app();
+    const context = await fixture.auth.$context;
+    const api = createAuthConsole({ api: fixture.auth.api, $context: Promise.resolve({ ...context, options: { ...context.options, plugins: [] } }) });
+    const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
+    expect(error).toMatchObject({ message: expect.stringContaining("admin()") });
   });
 });

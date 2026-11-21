@@ -2,7 +2,7 @@ import { H3Event } from "h3"
 import { expect, it, vi } from "vitest"
 
 const auth = vi.hoisted(() => ({ loads: 0 }))
-vi.mock("@vite-hub/auth/server", () => {
+vi.mock("@vite-hub/auth/internal/server", () => {
   auth.loads++
   const user = { id: "ada", name: "Ada" }
   return {

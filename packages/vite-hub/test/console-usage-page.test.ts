@@ -14,6 +14,11 @@ const responses: unknown[] = []
 const requests: Array<Record<string, string> | undefined> = []
 
 vi.mock("vue-router", () => ({ useRoute: () => route, useRouter: () => ({ replace }) }))
+// The chart test finds the chart by `svg[role=img]`, which an Iconify icon also has.
+vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
+  const { defineComponent, h } = await import("vue")
+  return { default: defineComponent({ setup(_props, { attrs }) { return () => h("span", attrs) } }) }
+})
 vi.mock("../src/console/runtime/client/request", () => ({
   requestConsole: async (base: string, options?: { query?: Record<string, string> }) => {
     if (base.endsWith("/status")) return { agents: [] }
@@ -57,7 +62,6 @@ const stubs = {
   RouterLink: passthrough("a"),
   UAlert: passthrough("div"),
   UBadge: passthrough("span"),
-  UIcon: defineComponent({ setup(_props, { attrs }) { return () => h("span", attrs) } }),
   UInput: defineComponent({ setup(_props, { attrs }) { return () => h("input", attrs) } }),
   USelect: defineComponent({ setup(_props, { attrs }) { return () => h("div", attrs) } }),
   USlideover: defineComponent({
@@ -258,6 +262,7 @@ describe("Console Usage URL state", () => {
       expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Day")
       ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => /spend/i.test(button.querySelector(".usage-headline__label")?.textContent ?? ""))!.click()
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "cost", search: "deploy" } })
+      await nextTick()
       // A view change does not load the summary again.
       expect(requests).toHaveLength(requestCount)
     }

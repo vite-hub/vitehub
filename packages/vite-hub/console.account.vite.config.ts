@@ -59,6 +59,7 @@ export default defineConfig({
   base: "/",
   resolve: {
     alias: {
+      "@vite-hub/kit/styles/tailwind.css": resolve(import.meta.dirname, "../kit/src/styles/tailwind.css"),
       "vite-hub/agent/vue": resolve(import.meta.dirname, "../agent/src/vue.ts"),
       "vite-hub/source/client": resolve(import.meta.dirname, "../source/src/client.ts"),
       "shiki/wasm": resolve(clientRoot, "shiki-wasm.ts"),

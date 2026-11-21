@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { afterEach, assert, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkflow } from "../src/runtime/client.ts"
 import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRun, setWorkflowRuntimeConfig } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 function gate() {
   let resolve!: () => void
@@ -19,23 +20,21 @@ afterEach(() => {
 
 describe("inline Workflow run retention", () => {
   it("keeps completed runs distinct when workflow names and IDs contain delimiters", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const first = createWorkflow("tenant", () => "first result")
     const second = createWorkflow("tenant\0admin", () => "second result")
 
-    await first.start(undefined, { id: "admin\0run" })
+    await unwrap(first.start(undefined, { id: "admin\0run" }))
     await getWorkflowRunState(first.name, "admin\0run")!.promise
-    await second.start(undefined, { id: "run" })
+    await unwrap(second.start(undefined, { id: "run" }))
     await getWorkflowRunState(second.name, "run")!.promise
 
-    const firstRun = await first.getRun("admin\0run")
-    const secondRun = await second.getRun("run")
+    const firstRun = await unwrap(first.getRun("admin\0run"))
+    const secondRun = await unwrap(second.getRun("run"))
     expect(firstRun.status).toBe("completed")
     expect(secondRun.status).toBe("completed")
-    assert(firstRun.result instanceof Response)
-    assert(secondRun.result instanceof Response)
-    await expect(firstRun.result.clone().text()).resolves.toBe("first result")
-    await expect(secondRun.result.clone().text()).resolves.toBe("second result")
+    expect(firstRun.result).toBe("first result")
+    expect(secondRun.result).toBe("second result")
   })
 
   it("keeps active runs distinct when workflow names and IDs contain delimiters", async () => {
@@ -135,22 +134,22 @@ describe("inline Workflow run retention", () => {
   })
 
   it("keeps more than 1024 active runs inspectable through completion", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const first = gate()
     const remaining = gate()
-    const workflow = createWorkflow<boolean, string>("pending", async (payload) => {
+    const workflow = createWorkflow<boolean, string>("pending", async ({ payload }) => {
       await (payload ? first.promise : remaining.promise)
       return "done"
     })
-    await workflow.start(true, { id: "first" })
+    await unwrap(workflow.start(true, { id: "first" }))
     const firstState = getWorkflowRunState("pending", "first")!
-    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => workflow.start(false, { id: String(index) })))
+    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => unwrap(workflow.start(false, { id: String(index) }))))
     const pending = started.map(run => getWorkflowRunState("pending", run.id)!.promise)
     try {
-      await expect(workflow.getRun("first")).resolves.toMatchObject({ status: "running" })
+      await expect(unwrap(workflow.getRun("first"))).resolves.toMatchObject({ status: "running" })
       first.resolve()
       await firstState.promise
-      await expect(workflow.getRun("first")).resolves.toMatchObject({ result: expect.any(Response), status: "completed" })
+      await expect(unwrap(workflow.getRun("first"))).resolves.toMatchObject({ result: "done", status: "completed" })
     } finally {
       first.resolve()
       remaining.resolve()

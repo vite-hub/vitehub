@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/rate-limit",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Provider-neutral Rate Limit primitives and Vite deployment integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -37,6 +37,11 @@
       "types": "./dist/drivers/cloudflare.d.ts",
       "import": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
+    },
+    "./drivers/kv": {
+      "types": "./dist/drivers/kv.d.ts",
+      "import": "./dist/drivers/kv.js",
+      "default": "./dist/drivers/kv.js"
     },
     "./drivers/memory": {
       "types": "./dist/drivers/memory.d.ts",
@@ -77,6 +82,8 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "evlog": "2.33.1",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -84,6 +91,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -92,6 +100,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

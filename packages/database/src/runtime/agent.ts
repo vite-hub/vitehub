@@ -62,6 +62,32 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
 }
 
 /**
+ * Runs `SELECT 1` on each named Database and returns whether it answered within `timeoutMs`, by name. A Database that
+ * fails or takes longer is `false`, and its error goes to the server log, so the result holds no connection details.
+ */
+export async function pingDatabaseEntries(databases: Record<string, AgentDatabaseEntry>, names: readonly string[], timeoutMs = 2_000): Promise<Record<string, boolean>> {
+  const handle = createAgentDatabase(databases)
+  const results = await Promise.all(names.map(async (name) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`No answer within ${timeoutMs} ms.`)), timeoutMs)
+      })
+      await Promise.race([handle.database(name).exec("SELECT 1"), timeout])
+      return [name, true] as const
+    }
+    catch (error) {
+      console.error(`[vitehub] Database ${JSON.stringify(name)} did not answer SELECT 1.`, error)
+      return [name, false] as const
+    }
+    finally {
+      clearTimeout(timer)
+    }
+  }))
+  return Object.fromEntries(results)
+}
+
+/**
  * The operations shared by a Cloudflare D1 binding and the request's D1 session with read replication.
  * Consumers such as the D1 Agent Invocation store accept this contract; it is not the full `D1Database` API.
  */

@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
-import { afterEach, expect, it, vi } from "vitest"
+import { expect, it, vi } from "vitest"
 
-import { clearSources, defineSource } from "@vite-hub/source"
+import { defineSource } from "@vite-hub/source"
 
 import { defineContent } from "../src/index.ts"
 import { sqlite as nodeSqlite } from "../src/sqlite.ts"
@@ -16,7 +16,6 @@ vi.mock("@sqlite.org/sqlite-wasm/sqlite3.wasm?module", async () => {
   return { default: new wasm.Module(await readFile(require.resolve("@sqlite.org/sqlite-wasm/sqlite3.wasm"))) }
 })
 
-afterEach(clearSources)
 
 const pages: Record<string, string> = {
   "guide/index.md": "---\ntitle: Introduction\n---\n# Start\n\nRuntime content for every host.\n\n## Deploy\n\nDeploy the Worker to Cloudflare.\n",

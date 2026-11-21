@@ -9,8 +9,7 @@ icon: i-lucide-sliders-horizontal
 Comments works without configuration. Add `server/comments.ts` to change who may comment, notify people, or post to pull requests. It exports `comments` from `defineComments()`. All options are optional and listed in the [Server API](/docs/comments/server-api#definecomments-options).
 
 ```ts [server/comments.ts]
-// With the comments() plugin. In a ViteHub app, import from 'vite-hub/comments'.
-import { defineComments } from '@vite-hub/comments'
+import { defineComments } from 'vite-hub/comments'
 
 export const comments = defineComments({
   authorize: ({ user }) => user?.github?.login !== 'a-bot',
@@ -21,7 +20,7 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 ## Turn Comments on in a ViteHub app
 
-In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/development/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
+In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -29,7 +28,6 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -46,7 +44,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -64,7 +61,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -114,13 +110,14 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | --- | --- |
 | Signed in [with GitHub](#sign-in-with-github) | Everything when they can push to the build's repository. Otherwise nothing, also on the dev server. |
 | A caller of comment operations through the [Console](#comments-through-the-console), the CLI, or MCP, with the Comments section, in an app without `identify` | Everything the Console grant allows. The overlay on pages does not use this check. |
+| Signed in with a `comments-` role, which [Site access](#roles-from-site-access) gives | What the roles allow. |
 | Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API returns [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the log shows `COMMENTS_R0006` once. |
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
 
-On pages, the user comes from the first of: `identify`, the ViteHub [Auth](/docs/auth) session, [Sign in with GitHub](#sign-in-with-github), or a [page pass](#page-passes). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -139,7 +136,7 @@ A person who may not read sees **Sign in with GitHub** in the overlay. GitHub re
 
 | GitHub App setting | Value |
 | --- | --- |
-| Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
+| Callback URL | `https://<your site>/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
 | Expire user authorization tokens | Off. When on, GitHub's token lasts 8 hours, and Comments cannot store a renewed one in the cookie, so people must sign in again. |
 | Webhook | Off |
 | Permissions | Only the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
@@ -191,7 +188,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/console), the CLI, and the [ViteHub MCP](/docs/console/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, `authorize` decides, and it gets `console: true` for these calls: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -229,7 +226,7 @@ export default defineConfig({
 :::
 ::
 
-See [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
+See [Limit a user to some sections](/docs/console/access#what-authorize-returns) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and Content field edits need the full `comments` grant and the Comments policy.
 
@@ -261,6 +258,13 @@ export const comments = defineComments({
 
 The user needs a string `id`. Comments shows `name`, else `email`, else "Someone", and a string `image`. `identify` also sets the person in the presence room, so nobody can pose as someone else.
 
+A call from the Console, the CLI, or the ViteHub MCP passed the Console's check of the Comments section, and `authorize` gets `console: true`. Such a call usually has no app user, so allow it in the policy, or the Console and Agents see no threads:
+
+```ts [server/comments.ts] fragment
+// Console callers, and the app's editors on the page.
+authorize: ({ console, user }) => console === true || user?.role === 'editor',
+```
+
 ### Let guests comment
 
 Return `true` for `user: null` to let people without an account comment. The overlay asks for a display name once, keeps it in `localStorage`, and shows it with "(guest)".
@@ -280,18 +284,37 @@ The server does not verify a guest name or ID. They are display data, never proo
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
 
-### Page passes
+Set `rateLimit` to stop one guest from flooding a page. Each new thread, reply, and upload of a guest counts against the address of the request. Signed-in people and Agents are not limited.
 
-With the Console on, members can give a browser [site access](/docs/development/console#give-browsers-site-access): their own browsers and phones, or a guest they invite with a name and the grants they pick. When nobody signed in to the app, Comments takes the person of the pass:
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
 
-- A member comments under their Console name and picture, with every action.
-- A guest comments under the name the member gave them, with the actions the member picked. They don't type a name, and they own their messages like a signed-in person.
+export const comments = defineComments({
+  authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
+  // Each guest address may write 5 times a minute.
+  rateLimit: { limit: 5, window: '1m' },
+})
+```
 
-The grants of the pass decide, and `authorize` does not run for it: `comments.read`, `comments.write`, `comments.resolve`, and `comments.delete`. Any of the last three also lets the person read. A person who signed in to the app, or whom `identify` names, keeps your policy, also when the browser holds a pass.
+A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments/diagnostics/comments_guest_rate_limited), HTTP status 429, and a `retry-after` header. Each server process counts in its own memory. When Rate Limit counts in a shared KV store (`vitehub({ rateLimit: true, kv })` on Node), Comments counts there too, under the Rate Limit name `comments`, so all your Node instances share one budget. Behind a reverse proxy, the address is the proxy's, so all guests share one budget.
+
+### Roles from Site access
+
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+
+Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
+
+```ts [server/comments.ts]
+import { commentsRoleAllows, defineComments } from "vite-hub/comments"
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => commentsRoleAllows(user, action) || user?.role === "admin",
+})
+```
 
 ## Comments in your own UI
 
-The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/development/mcp) never show or change these threads.
+The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/console/mcp) never show or change these threads.
 
 ```ts [server/comments.ts]
 import { defineCommentSubject, defineComments } from 'vite-hub/comments'
@@ -314,13 +337,13 @@ export const comments = defineComments({
 The route below uses two helpers of the app: the signed-in user, and the app's own rule for who may comment on a document.
 
 ```ts [server/utils/docs.ts]
-import { createError } from 'h3'
-import { auth } from 'vite-hub/auth/server'
+import { HTTPError } from 'h3'
+import { useAuth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireUser(event: H3Event) {
-  const session = await auth.api.getSession({ headers: event.req.headers })
-  if (!session) throw createError({ status: 401 })
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
+  if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }
 
@@ -372,7 +395,7 @@ Give `database` a string that names a variable or binding, so the URL and token 
 | `'d1:COMMENTS'` | The Cloudflare D1 binding `COMMENTS`. Comments adds the binding to the build. |
 | `'env:COMMENTS_DATABASE_URL'` | The libSQL URL in that variable, such as Turso. The token is in the URL or `COMMENTS_AUTH_TOKEN`. |
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the server's start directory. |
-| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` instead. |
+| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, and the build reports the hint [`COMMENTS_DATABASE_TOKEN_IN_BUILD`](/docs/comments/diagnostics/comments_database_token_in_build). Use `env:` instead. |
 
 On Node, the runtime variables can also hold a `file:` location. Comments picks the connector at runtime, so the path stays out of the build. Workers support D1 and remote libSQL. A static `file:` or `:memory:` location fails the Worker build with `DATABASE_UNSUPPORTED_URL`.
 
@@ -463,7 +486,7 @@ All statements run in one batch or transaction, so a failure changes nothing.
 | --- | --- |
 | `number` | `n`, the same number, unless a legacy `site` scope already gave out numbers. Then page numbers start after that scope's highest number, and its own numbers stay. |
 | scope `pages` and `page` | subject `{ kind: 'page', id: page }`, scope `site` |
-| scope `kind:id`, such as `drop:42` | subject `{ kind: 'drop', id: '42' }`, scope `drop:42`. Define the kind with `defineCommentSubject({ kind: 'drop', scope: id => \`drop:${id}\` })` so new threads take the same scope. The thread's `page` stays only in the backup table. |
+| scope `kind:id`, such as `doc:42` | subject `{ kind: 'doc', id: '42' }`, scope `doc:42`. Define the kind with `defineCommentSubject({ kind: 'doc', scope: id => \`doc:${id}\` })` so new threads take the same scope. The thread's `page` stays only in the backup table. |
 | other scopes | subject `{ kind: scope, id: page }` |
 | `anchor` | an `element` anchor with the same `field`, `label`, `page`, and `viewport` hints; `{ kind: 'page' }` when it was `null` |
 | `created_by`, `resolved_by` | `author`, `resolvedBy`. Guests keep their `guest:` ids. |
@@ -487,7 +510,7 @@ node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comm
 
 3. Run `vitehub database migrate --dry-run`, then `vitehub database migrate`.
 
-A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub database generate`.
+A Database that already has the comment operations' tables gets the new `metadata`, `context`, `revision`, and `request_id` columns and the `vitehub_comment_forge` table from a normal `vitehub database generate`. Until a migration adds them, a production build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED`, so a deploy does not ship a version of Comments whose columns are missing.
 
 Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments checks the tables once per server process, so the next request after `vitehub database migrate` works without a restart.
 
@@ -570,7 +593,7 @@ The server has checked each person in `users`. `link` is the app path that opens
 
 ## Attach files
 
-A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /api/_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
+A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
 
 By default, files go to the app's [Blob](/docs/blob) store, under `comments/<id>/<name>`. To store them yourself, return the key from `storeAttachment`:
 
@@ -590,7 +613,7 @@ export const comments = defineComments({
 
 Comments checks size and type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Without Blob or `storeAttachment`, uploads fail with `COMMENTS_R0014`.
 
-**Show attachments.** `GET /api/_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
+**Show attachments.** `GET /_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
 
 The response keeps a browser from running the file:
 
@@ -614,7 +637,7 @@ Copy the ownership records with the files when you back up Blob storage. Uploads
 
 Comments is a ViteHub page tool, a tool that runs on your app's pages. Comment mode starts after a person signs in with ViteHub Auth, or on a page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same.
 
-1. The page loads the page tools loader, which calls `GET /_vitehub/page/session`.
+1. The page loads the page tools loader, which calls `GET /_vitehub/page/tools`.
 2. That route runs each page tool's visitor check. Comments allows the overlay when `authorize` allows `read`, or to offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads.
 3. The route sets `vitehub-tools=1` for 30 days, so other pages open in comment mode too. When no tool allows the person, it sets `vitehub-tools=0`, and the loader stops.
 
@@ -622,19 +645,71 @@ The cookie is only a hint. Every API request checks access again.
 
 The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. The pill's **×** button, **Turn off ViteHub tools**, turns all page tools off: it sets `vitehub-tools=0` and removes the query and the pill.
 
-The Comments segment works like the one in Drop. **Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
+**Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
+
+With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    comments: { overlay: { presence: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+  ],
+})
+```
+:::
+
+::
 
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and the segment shows **Whole page**, **All comments**, and **×**. |
-| <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws a highlighter stroke over the page. |
+| <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws with the marker. With another tip in hand, <kbd>B</kbd> takes the marker. |
+| <kbd>P</kbd>, <kbd>A</kbd>, <kbd>T</kbd> | With **Highlight** on, take the pen, the arrow, or the text tip. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
-| <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. |
-| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the strokes. |
+| <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. In a label, put the label down. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the ink. In a label, put the label down. |
 
-**Highlight** works like the Marker in Drop. Pick a color, draw on the page, and select **Done**. The overlay takes a picture of the screen with the strokes on it, and opens a comment on the area that the strokes cover with the picture attached. The strokes stay on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
+**Highlight** draws on the page. Pick a tip and one of four colors, draw on the page, and select **Done**. The overlay takes a picture of the screen with the ink on it, and opens a comment on the area that the ink covers with the picture attached. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
-Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+| Tip | What a drag or a click does |
+| --- | --- |
+| Marker | A see-through stroke. The words under it stay dark. <kbd>Shift</kbd> keeps the stroke on its line. |
+| Pen | A thin solid line. <kbd>Shift</kbd> draws it straight. |
+| Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
+| Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
+
+When Comments or the [Console link](/docs/console/site-access#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
@@ -642,7 +717,7 @@ Every HTML page gets the page tools bootstrap, a short inline script before `</b
 
 ### Apps below a base path
 
-With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
+With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/tools`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
 
 ViteHub registers these routes below the part of the base that Nitro does not add. When Nitro `baseURL` is the same path, as Nuxt sets for `app.baseURL`, Nitro adds the base and ViteHub adds nothing.
 
@@ -756,15 +831,15 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Comments section of the [Console](/docs/development/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Comments section of the [Console](/docs/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
 ## Fix comments with an Agent
 
-Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
+Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
+Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.

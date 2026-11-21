@@ -1,4 +1,5 @@
 import type { ChannelDefinition } from "@vite-hub/channels"
+import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
@@ -11,6 +12,7 @@ import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
 import type {
+  Duration,
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
@@ -143,6 +145,8 @@ declare global {
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
+    /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
+    page: { id: string }
     "vitehub.channel.final-output": boolean
     "vitehub.title.response-fallback": boolean
     "workspace.sourceResolution.definition": WorkspaceDefinition
@@ -395,6 +399,8 @@ export interface AgentTelemetryConfiguration {
   driver: {
     kind: AgentDriverKind
     model?: {
+      /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+      gateway?: string
       id?: string
       provider?: string
     }
@@ -429,6 +435,7 @@ export interface AgentChannelDelivery {
 
 export type AgentChannelDeliveryEventType =
   | "accepted"
+  | "acknowledged"
   | "completed"
   | "duplicate"
   | "failed"
@@ -442,15 +449,52 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "steer.deferred"
   | "superseded"
+  | "trigger.completed"
+  | "trigger.failed"
+  | "trigger.started"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
   error?: string
   messageId?: string
+  /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
+  outcome?: "input" | "response"
+  /**
+   * A `rejected` chat message has one of `AgentChannelDeliveryRejection`. A trigger's answer has its own reason, such
+   * as `ignored(reason)`. On `steer.deferred`, this is why the message could not steer the active run `runId`, such as
+   * `attachments` or `not-invoker`.
+   */
+  reason?: AgentChannelDeliveryRejection | (string & {})
   runId?: string
+  /** The HTTP status of a trigger's answer, or of the answer that acknowledged the webhook. */
+  status?: number
+  /** The trigger that the `trigger.*` event is about. */
+  trigger?: string
   type: AgentChannelDeliveryEventType
 }
+
+/**
+ * Why a chat message started no work:
+ * - `not-addressed`: a group message that does not mention the Agent, in a thread it does not follow.
+ * - `bot-author`: another bot wrote it, and the Channel does not set `allowBots`.
+ * - `unauthorized`: the Channel's access rules refused its author.
+ * - `empty`: it has no text or attachment for the Agent.
+ * - `filtered`: the Channel's `filter` returned false.
+ * - `edit-without-mention`, `edit-already-mentioned`, `edit-in-direct-message`: an edit that does not add the first mention.
+ * - `unhandled`: Chat acknowledged the webhook but called no message handler, such as for an activity that is not a message.
+ */
+export type AgentChannelDeliveryRejection =
+  | "bot-author"
+  | "edit-already-mentioned"
+  | "edit-in-direct-message"
+  | "edit-without-mention"
+  | "empty"
+  | "filtered"
+  | "not-addressed"
+  | "unauthorized"
+  | "unhandled"
 
 export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInput {
   at: string
@@ -458,10 +502,13 @@ export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInpu
   id: string
 }
 
-export type AgentChannelDeliveryStatus = "accepted" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
+/** `acknowledged`: the provider got its answer, and the outcome of the message comes later. */
+export type AgentChannelDeliveryStatus = "accepted" | "acknowledged" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
 
 export interface AgentChannelDeliveryInspection extends AgentChannelDelivery {
   events: AgentChannelDeliveryEvent[]
+  /** The Invocation that the delivery started or steered, when it reached one. */
+  invocationId?: string
   status: AgentChannelDeliveryStatus
 }
 
@@ -665,12 +712,14 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
   | Response
 
 /**
- * A static secret, a callback, or an object with its own `resolve` method.
- * Inherited `resolve` methods, including class prototype methods, are rejected.
- * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
+ * The secret of a webhook registration. A string is the name of the server variable that holds the secret, such as
+ * `"GITHUB_WEBHOOK_SECRET"`, as in Webhooks and Channels. A callback, or an object with its own `resolve` method,
+ * returns the secret for each request. Inherited `resolve` methods, including class prototype methods, are rejected.
+ * Use an object literal or a class field such as `resolve = (context) => secret`. Resolvers must return a string, a
+ * sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`. `false` accepts unsigned
+ * requests on purpose.
  */
-export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+export type AgentWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -703,32 +752,33 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   path?: string
   provider: string
   /**
-   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
-   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
-   */
-  /**
    * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
    * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
    * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
    * registrations with the same scope share one queue and one Channel State.
    */
   stateScope?: string
-  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * How the request proves that the provider sent it. The names follow `defineWebhook({ signature })`. `"bearer"`
+   * compares `Authorization: Bearer <secret>` in constant time, and `secretHeader` defaults to `"authorization"`.
+   * Without `signature`, `secretHeader` carries the secret itself.
+   */
+  signature?: "bearer" | "github" | "stripe" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
-     * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
+     * `"github"` is `{ type: "hmac-sha256", prefix: "sha256=" }`.
      */
-    preset: "hmac-sha256"
+    type: "hmac-sha256"
     /** Digest encoding in the header. Defaults to `"hex"`, compared case-insensitively. */
     encoding?: "hex" | "base64"
     /** Text before the digest, such as `"sha256="`. Defaults to no prefix. */
     prefix?: string
-    /** How `secretToken` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
+    /** How `secret` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
     secretEncoding?: "utf8" | "base64"
   } | {
-    preset: "stripe-sha256"
-    /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
-    toleranceSeconds?: number
+    type: "stripe"
+    /** Maximum age of the signed `t` timestamp, such as `"10m"`. Defaults to `"5m"`. Future timestamps pass the age check. */
+    tolerance?: Duration
   } | {
     verify: (input: {
       context?: AgentCallbackContext<TRuntimeConfig>
@@ -739,7 +789,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
     }) => boolean | Promise<boolean>
   }
   secretHeader?: string
-  secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
+  /**
+   * The name of the server variable that holds the secret, or a function that returns the secret. A secret that
+   * resolves to nothing is a configuration error (HTTP 500) that names the Channel.
+   */
+  secret?: AgentWebhookSecret<TRuntimeConfig>
   url?: string
 }
 
@@ -1308,7 +1362,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "ask" | "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "external" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -1815,6 +1869,13 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /**
+   * Set when `VITEHUB_MODELS=emulate` is on and the Driver of this Agent runs on the AI emulator. Under the switch, the
+   * check reads no credentials. A Driver that the emulator cannot run is `unavailable` with a `code` instead.
+   */
+  emulated?: { url: string }
+  /** The diagnostic code that an Invocation fails with, when the check knows it, such as `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. */
+  code?: string
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
@@ -1907,6 +1968,8 @@ export interface AgentProviderExitContext {
 }
 
 export interface AgentProviderLaunchCommand {
+  /** Prepare the transport before inspection or launch. Runs outside provider probe deadlines; honor cancellation. */
+  prepare?: (context: { abortSignal?: AbortSignal }) => MaybePromise<void>
   /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection or auxiliary runs. */
   onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
@@ -2128,6 +2191,23 @@ export interface AgentAskDriver<
   workDir?: never
 }
 
+/**
+ * The options of an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner:
+ * `defineAgent({ driver: "external" })`. The Agent has a description, a Workspace, and a journal for the sessions that
+ * you import with `importAgentSession()`, but ViteHub never runs it: `runAgent()`, `streamAgent()`, and
+ * `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN`.
+ */
+export interface ExternalAgentOptions {
+  description?: string
+  driver: "external"
+  invocations?: AgentInvocationsSetting
+  name?: string
+  /** An external Agent has no runtime. */
+  runtime?: false
+  version?: string
+  workspace?: WorkspaceAgentWorkspaceConfig
+}
+
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -2316,17 +2396,39 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentStateProviderOptions {
-  authToken?: string
+/** Agent State in libSQL. `auto` also selects Cloudflare state on Cloudflare when no `url` is set. */
+export interface AgentSqlStateProviderOptions {
+  /**
+   * The libSQL auth token. Declare where it comes from, so the token stays out of the server bundle:
+   * `env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })`. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+   */
+  authToken?: EnvVariableDeclaration
+  driver?: "auto" | "libsql" | "sqlite"
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  driver?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
+/** Agent State in a Cloudflare Durable Object. */
+export interface AgentCloudflareStateProviderOptions {
+  driver: "cloudflare"
+}
+
+/** Agent State in process memory. It does not survive a restart. */
+export interface AgentMemoryStateProviderOptions {
+  driver: "memory"
+}
+
+export type AgentStateProviderOptions =
+  | AgentSqlStateProviderOptions
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
+
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "driver"> & { driver: NonNullable<AgentStateProviderOptions["driver"]> }
+  | (Omit<AgentSqlStateProviderOptions, "driver"> & { driver: NonNullable<AgentSqlStateProviderOptions["driver"]> })
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
 
 export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions
@@ -2373,7 +2475,7 @@ export interface AgentPreparationOptions {
   workspace: string
   requireNonEmpty?: boolean
   retryDelayMs?: number
-  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  /** Readiness probe path. Defaults to /_vitehub/ready. */
   route?: string
 }
 
@@ -2395,10 +2497,36 @@ export interface AgentChannelsOptions {
   simulate?: boolean
 }
 
+/**
+ * The `ai` seed of the AI emulator. The emulator validates it when `vite dev` starts, and a seed that it rejects fails
+ * with `AGENT_EMULATOR_RULES_INVALID`. This type does not import the optional `@emulators/ai` package, so the config
+ * types work without it. `EmulatedModelSeed` from `@vite-hub/agent/test/emulate-models` is the full upstream type.
+ */
+export interface AgentModelsEmulateSeed {
+  /** Scripted rules. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. */
+  rules?: readonly object[]
+  /** When `true`, a request that no rule matches fails with the missing rule. */
+  strict?: boolean
+  timing?: object
+  random?: { seed?: number }
+  models?: readonly string[]
+}
+
+export interface AgentModelsOptions {
+  /**
+   * In `vite dev`, start the AI emulator (`@emulators/ai`) on a free loopback port and run every model Driver Agent on
+   * it with no AI key. `true` uses the default answers; a seed object sets the rules.
+   * The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` in `vite dev` only. A build does not start the
+   * emulator. It needs the optional packages `@emulators/core` and `@emulators/ai`.
+   */
+  emulate?: boolean | AgentModelsEmulateSeed
+}
+
 export interface AgentOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
   channels?: AgentChannelsOptions
+  models?: AgentModelsOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
@@ -2466,7 +2594,7 @@ export interface AgentChatAgentBindingOptions {
 
 export type AgentChatTriggerHistory = "none" | {
   maxAgeMs?: number
-  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 4 for Codex and Claude Code Drivers, and to 0 for other Drivers. */
   maxImages?: number
   maxMessages: number
   source: "thread"
@@ -2542,8 +2670,9 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+/** A resolver that returns undefined gives the conversation an in-memory State. */
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentChatStateContext<TRuntimeConfig>>
 
 export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
@@ -2555,8 +2684,9 @@ export interface AgentWebhookStateContext<TRuntimeConfig extends AgentRuntimeCon
   }
 }
 
+/** A resolver that returns undefined gives the webhook no queue, and its conversation uses the chat State. */
 export type AgentWebhookStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<StateAdapter, AgentWebhookStateContext<TRuntimeConfig>>
+  MaybeResolvable<StateAdapter | undefined, AgentWebhookStateContext<TRuntimeConfig>>
 
 export type AgentChatMessage =
   | AdapterPostableMessage
@@ -2913,7 +3043,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
-/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/channels/adapters`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 
@@ -3041,6 +3171,8 @@ export interface AgentInspectionCapabilityMetadata {
 
 export interface AgentInspectionModelMetadata {
   dynamic?: boolean
+  /** `emulate` when `VITEHUB_MODELS=emulate` sends the model requests to the AI emulator. */
+  gateway?: string
   id?: string
   provider?: string
   transport?: string

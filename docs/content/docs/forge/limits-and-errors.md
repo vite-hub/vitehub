@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - A GitHub App installation token expires after one hour. `useForge()` caches it until one minute before that. Pass `refresh: true` to mint a new one.
-- `VITEHUB_GITHUB_TOKEN`, GitLab, and Forgejo tokens have no expiry that `useForge()` knows, so `expiresAt` is `undefined`.
+- `VITEHUB_GITHUB_TOKEN`, GitLab, Forgejo, and Gitea tokens have no expiry that `useForge()` knows, so `expiresAt` is `undefined`.
 
 ## Errors
 
@@ -19,7 +19,7 @@ Operations return `[error, data]`. A configuration that cannot work throws, so y
 
 ### FORGE_APP_NOT_INSTALLED
 
-The GitHub App is not installed on the repository. Install the App on it, or set `VITEHUB_GITHUB_INSTALLATION_ID` to an installation that can reach it.
+The GitHub App is not installed on the repository. Install the App on it, or map its owner to an installation that can reach it in `VITEHUB_GITHUB_APP_INSTALLATIONS`.
 
 ### FORGE_REQUEST_FAILED
 
@@ -37,7 +37,7 @@ A variable has a value that cannot work, such as an installation ID that is not 
 
 ### FORGE_MISSING_INSTALLATION
 
-The App has no fixed installation, and the call has no `repository`. Pass `{ repository: 'owner/name' }`, or set `VITEHUB_GITHUB_INSTALLATION_ID`.
+The App has no fixed installation, and the call has no `repository`. Pass `{ repository: 'owner/name' }`, or set `VITEHUB_GITHUB_INSTALLATION_ID` with `VITEHUB_GITHUB_APP_OWNER`.
 
 ### FORGE_NOT_APP
 

@@ -26,8 +26,12 @@ export const CommentPin = defineComponent({
       if (props.draft) return "New comment";
       const by = props.author ? ` by ${displayName(props.author)}` : "";
       const text = props.excerpt ? `: ${props.excerpt}` : "";
-      return `Comment ${props.n}${by}${text}${props.status === "resolved" ? ", resolved" : ""}`;
+      const number = props.n === undefined ? "" : ` ${props.n}`;
+      return `Comment${number}${by}${text}${props.status === "resolved" ? ", resolved" : ""}`;
     };
+    // The pin is left only when neither the pointer nor the focus is on it.
+    let pointed = false;
+    let focused = false;
     return () =>
       h(
         "button",
@@ -38,11 +42,23 @@ export const CommentPin = defineComponent({
           "data-draft": props.draft ? "true" : undefined,
           "data-slot": "comment-pin",
           "data-status": props.status,
-          onBlur: () => emit("leave"),
+          onBlur: () => {
+            focused = false;
+            if (!pointed) emit("leave");
+          },
           onClick: () => emit("select"),
-          onFocus: () => emit("hover"),
-          onPointerenter: () => emit("hover"),
-          onPointerleave: () => emit("leave"),
+          onFocus: () => {
+            focused = true;
+            emit("hover");
+          },
+          onPointerenter: () => {
+            pointed = true;
+            emit("hover");
+          },
+          onPointerleave: () => {
+            pointed = false;
+            if (!focused) emit("leave");
+          },
           type: "button",
         },
         [

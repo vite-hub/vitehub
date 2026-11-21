@@ -1,26 +1,20 @@
 ---
 title: Configure a WebContainer
-description: Set the isolation headers in production, choose the preview port, pass secrets to one process, describe connectable accounts, and detect a WebContainer.
+description: Send the isolation headers, choose the preview port, pass secrets to one process, describe connectable accounts, and detect a WebContainer.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-## Set the headers in production
+## Isolation headers
 
-`hubWebContainer()` sets the isolation headers in `vite dev` and `vite preview` only. In production, set the same headers with Nitro route rules. `webContainerHeaders` holds them:
+`vitehub({ webContainer: { routes } })` sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` on `routes`:
 
-```ts [nitro.config.ts] fragment
-import { webContainerHeaders } from "@vite-hub/web-container/vite"
+- In `vite dev` and `vite preview`, from a Vite middleware.
+- From the built server, as Nitro route rules. A route rule that the app already has for the same path keeps its other keys and headers.
+- In Nuxt, a client route middleware loads a new document when a link crosses into or out of `routes`. Without it, the page keeps the headers of the document it loaded first.
 
-export default defineNitroConfig({
-  routeRules: {
-    "/playground/**": { headers: webContainerHeaders },
-  },
-})
-```
-
-The headers are `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. Set them only on the routes that boot a container. With `credentialless`, the page can still load cross-origin images and scripts without credentials.
+Set the headers only on the routes that boot a container. With `credentialless`, the page can still load cross-origin images and scripts without credentials.
 
 If the page sends `Cross-Origin-Embedder-Policy: require-corp` instead, pass `coep: "require-corp"` to `bootWebContainer()`.
 
@@ -62,10 +56,10 @@ await container.run("dev", { env: { OPENAI_API_KEY: key } })
 
 ## Describe connectable accounts
 
-`@vite-hub/web-container/connect` describes the accounts that a page offers to the reader. It does not run an OAuth flow yet. `connectEnv()` maps the credentials that the reader gives to the `env` variables of each provider:
+`vite-hub/web-container/connect` describes the accounts that a page offers to the reader. It does not run an OAuth flow yet. `connectEnv()` maps the credentials that the reader gives to the `env` variables of each provider:
 
 ```ts [src/playground.ts] fragment
-import { connectEnv, defineConnect } from "@vite-hub/web-container/connect"
+import { connectEnv, defineConnect } from "vite-hub/web-container/connect"
 
 const connect = defineConnect({
   vercel: { clientId: "oac_..." }, // without clientId, the reader pastes a token
@@ -95,7 +89,7 @@ Each provider has a `kind` (`deploy`, `source`, or `model`), a `reach` (`browser
 `isWebContainer()` returns `true` when the code runs inside a WebContainer:
 
 ```ts [server/utils/driver.ts]
-import { isWebContainer } from "@vite-hub/web-container/env"
+import { isWebContainer } from "vite-hub/web-container/env"
 
 export const driver = isWebContainer() ? "libsql" : "sqlite"
 ```

@@ -2,7 +2,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -11,23 +11,27 @@ import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsbuildEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { buildSync, transform } from "esbuild"
-import type { Plugin } from "esbuild"
+import type { WorkflowManifest } from "@workflow/builders"
+import { build, buildSync, transform } from "esbuild"
+import type { Plugin as EsbuildPlugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
+import { readWorkflowStepOptions } from "./step-options.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
+import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts"
 
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver, WorkflowStepOptions } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
-import type { Plugin as VitePlugin } from "vite"
+import type { Rolldown, Plugin as VitePlugin } from "vite"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export function resolveVercelWorkflowWorld(workflowApi: string): string {
@@ -128,31 +132,141 @@ const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspa
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
-  createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+  applySwcTransform: typeof import("@workflow/builders").applySwcTransform
+  createPseudoPackagePlugin: () => EsbuildPlugin
+  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[], workflowManifest?: WorkflowManifest }) => EsbuildPlugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
-export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
-  const require = createRequire(join(rootDir, "package.json"))
-  const namespace = "vitehub-optional-vite-devtools"
+function packageNameOf(specifier: string): string {
+  const [scope, name] = specifier.split("/")
+  return scope!.startsWith("@") && name ? `${scope}/${name}` : scope!
+}
+
+/** Reads the optional peers that the package of `file` declares, from the nearest `package.json` that has a name. */
+function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
+  const peersByDirectory = new Map<string, ReadonlySet<string>>()
+  const read = (directory: string): ReadonlySet<string> => {
+    const cached = peersByDirectory.get(directory)
+    if (cached) return cached
+    let peers: ReadonlySet<string> = new Set()
+    const manifest = join(directory, "package.json")
+    // Node and esbuild accept a manifest that starts with a byte order mark, so drop it before parsing.
+    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8").replace(/^\uFEFF/, "")) : undefined
+    if (isRuntimeRecord(metadata) && typeof metadata.name === "string") {
+      const meta = isRuntimeRecord(metadata.peerDependenciesMeta) ? metadata.peerDependenciesMeta : {}
+      peers = new Set(Object.entries(meta).filter(([, value]) => isRuntimeRecord(value) && value.optional === true).map(([name]) => name))
+    }
+    else if (dirname(directory) !== directory) {
+      peers = read(dirname(directory))
+    }
+    peersByDirectory.set(directory, peers)
+    return peers
+  }
+  return file => read(dirname(file))
+}
+
+/** Tells whether a `node_modules` folder on the way up from `directory` holds the package, as Node looks it up. */
+function packageInstalledFrom(directory: string, name: string): boolean {
+  for (let current = directory; ; current = dirname(current)) {
+    if (existsSync(join(current, "node_modules", name))) return true
+    if (dirname(current) === current) return false
+  }
+}
+
+/**
+ * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, and any optional peer
+ * that a package loads with `import()`, such as `@modelcontextprotocol/sdk` in `@vite-hub/source/mcp`, become a
+ * module that fails on import, as the missing package would.
+ */
+export function createOptionalPackagesPlugin(rootDir: string): Rolldown.Plugin {
+  const missing = createMissingOptionalPackageResolver(rootDir)
+  const prefix = "\0vitehub-optional-package:"
+  return {
+    name: "vitehub-optional-package",
+    async resolveId(source, importer, extra) {
+      const resolved = await missing(source, extra.kind, importer, async () => Boolean(await this.resolve(source, importer, { kind: extra.kind })))
+      return resolved ? `${prefix}${source}` : undefined
+    },
+    load(id) {
+      if (id.startsWith(prefix)) return missingOptionalPackageModule(id.slice(prefix.length))
+    },
+  }
+}
+
+/** {@link createOptionalPackagesPlugin} for the Workflow DevKit steps bundle, which Workflow DevKit builds with esbuild plugins. */
+function createOptionalPackagesEsbuildPlugin(rootDir: string): EsbuildPlugin {
+  const missing = createMissingOptionalPackageResolver(rootDir)
+  const namespace = "vitehub-optional-package"
   return {
     name: namespace,
     setup(build) {
-      build.onResolve({ filter: optionalViteDevtoolsPattern }, (args) => {
-        try {
-          require.resolve(args.path)
-          return
-        }
-        catch (error) {
-          // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-          if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
-          return { namespace, path: args.path }
-        }
+      build.onResolve({ filter: /^[^./#]/ }, async (args) => {
+        if (args.pluginData === namespace) return
+        const resolves = async () => !(await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })).errors.length
+        return await missing(args.path, args.kind, args.importer, resolves) ? { namespace, path: args.path } : undefined
       })
-      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+      build.onLoad({ filter: /.*/, namespace }, args => ({ contents: missingOptionalPackageModule(args.path), loader: "js" }))
     },
   }
+}
+
+/** Tells whether an import names an optional package that the app did not install. */
+function createMissingOptionalPackageResolver(rootDir: string) {
+  const require = createRequire(join(rootDir, "package.json"))
+  const optionalPeersOf = createOptionalPeerReader()
+  return async (specifier: string, kind: string | undefined, importer: string | undefined, resolves: () => Promise<boolean>): Promise<boolean> => {
+    if (optionalViteDevtoolsPattern.test(specifier)) {
+      try {
+        require.resolve(specifier)
+        return false
+      }
+      catch (error) {
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
+        if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
+        return true
+      }
+    }
+    if (specifier === "@vite-hub/kv") return !await resolves()
+    if (kind !== "dynamic-import" || !importer || !isAbsolute(importer) || !/^[^./#]/.test(specifier)) return false
+    const name = packageNameOf(specifier)
+    if (!optionalPeersOf(importer).has(name)) return false
+    // An installed peer keeps the bundler's own error, such as a subpath that the peer does not export.
+    return !packageInstalledFrom(dirname(importer), name)
+  }
+}
+
+function missingOptionalPackageModule(specifier: string): string {
+  return optionalViteDevtoolsPattern.test(specifier)
+    ? "export {}"
+    : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${specifier}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`
+}
+
+/** The Workflow DevKit packages that a native Vercel Workflow needs. They are optional peers of this package. */
+const vercelWorkflowDevKitPackages = ["workflow", "@workflow/builders"] as const
+
+function missingVercelWorkflowDevKitError() {
+  return workflowErrorDiagnostics.WORKFLOW_R0006({ message: "[vitehub] Native Vercel Workflows need workflow, @workflow/builders. A Workflow folder, a `native` entry, or a \"use workflow\" function makes a Workflow native. Install them in your app with: pnpm add workflow @workflow/builders" })
+}
+
+/**
+ * Throws when the app did not install the Workflow DevKit. `hasVercelNativeWorkflowEntry()` calls it, so every path that
+ * builds a native Workflow, such as the Schedule entry that starts one, stops here before it resolves `workflow/api`.
+ */
+function assertVercelWorkflowDevKit(): void {
+  const require = createRequire(import.meta.url)
+  const installed = (name: string) => {
+    try {
+      require.resolve(name)
+      return true
+    }
+    catch (error) {
+      return !(error instanceof Error && "code" in error && (error.code === "MODULE_NOT_FOUND" || error.code === "ERR_MODULE_NOT_FOUND"))
+    }
+  }
+  if (!vercelWorkflowDevKitPackages.every(installed)) throw missingVercelWorkflowDevKitError()
 }
 
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
@@ -170,22 +284,50 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
   return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
-export async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
+/** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Rolldown.Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
-  const plugin = builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
-  // Workflow's own Rollup and Vite plugins run SWC only on files with Workflow code. The esbuild plugin runs it on every file.
+  const workingDir = idRoot.replace(/\\/g, "/").replace(/\/$/, "")
   return {
-    ...plugin,
-    setup: build => plugin.setup({
-      ...build,
-      // Workflow and step IDs are paths relative to this directory. Match the native Workflow build, not the process directory.
-      initialOptions: { ...build.initialOptions, absWorkingDir: rootDir },
-      onLoad: (options, callback) => build.onLoad(options, async (args) => {
-        const source = await readFile(args.path, "utf8")
-        return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
-      }),
-    }),
+    name: "vitehub-vercel-workflow-transform",
+    // Workflow's own Rollup and Vite plugins run SWC only on files with Workflow code, and so does this one.
+    async load(id) {
+      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id)) return
+      const source = await readFile(id, "utf8")
+      if (!builders.shouldTransformFile(id, builders.detectWorkflowPatterns(source))) return
+      const file = id.replace(/\\/g, "/")
+      // Workflow and step IDs are paths relative to this directory, as in the native Workflow build. Workflow DevKit
+      // drops `..` segments for a file outside it.
+      const filename = relative(workingDir, file).replace(/\\/g, "/").split("/").filter(segment => segment !== "..").join("/")
+      const code = source.replace(/require\(\s*(['"])(?:server|client)-only\1\s*\)/g, "void 0")
+      const result = await builders.applySwcTransform(filename, code, "workflow", id, rootDir)
+      return { code: result.code, moduleType: id.endsWith(".tsx") ? "tsx" : id.endsWith(".jsx") ? "jsx" : "js" }
+    },
+  }
+}
+
+/** Transforms one module of a server bundle. It returns `undefined` for a module without Workflow code. */
+export type VercelWorkflowModuleTransform = (code: string, id: string) => Promise<{ code: string } | undefined>
+
+/**
+ * The Workflow DevKit transform for Nitro's server bundle on Vercel. It gives each `"use workflow"` function the
+ * `workflowId` that `start()` needs. The IDs are paths relative to `rootDir`, as in the native Workflow build, so the
+ * server starts the Workflows that the native functions hold. It uses the `step` mode, as Workflow DevKit's own Nitro
+ * integration does, so the normal handler can still call a step function.
+ */
+export async function createVercelWorkflowModuleTransform(rootDir: string): Promise<VercelWorkflowModuleTransform | undefined> {
+  const builders = await loadVercelWorkflowBuilders()
+  if (!builders) return undefined
+  const root = rootDir.replace(/\\/g, "/").replace(/\/$/, "")
+  return async (code, id) => {
+    const file = id.replace(/\\/g, "/")
+    if (!builders.shouldTransformFile(file, builders.detectWorkflowPatterns(code))) return undefined
+    const path = relative(root, file).replace(/\\/g, "/")
+    // Workflow DevKit drops `..` segments for a file outside the project root.
+    const filename = path.split("/").filter(segment => segment !== "..").join("/")
+    const result = await builders.applySwcTransform(filename, code, "step", file, root)
+    return { code: result.code }
   }
 }
 
@@ -215,6 +357,10 @@ async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Prom
   }
 }
 
+/**
+ * Whether a Workflow builds as a native Vercel Workflow. It throws when one does and the app did not install the
+ * Workflow DevKit, so every native build path reports the same coded error.
+ */
 export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): boolean {
   if (!definitions.length) return false
   const definitionDirs = [...new Set([
@@ -284,6 +430,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
   }
   for (const definition of definitions) visit(definition.handler)
   for (const file of nativeFiles) visit(file)
+  if (hasNativeEntry) assertVercelWorkflowDevKit()
   return hasNativeEntry
 }
 
@@ -480,6 +627,26 @@ function assertNoExternalCanonicalWorkflowOutput(state: VercelNativeWorkflowStat
   }
 }
 
+/**
+ * The route that Workflow DevKit's Vercel build writes for `createWebhook()` URLs (`VercelBuildOutputAPIBuilder` in
+ * `@workflow/builders`). It sends `/.well-known/workflow/v1/webhook/<token>` to the webhook function.
+ */
+export const vercelWorkflowWebhookRoute = { src: "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$", dest: "/.well-known/workflow/v1/webhook/[token]" }
+
+/**
+ * Nitro writes `.vercel/output/config.json` after the native Workflow build and replaces its routes. So Nitro must
+ * write the webhook route too. Nitro puts `vercel.config.routes` before its own routes.
+ */
+export function addVercelWorkflowNitroRoutes(nitro: object): void {
+  const existingVercel = Reflect.get(nitro, "vercel")
+  const vercel = isRuntimeRecord(existingVercel) ? existingVercel : {}
+  const config = isRuntimeRecord(vercel.config) ? vercel.config : {}
+  const routes = Array.isArray(config.routes) ? config.routes : []
+  const route = JSON.stringify(vercelWorkflowWebhookRoute)
+  if (routes.some(candidate => JSON.stringify(candidate) === route)) return
+  Reflect.set(nitro, "vercel", { ...vercel, config: { ...config, routes: [{ ...vercelWorkflowWebhookRoute }, ...routes] } })
+}
+
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
     await cleanVercelNativeWorkflowOutput(rootDir)
@@ -487,12 +654,13 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0006({ message: "Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies." })
+    throw missingVercelWorkflowDevKitError()
   }
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
-  const viteHubConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config")
+  // Nitro writes its Vercel config after the native Workflow functions, so a Nitro build has none yet.
+  const viteHubConfig = existsSync(outputConfigFile) ? parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config") : {}
   const workflowRoot = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const previousOwnership = previousState?.ownership
   const previousFiles = previousState?.files ?? {}
@@ -513,18 +681,64 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
   ])]
-  // The native builder has no esbuild define option. Transform both intermediate
-  // bundles before it embeds the VM code and combines the step registrations.
-  class ConfiguredWorkflowBuilder extends builders.VercelBuildOutputAPIBuilder {
-    protected override async createStepsBundle(options: { inputFiles: string[], outfile: string }) {
-      const result = await super.createStepsBundle(options)
-      if (!Object.keys(bundleDefines).length) return result
-      const source = await readFile(options.outfile, "utf8")
-      const output = await transform(source, { define: bundleDefines, sourcefile: options.outfile, sourcemap: "inline" })
-      await writeFile(options.outfile, output.code)
-      return result
+  const { createPseudoPackagePlugin, createSwcPlugin, VercelBuildOutputAPIBuilder } = builders
+  class ConfiguredWorkflowBuilder extends VercelBuildOutputAPIBuilder {
+    /**
+     * Workflow DevKit bundles steps with its own esbuild plugins only. Steps import app code, so ViteHub bundles them:
+     * Workflow DevKit writes the step registration imports, and ViteHub bundles them with its own resolution, as the
+     * server bundle does. A step can import a `?markdown-template` file or a package that loads an optional peer the app
+     * did not install, such as `@vite-hub/kv` in `@vite-hub/agent`.
+     */
+    protected override async createStepsBundle(options: Parameters<InstanceType<typeof VercelBuildOutputAPIBuilder>["createStepsBundle"]>[0]) {
+      const discoveredEntries = options.discoveredEntries ?? await this.discoverEntries(options.inputFiles, dirname(options.outfile), options.tsconfigPath)
+      const entryFile = `${options.outfile}.entry.mjs`
+      const manifest: WorkflowManifest = {}
+      const registeredFiles = [...discoveredEntries.discoveredSteps, ...discoveredEntries.discoveredSerdeFiles]
+      const swcPlugin = createSwcPlugin({
+        mode: "step",
+        moduleSpecifierRoot: this.moduleSpecifierRoot,
+        projectRoot: this.transformProjectRoot,
+        // Keeps step files whose package declares `"sideEffects": false`: only their imports register the steps.
+        sideEffectEntries: await Promise.all(registeredFiles.map(file => realpath(file).catch(() => file))),
+        workflowManifest: manifest,
+      })
+      try {
+        await this.createStepSourceRegistrationFile({ discoveredEntries, inputFiles: options.inputFiles, outfile: entryFile, tsconfigPath: options.tsconfigPath })
+        const tsconfigPath = options.tsconfigPath
+        const tsconfigOptions = tsconfigPath && (await lstat(tsconfigPath)).isSymbolicLink()
+          ? { tsconfigRaw: await readFile(tsconfigPath, "utf8") }
+          : { tsconfig: tsconfigPath }
+        await bundleEsbuildEntry(build, entryFile, options.outfile, {
+          ...tsconfigOptions,
+          define: bundleDefines,
+          extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+          external: ["bun", "bun:*", ...(this.config.externalPackages ?? [])],
+          format: "esm",
+          keepNames: true,
+          platform: "node",
+          plugins: [
+            createPseudoPackagePlugin(),
+            createOptionalPackagesEsbuildPlugin(rootDir),
+            {
+              ...swcPlugin,
+              // The SWC step transform drops the bare imports of the registration entry. Workflow DevKit passes it as stdin.
+              setup: build => swcPlugin.setup({
+                ...build,
+                onLoad: (onLoadOptions, callback) => build.onLoad(onLoadOptions, args => args.path === entryFile ? undefined : callback(args)),
+              }),
+            },
+          ],
+          rootDir,
+          workingDir: this.config.workingDir,
+        })
+      }
+      finally {
+        await rm(entryFile, { force: true })
+      }
+      return { context: undefined, manifest }
     }
 
+    // The native builder has no esbuild define option. Transform the VM bundle before the builder embeds it.
     protected override async createWorkflowsBundle(options: { inputFiles: string[], outfile: string }) {
       const result = await super.createWorkflowsBundle(options)
       if (result.interimBundleText && Object.keys(bundleDefines).length) {
@@ -589,7 +803,7 @@ function resolveWorkflowUserAppEntry(rootDir: string, entry: true | string) {
 }
 
 interface ProviderEntrySpec {
-  name: WorkflowProvider
+  name: WorkflowDriver
   entryFile: string
   runtimeModule: WorkflowRuntimeModuleName
   factory: string
@@ -601,25 +815,26 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
-  return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string, inline = false): false | ResolvedWorkflowOptions {
+  return normalizeWorkflowOptions(workflow, { hosting, inline }) ?? false
 }
 
 /**
  * The Provider Output that a build writes. Without a host, both outputs are written.
- * Only Vercel deploys the Vercel output, so other hosts skip it.
+ * Only Vercel deploys the Vercel output, so other hosts skip it. `inline` lets a host without an inferable provider
+ * run Workflows inline instead of failing, as in `vite dev` and for the Workflow that only the Agent turns on.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string, inline = false): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
   if (!hosting) {
     return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
   }
-  const config = resolveWorkflowConfig(workflow, hosting)
+  const config = resolveWorkflowConfig(workflow, hosting, inline)
   return {
-    cloudflare: config && config.provider === "cloudflare" ? config : false,
-    vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
+    cloudflare: config && config.driver === "cloudflare" ? config : false,
+    vercel: config && config.driver === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
   }
 }
 
@@ -641,13 +856,20 @@ interface GenerateProviderOutputsOptions {
   bundleDefines?: Record<string, string>
   hosting?: string
   importBase?: string
+  /** Run Workflows inline when the host has no inferable provider. See `resolveWorkflowProviderOutputs()`. */
+  inline?: boolean
   providerImportAliases?: Record<string, string>
-  providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
+  providerRuntimeImportAliases?: Partial<Record<WorkflowDriver, Record<string, string>>>
   vercelRuntimePackages?: VercelFunctionRuntimePackage[]
   definitionRootDir?: string
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  /**
+   * Nitro's server function runs the routes on Vercel, and its startup plugin installs the Workflow registry. So no
+   * Workflow server function is written. The native Workflow functions are still written.
+   */
+  nitroServer?: boolean
   sourceRootDir?: string
   includeUserAppEntry?: boolean | string
   workflow: WorkflowOptions | undefined
@@ -659,8 +881,6 @@ interface GenerateProviderOutputsOptions {
 }
 
 interface WorkspaceDependencyRuntimeImports {
-  sandboxTask?: string
-  sandboxTaskRuntimeState?: string
   shellWorkspace?: string
 }
 
@@ -795,8 +1015,9 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
 export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
   const preset = String(options.nitro.preset || "")
   if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
-  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
-  if (!config || config.provider !== "cloudflare") return options.nitro
+  // Only a Cloudflare result matters here. Other hosts report a missing driver in the Workflow build.
+  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset, inline: true })
+  if (!config || config.driver !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
     agent: options.agentModules,
@@ -897,7 +1118,7 @@ function renderAgentWorkflowRegistryEntry(
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     `    const agent = workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)})`,
-    `    const entry = { options: { rootStep: false }, handler: async (_payload, context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
+    `    const entry = { rootStep: false, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     `  }, ${definition.source === "agent-workflow-recovery" ? "{ internalAgentInvocationRecovery: true }" : "{}"}),`,
@@ -909,22 +1130,48 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
   return `${getCloudflareWorkflowClassName(definition.name)}Native`
 }
 
-function createVercelNativeWorkflowContents(
+/** `@workflow/core` keeps the `sleep()` implementation of the Workflow VM on `globalThis` under this registered symbol. */
+export const vercelWorkflowSleepSymbol = "WORKFLOW_SLEEP"
+
+/**
+ * The Workflow VM does not load the step files, so the step options are literals here. Workflow DevKit reads
+ * `maxRetries` from the step function. It has no step timeout, so the step body runs each attempt with the ViteHub
+ * timer, which it imports only inside the step.
+ */
+function renderVercelNativeStep(name: string, implementation: string, step: string, options: WorkflowStepOptions): string {
+  const body = options.timeout === undefined
+    ? `  return await ${implementation}(input, { signal: new AbortController().signal })`
+    : [
+        `  const { runWorkflowStepAttempt } = await import(${JSON.stringify(workflowRuntimeModule("execute"))})`,
+        `  return await runWorkflowStepAttempt(${JSON.stringify(step)}, ${JSON.stringify(options.timeout)}, context => ${implementation}(input, context))`,
+      ].join("\n")
+  return [
+    `async function ${name}(input) {\n  "use step"\n${body}\n}`,
+    ...(options.retries?.limit === undefined ? [] : [`${name}.maxRetries = ${options.retries.limit}`]),
+  ].join("\n")
+}
+
+async function createVercelNativeWorkflowContents(
   definition: DiscoveredWorkflowDefinition,
-): string {
+): Promise<string> {
   const imports: string[] = []
   const workflows: string[] = []
   const workflowExport = getGeneratedVercelWorkflowExport(definition)
   const steps = definition.steps
   if (!workflowExport || !steps) return ""
+  const stepOptions = await Promise.all(steps.map(readWorkflowStepOptions))
   const stepNames = steps.map((step, index) => {
     const implementation = `${workflowExport}Step${index}Implementation`
     const name = `${workflowExport}Step${index}`
     imports.push(`import ${implementation} from ${JSON.stringify(step)}`)
-    workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
+    workflows.push(renderVercelNativeStep(name, implementation, `${definition.name}/${relative(definition.handler, step)}`, stepOptions[index]!))
     return name
   })
-  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
+  // Workflow DevKit `start()` has no delay, so a delayed run sleeps until its start time before the first step. Every
+  // host bundles this file through the registry, so it does not import `workflow`: it calls the function that
+  // Workflow DevKit `sleep()` itself calls inside the Workflow VM.
+  const startAt = `context[${JSON.stringify(workflowStartAtKey)}]`
+  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  if (typeof ${startAt} === "number") await globalThis[Symbol.for(${JSON.stringify(vercelWorkflowSleepSymbol)})](new Date(${startAt}))\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
@@ -938,14 +1185,14 @@ function renderWorkflowRegistryEntry(
     return renderAgentWorkflowRegistryEntry(registryFile, definition, retainedAgentInstructions)
   }
 
-  if (!definition.steps?.length) {
+  if (!definition.steps) {
     return `  [${JSON.stringify(definition.name)}]: async () => ${renderRegistryImport(registryFile, definition.handler)},`
   }
 
   const workflowDirectory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
   const stepImports = definition.steps.map((step) => {
     const stepName = relative(workflowDirectory, step)
-    return `{ name: ${JSON.stringify(stepName)}, run: (await ${renderRegistryImport(registryFile, step)}).default }`
+    return `{ name: ${JSON.stringify(stepName)}, ...await ${renderRegistryImport(registryFile, step)}.then(step => ({ options: { retries: step.retries, timeout: step.timeout }, run: step.default })) }`
   })
 
   const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
@@ -953,11 +1200,11 @@ function renderWorkflowRegistryEntry(
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = vercelNativeFiles[definition.name]
   const nativeImport = nativeExport && vercelNativeFile
-    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
+    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}\n    native[${JSON.stringify(generatedNativeEntryKey)}] = true`
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
-    : "{ handler: async (payload, context) => { let value = payload; for (const step of Object.values(context.steps)) value = await step(value); return value } }"
+    : "{ handler: async ({ payload, steps }) => { let value = payload; for (const step of Object.values(steps)) value = await step(value); return value } }"
 
   return [
     `  [${JSON.stringify(definition.name)}]: async () => {`,
@@ -969,10 +1216,10 @@ function renderWorkflowRegistryEntry(
     `    const definition = ${handler}`,
     "    const entry = {",
     "      ...definition,",
-    `      options: { ...definition.options, rootStep: false${nativeImport ? ", native" : ""} },`,
-    "      handler: async (payload, context) => {",
+    `      rootStep: false,${nativeImport ? " native," : ""}`,
+    "      handler: async (context) => {",
     "        const workflowSteps = createWorkflowSteps(context, steps)",
-    "        return await definition.handler(payload, { ...context, steps: workflowSteps })",
+    "        return await definition.handler({ ...context, steps: workflowSteps })",
     "      },",
     "    }",
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
@@ -981,8 +1228,32 @@ function renderWorkflowRegistryEntry(
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * Adds the invocation recovery Workflow of each discovered Agent Workflow. Every Agent turn starts the turn and its
+ * recovery run, so a registry that has one of them must have both.
+ */
+export function withAgentInvocationRecoveryDefinitions(definitions: DiscoveredWorkflowDefinition[]): DiscoveredWorkflowDefinition[] {
+  const definitionNames = new Set(definitions.map(definition => definition.name))
+  for (const definition of definitions) {
+    if (definition.source !== "agent-workflow") continue
+    const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
+    if (definitionNames.has(recoveryName)) {
+      throw workflowErrorDiagnostics.WORKFLOW_R0008({ message: `Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.` })
+    }
+  }
+  return definitions.flatMap(definition => definition.source === "agent-workflow"
+    ? [definition, {
+        ...definition,
+        agentIdentity: definition.agentIdentity || definition.name,
+        name: getAgentInvocationRecoveryWorkflowName(definition.name),
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
+        source: "agent-workflow-recovery" as const,
+      }]
+    : [definition])
+}
+
 /** Without `hubAgent()`, Agent Workflows load the Agent package that the app installs, by the paths it hands out. */
-async function installedAgentWorkflowModules(rootDir: string): Promise<AgentWorkflowModules | undefined> {
+export async function installedAgentWorkflowModules(rootDir: string): Promise<AgentWorkflowModules | undefined> {
   let agentVite: string
   try {
     agentVite = createRequire(resolve(rootDir, "package.json")).resolve("@vite-hub/agent/vite")
@@ -1006,11 +1277,15 @@ export function createWorkflowRegistryContents(
   vercelNativeFiles: Record<string, string> = {},
   retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
-  const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
+  const needsWorkflowRuntime = definitions.some(definition => definition.steps !== undefined)
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime ? importBases.workspaceDependencies : undefined
+  // Import the Workspace runtime only to install the Shell loader, the one loader that the Workspace runtime reads.
+  // A Workflow-only app, or one with only a Sandbox Task, does not install `@vite-hub/workspace`.
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && importBases.workspaceDependencies?.shellWorkspace
+    ? importBases.workspaceDependencies
+    : undefined
   const agent = importBases.agent
   if (needsAgentRuntime && !agent) throw workflowErrorDiagnostics.WORKFLOW_B0003()
   const imports = [
@@ -1051,12 +1326,6 @@ export function createWorkflowRegistryContents(
     ...(workspaceDependencyRuntimeImports
       ? [
           "setWorkspaceDependencyRuntimeLoaders({",
-          ...(workspaceDependencyRuntimeImports.sandboxTask
-            ? [`  sandboxTask: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.sandboxTask)}),`]
-            : []),
-          ...(workspaceDependencyRuntimeImports.sandboxTaskRuntimeState
-            ? [`  sandboxTaskRuntimeState: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.sandboxTaskRuntimeState)}),`]
-            : []),
           ...(workspaceDependencyRuntimeImports.shellWorkspace
             ? [`  shellWorkspace: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.shellWorkspace)}),`]
             : []),
@@ -1182,23 +1451,7 @@ export async function writeProviderEntries(
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
-  const definitionNames = new Set(definitions.map(definition => definition.name))
-  for (const definition of definitions) {
-    if (definition.source !== "agent-workflow") continue
-    const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
-    if (definitionNames.has(recoveryName)) {
-      throw workflowErrorDiagnostics.WORKFLOW_R0008({ message: `Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.` })
-    }
-  }
-  const providerDefinitions = definitions.flatMap(definition => definition.source === "agent-workflow"
-    ? [definition, {
-        ...definition,
-        agentIdentity: definition.agentIdentity || definition.name,
-        name: getAgentInvocationRecoveryWorkflowName(definition.name),
-        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-        source: "agent-workflow-recovery" as const,
-      }]
-    : [definition])
+  const providerDefinitions = withAgentInvocationRecoveryDefinitions(definitions)
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
@@ -1213,8 +1466,13 @@ export async function writeProviderEntries(
   if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
   await Promise.all(nativeDefinitions.map(async definition => {
     const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
+    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
   }))
+  // A step file of a folder with `index.ts` gets no native step, so the build checks its options here.
+  await Promise.all(definitions
+    .filter(definition => !getGeneratedVercelWorkflowExport(definition))
+    .flatMap(definition => definition.steps ?? [])
+    .map(async step => await readWorkflowStepOptions(step)))
   const registryRuntimeFile = resolve(generatedDir, generatedRegistryRuntimeFileName)
   const agentModules = importBases.agent ?? (providerDefinitions.some(definition => definition.source === "agent-workflow")
     ? await installedAgentWorkflowModules(rootDir)
@@ -1229,7 +1487,7 @@ export async function writeProviderEntries(
   await writeFile(registryRuntimeFile, transformRegistry ? await transformRegistry(registryContents, registryRuntimeFile) : registryContents, "utf8")
   await writeFile(registryFile, createWorkflowRegistryIndexContents(providerDefinitions), "utf8")
 
-  const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
+  const entryFiles: Record<WorkflowDriver, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const workflowConfig = spec.name === "cloudflare"
@@ -1293,7 +1551,7 @@ function createCloudflareOutput(
   artifacts: GeneratedWorkflowArtifacts,
   providerImportAliases?: Record<string, string>,
 ): CloudflareProviderDeploymentOutput {
-  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.driver === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
@@ -1326,7 +1584,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
-      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
+      plugins: [createOptionalPackagesPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -1337,7 +1595,7 @@ function createCloudflareOutput(
 }
 
 function createCloudflareWorkflowWrapper(artifacts: GeneratedWorkflowArtifacts): string {
-  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.provider === "cloudflare"
+  const workflowConfig = artifacts.cloudflareWorkflowConfig && artifacts.cloudflareWorkflowConfig.driver === "cloudflare"
     ? artifacts.cloudflareWorkflowConfig
     : false
   const workflowDefinitions = workflowConfig ? artifacts.providerDefinitions : []
@@ -1367,7 +1625,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string, cloudflareInNitr
 function createVercelOutput(
   rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,
-  workflowTransformPlugin: Plugin | undefined,
+  workflowTransformPlugin: Rolldown.Plugin | undefined,
   frameworkImportBase?: string,
   providerImportAliases?: Record<string, string>,
   serverFunctionName?: string,
@@ -1386,7 +1644,7 @@ function createVercelOutput(
       format: "esm",
       platform: "node",
       plugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
+        createOptionalPackagesPlugin(rootDir),
         ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
       ],
     },
@@ -1530,6 +1788,19 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
   await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
 }
 
+/** Workflow DevKit retries a step after about one second, so a Vercel native step cannot set `delay` or `backoff`. */
+export async function assertVercelStepRetries(definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
+  for (const definition of definitions) {
+    if (!getGeneratedVercelWorkflowExport(definition)) continue
+    for (const step of definition.steps ?? []) {
+      const { retries } = await readWorkflowStepOptions(step)
+      if (retries?.delay !== undefined || retries?.backoff !== undefined) {
+        throw workflowErrorDiagnostics.WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED({ file: step })
+      }
+    }
+  }
+}
+
 async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
@@ -1540,8 +1811,10 @@ async function generateProviderOutputsWithinLock(
     workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
-  const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
+  const vercelWorkflow = Boolean(vercelWorkflowConfig && vercelWorkflowConfig.driver === "vercel")
+  if (vercelWorkflow) await assertVercelStepRetries(artifacts.providerDefinitions)
+  const workflowTransformPlugin = vercelWorkflow && !options.nitroServer
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   let commitGeneratedArtifacts = async (): Promise<void> => {}
@@ -1623,13 +1896,13 @@ async function generateProviderOutputsWithinLock(
     }
   }
   artifacts = await publishGeneratedArtifacts()
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare" && !options.cloudflareInNitro
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.driver === "cloudflare" && !options.cloudflareInNitro
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.cloudflare,
       })
     : undefined
-  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const vercelOutput = vercelWorkflow && !options.nitroServer
     ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.vercel,
@@ -1647,7 +1920,7 @@ async function generateProviderOutputsWithinLock(
       ...options.providerImportAliases,
       ...options.providerRuntimeImportAliases?.vercel,
     }).map(([alias, target]) => [alias, publishedSource(target)]))
-    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles)) {
+    if (vercelWorkflow && hasVercelNativeWorkflowEntry(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles)) {
       assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
     }
     const deploymentOutput: ProviderDeploymentOutputOptions = {
@@ -1682,7 +1955,7 @@ async function generateProviderOutputsWithinLock(
             signal,
           })
         }
-        if (vercelOutput) {
+        if (vercelWorkflow) {
           await buildVercelNativeWorkflowOutput(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles, previousNativeOutput, options.bundleDefines)
         }
         else {

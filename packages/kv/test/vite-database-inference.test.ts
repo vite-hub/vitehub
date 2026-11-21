@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveDBViteConfig } from "@vite-hub/database/config"
+import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
 import { hubKV } from "../src/vite.ts"
 
@@ -79,6 +80,39 @@ describe("KV driver inference in a build", () => {
     const output = await generatedConfig(root, [], { hosting: "node-server" })
 
     expect(output).toContain(`"driver":"fs-lite"`)
+  })
+})
+
+describe("KV Redis env warning in a build", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("reports the hint once when the build has REDIS_URL and infers the Database", async () => {
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379")
+    const warn = vi.fn()
+    const root = await createApp("postgresql")
+    const frontend = join(root, "frontend")
+    await mkdir(frontend)
+    await writeFile(join(frontend, "package.json"), "{}")
+    const plugin = hubKV(undefined, { hosting: "node-server" })
+    // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.
+    await (plugin.configResolved as Hook<[ResolvedConfig], Promise<void>>).handler({ command: "build", envDir: false, logger: { warn }, mode: "production", plugins: [databasePlugin(root)], root: frontend, [VITEHUB_PROJECT_ROOT]: root } as unknown as ResolvedConfig)
+    // SAFETY: buildStart reads only the provider output catalog, which this test does not use.
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain("The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses the table vitehub_kv of the Database \"default\".")
+    const report = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    await expect(readFile(join(frontend, ".vitehub/hints.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(report.hints).toEqual([{
+      code: "KV_REDIS_URL_UNUSED",
+      why: "The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses the table vitehub_kv of the Database \"default\".",
+      fix: "To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_redis_url_unused",
+    }])
   })
 })
 

@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -40,8 +40,8 @@ function invocation(id: string, status: AgentInvocationStoreCreateInput["status"
 }
 
 /** A journal written by the SQLite store. The running record keeps its appended observation in the observations table. */
-async function storeJournal() {
-  const path = join(await temporaryDirectory(), "console.sqlite")
+async function storeJournal(file?: string) {
+  const path = file ?? join(await temporaryDirectory(), "console.sqlite")
   const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
   await store.create(invocation("first", "completed"))
   await store.create(invocation("second", "running"))
@@ -52,12 +52,12 @@ async function storeJournal() {
   return path
 }
 
-async function run(args: string[], env: NodeJS.ProcessEnv = {}, sleep: (milliseconds: number) => Promise<void> = async () => undefined) {
+async function run(args: string[], env: NodeJS.ProcessEnv = {}, sleep: (milliseconds: number) => Promise<void> = async () => undefined, rootDir?: string) {
   const stdout = stream()
   const stderr = stream()
   const fetch = vi.fn()
   // SAFETY: The mock only proves that a journal file read sends no request.
-  const exitCode = await runAgentInvocationsCli(args, { env, stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep })
+  const exitCode = await runAgentInvocationsCli(args, { env, ...(rootDir ? { rootDir } : {}), stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep })
   expect(fetch).not.toHaveBeenCalled()
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
@@ -78,7 +78,7 @@ describe("vitehub agent invocations --database", () => {
 
   it("shows a running record with its inline and appended observations", async () => {
     const path = await storeJournal()
-    const result = await run(["show", "second", "--database", path, "--json"])
+    const result = await run(["get", "second", "--database", path, "--json"])
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
       id: "second",
@@ -135,7 +135,7 @@ describe("vitehub agent invocations --database", () => {
     const before = await readFile(path)
 
     expect((await run(["list", "--database", path, "--table-prefix", "custom_"])).stdout).toBe("old failed 2026-10-06T10:01:00.000Z\n")
-    const shown = await run(["show", "old", "--database", path, "--table-prefix", "custom_", "--json"])
+    const shown = await run(["get", "old", "--database", path, "--table-prefix", "custom_", "--json"])
     expect(JSON.parse(shown.stdout)).toMatchObject({ id: "old", observations: [{ name: "agent.invocation.start" }] })
     expect((await readFile(path)).equals(before)).toBe(true)
   })
@@ -144,7 +144,7 @@ describe("vitehub agent invocations --database", () => {
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
     [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
-    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
+    [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
   ])("rejects %j", async (args, message) => {
     const result = await run(args)
@@ -155,10 +155,10 @@ describe("vitehub agent invocations --database", () => {
   it("reports a missing table and a missing record", async () => {
     const path = join(await temporaryDirectory(), "empty.sqlite")
     new DatabaseSync(path).close()
-    expect((await run(["list", "--database", path])).stderr).toBe(`No Agent Invocation journal table vitehub_agent_invocations exists in ${path}.\n`)
+    expect((await run(["list", "--database", path])).stderr).toContain(`[AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING] No Agent Invocation journal table vitehub_agent_invocations exists in ${path}.\n├▶ fix: Pass \`--table-prefix\``)
 
     const journal = await storeJournal()
-    expect((await run(["show", "unknown", "--database", journal])).stderr).toBe(`Agent Invocation unknown was not found in ${journal}.\n`)
+    expect((await run(["get", "unknown", "--database", journal])).stderr).toContain(`[AGENT_INVOCATION_NOT_FOUND] Agent Invocation unknown was not found in ${journal}.\n`)
   })
 
   it("explains that the runtime has no node:sqlite", async () => {
@@ -170,6 +170,42 @@ describe("vitehub agent invocations --database", () => {
     const { runAgentInvocationsCli: runWithoutSqlite } = await import("../src/internal/agent-invocations-cli.ts")
     const stderr = stream()
     expect(await runWithoutSqlite(["list", "--database", path], { env: {}, stderr, stdout: stream() })).toBe(1)
-    expect(stderr.output()).toBe("--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.\n")
+    expect(stderr.output()).toContain("[AGENT_INVOCATIONS_NODE_SQLITE_MISSING] --database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.\n")
+  })
+})
+
+describe("vitehub agent invocations with --database", () => {
+  /** A project with records in its default journal file. */
+  async function project() {
+    const rootDir = await temporaryDirectory()
+    await mkdir(join(rootDir, ".vitehub/data"), { recursive: true })
+    await storeJournal(join(rootDir, ".vitehub/data/agent-invocations.sqlite"))
+    return rootDir
+  }
+
+  it("reads the explicitly selected project journal file for list, show, tail, export, and wait-idle", async () => {
+    const rootDir = await project()
+    const read = async (args: string[]) => await run([...args, "--database", ".vitehub/data/agent-invocations.sqlite"], {}, async () => undefined, rootDir)
+
+    const list = await read(["list", "--json"])
+    expect(list.exitCode, list.stderr).toBe(0)
+    expect(JSON.parse(list.stdout).invocations.map((record: { id: string }) => record.id)).toEqual(["second", "first"])
+    expect(JSON.parse((await read(["get", "second", "--json"])).stdout)).toMatchObject({ id: "second", status: "running" })
+    expect(await read(["tail", "first"])).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
+    expect((await read(["export"])).stdout.trim().split("\n").map(line => JSON.parse(line).id)).toEqual(["first", "second"])
+    expect(JSON.parse((await read(["wait-idle", "--json"])).stdout)).toMatchObject({ event: "invocations.idle", stale: [{ id: "second" }] })
+  })
+
+  it("reads the file that VITEHUB_AGENT_INVOCATIONS_DATABASE_URL names", async () => {
+    const path = await storeJournal()
+    const result = await run(["list"], { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: `file:${path}` }, async () => undefined, await temporaryDirectory())
+    expect(result).toMatchObject({ exitCode: 0, stdout: "second running 2026-10-06T10:01:00.000Z\nfirst completed 2026-10-06T10:01:00.000Z\n" })
+  })
+
+  it("names the selected journal when it does not exist", async () => {
+    const rootDir = await temporaryDirectory()
+    const result = await run(["list", "--database", ".vitehub/data/agent-invocations.sqlite"], {}, async () => undefined, rootDir)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(`[AGENT_INVOCATIONS_JOURNAL_MISSING] No Agent Invocation journal exists at ${join(rootDir, ".vitehub/data/agent-invocations.sqlite")}.\n`)
   })
 })

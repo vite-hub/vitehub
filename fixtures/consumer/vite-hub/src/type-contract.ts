@@ -54,8 +54,8 @@ export const contract = {
     host: "node",
   }),
   rateLimit: requireRateLimit,
-  workflow: defineWorkflow("contract", async (payload: { marker: string }) => payload.marker),
-  workspace: defineWorkspace({ store: { provider: "memory" } }),
+  workflow: defineWorkflow<{ marker: string }>({ handler: async ({ payload }) => payload.marker }),
+  workspace: defineWorkspace({ store: { driver: "memory" } }),
 }
 
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName

@@ -1,5 +1,7 @@
+import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
+
 import { workspaceNotFoundError } from "./errors.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
+import type { ValidatedWorkspaceName, Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -66,6 +68,16 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
   // SAFETY: Registry normalization establishes the asserted Workspace definition contract.
   } = definition as WorkspaceDefinitionInput & Record<string, unknown>
   return workspace
+}
+
+/**
+ * The error for a failed loader of the generated Workspace registry. The registry runs plain source text without the
+ * Workspace catalog, so its own failures and the errors of the Definition module get a code here. A coded error passes.
+ */
+export function workspaceRegistryLoadError(workspace: string, error: unknown): unknown {
+  if (isRuntimeDiagnostic(error) || getViteHubErrorShape(error)) return error
+  const reason = error instanceof Error ? error.message : String(error)
+  return workspaceErrorDiagnostics.WORKSPACE_REGISTRY_LOAD_FAILED({ reason, workspace, cause: error })
 }
 
 export function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
@@ -154,7 +166,9 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
   if (!loading || loading.load !== load) {
     const generation = (state.loadGenerations.get(name) ?? 0) + 1
     state.loadGenerations.set(name, generation)
-    const promise = load().then((mod) => {
+    const promise = (async () => load())().catch((error: unknown) => {
+      throw workspaceRegistryLoadError(name, error)
+    }).then((mod) => {
       const definition = normalizeWorkspaceDefinition(name, mod.default)
       if (state.loadGenerations.get(name) === generation && workspaceRuntimeRegistryState().loaders[name] === load) {
         state.loadedDefinitions.set(name, definition)
@@ -192,6 +206,14 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
       }
     }
   }
+}
+
+/** Whether a Workspace Definition has this name. Use it to check a name that comes from a request or a database. */
+export function isWorkspaceName(name: string): name is ValidatedWorkspaceName {
+  const state = workspaceRegistryState()
+  return state.registeredDefinitions.has(name)
+    || [...state.scopedDefinitions.values()].some(definitions => definitions.has(name))
+    || Object.hasOwn(workspaceRuntimeRegistryState().loaders, name)
 }
 
 export async function resolveRegisteredWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {

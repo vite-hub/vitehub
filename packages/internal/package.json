@@ -13,6 +13,11 @@
       "import": "./dist/abort.js",
       "default": "./dist/abort.js"
     },
+    "./browser-environment": {
+      "types": "./dist/browser-environment.d.ts",
+      "import": "./dist/browser-environment.js",
+      "default": "./dist/browser-environment.js"
+    },
     "./channel-archive": {
       "types": "./dist/channel-archive.d.ts",
       "import": "./dist/channel-archive.js",
@@ -48,6 +53,11 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./hints": {
+      "types": "./dist/hints.d.ts",
+      "import": "./dist/hints.js",
+      "default": "./dist/hints.js"
+    },
     "./ast": {
       "types": "./dist/ast.d.ts",
       "import": "./dist/ast.js",
@@ -77,6 +87,11 @@
       "types": "./dist/deployment.d.ts",
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
+    },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
     },
     "./features": {
       "types": "./dist/features.d.ts",
@@ -112,6 +127,11 @@
       "types": "./dist/object.d.ts",
       "import": "./dist/object.js",
       "default": "./dist/object.js"
+    },
+    "./operation-definition": {
+      "types": "./dist/operation-definition.d.ts",
+      "import": "./dist/operation-definition.js",
+      "default": "./dist/operation-definition.js"
     },
     "./operation-registry": {
       "types": "./dist/operation-registry.d.ts",
@@ -152,6 +172,16 @@
       "types": "./dist/provision-state.d.ts",
       "import": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
+    },
+    "./process-sweep": {
+      "types": "./dist/process-sweep.d.ts",
+      "import": "./dist/process-sweep.js",
+      "default": "./dist/process-sweep.js"
+    },
+    "./systemd": {
+      "types": "./dist/systemd.d.ts",
+      "import": "./dist/systemd.js",
+      "default": "./dist/systemd.js"
     },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
@@ -203,6 +233,11 @@
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
+    "./invariant": {
+      "types": "./dist/invariant.d.ts",
+      "import": "./dist/invariant.js",
+      "default": "./dist/invariant.js"
+    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",
@@ -243,6 +278,21 @@
       "import": "./dist/runtime/page-tools-shared.js",
       "default": "./dist/runtime/page-tools-shared.js"
     },
+    "./runtime/client-rate-limit": {
+      "types": "./dist/runtime/client-rate-limit.d.ts",
+      "import": "./dist/runtime/client-rate-limit.js",
+      "default": "./dist/runtime/client-rate-limit.js"
+    },
+    "./runtime/request-log": {
+      "types": "./dist/runtime/request-log.d.ts",
+      "import": "./dist/runtime/request-log.js",
+      "default": "./dist/runtime/request-log.js"
+    },
+    "./runtime/user-data": {
+      "types": "./dist/runtime/user-data.d.ts",
+      "import": "./dist/runtime/user-data.js",
+      "default": "./dist/runtime/user-data.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -252,6 +302,16 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
+    },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
+    },
+    "./sitemap": {
+      "types": "./dist/sitemap.d.ts",
+      "import": "./dist/sitemap.js",
+      "default": "./dist/sitemap.js"
     },
     "./runtime/time-zone": {
       "types": "./dist/runtime/time-zone.d.ts",
@@ -313,6 +373,11 @@
       "import": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
     },
+    "./build/rolldown": {
+      "types": "./dist/build/rolldown.d.ts",
+      "import": "./dist/build/rolldown.js",
+      "default": "./dist/build/rolldown.js"
+    },
     "./build/scan-module": {
       "types": "./dist/build/scan-module.d.ts",
       "import": "./dist/build/scan-module.js",
@@ -347,6 +412,11 @@
       "types": "./dist/build/user-entry.d.ts",
       "import": "./dist/build/user-entry.js",
       "default": "./dist/build/user-entry.js"
+    },
+    "./build/revision": {
+      "types": "./dist/build/revision.d.ts",
+      "import": "./dist/build/revision.js",
+      "default": "./dist/build/revision.js"
     },
     "./build/vite": {
       "types": "./dist/build/vite.d.ts",
@@ -402,11 +472,12 @@
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "birpc": "catalog:runtime",
-    "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "magic-string": "^0.30.21",
+    "minimatch": "catalog:workspace",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
+    "resolve-pkg-maps": "^1.0.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {
@@ -414,6 +485,7 @@
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
+    "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
@@ -425,6 +497,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

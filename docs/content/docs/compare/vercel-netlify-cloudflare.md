@@ -44,7 +44,7 @@ the [Vercel Queues](/docs/guides/vercel-queues) and
 | Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Cron Jobs](https://vercel.com/docs/cron-jobs/usage-and-pricing) | All plans, 100 cron jobs per project. Hobby runs at most once per day, at any minute of the hour you set. Pro and Enterprise run as often as once per minute. | Vercel Cron Jobs output for static Schedules. |
-| Netlify | [Scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/) | All plans. 30-second run limit, UTC. Run only on published deploys. | One scheduled function per static Schedule, with `hubSchedule({ providerOutput: 'standalone' })`. |
+| Netlify | [Scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/) | All plans. 30-second run limit, UTC. Run only on published deploys. | One scheduled function per static Schedule. |
 | Cloudflare | [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | UTC. A Cron Trigger can run for 15 minutes of wall-clock time. | Cron trigger output. |
 
 ViteHub Schedule needs a five-field UTC cron string and does not retry a
@@ -55,7 +55,7 @@ failed run. Read [Schedule hosts](/docs/schedule/hosts) and the
 
 | Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
-| Vercel | [Vercel Blob](https://vercel.com/docs/storage) | All plans. Public or private stores. | `vercel-blob` with OIDC (`BLOB_STORE_ID`) or `BLOB_READ_WRITE_TOKEN`. |
+| Vercel | [Vercel Blob](https://vercel.com/docs/storage) | All plans. Public or private stores. | `vercel` with OIDC (`BLOB_STORE_ID`) or `BLOB_READ_WRITE_TOKEN`. |
 | Netlify | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) | Eventually consistent by default. Changes reach all edge locations within 60 seconds. Strong consistency is opt-in. 5 GB per object. | `netlify-blobs`. No provisioning step. |
 | Cloudflare | [R2](https://developers.cloudflare.com/r2/pricing/) | Bills storage and operations. Egress is free. | An R2 bucket named after the app, with the `BLOB` binding. ViteHub can provision it. |
 
@@ -98,7 +98,7 @@ Read [Sandbox hosts](/docs/sandbox/hosts) and
 | Host | Host limit | ViteHub Workflow default | ViteHub Agents |
 | --- | --- | --- | --- |
 | Vercel | [Functions](https://vercel.com/docs/functions/configuring-functions/duration) run for 300 seconds by default. The maximum is 300 seconds on Hobby and 800 seconds on Pro and Enterprise. Pro and Enterprise can set 1,800 seconds in beta. | Vercel Workflow | Agent routes in Vercel Build Output. Runs use Vercel Workflow by default. |
-| Netlify | [Synchronous functions](https://docs.netlify.com/build/functions/configuration/) stop after 60 seconds, a fixed limit. [Background functions](https://docs.netlify.com/build/functions/background-functions/) run for up to 15 minutes. | None. Set `workflow.provider` explicitly. | One `vitehub-agent` function. Agents run inline because `agent` alone does not turn on Workflow on Netlify. |
+| Netlify | [Synchronous functions](https://docs.netlify.com/build/functions/configuration/) stop after 60 seconds, a fixed limit. [Background functions](https://docs.netlify.com/build/functions/background-functions/) run for up to 15 minutes. | None. Set `workflow.driver` explicitly. | One `vitehub-agent` function. Agents run inline because `agent` alone does not turn on Workflow on Netlify. |
 | Cloudflare | [Workers](https://developers.cloudflare.com/workers/platform/limits/) get 10 ms of CPU time per request on Free. On Paid, the default is 30 seconds and the maximum is 5 minutes. HTTP requests have no hard wall-clock limit while the client stays connected. | Cloudflare Workflows | Agent routes in the Worker. Runs use Cloudflare Workflows by default. Agent State uses a Durable Object. |
 
 On Vercel and Netlify, Chat History that must survive a restart needs
@@ -122,8 +122,9 @@ Of these three hosts, only Cloudflare has a ViteHub provider for:
   fails the build on Vercel and Netlify.
 - Realtime uses Durable Objects on Cloudflare. Vercel and Netlify reject the
   `memory` provider.
-- Browser and `email: true` need the `cloudflare` host. On other hosts,
-  Email needs the Resend driver or a custom driver.
+- Browser needs the `cloudflare` host. `email: true` uses Cloudflare Email
+  there. On other hosts, a production build needs `email.driver`, such as
+  `resend`.
 
 ViteHub provisioning creates resources on Cloudflare and Vercel, not Netlify.
 Netlify Blobs needs no provisioning.
@@ -141,8 +142,8 @@ changes. To switch hosts:
 4. Run `pnpm build`, then `pnpm vitehub inspect output` to list the
    host files.
 5. On Cloudflare or Vercel, preview the resources with
-   `pnpm vitehub provision run --provider cloudflare --dry-run`, or with
-   `--provider vercel`. Read [Provisioning](/docs/development/provisioning).
+   `pnpm vitehub provision run --host cloudflare --dry-run`, or with
+   `--host vercel`. Read [Provisioning](/docs/development/provisioning).
 6. Move existing data with the provider's own tools. After the switch, new
    data goes to the new provider.
 
@@ -203,7 +204,7 @@ before you serve traffic.
 ::agent-only
 Use this page when a user asks which host to choose for a ViteHub app, or compares Vercel, Netlify, and Cloudflare for Vite apps or Agents.
 
-Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.provider`. On the `vercel` host, `rateLimit: true` fails the build.
+Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.driver`. On the `vercel` host, `rateLimit: true` fails the build.
 
 Vendor limits and prices change. Link the vendor source and give the date that you checked it.
 ::

@@ -27,7 +27,7 @@ const ownerPlugins: Record<string, { name: string, previousName?: string, packag
   workspace: { name: "hubWorkspace", package: "workspace" },
 }
 
-const configFunctions = new Set(["defineConfig", "defineNuxtConfig"])
+const configFunctions = new Set(["defineConfig", "defineNuxtConfig", "defineNitroConfig"])
 
 export interface OptionsMigration {
   code: string
@@ -37,7 +37,7 @@ export interface OptionsMigration {
 }
 
 /** The object of `defineConfig({...})`, `defineConfig(() => ({...}))`, `defineNuxtConfig({...})`, or `export default {...}`. */
-function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
+export function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
   const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
   if (!exported) return undefined
   let value = unwrapExpression(exported.declaration)
@@ -69,7 +69,7 @@ function findConfigRoot(program: File, followUps: FollowUp[], file: string): Obj
       })
       const returned = returns.length === 1 ? objectValue(returns[0]) : undefined
       if (!returned) {
-        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move logs into observability.logs by hand." })
+        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move observability.logs to the top-level logs key by hand." })
         return undefined
       }
       value = returned
@@ -85,6 +85,36 @@ function property(object: ObjectExpression, name: string): ObjectProperty | unde
 function objectValue(node: Node | undefined): ObjectExpression | undefined {
   const value = node ? unwrapExpression(node) : undefined
   return value?.type === "ObjectExpression" ? value : undefined
+}
+
+function nuxtEnvironmentOverrides(root: ObjectExpression): ObjectExpression[] {
+  return root.properties.flatMap((item) => {
+    if (item.type !== "ObjectProperty") return []
+    const name = keyName(item.key, item.computed)
+    const scope = objectValue(item.value)
+    if (!scope || !name?.startsWith("$")) return []
+    if (name !== "$env") return [scope]
+    return scope.properties.flatMap((entry) => {
+      const override = entry.type === "ObjectProperty" ? objectValue(entry.value) : undefined
+      return override ? [override] : []
+    })
+  })
+}
+
+function logsMode(node: Node): "capture" | "possibly-disabled" | "source" | undefined {
+  const value = unwrapExpression(node)
+  if (value.type === "BooleanLiteral") return value.value ? "capture" : "possibly-disabled"
+  if (value.type === "ObjectExpression") {
+    if (value.properties.some(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined)) return
+    return value.properties.some(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === "source") ? "source" : "capture"
+  }
+  if (value.type === "SequenceExpression") return logsMode(value.expressions.at(-1)!)
+  if (value.type === "ConditionalExpression") {
+    const left = logsMode(value.consequent)
+    const right = logsMode(value.alternate)
+    if (left === right) return left
+    if (left && right && left !== "source" && right !== "source") return "possibly-disabled"
+  }
 }
 
 /** Value imports of the expected API, checked against each call's lexical binding. */
@@ -122,23 +152,26 @@ function reindent(text: string, from: string, to: string): string {
  * Moves the vite-hub options of a config file. `findRoots` selects other config objects, such as the inline configs of
  * a test file. Without it, the file's default export is the config.
  */
-export function migrateViteHubOptions(file: string, code: string, findRoots?: (program: File) => ObjectExpression[]): OptionsMigration {
+/**
+ * `findOptions` selects the options objects traced from a config that imports this file.
+ */
+export function migrateViteHubOptions(file: string, code: string, findOptions?: (program: File) => ObjectExpression[]): OptionsMigration {
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
-  if (!code.includes("vite-hub") && !code.includes("hubEnv")) return unchanged
+  if (!findOptions && !/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
   let program: File
   try {
-    program = parseProgram(code)
+    program = parseProgram(code, { jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) })
   }
   catch {
     return unchanged
   }
-  const defaultRoot = findConfigRoot(program, followUps, file)
-  const roots = findRoots ? findRoots(program) : defaultRoot ? [defaultRoot] : []
-  if (!roots[0]) return unchanged
+  const importedOptions = findOptions?.(program)
+  const root = importedOptions ? importedOptions[0] : findConfigRoot(program, followUps, file)
+  if (!root) return unchanged
   const nuxt = basename(file).startsWith("nuxt.config")
-  const editor = new ConfigEditor({ code, fileName: file, path: file, program, root: roots[0] })
+  const editor = new ConfigEditor({ code, fileName: file, path: file, program, root })
   const resolveBinding = bindingResolver(program)
   const removed = new Set<Node>()
   const additions = new Map<ObjectExpression, string[]>()
@@ -153,22 +186,42 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     removed.add(node)
     changed = true
   }
+  /** Renames the `from` key of a vite-hub options object to `to`, and keeps its value. */
+  const renameKey = (options: ObjectExpression, from: string, to: string, conflict: string) => {
+    const item = property(options, from)
+    if (!item) return
+    if (property(options, to)) {
+      follow(item, conflict)
+      return
+    }
+    // A shorthand `{ preset }` and a computed `{ ["preset"]: ... }` key both need the whole property rewritten.
+    if (item.shorthand || item.computed) editor.output.overwrite(start(item), end(item), `${to}: ${text(item.value)}`)
+    else editor.output.overwrite(start(item.key), end(item.key), to)
+    changed = true
+  }
 
-  for (const root of roots) {
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
-  const optionObjects: ObjectExpression[] = []
+  const optionObjects: ObjectExpression[] = importedOptions ?? []
+  const environmentOptions: ObjectExpression[] = []
   const emptyCalls: Array<Node & { type: "CallExpression" }> = []
-  if (nuxt) {
+  if (!importedOptions && nuxt) {
     const key = objectValue(property(root, "vitehub")?.value)
     if (key) optionObjects.push(key)
     const entry = findViteHubEntry({ code, fileName: file, path: file, program, root })
     const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
     if (inline) optionObjects.push(inline)
+    for (const scope of nuxtEnvironmentOverrides(root)) {
+      const options = objectValue(property(scope, "vitehub")?.value)
+      if (options) environmentOptions.push(options)
+      const entry = findViteHubEntry({ code, fileName: file, path: file, program, root: scope })
+      const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
+      if (inline) environmentOptions.push(inline)
+    }
   }
-  else {
+  else if (!importedOptions) {
     const names = importedNames(program, ["vite-hub"], "vitehub")
     const local = callsOf(root, names, resolveBinding)
-    for (const call of local.length || findRoots ? local : callsOf(program, names, resolveBinding)) {
+    for (const call of local.length ? local : callsOf(program, names, resolveBinding)) {
       const [argument] = call.arguments
       const options = objectValue(argument)
       if (options) optionObjects.push(options)
@@ -176,59 +229,87 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     }
   }
 
-  for (const options of optionObjects) {
+  for (const options of new Set([...optionObjects, ...environmentOptions])) {
+    renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
+    const sandbox = property(options, "sandbox")
+    const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
+    if (sandbox && sandboxValue?.type === "BooleanLiteral") {
+      if (!sandboxValue.value) remove(sandbox)
+      else renameKey(options, "sandbox", "sandboxTask", "Both sandbox and sandboxTask are set. Remove sandbox.")
+    }
+    else if (sandbox) follow(sandbox, "sandbox is now sandboxTask. Move these options into sandboxTask by hand.")
+    const devtools = property(options, "devtools")
+    if (devtools) {
+      remove(devtools)
+      notes.push(`${file}: removed devtools. Use the ViteHub Console with console: true.`)
+    }
+    const cloudflare = property(options, "cloudflare")
+    if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)
       notes.push(`${file}: removed contentImportBase. ViteHub always imports Content from vite-hub/content.`)
     }
-    const logs = property(options, "logs")
-    if (!logs) continue
-    const logsValue = unwrapExpression(logs.value)
-    if (logsValue.type === "BooleanLiteral" && !logsValue.value) {
-      remove(logs)
-      continue
-    }
+    // `logs` is a top-level key: `observability.logs` moves out to it, and an old `logs.evlog` goes to `observability.evlog`.
     const observability = property(options, "observability")
     const observabilityValue = observability ? unwrapExpression(observability.value) : undefined
     const observabilityObject = objectValue(observability?.value)
-    const logsObject = objectValue(logs.value)
+    const logs = property(options, "logs")
+    const nestedLogs = observabilityObject ? property(observabilityObject, "logs") : undefined
+    if (observability && observabilityObject && nestedLogs) {
+      if (logs) {
+        follow(nestedLogs, "Both logs and observability.logs are set. Merge observability.logs into logs by hand.")
+        continue
+      }
+      const mode = logsMode(nestedLogs.value)
+      const onlyLogs = observabilityObject.properties.length === 1
+      const service = property(observabilityObject, "service")
+      const serviceValue = service && unwrapExpression(service.value)
+      const hasService = serviceValue?.type === "StringLiteral" && Boolean(serviceValue.value)
+      if (!mode || observabilityObject.properties.some(item => item.type === "SpreadElement") || (mode === "source" && !onlyLogs && !hasService)) {
+        follow(nestedLogs, "Move observability.logs to logs by hand. Keep observability to preserve Evlog when capture is disabled; omit or disable observability for a read-only source that did not run Evlog.")
+        continue
+      }
+      const parenStart = nestedLogs.value.extra?.parenStart
+      const value = code.slice(typeof parenStart === "number" ? parenStart : start(nestedLogs.value), end(nestedLogs))
+      const indent = indentAt(code, start(observability))
+      const logsText = `logs: ${reindent(value, indentAt(code, start(nestedLogs)), indent)}`
+      const separator = text(options).includes("\n") ? `,\n${indent}` : ", "
+      if (onlyLogs) editor.output.overwrite(start(observability), end(observability), mode === "possibly-disabled" ? `observability: true${separator}${logsText}` : logsText)
+      else {
+        editor.output.appendLeft(end(observability), `${separator}${logsText}`)
+        remove(nestedLogs)
+      }
+      changed = true
+      continue
+    }
+    if (observability && !observabilityObject && /\blogs\s*:/u.test(text(observability.value))) {
+      follow(observability, "observability is an expression, so the codemod cannot move its logs. Move observability.logs to the top-level logs key by hand.")
+    }
+    const logsObject = objectValue(logs?.value)
     const evlog = logsObject ? property(logsObject, "evlog") : undefined
-    if (evlog && observabilityObject && property(observabilityObject, "evlog")) {
-      follow(logs, "Both logs.evlog and observability.evlog are set. Merge logs.evlog into observability.evlog, then move logs into observability.logs.")
+    if (!logs || !logsObject || !evlog) continue
+    if (observabilityObject && property(observabilityObject, "evlog")) {
+      follow(logs, "Both logs.evlog and observability.evlog are set. Merge logs.evlog into observability.evlog by hand.")
       continue
     }
-    if (observabilityObject && property(observabilityObject, "logs")) {
-      follow(logs, "observability.logs is already set. Merge the logs option into it by hand.")
+    if (observability && !observabilityObject && !(observabilityValue?.type === "BooleanLiteral" && observabilityValue.value)) {
+      follow(logs, "observability is not an object literal. Move logs.evlog into observability.evlog by hand.")
       continue
     }
-    if (!logsObject && logsValue.type !== "BooleanLiteral") {
-      follow(logs, "logs is an expression, so the codemod cannot move it. Move it into observability.logs by hand, and move any evlog options in it to observability.evlog.")
-      continue
-    }
-    // `logs.evlog` becomes `observability.evlog`. The other `logs` options stay under `observability.logs`.
-    const rest = logsObject?.properties.filter(item => item !== evlog) ?? []
-    const logsText = !evlog ? text(logs.value) : rest.length ? `{ ${rest.map(text).join(", ")} }` : "true"
-    const entries = [...(evlog ? [text(evlog)] : []), `logs: ${logsText}`]
-    if (!observability) {
-      editor.output.overwrite(start(logs), end(logs), `observability: { ${entries.join(", ")} }`)
+    if (!observability) insertProperties(options, [`observability: { ${text(evlog)} }`])
+    else if (observabilityObject) insertProperties(observabilityObject, [text(evlog)])
+    else if (observabilityValue) editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${text(evlog)} }`)
+    // `logs.evlog` becomes `observability.evlog`. The other `logs` options stay.
+    if (logsObject.properties.length === 1) {
+      editor.output.overwrite(start(logs.value), end(logs.value), "true")
       changed = true
     }
-    else if (observabilityObject) {
-      insertProperties(observabilityObject, entries)
-      remove(logs)
-    }
-    else if (observabilityValue?.type === "BooleanLiteral" && observabilityValue.value) {
-      editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${entries.join(", ")} }`)
-      remove(logs)
-    }
-    else {
-      follow(logs, "observability is not an object literal. Move logs into observability.logs by hand.")
-    }
+    else remove(evlog)
   }
 
-  // Env declarations: the top-level Vite `env` key, or `vite.env` in a Nuxt config, move into the Env options.
-  const viteObject = nuxt ? objectValue(property(root, "vite")?.value) : root
+  // Only a config root, not an imported options object, can contain legacy top-level Vite keys.
+  const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
   const envProperty = viteObject ? property(viteObject, "env") : undefined
   if (envProperty && viteObject) {
     const envValue = unwrapExpression(envProperty.value)
@@ -236,7 +317,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     const sourceIndent = indentAt(code, start(envProperty))
     const hubEnvNames = importedNames(program, ["@vite-hub/env/vite", "vite-hub/env/vite"], "hubEnv")
     const localHubEnvCalls = callsOf(root, hubEnvNames, resolveBinding)
-    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length || findRoots ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
+    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
     const viteHubTargets = optionObjects.length + emptyCalls.length
     const moveInto = (target: ObjectExpression, nested: boolean): boolean => {
       const targetEnv = nested ? property(target, "env") : undefined
@@ -311,9 +392,8 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
       const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
-      const frameworkOption = key !== "sandboxTask" || value.type === "BooleanLiteral"
       // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
-      if (key !== "vitehub" && frameworkOption && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
+      if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
         insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)
       }
@@ -322,16 +402,12 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
         remove(item)
       }
       else {
-        follow(item, !frameworkOption
-          ? "Sandbox Task accepts only a boolean in vitehub() and vite-hub/nuxt. Move these options into hubSandboxTask() by hand, and set sandboxTask: false in the framework options if it is enabled."
-          : nuxt
+        follow(item, nuxt
           ? `vite.${key} is no longer read. Set ${key} in the vite-hub/nuxt options.`
           : `The top-level Vite ${key} key is no longer read. Move it into vitehub({ ${key} }), or pass it to the feature's plugin.`)
       }
     }
   }
-  }
-
   for (const [object, entries] of additions) editor.insertProperties(object, entries, removed)
   return changed ? { code: editor.output.toString(), changed, followUps, notes } : unchanged
 }

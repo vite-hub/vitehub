@@ -13,6 +13,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleDevelopment, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { consoleTestKey } from "./support/console-signature.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http"
 import type { SetupCommandRunner } from "@vite-hub/cli/setup"
@@ -198,12 +199,20 @@ describe("dev Setup endpoints", () => {
   it("refuses browser Setup writes when the Console takes only signed calls", async () => {
     const running = await start()
     const before = await readFile(join(running.root, "vite.config.ts"), "utf8")
-    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
-    const headers = auth(running)
-    const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
-    const { planId } = JSON.parse(planned.body) as { planId: string }
-    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
-    expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
+    // With a key, a dev server with console: true takes only signed calls. Without one, it answers this machine.
+    const { env } = await consoleTestKey()
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    try {
+      installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
+      const headers = auth(running)
+      const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
+      const { planId } = JSON.parse(planned.body) as { planId: string }
+      expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
+      expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("connects the Console client without Fetch Metadata", async () => {
@@ -252,6 +261,14 @@ describe("dev Setup endpoints", () => {
       expect(await send(running.port, "GET", "session", { host, origin: "https://console.vitehub.dev", "x-vitehub-setup": "session" }, undefined, networkAddress)).toMatchObject({ status: 403 })
       expect((await send(running.port, "OPTIONS", "session", { host, origin: "https://console.vitehub.dev", "access-control-request-method": "GET" }, undefined, networkAddress)).headers).not.toHaveProperty("access-control-allow-origin")
     }
+  })
+
+  it("answers a request body above 64 KiB with 400 and the size code", async () => {
+    const running = await start()
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["setup:read"] }) })
+    const response = await send(running.port, "POST", "plan", auth(running), { action: "add", features: ["x".repeat(64 * 1024)] })
+    expect(response.status).toBe(400)
+    expect(JSON.parse(response.body)).toMatchObject({ error: { code: "CLI_R0003", message: "The request body is too large. The dev Setup endpoints accept at most 65536 bytes." } })
   })
 
   it("needs the token on every route except the session", async () => {

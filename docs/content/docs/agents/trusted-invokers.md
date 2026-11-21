@@ -24,7 +24,7 @@ Authenticate first. Then pass only checked identity facts:
 
 ```ts [server/api/support.post.ts] fragment
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
 ViteHub trusts this server value. Never copy unchecked request fields into
 `context.invoker`. The `finally` block finishes tracked background work when
 the host has no lifetime API. See
-[Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+[Runtime Context](/docs/runtime/context#background-work-and-cleanup).
 
 Without an Invoker, ViteHub uses an anonymous Invoker with the id
 `anonymous:<origin>`. A `chat.message` Trigger without `invoker` derives a

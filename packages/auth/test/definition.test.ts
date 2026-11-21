@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { defineAuth } from "../src/index.ts"
 
 describe("defineAuth", () => {
-  it("creates an Auth Definition with ViteHub placement metadata", () => {
+  it("creates an Auth Definition with ViteHub options", () => {
     const authorize = ({ user }: { user: Record<string, unknown> }) => user.isAdmin === true
     expect(defineAuth({
       appName: "ViteHub",
@@ -13,16 +13,13 @@ describe("defineAuth", () => {
           { authorize, method: "POST", route: "/app/actions" },
         ],
         signIn: {
-          callbackURL: "/app",
           errorCallbackURL: "/login?error=auth",
           provider: "github",
         },
+        afterSignIn: "/app",
       },
       basePath: "/auth",
-      database: { dedicated: true, name: "auth" },
       route: false,
-      runtime: () => ({ secret: "runtime-secret" }),
-      secondaryStorage: { store: "auth" },
     })).toEqual({
       options: {
         appName: "ViteHub",
@@ -32,16 +29,13 @@ describe("defineAuth", () => {
             { authorize, method: "POST", route: "/app/actions" },
           ],
           signIn: {
-            callbackURL: "/app",
             errorCallbackURL: "/login?error=auth",
             provider: "github",
           },
+          afterSignIn: "/app",
         },
         basePath: "/auth",
-        database: { dedicated: true, name: "auth" },
         route: false,
-        runtime: expect.any(Function),
-        secondaryStorage: { store: "auth" },
       },
     })
   })
@@ -70,12 +64,21 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ secrets: [{ value: "secret", version: 1 }] } as never)).toThrow(/resolved at runtime/)
   })
 
-  it("requires placement metadata to use own properties", () => {
-    const inheritedDatabase = Object.create({ name: "inherited-auth" })
-    const inheritedSecondaryStorage = Object.create({ store: "inherited-auth" })
+  it("accepts only authDatabase() as a static database", () => {
+    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "auth" })
+    expect(defineAuth({ database }).options.database).toBe(database)
+    for (const placement of [true, { name: "auth" }, { name: "auth", dedicated: true }, { dedicated: true }]) {
+      expect(() => defineAuth({ database: placement } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0021",
+        fix: expect.stringContaining("authDatabase('auth')"),
+      }))
+    }
+  })
 
-    expect(() => defineAuth({ database: inheritedDatabase } as never)).toThrow(/database.name/)
-    expect(() => defineAuth({ secondaryStorage: inheritedSecondaryStorage } as never)).toThrow(/secondaryStorage.store/)
+  it("rejects static secondary storage", () => {
+    for (const placement of [true, { store: "auth" }, { get: async () => null, set: async () => {}, delete: async () => {}, getAndDelete: async () => null, increment: async () => 1 }]) {
+      expect(() => defineAuth({ secondaryStorage: placement } as never)).toThrow(expect.objectContaining({ code: "AUTH_C0024" }))
+    }
   })
 
   it("rejects unsupported route, database, and secondary storage shapes", () => {
@@ -83,18 +86,65 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ basePath: "api/auth" } as never)).toThrow(/basePath must start/)
     expect(() => defineAuth({ basePath: "/" } as never)).toThrow(/basePath must resolve to a non-empty path/)
     expect(() => defineAuth({ basePath: "//" } as never)).toThrow(/basePath must resolve to a non-empty path/)
-    expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`, `true`/)
-    expect(() => defineAuth({ database: { dedicated: true } } as never)).toThrow(/database.name/)
-    expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database does not support/)
-    expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage must be `true`/)
-    expect(() => defineAuth({ secondaryStorage: {} } as never)).toThrow(/secondaryStorage.store/)
-    expect(() => defineAuth({ secondaryStorage: { driver: "kv" } } as never)).toThrow(/secondaryStorage does not support/)
-    expect(() => defineAuth({ runtime: "secret" } as never)).toThrow(/runtime must be an object or a function/)
+    expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`/)
+    expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database must be `authDatabase\(\)`/)
+    expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage takes only a Better Auth adapter/)
+  })
+
+  it("rejects the removed runtime option and shows the callback form", () => {
+    // `runtime.advanced` used to replace the whole static `advanced`, so `cookiePrefix` was lost without an error.
+    const removed = { advanced: { cookiePrefix: "acme" }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }
+    for (const runtime of [removed.runtime, { secret: "secret" }, "secret"]) {
+      expect(() => defineAuth({ ...removed, runtime } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0039",
+        fix: expect.stringContaining("defineAuth(({ env }) => ({"),
+      }))
+    }
+  })
+
+  it("accepts the Nuxt page guard map in access.pages", () => {
+    const pages = { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest", "/team/:id": "user", "/": false } as const
+    expect(defineAuth({ access: { pages } }).options.access).toEqual({ pages })
+  })
+
+  it.each([
+    [{ "dashboard/**": "user" }, '"dashboard/**": "user"'],
+    [{ "/admin/**": "admin" }, '"/admin/**": "admin"'],
+    [{ "/account": "user", "/account/:id?": false }, '"/account/:id?": false'],
+    [{ "/account/:id": "user", "/account/:id/:tab?": false }, '"/account/:id/:tab?": false'],
+    [{ "/p/:path+": "user" }, '"/p/:path+": "user"'],
+    [{ "/p/:path*": "user" }, '"/p/:path*": "user"'],
+    [{ "/account{/:id}?": "user" }, '"/account{/:id}?": "user"'],
+    [{ "/files/:id(\\d+)": "user" }, '"/files/:id(\\\\d+)": "user"'],
+    [{ "/files/:id.json": "user" }, '"/files/:id.json": "user"'],
+    [{ "/docs/**:rest": false }, '"/docs/**:rest": false'],
+    [{ "/a/**/b": "user" }, '"/a/**/b": "user"'],
+    [{ "/a/": "user" }, '"/a/": "user"'],
+    [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
+    // Vue Router matches pages without case by default, so the key order would decide the mode.
+    [{ "/Dashboard": "user", "/dashboard": false }, '"/dashboard": false'],
+    [{ "/team/*": false }, '"/team/*": false'],
+    [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
+  ] as const)("rejects the access.pages entry in %j", (pages, entry) => {
+    expect(() => defineAuth({ access: { pages: pages as never } })).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining(entry) }))
+  })
+
+  it("keeps components.prefix and rejects any other components value", () => {
+    expect(defineAuth({ components: { prefix: "Custom" } }).options.components).toEqual({ prefix: "Custom" })
+    for (const components of [false, { prefix: "" }, { prefix: 1 }, { prefix: "Custom", global: true }]) {
+      expect(() => defineAuth({ components } as never)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+    }
   })
 
   it("rejects unsupported access config", () => {
     expect(() => defineAuth({ access: false } as never)).toThrow(/access must be an object/)
-    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be an object/)
+    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be a path or an object/)
+    expect(() => defineAuth({ access: { signIn: "login" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(() => defineAuth({ access: { signIn: "//evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(defineAuth({ access: { signIn: "/login", afterSignIn: "/dashboard" } }).options.access).toEqual({ signIn: "/login", afterSignIn: "/dashboard" })
+    expect(() => defineAuth({ access: { afterSignIn: "https://evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_AFTER_SIGN_IN_INVALID" }))
+    expect(() => defineAuth({ access: { pages: ["/dashboard/**"] } } as never)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+    expect(() => defineAuth({ access: { signIn: { provider: "github", callbackURL: "/app" } } } as never)).toThrow(expect.objectContaining({ code: "AUTH_SIGN_IN_CALLBACK_URL_MOVED" }))
     expect(() => defineAuth({ access: { signIn: { provider: "" } } } as never)).toThrow(/access\.signIn\.provider/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", requestSignUp: "yes" } } } as never)).toThrow(/requestSignUp/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", scopes: ["read:org", 1] } } } as never)).toThrow(/scopes/)

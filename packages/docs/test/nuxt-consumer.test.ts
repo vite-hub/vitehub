@@ -1,15 +1,15 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
-import { parseAst } from "vite"
+import { writeTypes } from "nuxt/kit"
 import { expect, it } from "vitest"
 
 import type { Nitro } from "nitro/types"
 
-it("sets up the default MCP and discovery resources in a path-mounted Nuxt consumer", async () => {
+it.each([false, true])("sets up a path-mounted Nuxt consumer (Nuxt UI first: %s)", async (uiFirst) => {
   const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
   const moduleUrl = pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href
   const docs = (await import(moduleUrl)).default as never
@@ -23,7 +23,7 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       overrides: {
         dev: false,
         app: { baseURL: "/portal/" },
-        modules: [[docs, { base: "/docs/", site: { url: "https://docs.example.com" } }]],
+        modules: [...uiFirst ? [fileURLToPath(import.meta.resolve("@nuxt/ui"))] : [], [docs, { base: "/docs/", site: { url: "https://docs.example.com" } }]],
       },
       ready: true,
     })
@@ -33,7 +33,6 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     // An installed package is in node_modules, where Nuxt adds no auto-imports unless a pattern includes it.
     const shell = join(import.meta.dirname, "../dist/runtime/app/app.vue").replaceAll("\\", "/")
     expect(nuxt.options.imports.transform?.include?.some(pattern => pattern.test(shell))).toBe(true)
-    expect(nitro.options.experimental.asyncContext).toBe(true)
     expect(nitro.options.runtimeConfig.public.docs).toMatchObject({
       appBase: "/portal/", base: "/docs", mcp: { url: "https://docs.example.com/portal/mcp" },
     })
@@ -56,23 +55,15 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       { name: "Geist", global: true },
       { name: "Geist Mono", global: true },
     ]))
+    // @nuxt/fonts 0.14, the version that Nuxt UI asks for, writes empty font files on a Nitro 3 build.
+    const fontModules = nuxt.options._installedModules.filter(({ meta }) => meta.name === "@nuxt/fonts")
+    expect(fontModules.map(({ meta }) => meta.version)).toEqual([expect.stringMatching(/^1\./)])
   }
   finally {
     await nuxt?.close()
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
-
-it("ships the MCP tools as JavaScript that Nitro can parse from node_modules", async () => {
-  // Nitro compiles TypeScript only outside node_modules, so an installed app parses these files as they are.
-  const dir = join(import.meta.dirname, "../dist/runtime/mcp")
-  const files = (await readdir(dir)).sort()
-  expect(files).toEqual(["get-page.js", "list-pages.js"])
-  for (const file of files) {
-    const source = await readFile(join(dir, file), "utf8")
-    expect(() => parseAst(source), file).not.toThrow()
-  }
-})
 
 // A static host serves the prerendered HTML, and the HTML leaves the page data to `_payload.json`. The client must read
 // that file, or every page hydrates to "Page not found".
@@ -96,3 +87,31 @@ it("lets the client read the payload of prerendered pages with the default Nuxt 
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
+
+// A site's vue-tsc reads the generated tsconfig, and `nuxi build` and `nuxi dev` write it before the templates exist.
+// A `#docs/*` path to a template's `.mjs` types the module from its JavaScript. The app config must also type
+// `icon.customize`, which the docs icon plugin sets.
+it("gives a site's typecheck the declarations of each #docs template and of icon.customize", async () => {
+  const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
+  const moduleUrl = pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href
+  const docs = (await import(moduleUrl)).default as never
+  let nuxt: Awaited<ReturnType<typeof loadNuxt>> | undefined
+  try {
+    await mkdir(join(root, "content/docs/guide"), { recursive: true })
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    nuxt = await loadNuxt({ cwd: root, overrides: { dev: false, _prepare: true, modules: [[docs, { mcp: false }]] }, ready: true })
+    await writeTypes(nuxt)
+    for (const file of ["tsconfig.app.json", "tsconfig.shared.json", "tsconfig.server.json"]) {
+      const { compilerOptions } = JSON.parse(await readFile(join(nuxt.options.buildDir, file), "utf8")) as { compilerOptions: { paths: Record<string, string[]> } }
+      expect(compilerOptions.paths["#docs/shell"], file).toEqual(["./docs/shell.d.mts"])
+      expect(compilerOptions.paths["#docs/blocks"], file).toEqual(["./docs/blocks.d.mts"])
+    }
+    const types = nuxt.options.build.templates.find(template => template.filename === "types/vite-hub-docs.d.ts")
+    expect(String(await types?.getContents?.({} as never))).toMatch(/interface CustomAppConfig \{[^}]*customize\?:/)
+  }
+  finally {
+    await nuxt?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)

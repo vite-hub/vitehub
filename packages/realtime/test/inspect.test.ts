@@ -23,10 +23,10 @@ async function project(files: Record<string, string>): Promise<string> {
 }
 
 describe("Realtime inspection", () => {
-  it("describes adapters, codecs, access, persistence, and authority without executing definitions", async () => {
+  it("describes adapters, codecs, access, persistence, and driver without executing definitions", async () => {
     const root = await project({
       "server/realtime/docs.ts": `import { defineRealtime } from "vite-hub/realtime"
-export default defineRealtime({ auth: true, document: { workspace: "docs" }, history: { checkpoint: true } })
+export default defineRealtime({ authorize: true, document: { workspace: "docs" }, history: { checkpoint: true } })
 `,
       "server/realtime/content.ts": `import { defineRealtime } from "vite-hub/realtime"
 import { contentDocument, contentEditor } from "./content-adapter"
@@ -41,12 +41,12 @@ export default defineRealtime({
 `,
     })
 
-    const summaries = await inspectRealtimeDefinitions({ authority: "memory", projectRoot: root })
+    const summaries = await inspectRealtimeDefinitions({ driver: "memory", projectRoot: root })
     const fields = Object.fromEntries(summaries.map(summary => [summary.name, Object.fromEntries(summary.fields.map(field => [field.label, field.value]))]))
 
     expect(fields.docs).toEqual({
-      Authority: "memory: one Node process, rooms lost on restart",
-      Authorization: "every connection may read and write",
+      Driver: "memory: one Node process, rooms lost on restart",
+      Authorization: "every identified user",
       Document: "Workspace \"docs\" (Markdown file per path)",
       Editor: "built-in Markdown kit",
       History: "history.checkpoint() enabled",
@@ -54,7 +54,7 @@ export default defineRealtime({
       Persistence: "idle save after 2000 ms (at most 10000 ms) and when the last client leaves",
     })
     expect(fields.content).toEqual({
-      Authority: "memory: one Node process, rooms lost on restart",
+      Driver: "memory: one Node process, rooms lost on restart",
       Authorization: "authorize() per document and mode",
       Document: "custom adapter (contentDocument())",
       Editor: "custom codec (contentEditor)",
@@ -64,18 +64,52 @@ export default defineRealtime({
     })
   })
 
-  it("reports the resolved Durable Object authority through the plugin inspector", async () => {
+  it("describes a definition without a document", async () => {
+    const root = await project({
+      "server/realtime/presence.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ authorize: () => true, document: false })
+`,
+    })
+
+    const [summary] = await inspectRealtimeDefinitions({ driver: "memory", projectRoot: root })
+
+    expect(Object.fromEntries(summary!.fields.map(field => [field.label, field.value]))).toEqual({
+      Driver: "memory: one Node process, rooms lost on restart",
+      Authorization: "authorize() per room, read only",
+      Document: "none: presence only, nothing stored",
+      Identity: "ViteHub Auth session when signed in",
+    })
+  })
+
+  it("shows public access and a definition that sets no access rule", async () => {
+    const root = await project({
+      "server/realtime/open.ts": `import { defineRealtime } from "vite-hub/realtime"
+export default defineRealtime({ access: "public", document: { workspace: "docs" } })
+`,
+      "server/realtime/unset.ts": `export default { document: false }`,
+    })
+
+    const summaries = await inspectRealtimeDefinitions({ driver: "memory", projectRoot: root })
+    const authorization = Object.fromEntries(summaries.map(summary => [summary.name, summary.fields.find(field => field.label === "Authorization")?.value]))
+
+    expect(authorization).toEqual({
+      open: "public: anyone may read and write",
+      unset: "missing: the server rejects this definition",
+    })
+  })
+
+  it("reports the resolved Durable Object driver through the plugin inspector", async () => {
     const root = await project({
       "server/realtime/docs.ts": `export default { document: { workspace: "docs" }, persistence: false }`,
     })
-    const plugin = hubRealtime({ authority: "cloudflare", projectRoot: root })
+    const plugin = hubRealtime({ driver: "cloudflare", projectRoot: root })
     const config = { nitro: { preset: "cloudflare-module" }, root }
     await (plugin.config as (config: object, environment: object) => Promise<void>)(config, { command: "serve", mode: "development" })
     const contributor = typeof plugin.vitehub.inspect === "function" ? await plugin.vitehub.inspect() : plugin.vitehub.inspect
     const [summary] = await contributor!.definitions![0]!.list()
 
     expect(summary!.fields).toEqual(expect.arrayContaining([
-      { label: "Authority", value: "cloudflare: one Durable Object per document, Yjs state in SQLite" },
+      { label: "Driver", value: "cloudflare: one Durable Object per document, Yjs state in SQLite" },
       { label: "Persistence", value: "explicit saves only" },
     ]))
   })

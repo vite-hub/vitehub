@@ -39,7 +39,7 @@ export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord
         { label: "Page", value: page },
         ...(anchor.kind === "element" ? [{ label: "Anchor", value: anchor.field ? `Content field ${anchor.field}` : anchor.label ?? anchor.selector }] : []),
         ...describeCommentContext(thread.context ?? null),
-        ...(thread.resolvedBy ? [{ label: "Resolved by", value: author(thread.resolvedBy) }] : []),
+        ...(thread.resolvedBy ? [{ label: "Resolved by", value: `${thread.resolvedActor ? `${thread.resolvedActor.name ?? thread.resolvedActor.id} for ` : ""}${author(thread.resolvedBy)}` }] : []),
       ],
     }
   })

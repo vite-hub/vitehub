@@ -29,11 +29,19 @@ export interface ChannelsVitePluginAPI {
   refresh: () => DiscoveredChannelDefinition[]
 }
 
-export type ChannelsVitePlugin = Plugin & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
+export type ChannelsVitePlugin = Plugin<ChannelsVitePluginAPI> & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
 
 export interface ChannelInspectionOptions {
   projectRoot: string
   serverDirs?: string[]
+}
+
+/**
+ * The first Channel that receives webhooks, with `webhook()` or `stripe()`. The Agent package serves those webhooks, so
+ * `vitehub()` turns it on for this Channel.
+ */
+export function findWebhookChannel(options: ChannelInspectionOptions): DiscoveredChannelDefinition | undefined {
+  return discoverChannelDefinitions({ rootDir: options.projectRoot, serverDirs: options.serverDirs }).find(definition => receivesChannelWebhooks(definition.handler))
 }
 
 /** Lists Channel Definitions as serializable inspection summaries. */
@@ -140,7 +148,7 @@ export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
       const configuredServerDirs = Object.hasOwn(config, VITEHUB_SERVER_DIRS)
         ? (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
         : undefined
-      serverDirs = configuredServerDirs ?? serverDirs
+      serverDirs = options.projectRoot ? undefined : configuredServerDirs ?? serverDirs
       if (hasNitroConfigContext(config)) {
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })
@@ -157,7 +165,7 @@ export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
       await refreshGeneratedFiles()
       const inbound = definitions.find(definition => receivesChannelWebhooks(definition.handler))
       if (inbound && !config.plugins?.some(plugin => plugin.name === agentVitePluginName)) {
-        throw channelsErrorDiagnostics.CHANNELS_B0001({ message: `[vitehub] The Channel "${inbound.name}" receives webhooks, which the Agent webhook route serves. Set \`agent: true\` next to \`channels: true\` in vitehub(), and install @vite-hub/agent.` })
+        throw channelsErrorDiagnostics.CHANNELS_WEBHOOK_HOST_OFF({ channel: inbound.name })
       }
     },
     configEnvironment(name, config) {

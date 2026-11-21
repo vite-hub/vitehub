@@ -10,14 +10,18 @@
     "test": "vp run --cache -t @vite-hub/console#build && vp test"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
-    "vite-hub": "workspace:*"
+    "nostics": "catalog:runtime",
+    "vite-hub": "workspace:*",
+    "zod": "catalog:runtime"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
@@ -30,6 +34,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }

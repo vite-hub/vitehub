@@ -9,7 +9,7 @@ import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, mayUseRemoteLibsql
 import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
-import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesSqlite } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { CollectedDatabaseContributions } from "../contributions.ts"
@@ -51,7 +51,7 @@ export function usesRemoteLibsql(runtimeConfig: ResolvedDBViteConfig): boolean {
   })
 }
 
-function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, provider: DBProvider) {
+function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, provider: DBProvider, shippedMigrations?: string) {
   const imports = runtimeConfig.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     `import schema_${index}, { relations as relations_${index} } from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
@@ -70,14 +70,15 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, 
     chunkParametersImport: createImportPath(file, resolveRuntimeModule("runtime/chunk-parameters")),
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
+    postgresConnectionImport: createImportPath(file, resolveRuntimeModule("runtime/postgres-connection")),
     ensureMigrationsImport: createImportPath(file, resolveRuntimeModule("runtime/migrate-on-start")),
     imports: [
       ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
-      ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
+      ...renderPostgresRuntimeImports(runtimeConfig, module => createImportPath(file, resolveRuntimeModule(module))),
       "",
       ...imports,
     ],
-    migrations: { unsupported: `The build targets ${provider}.` },
+    migrations: shippedMigrations ? { import: createImportPath(file, shippedMigrations) } : { unsupported: `The build targets ${provider}.` },
     useDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/use-database")),
   })
 }
@@ -111,6 +112,8 @@ export async function writeHostedDatabaseRuntimeModules(
   generatedDir: string,
   runtimeConfig: ResolvedDBViteConfig,
   providers: readonly DBProvider[] = ["cloudflare", "vercel"],
+  /** The shipped migrations module of a Node build whose Databases use D1 over HTTP. Hosted builds ship none. */
+  shippedMigrations?: string,
 ) {
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
   const normalizedRuntimeConfig = { ...runtimeConfig, definitionDefaults }
@@ -120,7 +123,7 @@ export async function writeHostedDatabaseRuntimeModules(
     writeFile(definitionDefaultsFile, `export default ${serializeGeneratedRegistry(definitionDefaults)}\n`, "utf8"),
     ...providers.map(async (provider) => {
       const file = resolve(generatedDir, `${provider}-runtime.mjs`)
-      await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig, provider), "utf8")
+      await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig, provider, shippedMigrations), "utf8")
     }),
   ])
   return definitionDefaultsFile
@@ -175,7 +178,8 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    if (database?.dialect === "postgresql") return !hasConfigValue(database.connection?.url)
+    // A Vercel Function runs on Node, so postgres.js reads the PG* variables when the Definition has no `connection.url`.
+    if (database?.dialect === "postgresql") return false
     const hasD1Http = Boolean(database?.cloudflare?.http)
       && hasConfigValue(database.cloudflare?.databaseId)
     return !hasD1Http

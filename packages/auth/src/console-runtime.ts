@@ -1,9 +1,14 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
-import { defineErrors, type Result } from "@vite-hub/runtime";
+import { createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
+import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
+import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent";
 import { adminClaimPluginId } from "./admin-claim.ts";
 import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
+import { accessPolicyPluginId } from "./access-policy.ts";
+import { membersVariable } from "./members.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
 import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
@@ -27,6 +32,8 @@ import type {
   AuthConsolePolicy,
   AuthConsoleQuery,
   AuthConsoleRoles,
+  AuthConsoleHostSession,
+  AuthConsoleHostUserInput,
   AuthConsoleSession,
   AuthConsoleSessionUser,
   AuthConsoleUser,
@@ -75,14 +82,26 @@ export interface AuthConsole {
   saveVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Take a value that `saveVerification()` kept. Of two calls at the same time, one gets it. `null` when it is gone or expired. */
   consumeVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
-  /** Read a value that `saveVerification()` kept, without taking it. `null` when it is gone or expired. */
-  readVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
-  /** The live values whose identifier starts with `prefix`, at most 1,000. Hosts use it for records that a person lists, such as Console page passes. */
+  /** The live values whose identifier starts with `prefix`, at most 1,000. Hosts use it for values that a person lists, such as Console invites. */
   listVerifications(prefix: string): Promise<Result<{ identifier: string; value: string; expiresAt: Date }[], AuthConsoleErrorCode>>;
-  /** Replace the value and the expiry of a kept value. */
-  updateVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Delete a kept value. Deleting a value that is gone does nothing. */
   deleteVerification(identifier: string): Promise<Result<void, AuthConsoleErrorCode>>;
+  /**
+   * The user that a host signs in without a password, such as a Console member or a guest that a member invited, with
+   * `roles` added to the comma-separated `user.role` of Better Auth's `admin()` plugin. With `email`, an existing user
+   * with that verified email keeps their account and gets the roles, and an unverified one is refused; without it, a new
+   * user gets a placeholder email. Needs `admin()` and a
+   * database. Better Auth runs the app's `databaseHooks.user.create` for a new user.
+   */
+  hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
+  /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */
+  hostSession(userId: string, request: Request): Promise<Result<Headers, AuthConsoleErrorCode>>;
+  /** The live sessions of the users that hold one of `roles`, newest first. */
+  hostSessions(roles: readonly string[]): Promise<Result<AuthConsoleHostSession[], AuthConsoleErrorCode>>;
+  /** End one session. Answers its user, or a 404 for a session that is gone. */
+  revokeHostSession(id: string): Promise<Result<{ userId: string; roles: string[] }, AuthConsoleErrorCode>>;
+  /** Delete a user with their sessions and accounts. */
+  removeHostUser(userId: string): Promise<Result<void, AuthConsoleErrorCode>>;
 }
 
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
@@ -171,33 +190,23 @@ const permissions: Record<Exclude<AuthConsoleAction, "revokeConsent">, Record<st
   impersonate: { user: ["impersonate"] },
 };
 
-class AuthConsoleError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "AuthConsoleError";
-  }
-}
-
 const errors = defineErrors({
   docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     AUTH_CONSOLE_INVALID_REQUEST: {
-      why: "The Auth Console request does not match its field or pagination contract.",
+      why: ({ detail }: { detail?: string }) => detail ?? "The Auth Console request does not match its field or pagination contract.",
       fix: "Use a declared field value and a limit from 1 to 100.",
     },
     AUTH_CONSOLE_FORBIDDEN: {
-      why: "The app policy or Better Auth session does not permit this action.",
+      why: ({ detail }: { detail?: string }) => detail ?? "The app policy or Better Auth session does not permit this action.",
       fix: "Check describe(request) for the disabled action reason and use an app admin session.",
     },
     AUTH_CONSOLE_NOT_FOUND: {
-      why: "The requested Auth record or plugin is not available.",
+      why: ({ detail }: { detail?: string }) => detail ?? "The requested Auth record or plugin is not available.",
       fix: "Refresh the list and check the Auth Definition's plugins.",
     },
     AUTH_CONSOLE_UNAVAILABLE: {
-      why: "Auth does not have the database or plugin API needed for this operation.",
+      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database or plugin API needed for this operation.",
       fix: "Configure a database adapter and the required Better Auth plugin.",
     },
     AUTH_CONSOLE_PROVIDER_FAILED: {
@@ -212,22 +221,30 @@ export type AuthConsoleErrorCode =
   | "AUTH_CONSOLE_NOT_FOUND"
   | "AUTH_CONSOLE_UNAVAILABLE"
   | "AUTH_CONSOLE_PROVIDER_FAILED";
+/**
+ * The Result error of a refused Auth Console call. `detail` names the reason, and becomes the message of a client error.
+ * A provider failure keeps the reason in `cause`, for the server log only.
+ */
+function authConsoleError(status: number, detail: string): ResultError<AuthConsoleErrorCode> {
+  const code =
+    status === 400
+      ? "AUTH_CONSOLE_INVALID_REQUEST"
+      : status === 401 || status === 403
+        ? "AUTH_CONSOLE_FORBIDDEN"
+        : status === 404
+          ? "AUTH_CONSOLE_NOT_FOUND"
+          : status === 409
+            ? "AUTH_CONSOLE_UNAVAILABLE"
+            : undefined;
+  return code ? errors[code]({ detail }) : errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause: detail });
+}
+
 async function result<T>(run: () => Promise<T>): Promise<Result<T, AuthConsoleErrorCode>> {
   try {
     return [undefined, await run()];
   } catch (cause) {
-    const status = cause instanceof AuthConsoleError ? cause.status : 500;
-    const code =
-      status === 400
-        ? "AUTH_CONSOLE_INVALID_REQUEST"
-        : status === 401 || status === 403
-          ? "AUTH_CONSOLE_FORBIDDEN"
-          : status === 404
-            ? "AUTH_CONSOLE_NOT_FOUND"
-            : status === 409
-              ? "AUTH_CONSOLE_UNAVAILABLE"
-              : "AUTH_CONSOLE_PROVIDER_FAILED";
-    return [errors[code]({ cause }), undefined];
+    if (errors.is(cause)) return [cause, undefined];
+    return [errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause }), undefined];
   }
 }
 
@@ -241,7 +258,7 @@ function pagination(query: AuthConsoleQuery): { offset: number; limit: number } 
     limit < 1 ||
     limit > 100
   )
-    throw new AuthConsoleError(400, "Use a non-negative offset and a limit from 1 to 100.");
+    throw authConsoleError(400, "Use a non-negative offset and a limit from 1 to 100.");
   return { offset, limit };
 }
 
@@ -275,7 +292,7 @@ export function describeAuthConsoleFields(
   const fields: AuthConsoleField[] = [];
   for (const key of Object.keys(policy.fields ?? {})) {
     if (!Object.hasOwn(options.user?.additionalFields ?? {}, key))
-      throw new AuthConsoleError(400, `The Console field ${key} is not an additional user field.`);
+      throw authConsoleError(400, `The Console field ${key} is not an additional user field.`);
   }
   for (const [key, field] of Object.entries(options.user?.additionalFields ?? {})) {
     if (field.returned === false) continue;
@@ -303,7 +320,7 @@ export function describeAuthConsoleFields(
       fields.some((field) => field.key === key) ||
       Object.hasOwn(options.user?.additionalFields ?? {}, key)
     )
-      throw new AuthConsoleError(400, `The computed column ${key} conflicts with a user field.`);
+      throw authConsoleError(400, `The computed column ${key} conflicts with a user field.`);
     fields.push({
       key,
       label: column.label,
@@ -331,6 +348,17 @@ function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   return [`${adminsVariable} gives the ${role} role to ${admins.join(", ")} on sign-in.`];
 }
 
+/** The `VITEHUB_MEMBERS` rule as an access note, so the Console shows who may sign in. */
+function membersAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === accessPolicyPluginId)?.options;
+  const members: unknown = options && typeof options === "object" ? Reflect.get(options, "members") : undefined;
+  if (!Array.isArray(members) || !members.length) return [];
+  // Emails name people, so the note counts them and lists only accounts, domains, and organizations.
+  const emails = members.filter((entry) => typeof entry === "string" && /^[^@]+@/.test(entry)).length;
+  const listed = [...(emails ? [`${emails} ${emails === 1 ? "email" : "emails"}`] : []), ...members.filter((entry) => typeof entry === "string" && !/^[^@]+@/.test(entry))];
+  return [`${membersVariable} lets only ${listed.join(", ")}, and the admins, sign up and sign in.`];
+}
+
 /** The `VITEHUB_ADMIN_CLAIM` rule as an access note. */
 function adminClaimAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   const options: unknown = plugins?.find((plugin) => plugin.id === adminClaimPluginId)?.options;
@@ -343,7 +371,7 @@ export function createAuthConsole(
     api: object;
     $context: Promise<
       { adapter: ConsoleAdapter; options: BetterAuthOptions } &
-      Partial<Pick<AuthContext, "authCookies" | "internalAdapter" | "secret">>
+      Partial<Pick<AuthContext, "authCookies" | "internalAdapter" | "secret" | "sessionConfig">>
     >;
   },
   policy: AuthConsoleOptions = {},
@@ -371,23 +399,23 @@ export function createAuthConsole(
       !session || session.userId !== user.id ||
       !(new Date(date(session.expiresAt)).getTime() > Date.now()) || !string(session.token)
     )
-      throw new AuthConsoleError(401, "Auth changes need the OAuth user's live login session.");
+      throw authConsoleError(401, "Auth changes need the OAuth user's live login session.");
     if (session.impersonatedBy)
-      throw new AuthConsoleError(403, "An impersonation session cannot run bearer Auth changes.");
+      throw authConsoleError(403, "An impersonation session cannot run bearer Auth changes.");
     return await sessionRequest(request, session);
   }
   /** The newest live app session of the app user with this email that is not an impersonation. */
   async function actorSession(value: string): Promise<Row> {
     // Without a database, Better Auth keeps users nowhere and sessions only in cookies, so there is no account to act as.
     if (!(await context()).options.database)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         409,
         "Auth changes from the Console run as your app account with one of its stored sessions, and this app keeps sessions only in cookies. Configure a Better Auth database.",
       );
     const email = value.trim().toLowerCase();
     const user = email ? await find("user", equality("email", email)) : null;
     if (!user)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         403,
         `No app user has the email of your Console account${email ? `, ${email}` : ""}. Auth changes run as your app account, so sign up to the app with that email and give it an admin role.`,
       );
@@ -395,7 +423,7 @@ export function createAuthConsole(
       .filter((row) => !row.impersonatedBy && string(row.token) && new Date(date(row.expiresAt)).getTime() > Date.now())
       .sort((left, right) => new Date(date(right.createdAt)).getTime() - new Date(date(left.createdAt)).getTime())[0];
     if (!session)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         401,
         `Auth changes run as your app account, ${email}, with one of its app sessions, and it has none. Sign in to the app as ${email}, then try again.`,
       );
@@ -408,9 +436,27 @@ export function createAuthConsole(
   async function storedSessions(userId: string): Promise<Row[]> {
     const ctx = await context();
     if (!ctx.internalAdapter)
-      throw new AuthConsoleError(409, "The Auth provider cannot resolve the acting app session.");
+      throw authConsoleError(409, "The Auth provider cannot resolve the acting app session.");
     const rows: unknown = await ctx.internalAdapter.listSessions(userId);
     return Array.isArray(rows) ? rows.map(record) : [];
+  }
+  async function hostSessionById(id: string): Promise<Row | null> {
+    const ctx = await context();
+    if (!ctx.options.secondaryStorage)
+      return await find("session", equality("id", id));
+    // Secondary storage is indexed by token and user, not public session ID. Resolve the
+    // ID through Better Auth without returning a token to the Console browser.
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const users = await ctx.adapter.findMany<Row>({
+        model: "user", offset, limit, sortBy: { field: "id", direction: "asc" },
+      });
+      for (const user of users) {
+        const session = (await storedSessions(string(user.id))).find((row) => string(row.id) === id);
+        if (session) return session;
+      }
+      if (users.length < limit) return null;
+    }
   }
   /**
    * The acting request for a check that only reads, such as whether the actor may impersonate a user. Without an app
@@ -420,7 +466,7 @@ export function createAuthConsole(
     try {
       return await actingRequest(request);
     } catch (cause) {
-      if (host.actor && cause instanceof AuthConsoleError && cause.status < 500) return undefined;
+      if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED") return undefined;
       throw cause;
     }
   }
@@ -428,14 +474,8 @@ export function createAuthConsole(
   async function sessionRequest(request: Request, session: Row): Promise<Request> {
     const ctx = await context();
     if (!ctx.authCookies || !ctx.secret)
-      throw new AuthConsoleError(409, "The Auth provider cannot resolve the acting app session.");
-    // Better Auth signs its session cookie with HMAC-SHA256.
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw", encoder.encode(ctx.secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-    );
-    const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(string(session.token))));
-    const signed = encodeURIComponent(`${string(session.token)}.${btoa(String.fromCharCode(...signature))}`);
+      throw authConsoleError(409, "The Auth provider cannot resolve the acting app session.");
+    const signed = await signedSessionToken(ctx.secret, string(session.token));
     const headers = new Headers(request.headers);
     headers.delete("authorization");
     headers.set("cookie", `${ctx.authCookies.sessionToken.name}=${signed}`);
@@ -467,8 +507,10 @@ export function createAuthConsole(
   ): Promise<unknown> {
     const run = endpoint(name);
     if (!run)
-      throw new AuthConsoleError(409, "The required Better Auth plugin endpoint is not installed.");
-    return await run({ headers: request.headers, body, asResponse });
+      throw authConsoleError(409, "The required Better Auth plugin endpoint is not installed.");
+    // The session middleware of the endpoint reads the actor's session. The Console never sends that session's cookies
+    // to anyone, so a renewal would extend the session in the database while the actor's browser keeps the old cookie.
+    return await run({ headers: request.headers, body, query: { disableRefresh: true }, asResponse });
   }
   /** The stored app session of the request, without a cookie cache read or a refresh write. */
   async function appSession(request: Request): Promise<{ session: Row; user: Row } | null> {
@@ -555,7 +597,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
+      access: [...(policy.access ?? []), ...membersAccess(ctx.options.plugins), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [
@@ -614,8 +656,7 @@ export function createAuthConsole(
     let input: AuthEventListInput;
     try {
       if (query.group !== undefined && !Object.hasOwn(authConsoleEventGroups, query.group))
-        // Internal invariant: the catch below returns a 400 for it.
-        throw new TypeError("Unknown auth event group.");
+        throw authConsoleError(400, "Invalid auth activity filters or cursor.");
       input = parseAuthEventList({
         type: query.group ? authConsoleEventGroups[query.group] : undefined,
         userId: query.userId,
@@ -623,7 +664,7 @@ export function createAuthConsole(
         limit: query.limit ?? 25,
       }).query;
     } catch {
-      throw new AuthConsoleError(400, "Invalid auth activity filters or cursor.");
+      throw authConsoleError(400, "Invalid auth activity filters or cursor.");
     }
     if (!events) return { enabled: false, events: [] };
     const page = await events.list(input);
@@ -724,7 +765,7 @@ export function createAuthConsole(
   async function adapter(): Promise<ConsoleAdapter> {
     const ctx = await context();
     if (!ctx.options.database)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         409,
         "Configure a Better Auth database adapter to inspect stored Auth data.",
       );
@@ -767,9 +808,9 @@ export function createAuthConsole(
   async function users(query: AuthConsoleQuery = {}): Promise<AuthConsoleList<AuthConsoleUser>> {
     pagination(query);
     if (query.search && query.search.length > 200)
-      throw new AuthConsoleError(400, "Search must have at most 200 characters.");
+      throw authConsoleError(400, "Search must have at most 200 characters.");
     if (query.filter && !["all", "admins", "banned", "agents"].includes(query.filter))
-      throw new AuthConsoleError(400, "Unknown user filter.");
+      throw authConsoleError(400, "Unknown user filter.");
     const where: Where[] = [];
     const { ctx, oauth, mcp } = await features();
     if (query.filter === "banned") where.push({ field: "banned", value: true });
@@ -919,7 +960,7 @@ export function createAuthConsole(
           user: userSummary(
             (await find("user", equality("id", string(row.userId)))) ?? { id: row.userId },
           ),
-          device: authConsoleDevice(string(row.userAgent)),
+          device: userAgentDevice(string(row.userAgent)),
           createdAt: date(row.createdAt),
           expiresAt: date(row.expiresAt),
           updatedAt: date(row.updatedAt),
@@ -930,7 +971,7 @@ export function createAuthConsole(
   async function agents(query: AuthConsoleQuery = {}): Promise<AuthConsoleList<AuthConsoleAgent>> {
     const { oauth, mcp } = await features();
     if (!oauth && !mcp)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         404,
         "Enable the OAuth provider or MCP plugin to inspect approved clients.",
       );
@@ -977,7 +1018,7 @@ export function createAuthConsole(
     query: AuthConsoleQuery = {},
   ): Promise<AuthConsoleList<AuthConsoleOrganization>> {
     if (!(await features()).organization)
-      throw new AuthConsoleError(404, "Enable the Better Auth organization plugin.");
+      throw authConsoleError(404, "Enable the Better Auth organization plugin.");
     const rows = await list("organization", query);
     return { ...rows, items: rows.items.map(organizationRow) };
   }
@@ -986,9 +1027,9 @@ export function createAuthConsole(
     query: AuthConsoleQuery = {},
   ): Promise<AuthConsoleOrganizationDetail> {
     if (!(await features()).organization)
-      throw new AuthConsoleError(404, "Enable the Better Auth organization plugin.");
+      throw authConsoleError(404, "Enable the Better Auth organization plugin.");
     const row = await find("organization", equality("id", id));
-    if (!row) throw new AuthConsoleError(404, "Organization not found.");
+    if (!row) throw authConsoleError(404, "Organization not found.");
     const [members, invitations] = await Promise.all([
       list("member", query, equality("organizationId", id)),
       list("invitation", query, [
@@ -1020,7 +1061,7 @@ export function createAuthConsole(
   }
   async function user(id: string, request?: Request): Promise<AuthConsoleUserDetail> {
     const row = await find("user", equality("id", id));
-    if (!row) throw new AuthConsoleError(404, "User not found.");
+    if (!row) throw authConsoleError(404, "User not found.");
     const { oauth, mcp, organization } = await features();
     const [enriched, sessionRows, accounts, agentRows, memberships, target] = await Promise.all([
       enrichUsers([row]),
@@ -1065,28 +1106,28 @@ export function createAuthConsole(
   async function authorize(input: AuthConsoleMutation, request: Request) {
     // The impersonation cookies belong to the browser. The acting session of a signed call is not the browser's.
     if (input.action === "impersonate" && host.actor)
-      throw new AuthConsoleError(403, "Impersonation needs the browser's app session. Open it with a one-time link from the Console.");
+      throw authConsoleError(403, "Impersonation needs the browser's app session. Open it with a one-time link from the Console.");
     const description = await describe(request);
     if (!description.actions[input.action]?.enabled)
-      throw new AuthConsoleError(
+      throw authConsoleError(
         403,
         description.actions[input.action]?.reason ?? "Action not supported.",
       );
     if (input.action === "editField") {
       const field = description.fields.find((field) => field.key === input.field);
       if (!field?.edit.enabled || field.computed)
-        throw new AuthConsoleError(403, field?.edit.reason ?? "Field not editable.");
+        throw authConsoleError(403, field?.edit.reason ?? "Field not editable.");
       if (input.value === null ? field.required : valueFor(input.value, field) === null)
-        throw new AuthConsoleError(400, "The value does not match the declared field type.");
+        throw authConsoleError(400, "The value does not match the declared field type.");
       if (field.values && input.value !== null && !field.values.includes(String(input.value)))
-        throw new AuthConsoleError(400, "Choose one of the declared field values.");
+        throw authConsoleError(400, "Choose one of the declared field values.");
     }
     // Better Auth checks only the stored role of the target, so the Console checks the computed one.
     if (input.action === "impersonate" && readRoles) {
       const target = await find("user", equality("id", input.userId));
       const allowed = target ? await impersonationTarget(target, request) : { enabled: true };
       if (!allowed.enabled)
-        throw new AuthConsoleError(403, allowed.reason ?? "Action not supported.");
+        throw authConsoleError(403, allowed.reason ?? "Action not supported.");
     }
     return actionGrant.issue(input.action);
   }
@@ -1096,7 +1137,7 @@ export function createAuthConsole(
     grant: ReturnType<typeof actionGrant.issue>,
   ): Promise<Response> {
     if (actionGrant.consume(grant) !== input.action)
-      throw new AuthConsoleError(403, "The action grant does not match.");
+      throw authConsoleError(403, "The action grant does not match.");
     let name: string;
     let body: Row;
     switch (input.action) {
@@ -1105,7 +1146,7 @@ export function createAuthConsole(
           input.expiresIn !== undefined &&
           (!Number.isSafeInteger(input.expiresIn) || input.expiresIn <= 0)
         )
-          throw new AuthConsoleError(400, "Ban expiry must be a positive number of seconds.");
+          throw authConsoleError(400, "Ban expiry must be a positive number of seconds.");
         name = endpoints.ban;
         body = { userId: input.userId, banReason: input.reason, banExpiresIn: input.expiresIn };
         break;
@@ -1119,32 +1160,29 @@ export function createAuthConsole(
         break;
       case "revokeSession": {
         const session = await find("session", equality("id", input.id));
-        if (!session) throw new AuthConsoleError(404, "Session not found.");
+        if (!session) throw authConsoleError(404, "Session not found.");
         name = endpoints.revokeSession;
         body = { sessionToken: string(session.token) };
         break;
       }
       case "revokeConsent":
-        throw new AuthConsoleError(409, "Better Auth has no admin API to revoke this grant.");
+        throw authConsoleError(409, "Better Auth has no admin API to revoke this grant.");
       default:
         name = endpoints[input.action];
         body = { userId: input.userId };
     }
-    const session = record(
-      await endpoint("getSession")!({
-        headers: request.headers,
-        query: { disableCookieCache: true },
-      }),
-    );
-    const actorId = string(record(session.user).id);
+    // The read only checks who acts. Like `appSession()`, it does not renew the session: this route sends only the cookies
+    // of the action, so a renewal here would extend the session in the database and drop its new cookie.
+    const actor = await appSession(request);
+    const actorId = string(actor?.user.id);
     if (!actorId)
-      throw new AuthConsoleError(401, "Sign in with an app session to run this action.");
+      throw authConsoleError(401, "Sign in with an app session to run this action.");
     const result = await call(name, request, body, true);
     if (!(result instanceof Response))
-      throw new AuthConsoleError(502, "Better Auth returned an invalid action response.");
+      throw authConsoleError(502, "Better Auth returned an invalid action response.");
     if (!result.ok) {
       const failure = record(await result.json().catch(() => ({})));
-      throw new AuthConsoleError(
+      throw authConsoleError(
         result.status,
         string(failure.message) || "Better Auth rejected the action.",
       );
@@ -1180,20 +1218,97 @@ export function createAuthConsole(
   async function verifications() {
     const ctx = await context();
     if (!ctx.options.database || isAuthProcessMemoryDatabase(ctx.options.database) || !ctx.internalAdapter)
-      throw new AuthConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
+      throw authConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
     return ctx.internalAdapter;
+  }
+  /** The Better Auth context for host users and sessions: `admin()` keeps the roles, a database keeps the rest. */
+  async function hostContext() {
+    const ctx = await context();
+    if (!ctx.options.database || !ctx.internalAdapter || !ctx.authCookies || !ctx.secret || !ctx.sessionConfig)
+      throw authConsoleError(409, "Signing a browser in from the Console needs a Better Auth database.");
+    if (!ctx.options.plugins?.some((plugin) => plugin.id === "admin"))
+      throw authConsoleError(409, "Site access keeps permissions as roles of Better Auth's admin() plugin. Add admin() from better-auth/plugins to the plugins of defineAuth().");
+    return { ...ctx, internalAdapter: ctx.internalAdapter, authCookies: ctx.authCookies, secret: ctx.secret, sessionConfig: ctx.sessionConfig };
+  }
+  async function hostUser(input: AuthConsoleHostUserInput): Promise<{ id: string; roles: string[] }> {
+    const ctx = await hostContext();
+    const email = input.email?.trim().toLowerCase();
+    const existing = email ? await find("user", equality("email", email)) : null;
+    // Anyone can sign up with an email they do not own. Only a verified address proves that the account is this person's.
+    if (existing && existing.emailVerified !== true)
+      throw authConsoleError(403, `The app has an account with ${email}, and its email is not verified. Verify the email of that account, or delete the account, then open the site again.`);
+    if (existing) {
+      const owned = new Set(input.owned ?? []);
+      const kept = roleList(existing.role || string(adminPlugin(ctx.options).settings.defaultRole) || "user").filter((role) => !owned.has(role));
+      const roles = [...new Set([...kept, ...input.roles])];
+      await ctx.internalAdapter.updateUser(string(existing.id), { role: roles.join(",") });
+      return { id: string(existing.id), roles };
+    }
+    const roles = [...new Set(input.roles)];
+    const user = await ctx.internalAdapter.createUser(
+      {
+        email: email || `guest-${crypto.randomUUID()}@guests.invalid`,
+        // The host vouches for the email of its member, so the next sign-in from the host adopts this account.
+        emailVerified: Boolean(email),
+        name: input.name,
+        ...(input.image ? { image: input.image } : {}),
+        role: roles.join(","),
+      },
+      { method: "admin" },
+    );
+    return { id: user.id, roles };
+  }
+  async function hostSession(userId: string, request: Request): Promise<Headers> {
+    const ctx = await hostContext();
+    // In an endpoint context, Better Auth writes the cookies of a normal sign-in: the name prefix, the attributes, and
+    // the cookie cache with its chunks. It also reads the address and the user agent of the session from the request.
+    const signIn = createAuthEndpoint.serverOnly({ method: "POST" }, async (endpoint) => {
+      const user = await endpoint.context.internalAdapter.findUserById(userId);
+      if (!user) throw authConsoleError(404, "User not found.");
+      const session = await endpoint.context.internalAdapter.createSession(userId);
+      await setSessionCookie(endpoint, { session, user }, false);
+    });
+    const { headers } = await signIn({ context: ctx, headers: request.headers, returnHeaders: true });
+    return new Headers(headers.getSetCookie().map((cookie) => ["set-cookie", cookie]));
+  }
+  async function hostSessions(roles: readonly string[]): Promise<AuthConsoleHostSession[]> {
+    const ctx = await hostContext();
+    const holders = await ctx.adapter.findMany<Row>({
+      model: "user",
+      where: roles.map((role) => ({ field: "role", operator: "contains", value: role, connector: "OR" })),
+      limit: 1000,
+    });
+    const now = Date.now();
+    const rows = await Promise.all(
+      holders
+        .filter((user) => roleList(user.role).some((role) => roles.includes(role)))
+        .map(async (user) =>
+          (await storedSessions(string(user.id)))
+            .filter((session) => new Date(date(session.expiresAt)).getTime() > now)
+            .map((session) => ({
+              id: string(session.id),
+              user: userSummary(user),
+              roles: roleList(user.role),
+              device: userAgentDevice(string(session.userAgent)),
+              createdAt: date(session.createdAt),
+              updatedAt: date(session.updatedAt),
+              expiresAt: date(session.expiresAt),
+            })),
+        ),
+    );
+    return rows.flat().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
   async function stopImpersonating(request: Request): Promise<Response> {
     if (host.bearer)
-      throw new AuthConsoleError(403, "Impersonation needs the browser's app session.");
+      throw authConsoleError(403, "Impersonation needs the browser's app session.");
     if (!host.impersonation)
-      throw new AuthConsoleError(403, "Impersonation is off in the Console configuration.");
+      throw authConsoleError(403, "Impersonation is off in the Console configuration.");
     const response = await call("stopImpersonating", request, undefined, true);
     if (!(response instanceof Response))
-      throw new AuthConsoleError(502, "Better Auth returned an invalid action response.");
+      throw authConsoleError(502, "Better Auth returned an invalid action response.");
     if (!response.ok) {
       const failure = record(await response.json().catch(() => ({})));
-      throw new AuthConsoleError(
+      throw authConsoleError(
         response.status,
         string(failure.message) || "Better Auth could not stop the impersonation.",
       );
@@ -1212,7 +1327,7 @@ export function createAuthConsole(
           acting = await actingRequest(request);
         } catch (cause) {
           // A signed Console person without an app account or a live session can still read. The actions say why not.
-          if (host.actor && cause instanceof AuthConsoleError && cause.status < 500)
+          if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED")
             return await describe(undefined, cause.message);
           throw cause;
         }
@@ -1239,16 +1354,10 @@ export function createAuthConsole(
       }),
     consumeVerification: (identifier) =>
       result(async () => (await (await verifications()).consumeVerificationValue(identifier))?.value ?? null),
-    readVerification: (identifier) =>
-      result(async () => {
-        const found = await (await verifications()).findVerificationValue(identifier);
-        return found && new Date(found.expiresAt).getTime() > Date.now() ? found.value : null;
-      }),
     listVerifications: (prefix) =>
       result(async () => {
         await verifications();
-        const ctx = await context();
-        const rows = await ctx.adapter.findMany<{ identifier: string; value: string; expiresAt: Date | string }>({
+        const rows = await (await context()).adapter.findMany<{ identifier: string; value: string; expiresAt: Date | string }>({
           model: "verification",
           where: [{ field: "identifier", operator: "starts_with", value: prefix }],
           limit: 1000,
@@ -1258,38 +1367,42 @@ export function createAuthConsole(
           .map((row) => ({ identifier: row.identifier, value: row.value, expiresAt: new Date(row.expiresAt) }))
           .filter((row) => row.expiresAt.getTime() > now);
       }),
-    updateVerification: (identifier, value, expiresAt) =>
-      result(async () => {
-        await (await verifications()).updateVerificationByIdentifier(identifier, { value, expiresAt });
-      }),
     deleteVerification: (identifier) =>
       result(async () => {
         await (await verifications()).deleteVerificationByIdentifier(identifier);
       }),
+    hostUser: (input) => result(() => hostUser(input)),
+    hostSession: (userId, request) => result(() => hostSession(userId, request)),
+    hostSessions: (roles) => result(() => hostSessions(roles)),
+    revokeHostSession: (id) =>
+      result(async () => {
+        const ctx = await hostContext();
+        const session = await hostSessionById(id);
+        if (!session) throw authConsoleError(404, "No session has this id. It ended, or someone revoked it.");
+        await ctx.internalAdapter.deleteSession(string(session.token));
+        const owner = await find("user", equality("id", string(session.userId)));
+        return { userId: string(session.userId), roles: roleList(owner?.role) };
+      }),
+    removeHostUser: (userId) =>
+      result(async () => {
+        const ctx = await hostContext();
+        await ctx.internalAdapter.deleteUserSessions(userId);
+        await ctx.internalAdapter.deleteAccounts(userId);
+        await ctx.internalAdapter.deleteUser(userId);
+      }),
   };
 }
 
-/** A short device label. The full user agent is never returned to the browser. */
-function authConsoleDevice(userAgent: string): string {
-  const browser = /Edg\//.test(userAgent)
-    ? "Edge"
-    : /Firefox\//.test(userAgent)
-      ? "Firefox"
-      : /Chrome\//.test(userAgent)
-        ? "Chrome"
-        : /Safari\//.test(userAgent)
-          ? "Safari"
-          : "Unknown browser";
-  const os = /iPhone|iPad/.test(userAgent)
-    ? "iOS"
-    : /Android/.test(userAgent)
-      ? "Android"
-      : /Windows/.test(userAgent)
-        ? "Windows"
-        : /Macintosh/.test(userAgent)
-          ? "macOS"
-          : /Linux/.test(userAgent)
-            ? "Linux"
-            : "Unknown device";
-  return `${browser} · ${os}`;
+/** The value of Better Auth's session cookie for a token: the token and its HMAC-SHA256 signature. */
+async function signedSessionToken(secret: string, token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token)));
+  return encodeURIComponent(`${token}.${btoa(String.fromCharCode(...signature))}`);
 }
+
+/** The roles of `admin()`'s comma-separated `user.role`. */
+function roleList(value: unknown): string[] {
+  return string(value).split(",").map((role) => role.trim()).filter(Boolean);
+}
+

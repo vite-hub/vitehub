@@ -11,7 +11,6 @@ import {
   readViteHubConsoleActionFailure,
   readViteHubConsoleSection,
   resolveViteHubConsoleSectionPages,
-  viteHubConsoleDocumentActionNames,
 } from "../src/console.ts"
 
 import type { ViteHubConsoleSectionContribution } from "../src/console.ts"
@@ -81,8 +80,17 @@ describe("Console section contributions", () => {
     expect(describeViteHubConsoleRuntimeReader(auth)).toBeUndefined()
   })
 
+  it("describes a Webhooks section without build-time data", async () => {
+    const webhooks: ViteHubConsoleSectionContribution = {
+      id: "webhooks", label: "Webhooks", icon: "i-vitehub-webhooks", description: "Operate webhooks.",
+      view: { kind: "webhooks", notice: "The list comes from the webhooks.* operations." },
+    }
+    expect(describeViteHubConsoleSection(webhooks).view).toEqual({ kind: "webhooks", notice: "The list comes from the webhooks.* operations." })
+    await expect(readViteHubConsoleSection(webhooks, undefined)).resolves.toEqual({ kind: "webhooks" })
+  })
+
   it("rejects ids that are not route segments", () => {
-    expect(() => describeViteHubConsoleSection({ ...table, id: "Widget Runs" })).toThrow(TypeError)
+    expect(() => describeViteHubConsoleSection({ ...table, id: "Widget Runs" })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 
   it("reads content that matches the view kind", async () => {
@@ -117,8 +125,8 @@ describe("Console section contributions", () => {
   })
 
   it("rejects runtime readers that the host cannot import safely", () => {
-    expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read", module: "./local.ts" } })).toThrow(TypeError)
-    expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read-records", module: "@vite-hub/widget" } })).toThrow(TypeError)
+    expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read", module: "./local.ts" } })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
+    expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read-records", module: "@vite-hub/widget" } })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 
   it("describes a document editor without its entry finder or actions", async () => {
@@ -145,8 +153,7 @@ describe("Console section contributions", () => {
     expect(describeViteHubConsoleRuntimeReader(editor)).toBeUndefined()
     // Collections are read from the owner actions on each request.
     await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
-    expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(TypeError)
-    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "resolve", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"])
+    expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 
   it("describes section pages with one index page and resolves their required sections", () => {

@@ -1,14 +1,32 @@
 import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
-import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
-import { version } from "../../../version.ts"
+import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAccess } from "./access.ts"
+import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
 declare global {
   interface ImportMeta {
     viteHubConsoleOperationSections?: readonly string[]
+  }
+}
+
+/** What the production build of the app recorded about its source. A development server has none. */
+export interface ConsoleProjectBuild {
+  /** When the build ran, as an ISO time. */
+  time: string
+  /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
+  commit?: {
+    sha: string
+    /** The first line of the commit message. */
+    message?: string
+    /** The name of the commit author, without the email. */
+    author?: string
+    branch?: string
+    /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
+    repository?: string
   }
 }
 
@@ -20,14 +38,24 @@ export interface ConsoleProject {
   name?: string
   /** The `vite-hub` version that the app runs. */
   vitehub: string
+  /** The production build that serves this answer. */
+  build?: ConsoleProjectBuild
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
   operations: string[]
+  /**
+   * What the Console page shows in its rail and Overview, the answer of `sections.list`, so the page opens the project
+   * with one call. The CLI and the ViteHub MCP do not get it.
+   */
+  navigation?: ConsoleSectionsResponse
 }
 
-/** Describe the project for one Console access. `console.authorize` limits the sections and the operations. */
-export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
+/**
+ * Describe the project for one Console access. `console.authorize` limits the sections and the operations. With
+ * `navigation`, the answer also has the sections that the Console page shows.
+ */
+export async function readConsoleProject(access: ConsoleAccess, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
@@ -35,7 +63,11 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
+    // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
+    .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }
+  const build = getConsoleBuild()
+  const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }

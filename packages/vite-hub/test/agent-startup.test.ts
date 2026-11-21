@@ -44,28 +44,47 @@ interface WorkflowBinding {
 }
 
 /**
- * Build an app with one Agent for Cloudflare. `runtime` is the source of the Agent's `runtime` option, if any.
- * `driver` is the source of its `run` Driver.
+ * Build an app with one Agent for Cloudflare. `driver` is the source of its `run` Driver.
  */
-async function buildCloudflareAgentApp({ driver, runtime }: { driver: string[], runtime?: string }): Promise<CloudflareAgentApp> {
+async function buildCloudflareAgentApp({ driver, workflow }: { driver: string[], workflow?: true }): Promise<CloudflareAgentApp> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-startup-"))
   await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
   await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
   await mkdir(join(root, "server/agents"), { recursive: true })
   await writeFile(join(root, "server/agents/hello.ts"), [
     "import { defineAgent } from \"vite-hub/agent\"",
-    "import { webChat } from \"vite-hub/agent/channels\"",
+    "import { webChat } from \"vite-hub/channels/adapters\"",
     "",
     "export default defineAgent({",
     "  channels: { web: webChat() },",
-    ...(runtime ? [`  runtime: ${runtime},`] : []),
     "  driver: {",
     ...driver.map(line => `    ${line}`),
     "  },",
     "})",
     "",
   ].join("\n"))
-  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare", agent: true })], root })
+  if (!workflow) {
+    await mkdir(join(root, "server/api"))
+    await writeFile(join(root, "server/api/run.post.ts"), `
+import { defineEventHandler, getQuery } from "h3"
+import { agentWorkflow, defineAgent, startAgentInvocation } from "vite-hub/agent"
+import { getRuntimeContext } from "vite-hub/runtime"
+import hello from "../agents/hello"
+
+const required = defineAgent({ runtime: agentWorkflow("required"), driver: { run: () => "unexpected" } })
+export default defineEventHandler(async (event) => {
+  const context = getRuntimeContext(event)
+  try {
+    const invocation = await startAgentInvocation(getQuery(event).required ? required : hello, context, { prompt: "ping" })
+    await context.flushWaitUntil()
+    return { id: invocation.id }
+  } catch (error) {
+    return { error: (error as Error).message }
+  }
+})
+`)
+  }
+  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare", agent: true, ...(workflow ? { workflow } : {}) })], root })
   await builder.buildApp()
 
   const server = join(root, ".output/server")
@@ -94,7 +113,7 @@ function startWorker(app: CloudflareAgentApp): Miniflare {
 }
 
 async function chat(worker: Miniflare): Promise<Response> {
-  return await worker.dispatchFetch("http://localhost/api/_vitehub/agents/hello/chat", {
+  return await worker.dispatchFetch("http://localhost/_vitehub/agents/hello/chat", {
     body: JSON.stringify({ id: "startup", messages: [{ id: "user-1", parts: [{ text: "ping", type: "text" }], role: "user" }] }),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -114,7 +133,6 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
       "  yield { type: \"finish\" as const }",
       "},",
     ],
-    runtime: "false",
   })
   let worker: Miniflare | undefined
   try {
@@ -130,6 +148,11 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
     const response = await chat(worker)
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("Hello from the Agent")
+    expect(app.wrangler.workflows ?? []).toEqual([])
+    const invocation = await worker.dispatchFetch("http://localhost/api/run", { method: "POST" })
+    expect(await invocation.json()).toEqual({ id: expect.any(String) })
+    const required = await worker.dispatchFetch("http://localhost/api/run?required=1", { method: "POST" })
+    expect(await required.json()).toEqual({ error: expect.stringContaining("workflow: true") })
   }
   finally {
     await worker?.dispose()
@@ -139,7 +162,7 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
 
 it("loads the Agent runtime of a Workflow Agent on its first run, not when the Worker exports the Workflow classes", async () => {
   // A Workflow Run returns JSON, so this Driver returns its reply instead of streaming it.
-  const app = await buildCloudflareAgentApp({ driver: ["run: () => \"Hello from the Agent\","] })
+  const app = await buildCloudflareAgentApp({ driver: ["run: () => \"Hello from the Agent\","], workflow: true })
   let worker: Miniflare | undefined
   try {
     expect(app.wrangler.workflows?.length).toBeGreaterThan(0)
@@ -160,10 +183,7 @@ it("loads the Agent runtime of a Workflow Agent on its first run, not when the W
     await expect.poll(async () => (await instance.status()).status, { interval: 100, timeout: 60_000 }).toMatch(/^(?:complete|errored|terminated)$/)
     const status = await instance.status()
     expect({ error: status.error, status: status.status }).toEqual({ error: undefined, status: "complete" })
-    // The Workflow stores the Agent's text reply as a portable Response.
-    const output = status.output as { body?: { data?: string }, status?: number }
-    expect(output.status).toBe(200)
-    expect(Buffer.from(output.body?.data ?? "", "base64").toString()).toBe("Hello from the Agent")
+    expect(status.output).toBe("Hello from the Agent")
   }
   finally {
     await worker?.dispose()

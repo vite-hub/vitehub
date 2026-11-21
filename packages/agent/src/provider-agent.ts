@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
 import { withProviderStatusError } from "./internal/provider-status-error.ts"
@@ -9,6 +11,9 @@ import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./in
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
+import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
+import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionCursorRecordKey } from "./internal/provider-session-cursor.ts"
@@ -26,8 +31,9 @@ import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path"
 
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
-import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
+import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace/internal/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
@@ -38,6 +44,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
+import { sourceSkillMounts } from "./internal/source-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
@@ -47,12 +54,16 @@ import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.t
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { agentSteeringInput } from "./internal/model-steering.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent, traceAgentInputAttachments } from "./trace.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, retainedUserMessages, selectedOutAttachments } from "./internal/input-attachments.ts"
+import type { InputAttachmentOrigin, InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -364,12 +375,17 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+// Every process of a host pass starts with this variable. Commands that leave the provider's
+// process group still have it, so the pass stops them when it ends.
+const providerPassEnvironmentKey = "VITEHUB_PROVIDER_PASS"
+
 // Credential-bearing Node and native processes must not accept startup loaders from driver.env.
 const chatgptLaunchEnvironmentKeys = new Set<string>([
   ...providerHostEnvironmentKeys,
+  providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
-  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_MCP_BEARER_TOKEN",
   "VITEHUB_BROWSER_ACTIVE",
   "AGENT_BROWSER_SESSION",
   "AGENT_BROWSER_SOCKET_DIR",
@@ -414,7 +430,14 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (value.onExit !== undefined && typeof value.onExit !== "function") {
     throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch onExit must be a function." })
   }
+  if (value.prepare !== undefined && typeof value.prepare !== "function") {
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch prepare must be a function." })
+  }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (typeof value.prepare === "function") {
+    // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
+    launch.prepare = value.prepare as AgentProviderLaunchCommand["prepare"]
+  }
   if (typeof value.onExit === "function") {
     // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
     launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
@@ -1333,6 +1356,9 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   context: AgentProviderCredentialContext<TRuntimeConfig>,
   inspectionOptions: { checkRequirements?: boolean } = {},
 ): Promise<AgentProviderStatus> {
+  // With VITEHUB_MODELS=emulate, a run calls only the AI emulator, so inspection probes no provider and reads no credential.
+  const emulatedStatus = emulatedProviderStatus(configuredOptions.provider, context)
+  if (emulatedStatus) return emulatedStatus
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
   if (isChatGPTGateway(options.gateway)) {
@@ -1394,6 +1420,8 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
         ...context, command: requirements.length ? "sh" : command, providerCommand: command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [...(home ? ["CODEX_HOME"] : []), ...Object.keys(gateway?.environment || {})],
       }), signal))
+      signal?.throwIfAborted()
+      if (launch.prepare) await waitForProviderOperation(Promise.resolve(launch.prepare({ abortSignal: signal })), signal)
       signal?.throwIfAborted()
       launchDiagnosticSecrets = [...providerLaunchSecretValues(launch), ...shellArgTokens(launchArgs)]
       if (requirements.length) requirementCapture = {
@@ -1728,7 +1756,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || typeof address === "string") throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
+  invariant(address && typeof address !== "string", "a server that listens on 127.0.0.1 port 0 reports an AddressInfo after it emits listening")
   return {
     async close() {
       http.closeAllConnections()
@@ -1748,6 +1776,7 @@ async function startToolServer(
  */
 export function localWorkspaceHost(hostOptions: { path?: readonly string[] | (() => readonly string[]) } = {}): WorkspaceSessionHost {
   return {
+    archiveMaxBytes: 64 * 1024 * 1024,
     executionAuthority: normalizeExecutionAuthority({
       credentials: "ambient",
       environment: "ambient",
@@ -2078,7 +2107,7 @@ async function prepareWorkspace(
   const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
   if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
-    throw new Error("Unable to initialize workspace Git repository")
+    throw agentDiagnostics.AGENT_WORKSPACE_GIT_INIT_FAILED()
   }
   return {
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
@@ -2089,10 +2118,11 @@ async function prepareWorkspace(
   }
 }
 
-async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
+/** Closes the Workspace session. It commits the changes only when the invocation completed without `failed`. */
+async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, failed: boolean, abortSignal: AbortSignal) {
   if (!session) return
   try {
-    if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
+    if (failed || !context.workspaceDefinition || context.workspaceMode !== "write") return
     if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
     const diff = await session.diff({ abortSignal })
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
@@ -2122,17 +2152,6 @@ async function resolveInstructions<
     context: context.context.toJSON(),
     workspace: context.workspaceInstructionBindings,
   }) : undefined
-}
-
-function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
-  const index = messageId
-    ? messages.findIndex(message => message.id === messageId)
-    : messages.findLastIndex(message => message.role === "user")
-  const chat = messages[index]?.metadata?.chat
-  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
-  if (typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
-  // Queue and steer coalescing retain these messages for the current Invocation.
-  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
 }
 
 function latestUserMessages(messages: Message[]): Message[] {
@@ -2171,13 +2190,8 @@ function providerMessageContent(message: Message, includeAttachments: boolean): 
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
     if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
     if (part.type === "data" || part.type.startsWith("data-")) {
-      if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
-      // Chat context parts may carry the exact text for the model in `data.modelText`.
-      const data = part.data
-      const isChatContext = part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-      return isChatContext && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-        ? data.modelText
-        : JSON.stringify(data)
+      if (message.role === "assistant" && !isChatReplyPartType(part.type)) return []
+      return chatContextModelText(part) ?? JSON.stringify(part.data)
     }
     return []
   }).filter(Boolean).join("\n")
@@ -2189,6 +2203,11 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+// The image types that the provider runtime sends to the model as image input
+// (`isProviderSendTurnSupportedImageMimeType` in `@t3tools/contracts`).
+const providerInlineImageMediaTypes = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"])
+// `attachmentBytes` raises these when an attachment does not fit in the remaining bytes.
+const overBudgetAttachmentCodes = new Set(["AGENT_R0702", "AGENT_R0705", "AGENT_R0706", "AGENT_R0707"])
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (typeof part.size === "number" && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
@@ -2211,17 +2230,27 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
+ * The report names every attachment that the model receives or that was left out, with the reason.
  */
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean, provider: ProviderAgentAdapterOptions["provider"]) {
+  const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
+  const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
-  const history = includeHistory
-    ? (resumed ? latestUserMessages(context.messages) : context.messages)
-        .filter(message => message.role === "user")
-        .flatMap(message => message.parts.filter(isAttachmentPart))
-        .filter(part => !currentParts.has(part) && part.type === "image" && (part.data !== undefined || typeof part.fetchData === "function"))
-    : []
-  if (!current.length && !history.length) return
+  const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
+  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(historyMessages) }
+  const history: AttachmentPart[] = []
+  for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
+    if (currentParts.has(part)) continue
+    const reason = !includeHistory
+      ? "sandbox"
+      : part.type !== "image" ? "not-image"
+      : provider === "claude-code" && !providerInlineImageMediaTypes.has(part.mediaType.toLowerCase()) ? "not-inline"
+      : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+    if (reason) report.skipped.push({ ...entry(part, "history"), reason })
+    else history.push(part)
+  }
+  if (!current.length && !history.length) return { report }
   let remaining = maxBytes
   const resolved = new Map<AttachmentPart, Uint8Array>()
   for (const part of current) {
@@ -2231,14 +2260,20 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     resolved.set(part, bytes)
   }
   for (const part of history) {
-    if (remaining <= 0) break
+    if (remaining <= 0) {
+      report.skipped.push({ ...entry(part, "history"), reason: "byte-budget" })
+      continue
+    }
     try {
       const bytes = await attachmentBytes(part, remaining)
       remaining -= bytes.byteLength
       resolved.set(part, bytes)
-    } catch {}
+    } catch (error) {
+      const code = isRuntimeRecord(error) ? error.code : undefined
+      report.skipped.push({ ...entry(part, "history"), reason: typeof code === "string" && overBudgetAttachmentCodes.has(code) ? "byte-budget" : attachmentFetchFailure(error) })
+    }
   }
-  if (!resolved.size) return
+  if (!resolved.size) return { report }
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   // Keep message order so the images line up with the history they came from.
@@ -2248,6 +2283,10 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
+    const staged = { ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength }
+    // The provider runtime gives the model only the saved path of other image types.
+    if (providerInlineImageMediaTypes.has(part.mediaType.toLowerCase())) report.sent.push(staged)
+    else report.skipped.push({ ...staged, reason: "not-inline" })
     attachments.push({
       id,
       mimeType: part.mediaType,
@@ -2257,7 +2296,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       type: "image" as const,
     })
   }
-  return attachments
+  return { attachments, report }
 }
 
 function approvalDecision(approved: boolean): ProviderApprovalDecision {
@@ -2682,6 +2721,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
+      if (event.payload.streamKind === "reasoning_text" || event.payload.streamKind === "reasoning_summary_text") return [{ id: providerTextDeltaId(event), text: event.payload.delta, type: "reasoning-delta" }]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
@@ -2810,7 +2850,12 @@ async function* runProvider<
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
-  const chatgptExpiry = isChatGPTGateway(options.gateway) ? new AbortController() : undefined
+  // With VITEHUB_MODELS=emulate, the run reads no credential and no gateway, and Codex calls only the AI emulator.
+  const emulated = resolveModelEmulation(providerMetadataContext(context))
+  if (emulated) {
+    assertProviderEmulationSupported({ provider: options.provider, sandbox: Boolean(options.sandbox), tools: Object.keys(context.tools || {}).length })
+  }
+  const chatgptExpiry = !emulated && isChatGPTGateway(options.gateway) ? new AbortController() : undefined
   let chatgptExpiryTimer: ReturnType<typeof setTimeout> | undefined
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const invocationSignal = context.input.abortSignal && timeoutSignal
@@ -2837,8 +2882,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox and ChatGPT homes last one invocation; conversation history is replayed on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && (options.provider !== "codex"
+  // Sandbox, ChatGPT, and emulator homes last one invocation; conversation history is replayed on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -2847,6 +2892,8 @@ async function* runProvider<
   let root: string
   let launchRoot: string | undefined
   let temporaryRoot: { root: string, path: string } | undefined
+  // A Sandbox stops its own processes when it closes.
+  const providerPass = options.sandbox ? undefined : crypto.randomUUID()
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
@@ -2914,7 +2961,7 @@ async function* runProvider<
     const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
     return workspaceBrowserEnvironment(
       browserRuntimeEnvironment(context.context),
-      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}) } : environment,
     )
   }
   let developerInstructionsDigest: string | undefined
@@ -2971,7 +3018,8 @@ async function* runProvider<
     removeTemporaryRoot(),
     launchRoot ? rm(launchRoot, { force: true, recursive: true }) : undefined,
   ]).then(() => undefined)
-  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(removeRoots, async (error: unknown) => {
+  const stopPassProcesses = () => providerPass ? stopMarkedProcesses(providerPassEnvironmentKey, providerPass) : Promise.resolve()
+  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(stopPassProcesses).then(removeRoots, async (error: unknown) => {
     await removeRoots().catch(() => undefined)
     throw error
   })
@@ -3056,7 +3104,7 @@ async function* runProvider<
     }
     if (options.toolchain !== undefined && !options.sandbox && !auxiliary) {
       // SAFETY: The split specifier keeps @vite-hub/sandbox optional for bundlers. It resolves to the toolchain module.
-      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/_internal/toolchain") as typeof import("@vite-hub/sandbox/_internal/toolchain")
+      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/internal/toolchain") as typeof import("@vite-hub/sandbox/internal/toolchain")
       const toolchain = await waitForProviderOperation(
         prepareHostToolchain(options.toolchain, preparedWorkspace?.projectRoot ?? root, { abortSignal: effectiveSignal }),
         effectiveSignal,
@@ -3093,7 +3141,7 @@ async function* runProvider<
         const requested = execOptions?.cwd || "/workspace"
         const suffix = requested.replace(/^\/workspace(?:\/|$)/, "")
         const cwd = resolve(root, suffix)
-        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
+        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_WORKSPACE_COMMAND_CWD_OUTSIDE()
         const { abortSignal, ...hostOptions } = execOptions || {}
         const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
@@ -3114,7 +3162,7 @@ async function* runProvider<
       })
     }
     effectiveSignal?.throwIfAborted()
-    codexCredentialHome = await waitForProviderOperation(
+    codexCredentialHome = emulated ? undefined : await waitForProviderOperation(
       prepareCodexCredentialHome(options, context),
       effectiveSignal,
       async (home) => {
@@ -3149,9 +3197,18 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    let gateway = options.gateway === undefined
-      ? undefined
-      : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    // The emulator owns the run. Only a Sandbox run has no temporary root, and the emulator cannot reach a Sandbox.
+    let emulatedCodexHome: string | undefined
+    let gateway: ResolvedAgentDriverGateway | undefined
+    if (emulated) {
+      if (!temporaryRoot) throw agentDiagnostics.AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED()
+      emulatedCodexHome = join(temporaryRoot.root, "codex-home")
+      await mkdir(emulatedCodexHome, { mode: 0o700 })
+      gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
+    }
+    else if (options.gateway !== undefined) {
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    }
     if (gateway?.chatgpt && chatgptExpiry) {
       const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
       const remaining = gateway.chatgpt.expiresAt - Date.now()
@@ -3172,16 +3229,20 @@ async function* runProvider<
         launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
       }
     }
-    // driver.env can override the forge access environment. The gateway owns its own variables.
+    // driver.env can override the forge access environment. The gateway owns its own variables. Auxiliary and emulated
+    // runs compose driver.env.T3CODE_CODEX_LAUNCH_ARGS into their launch arguments below, before the gateway arguments.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
-      : configuredEnvironmentOverrides, { auxiliary })
+      : configuredEnvironmentOverrides, { auxiliary: auxiliary || emulated })
     if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
       throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
     }
     if ((options.reasoningEffort !== undefined || options.reasoningSummary !== undefined)
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
       throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
+    }
+    if (options.provider === "codex" && providerEnvironmentOverrides?.T3_MCP_BEARER_TOKEN !== undefined && providerEnvironmentOverrides.VITEHUB_MCP_BEARER_TOKEN === undefined) {
+      throw agentDiagnostics.AGENT_MCP_BEARER_TOKEN_RENAMED()
     }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
@@ -3221,7 +3282,7 @@ async function* runProvider<
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
     if (options.sandbox) assertProviderSandboxInvocation(options.sandbox, context, Boolean(capabilityEnvironment?.PATH))
     if (options.launch !== undefined && capabilityEnvironment?.PATH) {
-      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: false })
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
@@ -3230,6 +3291,7 @@ async function* runProvider<
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
       VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
+      ...(providerPass ? { [providerPassEnvironmentKey]: providerPass } : {}),
       ...(capabilityEnvironment?.LD_LIBRARY_PATH
         ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
         : {}),
@@ -3238,6 +3300,8 @@ async function* runProvider<
         ? { PATH: `${[capabilityEnvironment?.PATH, ...toolchainPath].filter(Boolean).join(delimiter)}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),
     })
+    // A fresh Codex Home has no sign-in, config, or MCP server that could reach a real provider.
+    if (emulatedCodexHome) providerRuntimeEnvironment.CODEX_HOME = emulatedCodexHome
     const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
     const providerAgentTools = context.tools ? withAgentToolExecutionBudget(context.tools, context.executionBudget) : context.tools
     if (nativeUnattendedTools) {
@@ -3247,13 +3311,13 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
+      providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = ""
       chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
@@ -3264,8 +3328,8 @@ async function* runProvider<
       providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
       delete providerRuntimeEnvironment.PATHEXT
       if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
-      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "VITEHUB_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "VITEHUB_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
     }
@@ -3275,8 +3339,9 @@ async function* runProvider<
       }
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
-        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
-        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+        // A launcher that forwards only required names must keep the credential or emulator Codex Home.
+        ...(codexCredentialHome || emulatedCodexHome ? ["CODEX_HOME"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
@@ -3292,9 +3357,11 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
+      if (launch.prepare) await waitForProviderOperation(Promise.resolve(launch.prepare({ abortSignal: effectiveSignal })), effectiveSignal)
+      effectiveSignal?.throwIfAborted()
       providerLaunchDiagnosticSecrets = providerLaunchSecretValues(launch)
       onProviderExit = launch.onExit
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever driver.launch is set")
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, providerCwd),
         effectiveSignal,
@@ -3316,7 +3383,7 @@ async function* runProvider<
           workspaceSession.exec("git", ["rev-parse", "--verify", "HEAD"], { abortSignal: effectiveSignal }),
           effectiveSignal,
         )
-        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw new Error("Host-prepared provider checkout HEAD changed during launch.")
+        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw agentDiagnostics.AGENT_PROVIDER_CHECKOUT_HEAD_CHANGED()
         pullRequestRoot = true
       }
     }
@@ -3403,7 +3470,9 @@ async function* runProvider<
       await updateAgentTelemetryConfiguration(context.context, {
         ...(workspace && revision ? { workspace: { ...workspace, revision, ...(head?.id === revision ? { ref: head.ref } : {}) } } : {}),
         driver: {
-          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          ...(options.model || emulated
+            ? { model: { ...(emulated ? { gateway: emulatedGateway } : {}), ...(options.model ? { id: options.model } : {}), provider: options.provider } }
+            : {}),
           provider: options.provider,
         },
         ...(instructions ? { instructions: [instructions] } : {}),
@@ -3447,6 +3516,7 @@ async function* runProvider<
       colocated: context.context.get(colocatedAgentSkillsContextKey),
       cwd: providerCwd,
       provider: options.provider,
+      sources: sourceSkillMounts(context.workspaceDefinition?.sources),
       workspaceRoot: root,
     })
     if (options.sandbox) await addProviderSandboxSkills(providerSkills, options.provider, providerSandboxHomeFiles)
@@ -3460,7 +3530,7 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     if (options.sandbox) {
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever the Agent has a sandbox")
       const configuredCommand = options.providerSettings?.binaryPath
       if (configuredCommand !== undefined && typeof configuredCommand !== "string") {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3482,7 +3552,7 @@ async function* runProvider<
       if (claudeSandboxPromptFile) claudePromptFile = posix.join(providerSandbox.home, claudeSandboxPromptFile)
       const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {})
       const preparedEnvironment = { ...providerRuntimeEnvironment }
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : [])
       providerLaunchDiagnosticPath = join(launchRoot, "sandbox-diagnostic.json")
       providerSandboxRelay = await startProviderSandboxRelay({
         sandbox: providerSandbox,
@@ -3496,7 +3566,9 @@ async function* runProvider<
       })
       providerLauncher = providerSandboxRelay.launcher
     }
-    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
+    // The runtime chooses T3CODE_CODEX_LAUNCH_ARGS over settings. On the emulator, the emulator arguments must come last
+    // so that they win, so the environment arguments join the list like on an auxiliary run.
+    const composedEnvironmentLaunchArgs = options.provider === "codex" && (auxiliary || emulated)
       ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
       : undefined
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
@@ -3505,7 +3577,7 @@ async function* runProvider<
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       // Claude Code reads `.claude/skills` in every `--add-dir` directory.
       ...(providerSkillDirectory && options.provider === "claude-code" ? [`--add-dir ${JSON.stringify(providerSkillDirectory)}`] : []),
-      auxiliaryEnvironmentLaunchArgs,
+      composedEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
@@ -3525,18 +3597,21 @@ async function* runProvider<
       // reject them before the host receives the request. Shell policy stays intact.
       ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
-          ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
-          '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
+          ...(toolServer ? [`-c 'mcp_servers.vitehub-invocation.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
           // Clear only this invocation's transport token in native shell tools.
           // Preserve the caller's existing environment exclusions.
-          '-c \'shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""\'',
+          '-c \'shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""\'',
           // CLI override paths split on dots without parsing quoted TOML keys.
           // An inline table preserves the exact tool names, including punctuation.
-          `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+          `-c '${(`mcp_servers.vitehub-invocation.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
-      // Login profiles reset PATH and hide the invocation's managed browser CLI.
-      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
+      // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
+      // browser CLI, toolchain, driver.env) and, on a launched runner such as SSH, the folder of Codex's apply_patch.
+      ...(options.provider === "codex" && (options.launch !== undefined || capabilityEnvironment?.PATH || toolchainPath.length || providerEnvironmentOverrides?.PATH)
+        ? ['-c "allow_login_shell=false"']
+        : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     if (options.provider === "claude-code"
@@ -3547,7 +3622,7 @@ async function* runProvider<
     }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
-    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
+    if (composedEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
       providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
     }
     const settings = Object.fromEntries(Object.entries({
@@ -3555,6 +3630,7 @@ async function* runProvider<
       binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
       ...(chatgptHome ? { homePath: chatgptHome } : {}),
+      ...(emulatedCodexHome ? { homePath: emulatedCodexHome, shadowHomePath: undefined } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
@@ -3646,9 +3722,9 @@ async function* runProvider<
         type: "run",
       })
     }
-    const attachments = await waitForProviderOperation(
+    const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox, options.provider),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,
@@ -3668,14 +3744,10 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && typeof input.message !== "string" ? [input.message] : [])
-            if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return "unsupported"
-            const text = typeof input.prompt === "string"
-              ? input.prompt
-              : typeof input.message === "string"
-                ? input.message
-                : messages.map(getMessageText).filter((value): value is string => typeof value === "string").join("\n\n")
-            if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
+            const steering = agentSteeringInput(input)
+            if ("issue" in steering) return { outcome: "unsupported", reason: steering.issue }
+            const text = steering.text
+            if (!acceptingSteering || drainingSteering || !activeTurnId) return "unsupported"
             let finishSteering!: () => void
             const pending = new Promise<void>((resolve) => { finishSteering = resolve })
             pendingSteering.add(pending)
@@ -3740,6 +3812,16 @@ async function* runProvider<
     }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
+    // Recorded once the provider accepts the turn, so a rejected or cancelled turn shows no images as sent.
+    // The abort handler is already installed, so a slow trace write cannot delay cancelling the turn.
+    await Promise.race([traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, attachmentReport), aborted])
     for (;;) {
       if (pendingToolEvents.length) {
         yield pendingToolEvents.shift()!
@@ -3897,7 +3979,7 @@ async function* runProvider<
         await closeWorkspace(
           context,
           workspaceSession,
-          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          Boolean(caught ?? cleanupErrors[0] ?? !completed),
           signal,
         )
       }
@@ -4196,7 +4278,7 @@ export function createProviderAgentAdapter<
     stream: async function* (context) {
       for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
-        if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
+        if (event.type === "error" && event.recoverable !== true) throw agentDiagnostics.AGENT_R0726({ message: event.error })
       }
     },
   }

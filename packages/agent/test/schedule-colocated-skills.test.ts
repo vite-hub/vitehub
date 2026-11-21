@@ -1,12 +1,12 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { builtinModules } from "node:module"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { build } from "vite"
 import { expect, it, vi } from "vitest"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { prepareViteHubProviderSources } from "@vite-hub/internal/build/vite"
 
 import { hubAgent } from "../src/vite.ts"
@@ -18,9 +18,16 @@ it.each(["default-expression", "default-binding", "default-reexport", "named-cha
   const seen: string[] = []
   vi.stubGlobal("__vitehubScheduleColocatedSkillsProof", seen)
   try {
-    await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
-    for (const name of ["agent", "channels", "schedule"]) {
-      await symlink(resolve(import.meta.dirname, `../../${name}`), join(root, "node_modules", "@vite-hub", name), "dir")
+    const packageDir = resolve(import.meta.dirname, "..")
+    for (const name of ["agent", "channels", "env", "gateways", "markdown-template", "runtime", "schedule", "workspace"]) {
+      const target = join(root, "node_modules", "@vite-hub", name)
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(resolve(packageDir, "..", name), target, "junction")
+    }
+    for (const name of ["@valibot/to-json-schema", "comark", "nostics", "valibot"]) {
+      const target = join(root, "node_modules", name)
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(await realpath(join(packageDir, "node_modules", name)), target, "junction")
     }
     const agentDir = join(root, "server", "agents", "reporter")
     await mkdir(join(agentDir, "skills", "review"), { recursive: true })

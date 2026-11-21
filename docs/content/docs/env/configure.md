@@ -18,7 +18,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -46,7 +45,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -73,7 +71,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -95,7 +92,7 @@ export default defineConfig({
 
 ## Integration options
 
-Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.env` in Nuxt.
+Pass these to the `env` option of `vitehub()`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -118,14 +115,13 @@ To support `deriveSecret()`, `seal()`, and `unseal()` through a custom runtime f
 
 ## Env Declaration options
 
-`env()` and `env.variable()` accept the same options.
+`env()` declares one variable. A value is required by default. Set `optional: true` when the app can run without it, or set a `default`. You cannot set both, because a default makes the value always present.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Where the value comes from. |
-| `default` | `unknown` | None | Value to use when the source has none. |
-| `required` | `boolean` | `true` unless `optional` is set | Throws when the runtime value is missing. Server Env checks all values at once, so one missing value fails every read. |
-| `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
+| `default` | `unknown` | None | Value to use when the source has none. Cannot be combined with `optional: true`. |
+| `optional` | `boolean` | `false` | Lets the value be missing. Without it, a missing value throws `ENV_REQUIRED_MISSING`. Server Env checks all values at once, so one missing value fails every read. |
 | `mode` | `EnvMode` | `runtime` | Build Env or Runtime Env: `build` or `runtime`. |
 | `schema` | Standard Schema-compatible parser, or `env.schemaFrom()` | string parser | Parses `env.public` and `env.define` values. `env.server` accepts the built-in parsers below, or a schema from a module through [`env.schemaFrom()`](#validate-server-env-with-your-own-schema). |
 | `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
@@ -143,7 +139,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -168,7 +163,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -192,7 +186,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -224,8 +217,38 @@ if (!labeller.dryRun && labeller.mode === 'send') {
 | `env.boolean()` | `true`, `false`, `1`, or `0`, any case, spaces trimmed | `boolean` |
 | `env.number()` | A finite number | `number` |
 | `env.enum(['a', 'b'])` | One of the listed strings | `"a" \| "b"` |
+| `env.list()` | Strings separated by commas or line breaks, for example `a.com, b.com` | `Array<string>` |
+| `env.list(env.number())` | Comma-separated items, each parsed by the item helper | `Array<number>` |
+| `env.json()` | JSON text | `unknown` |
+| `env.json(env.schemaFrom(module, name))` | JSON text that matches the schema | The schema output |
 
-Typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })`. With `secret: true`, you get `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret, because its choices appear in generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers pass as they are.
+Typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })` or `env.list({ default: ['a.com'] })`. With `secret: true`, you get `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret, because its choices appear in generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers pass as they are.
+
+### Lists and JSON values
+
+`env.list()` splits the value on commas and line breaks, trims each item, and drops empty items, so `a, b,,` gives `["a", "b"]`. Spaces inside an item stay, so `publish preview packages` is one item. Pass `env.boolean()`, `env.number()`, or `env.enum([...])` without options to parse each item, and put the options on the list: `env.list(env.number(), { default: [80] })`. An error names the item that failed, for example `Item 2: Expected a finite number.`
+
+`env.json()` reads the value as JSON. To check its shape in `env.server`, export a [Standard Schema](https://standardschema.dev) from a module and pass it with `env.schemaFrom()`. The schema gets the parsed value:
+
+```ts [server/env.schema.ts]
+import * as v from 'valibot'
+
+export const labeller = v.object({
+  labels: v.array(v.string()),
+  threshold: v.number(),
+})
+```
+
+```ts fragment
+env: {
+  server: {
+    adminEmails: env.list({ default: [] }),
+    labeller: env.json(env.schemaFrom('./server/env.schema.ts', 'labeller')),
+  },
+}
+```
+
+`useServerEnv().adminEmails` is a `string[]`, and `labeller` is `{ labels: string[]; threshold: number }`. Text that is not JSON fails with `ENV_RUNTIME_VALUE_INVALID` and the cause `Expected valid JSON.` A string `default` of `env.json()` is JSON text too. In `env.public` and `env.define` with `mode: 'build'`, pass the schema object itself: `env.json(labeller, { mode: 'build' })`.
 
 Error details hold the declaration path and source kind, never the rejected value. `inspectServerEnv()` reports a value that does not parse as `invalid`.
 
@@ -252,7 +275,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -275,7 +297,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -297,7 +318,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -333,7 +353,6 @@ import { envSchema } from '@vite-hub/env/vite'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   },
 })
@@ -349,7 +368,6 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   }), nitro()],
 })
@@ -364,7 +382,6 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   })],
 })
@@ -408,9 +425,7 @@ Every field is required and sensitive unless an annotation changes that. `@optio
 | `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
 | `@type=url` | Absolute URL checked with the platform `URL` constructor. The output is a string. |
 
-- A required empty input fails, even with a default.
-- An optional empty string stays a string and obeys length limits.
-- An optional empty input of another type is missing, so the default applies.
+- An empty input, such as `VITEHUB_LABEL=` on the host, is missing. The default applies. Without a default, a required field fails and an optional field is `undefined`.
 - An invalid value fails. It does not fall back to the default.
 - Defaults get the same checks.
 
@@ -448,7 +463,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -471,7 +485,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -493,7 +506,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -517,7 +529,7 @@ Built-in Channels and gateway presets use vendor names as conventional names. So
 - Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `prefix: false` in the `env` option.
 - `prefix: 'APP_'` in the `env` option changes the prefix. `prefix: false` reads only the conventional names.
 
-Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` includes `canonicalName`. Inspection output never shows conventional names.
+Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` and `vitehub env list --json` list every name of a declaration in `names`, in read order. The build writes the same names to `deployment.json`. No output shows a value.
 
 On Cloudflare, the Wrangler config lists a required secret only when it has one exact name. Wrangler has no fallback names, so name pairs work at runtime only. For an exact Wrangler entry, set `prefix: false`, or a source equal to the canonical name.
 
@@ -526,14 +538,11 @@ On Cloudflare, the Wrangler config lists a required secret only when it has one 
 | Source helper | Description |
 | --- | --- |
 | `env.source('NAME')` | One host variable. |
-| `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that exists. |
-| `env.source(['PRIMARY', 'FALLBACK'], { skipEmpty: true })` | The first variable that is not empty. |
+| `env.source(['PRIMARY', 'FALLBACK'])` | The first variable that is set and not empty. |
 | `env.custom(label, resolver)` | Your own callback. |
-| `env.gitBranch()` | Current Git branch. |
-| `env.gitCommit({ short })` | Current Git commit. |
-| `env.gitRef()` | Current Git ref. |
-| `env.gitSha({ short })` | Current Git SHA. |
-| `env.gitTag()` | Current Git tag. |
+| `env.gitBranch()` | Current branch. Reads `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. |
+| `env.gitCommit({ short })` | Current commit SHA. Reads `GIT_SHA`, then `GITHUB_SHA`, then local Git. `short` keeps 7 characters of a CI value. |
+| `env.gitTag()` | Current tag, or `undefined`. Reads `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. |
 | `env.buildTimestamp()` | Build timestamp. |
 | `env.packageJson(path)` | A value from `package.json`. |
 | `env.provider(name, key)` | One key from a runtime provider snapshot. Server Env only. |

@@ -1,4 +1,5 @@
 import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsInlineScript, viteHubPageToolsMarker } from "../runtime/page-tools-shared.ts"
+import { ownAccessRouteMeta } from "../nitro-kit.ts"
 import { VITEHUB_APP_BASE_URL } from "./vite.ts"
 
 import type { NitroServerKit } from "../nitro-kit.ts"
@@ -13,7 +14,7 @@ export interface ViteHubPageToolRoutesOptions {
 }
 
 /**
- * Adds the session route `GET <mount>/_vitehub/page/session` and the loader script at
+ * Adds the session route `GET <mount>/_vitehub/page/tools` and the loader script at
  * `<mount>/_vitehub/page/assets/loader.js` to a Nitro configuration. Each owner package of a page tool calls it from its
  * Vite plugin, so the routes exist without the Console. The first owner wins: a later call keeps the route and the asset
  * that are already there, because the page tools registry is shared by every copy of this package.
@@ -24,7 +25,8 @@ export function addViteHubPageToolRoutes(kit: NitroServerKit, options: ViteHubPa
   const assetsBase = `${mount}${viteHubPageToolsAssets}`
   const handlers = Array.isArray(kit.config.handlers) ? kit.config.handlers : []
   if (!handlers.some(handler => Object(handler) === handler && Reflect.get(Object(handler), "route") === route)) {
-    kit.addHandler({ handler: options.handler, route })
+    // The route runs the access check of each page tool, and tells an anonymous visitor only which tools it may use.
+    kit.addHandler({ handler: options.handler, meta: { ...ownAccessRouteMeta }, route })
   }
   const assets = Array.isArray(kit.config.publicAssets) ? [...kit.config.publicAssets] : []
   if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "baseURL") === assetsBase)) {

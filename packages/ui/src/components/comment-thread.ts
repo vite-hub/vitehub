@@ -1,5 +1,6 @@
-import type { CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
+import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { RollNumber } from "./motion.ts";
 import {
   consumedPointerEvents,
   pathOf,
@@ -9,17 +10,19 @@ import {
 } from "../internal/comment-outside.ts";
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
-import { messagesSinceResolved } from "../internal/comment-status.ts";
-import { timeAgo } from "../internal/format.ts";
+import { commentTitle, deliveryAttributes, messagesSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
-import { CommentComposer, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
+import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { MotionList } from "./motion-list.ts";
+import { RelativeTime } from "./relative-time.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 type Done = Promise<unknown> | void;
 
@@ -42,12 +45,32 @@ export interface CommentReplySlotScope {
   message: CommentMessage;
 }
 
+/** The scope of the `status` slot: a message that the outbox holds, and what the reader can do with it. */
+export interface CommentStatusSlotScope {
+  message: CommentMessage;
+  /** `pending` while it waits or goes out, `failed` when the server refused it, with `error` saying why. */
+  delivery: CommentDelivery;
+  /** Sends it again now. Only available with edit permission. */
+  retry?: () => Promise<void>;
+  /** Throws it away. Only available with delete permission. `false` while it is on its way. */
+  dismiss?: () => Promise<boolean>;
+  /** Changes its text. Only available with edit permission. A refused one goes back in the queue. */
+  edit?: (body: string, mentions?: string[]) => Promise<boolean>;
+}
+
 export type CommentReplySlots = {
   /** The text of the message. Replaces the Markdown body with its mention chips. */
   body?: (scope: CommentReplySlotScope) => VNode[];
   /** The attachments of the message. Replaces the default thumbnails. */
   attachments?: (scope: CommentReplySlotScope) => VNode[];
+  /**
+   * Below a message that has not reached the server, such as "Waiting to send" or a refusal with Retry and Discard.
+   * Nothing shows without it. The message also gets `data-pending` or `data-failed`.
+   */
+  status?: (scope: CommentStatusSlotScope) => VNode[];
 };
+
+
 
 /** The scope of the `actions`, `anchor`, and `after` slots of `CommentThread`. */
 export interface CommentThreadSlotScope {
@@ -83,7 +106,7 @@ function attachmentHref(value: string | undefined): string | undefined {
 
 // Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
 // is an image when its media type says so, or, without one, when its name has an image extension or none.
-function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component) {
+function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component, fileIcon: string) {
   if (message.attachments.length === 0) return null;
   const items = message.attachments.map((key) => {
     const found = url?.(key);
@@ -104,7 +127,7 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
           files.map((item) =>
             h(Attachment, { key: item.key, size: "xs" }, () => [
-              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-lucide-file" })),
+              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: fileIcon })),
               h(AttachmentContent, () =>
                 h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
               ),
@@ -132,6 +155,9 @@ export const CommentReply = defineComponent({
     compact: { default: false, type: Boolean },
     /** Deleting asks first. Deleting the first message of a thread deletes the whole thread, so a thread sets it there. */
     confirmDelete: { default: false, type: Boolean },
+    /** `sm` sets 14px text and shows Edit and Delete over the end of the name's row. The edit box gets the same size. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    size: { default: "md", type: String as PropType<CommentComposerSize> },
     /** People whose `@name` the message may hold, so an edit keeps their mentions and the body marks them. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
     users: { type: Function as PropType<(query: string) => Promise<CommentUser[]>> },
@@ -147,6 +173,7 @@ export const CommentReply = defineComponent({
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
     const comments = injectComments();
     const editing = ref(false);
     const confirming = ref(false);
@@ -215,21 +242,38 @@ export const CommentReply = defineComponent({
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
     }
 
+    const statusOf = (message: CommentMessage, delivery: CommentDelivery): VNode | null => {
+      if (!slots.status) return null;
+      const outbox = comments?.outbox;
+      const current = () => !props.compact && props.message.id === message.id && props.message.delivery !== undefined;
+      const mayEdit = () => current() && props.editable;
+      const mayDelete = () => current() && (props.deletable ?? props.editable);
+      return h("div", { "data-slot": "comment-reply-status" }, slots.status({
+        delivery,
+        dismiss: outbox?.enabled && mayDelete() ? async () => mayDelete() && await outbox.dismiss(message.id) : undefined,
+        edit: outbox?.enabled && mayEdit() ? async (body, mentions) => mayEdit() && await outbox.edit(message.id, body, mentions) : undefined,
+        message,
+        retry: outbox?.enabled && mayEdit() ? async () => { if (mayEdit()) await outbox.retry(message.id); } : undefined,
+      }));
+    };
+
     return () => {
       const { message } = props;
       return h(
         "div",
-        { "data-compact": props.compact ? "true" : undefined, "data-editing": editing.value ? "true" : undefined, "data-slot": "comment-reply" },
+        {
+          "data-compact": props.compact ? "true" : undefined,
+          "data-editing": editing.value ? "true" : undefined,
+          ...deliveryAttributes(message.delivery),
+          "data-size": props.size,
+          "data-slot": "comment-reply",
+        },
         [
           h("div", { "data-slot": "comment-reply-content" }, [
             h("div", { "data-slot": "comment-reply-header" }, [
               h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(message)], size: "sm" }),
               h("span", { "data-agent": message.actor ? "true" : undefined, "data-slot": "comment-reply-author" }, writerName(message)),
-              h(
-                "time",
-                { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: new Date(message.createdAt).toLocaleString() },
-                timeAgo(message.createdAt),
-              ),
+              h(RelativeTime, { at: message.createdAt, "data-slot": "comment-reply-time" }),
               message.editedAt ? h("span", { "data-slot": "comment-reply-edited" }, "edited") : null,
             ]),
             editing.value
@@ -246,6 +290,7 @@ export const CommentReply = defineComponent({
                   "onUpdate:mentions": (value: string[]) => (mentions.value = value),
                   "onUpdate:modelValue": (value: string) => (draft.value = value),
                   people: props.people,
+                  size: props.size,
                   users: props.users,
                   variant: "edit",
                 }, {
@@ -258,7 +303,8 @@ export const CommentReply = defineComponent({
                   plugins: bodyPlugins.value,
                   value: message.body,
                 })),
-            editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon)),
+            editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon, icons.value.file)),
+            !editing.value && message.delivery ? statusOf(message, message.delivery) : null,
             confirming.value
               ? h("div", { "aria-label": "Confirm delete", "data-slot": "comment-reply-confirm", role: "group" }, [
                   h("p", "Delete this comment and every reply to it?"),
@@ -270,11 +316,11 @@ export const CommentReply = defineComponent({
           ]),
           (canEdit() || canDelete()) && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-lucide-pencil", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: icons.value.edit, onClick: startEdit, size: "xs", variant: "ghost" }) : null,
                 canDelete() ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
-                  icon: "i-lucide-trash-2",
+                  icon: icons.value.delete,
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
@@ -287,10 +333,14 @@ export const CommentReply = defineComponent({
   },
 });
 
-/** "Resolved by Ana", as a line across the thread. */
+/** "Resolved by Ana", or "Resolved by Claude (Ana)" when her agent did, as a line across the thread. */
 const resolvedMarker = (thread: CommentThreadModel) =>
   h(Marker, { key: "resolved", variant: "separator" }, () =>
-    h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
+    h(
+      MarkerContent,
+      () =>
+        `Resolved${thread.resolvedBy ? ` by ${writerName({ author: thread.resolvedBy, ...(thread.resolvedActor ? { actor: thread.resolvedActor } : {}) })}` : ""}`,
+    ),
   );
 
 export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";
@@ -331,6 +381,9 @@ export const CommentThread = defineComponent({
     navigation: { default: "close", type: String as PropType<"close" | "back"> },
     /** A click outside the thread closes it. Turn it off when the thread is part of a panel. */
     dismissible: { default: true, type: Boolean },
+    /** `sm` is a compact thread for a small floating card: 14px text, tighter rows, and a compact reply box. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    size: { default: "md", type: String as PropType<CommentComposerSize> },
     /** Sends a reply. Gets `(body, mentions, files)`. */
     onReply: { type: Function as PropType<(body: string, mentions: string[], files: File[]) => Done> },
     /** Saves an edited message. Gets `(messageId, body, mentions)`. */
@@ -345,6 +398,7 @@ export const CommentThread = defineComponent({
   slots: Object as SlotsType<CommentThreadSlots>,
   setup(props, { emit, expose, slots }) {
     const UButton = useUIComponent("UButton");
+    const icons = useViteHubUIIcons();
     const comments = injectComments();
     const root = ref<HTMLElement | null>(null);
     const reply = ref("");
@@ -423,6 +477,7 @@ export const CommentThread = defineComponent({
     const replySlots = () => ({
       ...(slots.body ? { body: slots.body } : {}),
       ...(slots.attachments ? { attachments: slots.attachments } : {}),
+      ...(slots.status ? { status: slots.status } : {}),
       ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
       ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
     });
@@ -442,33 +497,42 @@ export const CommentThread = defineComponent({
       const quote = thread.anchor.kind === "text" ? thread.anchor.exact : undefined;
       if (props.preview) {
         const replies = thread.messages.length - 1;
-        return h("div", { "data-slot": "comment-thread", "data-preview": "true", "data-status": thread.status }, [
-          first ? h(CommentReply, { compact: true, message: first, people: people.value, user: user.value }, slots.body ? { body: slots.body } : undefined) : null,
-          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
+        return h("div", { ...deliveryAttributes(thread.delivery), "data-preview": "true", "data-size": props.size, "data-slot": "comment-thread", "data-status": thread.status }, [
+          first ? h(CommentReply, { compact: true, message: first, people: people.value, size: props.size, user: user.value }, { ...(slots.body ? { body: slots.body } : {}), ...(slots.status ? { status: slots.status } : {}) }) : null,
+          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, [h(RollNumber, { value: replies }), replies === 1 ? " reply" : " replies"]) : null,
         ]);
       }
       const back = props.navigation === "back";
       const anchor = slots.anchor ? slots.anchor({ thread }) : quote ? h("blockquote", { "data-slot": "comment-thread-quote" }, quote) : null;
       return h(
         "section",
-        { "aria-label": `Comment ${thread.n}`, "data-slot": "comment-thread", "data-status": thread.status, ref: root, role: "dialog", tabindex: -1 },
+        {
+          "aria-label": commentTitle(thread),
+          ...deliveryAttributes(thread.delivery),
+          "data-size": props.size,
+          "data-slot": "comment-thread",
+          "data-status": thread.status,
+          ref: root,
+          role: "dialog",
+          tabindex: -1,
+        },
         [
           h("header", { "data-slot": "comment-thread-header" }, [
-            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-lucide-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
-            h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
+            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: icons.value.arrowLeft, onClick: close, size: "xs", variant: "ghost" }) : null,
+            h("span", { "data-slot": "comment-thread-title" }, commentTitle(thread)),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
               "aria-label": resolvable ? "Resolve" : "Reopen",
               color: "neutral",
-              icon: resolvable ? "i-lucide-check" : "i-lucide-rotate-ccw",
+              icon: resolvable ? icons.value.check : icons.value.reopen,
               onClick: () => void act(resolvable ? props.onResolve : props.onReopen),
               size: "xs",
               variant: "ghost",
             }),
-            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-lucide-x", onClick: close, size: "xs", variant: "ghost" }),
+            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: icons.value.close, onClick: close, size: "xs", variant: "ghost" }),
           ]),
-          h("div", { "data-slot": "comment-thread-messages" }, [
+          h(MotionList, { "data-slot": "comment-thread-messages" }, () => [
             anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")
@@ -486,6 +550,7 @@ export const CommentThread = defineComponent({
                 onDelete: props.onDelete,
                 onEdit: props.onEdit,
                 people: people.value,
+                size: props.size,
                 user: user.value,
                 users: users.value,
               }, replySlots()),
@@ -515,6 +580,7 @@ export const CommentThread = defineComponent({
             "onUpdate:modelValue": (value: string) => (reply.value = value),
             people: people.value,
             ref: composer,
+            size: props.size,
             user: user.value,
             users: users.value,
             variant: "reply",

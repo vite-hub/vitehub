@@ -4,9 +4,10 @@ import { getMigrations } from "better-auth/db/migration";
 import { admin, emailOTP, jwt, phoneNumber, username } from "better-auth/plugins";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
-import { createDatabaseAuthEventStore, defineAuth } from "../src/index.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../src/server.ts";
+import { createDatabaseAuthEventStore } from "../src/index.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../src/internal/server.ts";
 import { eventDatabase } from "./event-helpers.ts";
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -47,7 +48,7 @@ async function app(options: { impersonationSessionDuration?: number } = {}) {
   closers.push(() => database.sqlite.close());
   const store = createDatabaseAuthEventStore({ db: database.db });
   const failing = { started: false };
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: [
       admin(options),
@@ -67,20 +68,18 @@ async function app(options: { impersonationSessionDuration?: number } = {}) {
         },
       },
     },
-    runtime: {
-      database: database.sqlite,
-      secret: "console-impersonation-test-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-      socialProviders: {
-        google: {
-          clientId: "google-client",
-          clientSecret: "google-secret",
-          refreshAccessToken: async () => ({
-            accessToken: "refreshed-provider-access",
-            refreshToken: "rotated-provider-refresh",
-            accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
-          }),
-        },
+    database: database.sqlite,
+    secret: "console-impersonation-test-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
+    socialProviders: {
+      google: {
+        clientId: "google-client",
+        clientSecret: "google-secret",
+        refreshAccessToken: async () => ({
+          accessToken: "refreshed-provider-access",
+          refreshToken: "rotated-provider-refresh",
+          accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+        }),
       },
     },
   });

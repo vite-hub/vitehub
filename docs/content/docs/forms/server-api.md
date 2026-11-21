@@ -1,6 +1,6 @@
 ---
 title: Forms server API
-description: Every option of defineForm(), the route of a form, the inbox, and guardRequest().
+description: Every option of defineForm(), the route of a form, the inbox, one schema on every surface, and guardRequest().
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code
@@ -8,7 +8,7 @@ icon: i-lucide-code
 
 ## `defineForm()`
 
-`server/forms/<name>.ts` default-exports `defineForm()`. The name is lowercase letters, digits, and dashes. The route is `POST <base>api/_vitehub/forms/<name>`.
+`server/forms/<name>.ts` default-exports `defineForm()`. The name is lowercase letters, digits, and dashes. The route is `POST <base>_vitehub/forms/<name>`.
 
 | Option | Default | Does |
 | --- | --- | --- |
@@ -42,13 +42,23 @@ The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form 
 | `201 { id }` | A JSON response: the message is stored, or sent with `store: false`. |
 | `202` | A JSON response: the honeypot is filled. |
 | `303` | A URL-encoded or multipart form that accepts HTML: back to the page with `?form=<name>.sent` after success or a filled honeypot, or `?form=<name>.error` after a size, access, rate-limit, parsing, or validation failure. |
-| `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. |
+| `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. `400 { message }` when the `Idempotency-Key` is not a UUID. |
 | `401`, `403` | A JSON response: `authorize` refused. A rejected `Origin` always gets `403` JSON. Requests without `Origin` may pass. |
 | `413`, `415`, `429` | A JSON response: too large, not a form body, or over the rate limit. An unsupported content type always gets `415` JSON. |
+| `409` | A JSON response: the store holds a reservation for the `Idempotency-Key` but has no completed submission. Try again in a moment. |
+| `422` | A JSON response: the `Idempotency-Key` belongs to a stored message with other values, or of another form. |
+
+### Retries
+
+A retry after a network error must not store the message twice. `submitForm()`, `useFormAction()`, `AutoForm`, and `useFormSubmit()` send an `Idempotency-Key` header: a UUID for each message. After a failure, a retry with the same values sends the same key. The route stores the message with the key as its id. A second request with that key gets the same `201 { id }`, and `onSubmit` and the email do not run again.
+
+The store reserves the key before running `onSubmit`, even when requests go to different servers that share the store. A retry gets `409` until the reservation becomes a submission. If the hook returns a `Response` or throws, Forms releases the key without saving the submission. If a server stops before it can finish or release a database reservation, the key stays reserved rather than risking running the hook twice. The reservation does not appear in the inbox. A form with `store: false` does not reserve keys or deduplicate retries.
+
+Pass `idempotencyKey` to `submitForm()` to choose the key, such as one key for each time a dialog opens.
 
 The method, content type, and origin checks run before HTML redirects are enabled. A response returned by `onSubmit` is sent as it is.
 
-The rate limit counts in each server process. On Cloudflare Workers, each isolate counts alone.
+The rate limit counts in each server process, or in Rate Limit when its KV store is shared. See [Limits](/docs/forms/limits-and-errors#limits).
 
 ## The inbox
 
@@ -68,6 +78,62 @@ export async function openMessages() {
   return messages
 }
 ```
+
+## One schema on every surface
+
+The schema of a form also draws an MCP elicitation and a chat modal, and checks their answers. `formFields(form)` reads the fields of a flat form: text, a number, a whole number, true or false, or a choice. It reads a Valibot object, or any Standard Schema that has a Standard JSON Schema, such as the Zod input of an Agent tool. Every surface checks the answer with `checkForm()`, the same check as the route, so the same values give the same errors everywhere.
+
+| Surface | Draw it | Check the answer |
+| --- | --- | --- |
+| Web form | `AutoForm`, or a native `<form>` with [`useFormAction()`](/docs/forms/vue) | The route of the form |
+| MCP elicitation | `toElicitation(form, { message })` | `readElicitation(form, result)` |
+| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })` | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
+
+In a tool of the [ViteHub MCP server](/docs/mcp/server-api#ask-the-person-for-values), call `elicit(form, { message })` of the handler. It does both steps for you. For another MCP server, `toElicitation()` returns the params of an `elicitation/create` request in form mode. Send them through its session, such as `server.elicitInput()` of the MCP TypeScript SDK.
+
+```ts [server/utils/ask-feedback.ts]
+import * as v from 'valibot'
+import { readElicitation, toElicitation } from 'vite-hub/forms'
+import type { ElicitationResult, FormElicitation } from 'vite-hub/forms'
+
+const FeedbackSchema = v.object({
+  email: v.pipe(v.string(), v.email('Enter a valid email.')),
+  rating: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(5)),
+})
+
+/** `elicit` sends `elicitation/create` through an MCP client session. */
+export async function askFeedback(elicit: (params: FormElicitation) => Promise<ElicitationResult>) {
+  const answer = await elicit(toElicitation(FeedbackSchema, { message: 'How did it go?' }))
+  const [error, result] = await readElicitation(FeedbackSchema, answer)
+  if (error) return { issues: error.issues }
+  return result.action === 'accept' ? { feedback: result.data } : {}
+}
+```
+
+`toChatModal()` returns a Chat SDK modal. The id of each input is the field name, so Slack gets one input block for each field with the field name as its `block_id`. A true or false field is a Yes or No choice. Open it with `event.openModal()`, and check the submission in `bot.onModalSubmit()`. `chatModalErrors(error, form)` answers `{ action: "errors", errors }`, which the Slack adapter sends as `response_action: "errors"`, so each error shows under its input. A modal shows errors only under inputs, so an error of the whole form, such as a check across two fields, shows under the first input:
+
+```ts [server/utils/feedback-modal.ts]
+import * as v from 'valibot'
+import { chatModalErrors, readChatModal, toChatModal } from 'vite-hub/forms'
+
+const FeedbackSchema = v.object({
+  email: v.pipe(v.string(), v.email('Enter a valid email.')),
+  message: v.pipe(v.string(), v.minLength(5, 'Write a little more.')),
+})
+
+/** Pass it to `event.openModal()` of a Chat SDK action or slash command. */
+export const feedbackModal = toChatModal(FeedbackSchema, { callbackId: 'feedback', title: 'Feedback' })
+
+/** The handler of `bot.onModalSubmit('feedback', ...)`. */
+export async function onFeedbackSubmit(event: { values: Record<string, string> }) {
+  const [error, data] = await readChatModal(FeedbackSchema, event.values)
+  if (error) return chatModalErrors(error, FeedbackSchema)
+  console.info('feedback', data)
+  return undefined
+}
+```
+
+A field that a surface cannot draw throws [`FORMS_FIELD_NOT_DRAWABLE`](/docs/forms/diagnostics/forms_field_not_drawable) when you draw it: a nested object, a list, a union of types, or a root that is not an object. An MCP elicitation also refuses a choice of numbers, because MCP choices are text.
 
 ## `guardRequest()`
 

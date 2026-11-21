@@ -23,7 +23,7 @@ The [`gmail()` Capability](/docs/agents/capabilities/gmail) from `vite-hub/agent
 This Agent chooses a label for each new Inbox message, and the hook applies it.
 
 ```ts [server/lib/inbox.ts]
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 export const inbox = gmail({
   labels: {
@@ -80,7 +80,7 @@ Each label in `labels` accepts these settings. `vitehub channels sync` creates a
 | `labelListVisibility` | Sidebar display: `labelShow` (default), `labelShowIfUnread`, or `labelHide`. |
 | `messageListVisibility` | Display on messages in the message list: `show` (default) or `hide`. |
 
-Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/agent/channels`. `gmail()` checks each color at definition, so a wrong color fails before the application starts:
+Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/channels/adapters`. `gmail()` checks each color at definition, so a wrong color fails before the application starts:
 
 ```txt
 [vitehub] gmail() label "Work" color backgroundColor "#123456" is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8".
@@ -91,7 +91,7 @@ Colors are not case-sensitive. A label without `color` keeps its Gmail color.
 To hide unmanaged labels from the Gmail sidebar, set `hideUnmanagedLabels: true`:
 
 ```ts
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 gmail({
   hideUnmanagedLabels: true,
@@ -160,16 +160,21 @@ To only poll, stop here. For push, continue:
      --role=roles/pubsub.publisher
    ```
 
-6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/_vitehub/agents/<agent>/webhooks/<channel>`.
 
    ```sh
    gcloud iam service-accounts create gmail-push-invoker
    gcloud pubsub subscriptions create gmail-push \
      --topic=gmail-push \
-     --push-endpoint=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-endpoint=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --push-auth-service-account=gmail-push-invoker@my-project.iam.gserviceaccount.com \
-     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail
+     --push-auth-token-audience=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
+     --ack-deadline=600 \
+     --min-retry-delay=10s \
+     --max-retry-delay=600s
    ```
+
+   The Channel reads new mail for about 5 seconds before it answers a push. It answers `503` when work remains or the sync failed, and Pub/Sub sends the notification again after the retry delay. This works with Pub/Sub's default 10 second ack deadline. The longer deadline gives one slow Invocation time to finish before Pub/Sub disconnects.
 
    For a project created before April 8, 2021, also give the Pub/Sub service agent the Service Account Token Creator role on the invoker service account.
 
@@ -185,7 +190,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         gmail: {
@@ -213,7 +217,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         gmail: {
@@ -240,7 +243,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         gmail: {
@@ -288,7 +290,7 @@ Call `pollGmailChannel()` from a [Schedule](/docs/schedule). Each call reads new
 
 ```ts [server/schedules/gmail-poll.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { pollGmailChannel } from 'vite-hub/agent/channels'
+import { pollGmailChannel } from 'vite-hub/channels/adapters'
 import { inbox } from '../lib/inbox'
 
 export default defineSchedule({
@@ -314,7 +316,7 @@ pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks).
 
 Gmail allows one active watch per mailbox. `channels sync` reads the mailbox profile first and stops before any change if you select more than one Gmail Channel for the same mailbox, even with different credentials.
 
@@ -322,7 +324,7 @@ Gmail stops the watch seven days after the last renewal. The push route renews i
 
 ```ts [server/schedules/gmail-watch.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { syncGmailChannel } from 'vite-hub/agent/channels'
+import { syncGmailChannel } from 'vite-hub/channels/adapters'
 import { inbox } from '../lib/inbox'
 
 export default defineSchedule({
@@ -342,16 +344,15 @@ To start Invocations as soon as mail arrives, do steps 5 and 6 of [Set up Google
 A poll runs steps 3 to 5 from a Schedule, without a notification.
 
 1. Pub/Sub sends a push with a Google-signed OIDC token. The Channel checks the signature with Google's public keys, the issuer, audience, expiry, verified service account email, and subscription name. A failed check returns `401` or `400`.
-2. It acknowledges with `204` and continues in the background.
+2. A notification whose history ID is not newer than the stored cursor gets `204` here: the last sync already read that change. Otherwise the Channel runs steps 3 to 5 before it answers. It answers `204` when the sync finished. It answers `503`, so Pub/Sub sends the notification again with backoff, when the sync failed, when work remains after about 5 seconds (the sync saves a checkpoint, and the next delivery continues), or when another sync is running (that sync also reads once more).
 3. It reads `history.list` from the stored cursor, checks each message's current labels with a metadata-only request, and fetches bodies of messages still in the Inbox. Older labels from the history do not exclude a message that went back to the Inbox before this check. If a dispatch failed, the message can still be retried after a hook removes it from the Inbox.
 4. It starts one Invocation per message through the `received` trigger, with run ID `channel:<channel>:<message id>`. It skips a message whose Invocation is terminal (finished) or whose Workflow dispatch is confirmed. An active claim stops two concurrent runs of one message. A claim for an unconfirmed pending Invocation stays retryable and holds the cursor until the message is [skipped](#failed-messages).
-5. It saves page tokens and remaining message IDs in the State Adapter, so the next push continues without refetching completed bodies. When every message has an Invocation or was [skipped](#failed-messages), it stores the new cursor and clears the progress in one transaction.
+5. When a page has new messages, it saves page tokens and remaining message IDs in the State Adapter, so the next push continues without refetching completed bodies. When every message has an Invocation or was [skipped](#failed-messages), it stores the new cursor, the sync health, and clears the progress in one write.
 
 ### Mailbox identity
 
-- With host `waitUntil`, an authenticated notification is acknowledged before Gmail API calls. Without it, the webhook finishes background work first.
-- The first notification checks the credentials' mailbox in background work, before cursor or message changes. Later ones reuse it while credentials stay the same. A custom `client` can rotate credentials, so with `client`, every notification checks.
-- A notification for another mailbox is discarded before any change, or rejected with HTTP 400 when the configured mailbox is cached.
+- The first notification reads the credentials' mailbox before cursor or message changes. Later ones reuse it while credentials stay the same. A custom `client` can rotate credentials, so with `client`, every notification checks.
+- A notification for another mailbox is rejected with HTTP 400 before any change.
 
 ### State requirements
 
@@ -361,15 +362,19 @@ A poll runs steps 3 to 5 from a Schedule, without a notification.
 - On Cloudflare, mailbox locks use the existing cache actor, and cursors and watch state stay even when other thread locks are sharded.
 - Custom SQLite drivers and libSQL clients set `durable: true` only when storage survives restarts. Built-in file and remote libSQL URLs declare it; memory URLs never qualify.
 
-The Channel verifies Google OIDC and the Pub/Sub envelope before it opens or writes delivery State.
+The Channel verifies Google OIDC and the Pub/Sub envelope before it reads or writes State. The webhook route does not store a copy of a Gmail push or record it in the delivery log, because Gmail sends a push for every mailbox change, also for label changes. `channels status` shows the result of each sync.
 
 ### Cursor, locks, and limits
 
-The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
+The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. When the credentials change to another mailbox, its first push or poll stores a new cursor, because history IDs of two mailboxes cannot be compared. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
 
-One process at a time reads the mailbox. A push during a sync makes the running sync read once more. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+One process at a time reads the mailbox. A push during a sync makes the running sync read once more.
 
-Background work runs in the host's `waitUntil`, which Cloudflare Workers stop 30 seconds after the response. For large bursts on Workers, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run.
+A sync stops after 4 minutes. It saves its checkpoint and frees the mailbox, and the next push or poll continues. A sync that hangs, for example on a request without a timeout, stops renewing its mailbox lock at 4 minutes and loses it within a minute. A process that stops in the middle of a sync also frees the mailbox within a minute. Then the next sync reads the mailbox, and the late writes of the hung sync fail.
+
+A push or poll that finds no new mail sends 3 State requests, which are Durable Object requests on Cloudflare: one takes the mailbox lock and reads the cursor, one marks the sync as started, and one writes the result and releases the lock. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+
+A push waits for the Invocations that its sync starts, and stops between messages after about 5 seconds. For large bursts, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run and the push answers sooner. Keep the [poll](#poll-without-pubsub) as a safety net: it reads mail when Pub/Sub stops sending a notification again.
 
 Only the Inbox of one mailbox is watched. Mail that a Gmail filter moves past the Inbox starts no Invocation.
 
@@ -378,7 +383,7 @@ Only the Inbox of one mailbox is watched. Mail that a Gmail filter moves past th
 A failed message does not block later mail. When a message keeps failing (Gmail cannot return it, its body fetch times out, or its Invocation cannot start), the Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in State and lets the cursor move on.
 
 ```ts
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 gmail({ maxAttempts: 3 })
 ```
@@ -393,13 +398,28 @@ pnpm vitehub channels status labeller gmail --url https://mail.example.com
 
 | Field | Value |
 | --- | --- |
-| `status` | `failing` after two failed syncs in a row (a sync that keeps a retried message also fails), else `ok`. |
-| `failures`, `failingSince`, `error` | Current failure streak and its last error. |
+| `status` | `failing` after two failed syncs in a row (a sync that keeps a retried message also fails), or when a sync started more than 5 minutes ago and did not finish. Else `ok`. |
+| `failures`, `failingSince`, `error` | Current failure streak and its last error, or the start of the sync that did not finish. |
 | `syncedAt` | When the history cursor last advanced. |
 | `retrying` | Messages that the next sync retries, with `id`, `attempts`, and the last `error`. |
 | `skipped` | The last 100 skipped messages, newest first, with `id`, `attempts`, the last `error`, and `skippedAt`. |
 
 Errors never contain a message body; they are redacted and cut to 500 characters. Invocation failures show a generic error, because Driver (model) errors can include email content. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
+
+Server code reads the same status with `gmailChannelStatus()`, for example for a health route that an uptime check calls:
+
+```ts [server/api/health.get.ts]
+import { defineEventHandler } from 'h3'
+import { gmailChannelStatus } from 'vite-hub/channels/adapters'
+import { inbox } from '../lib/inbox'
+
+export default defineEventHandler(async () => {
+  const health = await gmailChannelStatus(inbox)
+  return Response.json(health ?? { status: 'unknown' }, { status: health?.status === 'ok' ? 200 : 503 })
+})
+```
+
+It returns `undefined` when no Agent of the app uses the Channel. When more than one Agent uses it, pass `{ agent: 'labeller' }`. Like `pollGmailChannel()`, it reads the State of the webhook route, and outside a host request it takes `runtime` for Server Env and Cloudflare bindings.
 
 To retry a skipped message, replay it. It leaves `skipped` when its Invocation starts:
 
@@ -431,8 +451,8 @@ See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `
 
 ```ts [server/api/old-promotions.get.ts]
 import { defineEventHandler } from 'h3'
-import { gmailClient } from 'vite-hub/agent/channels'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { gmailClient } from 'vite-hub/channels/adapters'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import { inbox } from '../lib/inbox'
 
 export default defineEventHandler(async (event) => {
@@ -441,4 +461,4 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/presets/labeller#clean-up-old-mail) and its `cleanup` option.

@@ -2,17 +2,20 @@
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { h, nextTick } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import {
   clipboard, delivery, delta, event, input, invocation, message, messageAuthors, messageBodies, openWork,
   runSummary, threadRows, timestamp, tool, workText, workTitle,
 } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const show = (value: AgentInvocationView, props: Record<string, unknown> = {}) => mount(AgentInvocation, { props: { invocation: value, ...props } });
 const messageCount = (value: AgentInvocationView) => runSummary(mount(AgentInvocationInspector, { props: { invocation: value } })).Messages;
 const steer = (content: string) => delta("user", content, { "input.mode": "steer", "message.id": "steer" });
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation session thread", () => {
   describe("session", () => {
@@ -278,18 +281,23 @@ describe("Agent Invocation session thread", () => {
       expect(wrapper.get('.vh-invocation-work__activities .vh-invocation-message[data-phase="commentary"]').find(".vh-invocation-message__meta").exists()).toBe(false);
     });
 
-    it("keeps provider summary and commentary items as separate markdown blocks", async () => {
+    it.each([
+      ["reasoning phase", { "message.id": "reasoning_text:rs_1:0", "message.phase": "reasoning" }],
+      ["commentary phase recorded before the reasoning phase", { "message.id": "reasoning_summary_text:turn", "message.phase": "commentary" }],
+    ])("shows a provider reasoning title with the %s as reasoning, not as a message", async (_label, attributes) => {
       const wrapper = show(invocation([
         checkThis,
-        delta("assistant", "**Reading related facts**", { "message.id": "reasoning_summary_text:turn", "message.phase": "commentary" }),
+        delta("assistant", "**Previewing old output**", attributes),
         delta("assistant", "I’m also applying the evidence skill.", { "message.id": "assistant_text:comment", "message.phase": "commentary" }),
         tool("start", "check", "search"),
       ], { status: "running" }));
+      expect(messageBodies(wrapper, undefined, "thread").join("\n")).not.toContain("Previewing old output");
       await openWork(wrapper);
       const rows = wrapper.get(".vh-invocation-work__activities").findAll(":scope > li");
-      expect(rows.slice(0, 2).map(row => row.attributes("data-phase"))).toEqual(["commentary", "commentary"]);
-      expect(rows[0]!.text()).toContain("Reading related facts");
+      expect(rows[0]!.classes()).not.toContain("vh-invocation-message");
+      expect(rows[0]!.get(".vh-invocation-event__title").text()).toBe("Thinking");
       expect(rows[0]!.text()).not.toContain("I’m also applying");
+      expect(rows[1]!.attributes("data-phase")).toBe("commentary");
       expect(rows[1]!.text()).toContain("I’m also applying the evidence skill.");
       expect(rows[1]!.find(".vh-invocation-message__meta").exists()).toBe(false);
     });

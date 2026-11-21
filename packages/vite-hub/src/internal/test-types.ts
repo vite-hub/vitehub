@@ -12,16 +12,17 @@ export interface DeliverChannelOptions {
 type EmailAddress = string | { email: string, name?: string }
 type EmailAddressList = EmailAddress | readonly EmailAddress[]
 
-export interface TestEmailMessage {
+type EmailBody =
+  | { text: string, html?: string }
+  | { html: string, text?: string }
+
+export type TestEmailMessage = EmailBody & {
   from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
   bcc?: EmailAddressList
   replyTo?: EmailAddressList
   subject: string
-  preheader?: string
-  text?: string
-  html?: string
   headers?: Record<string, string>
   attachments?: readonly {
     filename: string
@@ -34,31 +35,7 @@ export interface TestEmailMessage {
   idempotencyKey?: string
   scheduledAt?: string | Date
   unsubscribe?: { url?: string, mailto?: string, oneClick?: boolean }
-  template?: { id?: string, alias?: string, variables?: Record<string, unknown>, locale?: string }
-  tracking?: { opens?: boolean, clicks?: boolean, unsubscribes?: boolean }
-  sandbox?: boolean
   metadata?: Record<string, string>
-  personalizations?: readonly {
-    to: EmailAddressList
-    cc?: EmailAddressList
-    bcc?: EmailAddressList
-    subject?: string
-    variables?: Record<string, unknown>
-    sendAt?: Date | string
-    customArgs?: Record<string, string>
-  }[]
-  amp?: string
-  dsn?: { notify?: readonly ("SUCCESS" | "FAILURE" | "DELAY" | "NEVER")[], ret?: "FULL" | "HDRS", envid?: string, orcpt?: string }
-  raw?: string | Uint8Array
-  react?: unknown
-  jsx?: unknown
-  mjml?: string
-  handlebars?: string
-  handlebarsVars?: Record<string, unknown>
-  liquid?: string
-  liquidVars?: Record<string, unknown>
-  locale?: string
-  stream?: string
 }
 
 export interface TestScheduleContext {
@@ -93,4 +70,21 @@ export interface TestScheduleRunRecord {
   status: "pending" | "running" | "succeeded" | "failed"
   target: string
   updatedAt: Date
+}
+
+/** The user to sign in. Auth creates it when no user has this email. Other fields, such as `role`, go to the new user. */
+export interface SignInTestUser {
+  email?: string
+  name?: string
+  [field: string]: unknown
+}
+
+/** A signed-in session of the app's Auth Definition. */
+export interface TestSignIn {
+  /** The `cookie` header of the session. */
+  cookie: string
+  /** Headers with the session cookie. Pass them to a `Request` so that `requireAuth()` accepts it. */
+  headers: Headers
+  session: { id: string, token: string, userId: string, expiresAt: Date, [field: string]: unknown }
+  user: { id: string, email: string, name: string, [field: string]: unknown }
 }

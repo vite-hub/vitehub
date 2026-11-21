@@ -1,13 +1,15 @@
 # @vite-hub/markdown-template
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fmarkdown-template&icon=npm)](https://npmx.dev/package/@vite-hub/markdown-template)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fmarkdown-template&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/markdown-template)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/markdown-template)](https://npmx.dev/package/@vite-hub/markdown-template)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/markdown-template)](https://npmx.dev/package/@vite-hub/markdown-template)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments, and bounded conditions. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
 
 Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplate()` when your application already has the template string.
+
+User docs: [Markdown templates](https://vitehub.dev/docs/markdown-template).
 
 ## Install
 
@@ -15,7 +17,7 @@ Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplat
 pnpm add @vite-hub/markdown-template
 ```
 
-The package requires Node.js 22.18 or newer.
+The package requires Node.js 24.15 or newer.
 
 ## Render a template string
 
@@ -97,7 +99,7 @@ The renderer does not evaluate template syntax inside a fragment again. Bindings
 
 ### Select a condition
 
-Conditional sections read a data path and compare it with a literal using Comark's supported comparison props: `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`. Prefix a prop with `:` when its value is another binding or JSON value. They do not parse JavaScript expressions.
+Conditional sections read a data path and compare it with a literal using Comark's supported comparison props: `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`. Prefix a prop with `:` when its value is another binding or JSON value. `condition` and `value` always need the `:` prefix, so `::if{condition="data.available"}` throws `MARKDOWN_TEMPLATE_R0024`. Conditions do not parse JavaScript expressions.
 
 ```md
 ::if{:condition="data.available"}

@@ -56,7 +56,23 @@ it("retains the collision guard when both MCP servers are explicitly enabled", a
     await mkdir(join(projectRoot, "server"))
     await writeFile(join(projectRoot, "server/content.mjs"), "import { defineContent } from '@vite-hub/content'; export default defineContent({ seo: { mcp: true } })")
     const handlers = await prepareSourceGeneration({ projectRoot })
-    expect(() => mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "/app-mcp.mjs", route: "/mcp" }] }, handlers)).toThrowError(expect.objectContaining({ code: "SOURCE_B0002" }))
+    // The app MCP server of `vitehub({ mcp })` writes its entry to .vitehub/nitro/mcp/.
+    const appMcp = { handler: join(projectRoot, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" }
+    let error: unknown
+    try {
+      mergeGeneratedSourceNitroConfig({ handlers: [appMcp] }, handlers)
+    }
+    catch (caught) {
+      error = caught
+    }
+    expect(error).toMatchObject({
+      code: "SOURCE_B0010",
+      why: "[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at \"/mcp\", and the app MCP server of vitehub({ mcp }) answers there too.",
+      fix: expect.stringContaining("vitehub({ mcp: { route: '/mcp/app' } })"),
+    })
+    // Another handler at /mcp gets the same diagnostic, which names it by file.
+    expect(() => mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "/app/server/mcp-proxy.mjs", route: "/mcp" }] }, handlers))
+      .toThrowError(expect.objectContaining({ code: "SOURCE_B0010", why: expect.stringContaining("the handler /app/server/mcp-proxy.mjs answers there too") }))
   }
   finally {
     await rm(projectRoot, { force: true, recursive: true })

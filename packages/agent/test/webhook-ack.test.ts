@@ -25,7 +25,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-async function setup(options: { ackTimeoutMs?: number | false, signature?: "github-sha256" | "stripe-sha256", url?: string } = {}) {
+async function setup(options: { ackTimeoutMs?: number | false, signature?: "github" | "stripe", url?: string } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-ack-"))
   const state = createLibsqlAgentState({ url: options.url ?? `file:${join(stateDir, "state.sqlite")}` })
   const invokes: number[] = []
@@ -52,8 +52,8 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
           path: "/hook",
           provider: "hook",
           secretHeader: "x-hub-signature-256",
-          secretToken: secret,
-          signature: options.signature ?? "github-sha256",
+          secret: () => secret,
+          signature: options.signature ?? "github",
         },
       }),
     },
@@ -67,7 +67,7 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
     await rm(stateDir, { force: true, recursive: true })
   })
   const sign = (body: string) => {
-    if (options.signature !== "stripe-sha256") return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+    if (options.signature !== "stripe") return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
     const t = Math.floor(Date.now() / 1000)
     return `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`
   }
@@ -77,12 +77,21 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
       headers: { "content-type": "application/json", "x-github-delivery": `delivery-${n}`, "x-hub-signature-256": signature === undefined ? sign(JSON.stringify({ n })) : `sha256=${signature}` },
       method: "POST",
     }), "", routeOptions)
-  const inbox = async () => {
+  // Every replay index row of this scope, whichever list holds it.
+  const indexRows = async () => {
     await state.connect()
+    const rows = await state.extension("webhook_ack_test").execute(
+      "SELECT value FROM vitehub_agent_state_lists WHERE key LIKE ? ORDER BY id",
+      [`${scope}inbox%`],
+    )
+    return rows.map(row => String(row.value))
+  }
+  const inbox = async () => {
     const rows = []
     // The replay index can list an ID more than once; replay reads each stored request once.
     const ids = new Set<string>()
-    for (const entry of await state.getList<{ id: string }>(`${scope}inbox`)) {
+    for (const value of await indexRows()) {
+      const entry = JSON.parse(value) as { id: string }
       if (ids.has(entry.id)) continue
       ids.add(entry.id)
       const row = await state.get(`${scope}inbox:${encodeURIComponent(entry.id)}`)
@@ -94,11 +103,29 @@ async function setup(options: { ackTimeoutMs?: number | false, signature?: "gith
     create,
     hold: () => { const held = deferred(); gate = held.promise; return held },
     inbox,
+    indexRows,
     invokes,
     routeOptions,
     send,
     setStatus: (value: number | undefined) => { status = value },
     state,
+  }
+}
+
+/** An entry of the legacy replay list, which kept a complete copy of each request. */
+function legacyEntry(n: number, receivedAt: number, attempts: number) {
+  return {
+    attempts,
+    id: `delivery-index-only-${n}`,
+    receivedAt: new Date(receivedAt).toISOString(),
+    // Replay checks the signature again, so the stored request keeps its signed headers.
+    request: {
+      body: `{"n":${n}}`,
+      headers: { "content-type": "application/json", "x-github-delivery": `delivery-index-only-${n}`, "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(`{"n":${n}}`).digest("hex")}` },
+      method: "POST",
+      url: "https://example.com/hook",
+    },
+    webhookId: "",
   }
 }
 
@@ -176,7 +203,7 @@ describe("webhook acknowledgement after store", () => {
   it("replays a timestamp-signed request after its signature tolerance has passed", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
-    const { create, hold, inbox, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 20, signature: "stripe-sha256" })
+    const { create, hold, inbox, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 20, signature: "stripe" })
     const stuck = hold()
     expect((await send(5)).status).toBe(202)
     await vi.waitFor(() => expect(invokes).toEqual([5]))
@@ -185,7 +212,7 @@ describe("webhook acknowledgement after store", () => {
     await vi.waitFor(async () => expect((await inbox())[0]).toMatchObject({ attempts: 1 }))
     const [left] = await inbox()
 
-    // The next process starts ten minutes later, past the 300 second stripe-sha256 tolerance.
+    // The next process starts ten minutes later, past the 5 minute stripe tolerance.
     const now = Date.now
     vi.spyOn(Date, "now").mockImplementation(() => now() + 600_000)
     setStatus(503)
@@ -198,30 +225,159 @@ describe("webhook acknowledgement after store", () => {
     await stop()
   })
 
-  it("preserves attempts when replay recovers an index-only entry", async () => {
+  it("preserves attempts when replay recovers an index-only entry of the legacy list", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { create, inbox, invokes, routeOptions, state, setStatus } = await setup({ ackTimeoutMs: 1_000 })
     setStatus(503)
     await state.connect()
-    await state.appendToList(`${scope}inbox`, {
-      attempts: 2,
-      id: "delivery-index-only",
-      receivedAt: new Date(Date.now() - 1_000).toISOString(),
-      // Replay checks the signature again, so the stored request keeps its signed headers.
-      request: {
-        body: "{\"n\":9}",
-        headers: { "content-type": "application/json", "x-github-delivery": "delivery-index-only", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update("{\"n\":9}").digest("hex")}` },
-        method: "POST",
-        url: "https://example.com/hook",
-      },
-      webhookId: "",
-    })
+    // A copy from two days ago belongs to an admission whose settled marker has expired.
+    await state.appendToList(`${scope}inbox`, legacyEntry(10, Date.now() - 2 * 86_400_000, 1))
+    await state.appendToList(`${scope}inbox`, legacyEntry(9, Date.now() - 1_000, 2))
     const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
     // The route stores attempt 3 before it runs the trigger, so wait for the trigger as well.
     await vi.waitFor(() => expect(invokes).toEqual([9]), { timeout: 4_000 })
     await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]))
     await stop()
+    expect(invokes).toEqual([9])
+  })
+
+  it("keeps a legacy request newer than the recovery boundary replayable by a later restart", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    await state.connect()
+    const body = `{"n":11}`
+    // A process of the previous version stored this request after the new process started.
+    const receivedAt = Date.now()
+    await state.appendToList(`${scope}inbox`, {
+      attempts: 1, id: "delivery-legacy-late", receivedAt: new Date(receivedAt).toISOString(), webhookId: "",
+      request: { body, method: "POST", url: "https://example.com/hook",
+        headers: { "content-type": "application/json", "x-github-delivery": "delivery-legacy-late", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` } },
+    })
+    const first = create().resume({ ...routeOptions, recoverInterruptedBefore: receivedAt - 1_000 })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await first()
+    expect(invokes).toEqual([])
+    const second = create().resume({ ...routeOptions, recoverInterruptedBefore: receivedAt + 1_000 })
+    await vi.waitFor(() => expect(invokes).toEqual([11]), { timeout: 4_000 })
+    await second()
+  })
+
+  it("restores a legacy request whose migration stopped after its hourly entry and before its row", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    await state.connect()
+    const body = `{"n":13}`
+    const receivedAt = Date.now() - 1_000
+    await state.appendToList(`${scope}inbox`, {
+      attempts: 1, id: "delivery-legacy-half", receivedAt: new Date(receivedAt).toISOString(), webhookId: "",
+      request: { body, method: "POST", url: "https://example.com/hook",
+        headers: { "content-type": "application/json", "x-github-delivery": "delivery-legacy-half", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` } },
+    })
+    // An earlier migration wrote the hourly entry and stopped before it wrote the row.
+    await state.appendToList(`${scope}inbox-index:${Math.floor(Date.now() / 3_600_000)}`, { attempts: 1, id: "delivery-legacy-half" }, { ttlMs: 86_400_000 })
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(invokes).toEqual([13]), { timeout: 4_000 })
+    await stop()
+  })
+
+  it("reads the legacy list a page at a time, and only once", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    await state.connect()
+    // 250 copies from two days ago, then one request still to replay.
+    for (let n = 100; n < 350; n++) await state.appendToList(`${scope}inbox`, legacyEntry(n, Date.now() - 2 * 86_400_000, 1))
+    await state.appendToList(`${scope}inbox`, legacyEntry(99, Date.now() - 1_000, 1))
+    const getList = vi.spyOn(state, "getList")
+    const first = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(invokes).toEqual([99]), { timeout: 5_000 })
+    await first()
+    expect(getList.mock.calls.some(([key]) => key === `${scope}inbox`)).toBe(false)
+
+    // The next restart starts after the last row the first one read.
+    const getListPage = vi.spyOn(state, "getListPage")
+    const second = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(getListPage).toHaveBeenCalled(), { timeout: 5_000 })
+    await second()
+    await expect(getListPage.mock.results[0]!.value).resolves.toEqual([])
+    expect(invokes).toEqual([99])
+  })
+
+  it("replays a request that a process whose clock ran 2 s ahead indexed in the next hour", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 1_000 })
+    const hour = 3_600_000
+    const nextHour = (Math.floor(Date.now() / hour) + 1) * hour
+    let clock = nextHour + 1_000
+    vi.spyOn(Date, "now").mockImplementation(() => clock)
+    setStatus(503)
+    await (await send(12)).arrayBuffer()
+    setStatus(undefined)
+    // The next process runs 2 s behind, still in the previous hour, and its boundary is after the arrival.
+    clock = nextHour - 1_000
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: nextHour + 1_500 })
+    await vi.waitFor(() => expect(invokes).toEqual([12, 12]), { timeout: 5_000 })
+    await stop()
+  })
+
+  it("answers a duplicate with a retryable 503 while the first request has not stored its copy", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { indexRows, send, state } = await setup({ ackTimeoutMs: 1_000 })
+    const rowKey = `${scope}inbox:delivery-13`
+    const stopped = deferred()
+    const set = state.set.bind(state)
+    // The first process stops after its index write and before its row write.
+    vi.spyOn(state, "set").mockImplementation(async (key, value, ttlMs) => {
+      if (key === rowKey) {
+        await stopped.promise
+        throw new Error("process stopped")
+      }
+      return await set(key, value, ttlMs)
+    })
+    const first = send(13)
+    await vi.waitFor(async () => expect(await indexRows()).toHaveLength(1))
+    const duplicate = await send(13)
+    // A 2xx would tell the provider the request is safe, but no restart could replay it.
+    expect(duplicate.status).toBe(503)
+    expect(duplicate.headers.get("retry-after")).toBe("1")
+    stopped.resolve()
+    await (await first).arrayBuffer()
+  })
+
+  it("keeps the replay index to the retention window while webhooks keep arriving", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { create, indexRows, invokes, routeOptions, send, setStatus, state } = await setup({ ackTimeoutMs: 1_000 })
+    const now = Date.now
+    let offset = 0
+    vi.spyOn(Date, "now").mockImplementation(() => now() + offset)
+    // One webhook an hour for four days. Each one settles, except n = 90, which ends in a 5xx and stays stored.
+    for (let n = 1; n <= 96; n++) {
+      offset = n * 3_600_000
+      setStatus(n === 90 ? 503 : undefined)
+      await (await send(n)).arrayBuffer()
+    }
+    setStatus(undefined)
+    await state.cleanupExpiredState()
+
+    const rows = await indexRows()
+    // The index keeps about one day of webhooks, not all four, and no request bodies.
+    expect(rows.length).toBeGreaterThanOrEqual(24)
+    expect(rows.length).toBeLessThanOrEqual(27)
+    expect(rows.some(value => value.includes("\"body\""))).toBe(false)
+
+    // The next process replays the unsettled request and skips the settled ones.
+    invokes.length = 0
+    offset += 60_000
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(() => expect(invokes).toEqual([90]), { timeout: 5_000 })
+    await stop()
+    expect(invokes).toEqual([90])
   })
 
   it("drops a stored request after 3 admissions", async () => {

@@ -1,12 +1,17 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { createServer } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { runWorkspaceDevCli } from "../src/cli.ts"
 import { readWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevTokenHeader } from "../src/server.ts"
 import { hubWorkspace } from "../src/vite.ts"
+
+/** The dev server of the project. The CLI never guesses a port, so each test names it. */
+const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
 
 function stream() {
   let value = ""
@@ -31,13 +36,54 @@ function ndjsonResponse(lines: unknown[]) {
   })
 }
 
+
+/** A Session host that runs the real command, with a HOME whose `.profile` sets PATH as Debian's /etc/profile does. */
+async function profileResettingHost() {
+  const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-profile-"))
+  await writeFile(join(home, ".profile"), "export PATH=/from/profile\n")
+  const exec = async (command: string, args: string[] = []) => await new Promise<{ args: string[], command: string, exitCode: number, stderr: string, stdout: string }>((resolve) => {
+    execFile(command, args, { env: { ...process.env, HOME: home } }, (error, stdout, stderr) => {
+      resolve({ args, command, exitCode: error ? Number(error.code ?? 1) : 0, stderr, stdout })
+    })
+  })
+  return { cleanup: () => rm(home, { force: true, recursive: true }), exec }
+}
+
 describe("workspace CLI", () => {
+  it("discovers the standalone Workspace Vite listener without an app URL", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-listener-"))
+    try {
+      const server = await createServer({
+        appType: "custom",
+        configFile: false,
+        logLevel: "silent",
+        plugins: [hubWorkspace()],
+        root: rootDir,
+        server: { host: "127.0.0.1", port: 0, watch: null, ws: false },
+      })
+      try {
+        await server.listen()
+        const stderr = stream()
+        const exitCode = await runWorkspaceDevCli(["missing"], { cwd: rootDir, env: {}, rootDir, stderr, stdout: stream() })
+        expect(exitCode).toBe(1)
+        expect(stderr.output()).toBe("Unknown Workspace Dev target: missing\n")
+      }
+      finally {
+        await server.close()
+      }
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps the private Workspace Dev token outside the Vite root", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-token-"))
     try {
       const token = await refreshWorkspaceDevToken(rootDir)
 
       await expect(readWorkspaceDevToken(rootDir)).resolves.toBe(token)
+      await expect(readdir(rootDir, { recursive: true })).resolves.toEqual([])
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -76,7 +122,7 @@ describe("workspace CLI", () => {
 
     const exitCode = await runWorkspaceDevCli(["--help"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,
@@ -111,7 +157,7 @@ describe("workspace CLI", () => {
         "docs",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr,
         stdout,
@@ -141,7 +187,7 @@ describe("workspace CLI", () => {
 
     await expect(runWorkspaceDevCli(["docs", "exec", "echo", "ok"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,
@@ -210,7 +256,7 @@ describe("workspace CLI", () => {
         "README.md",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr,
         stdout,
@@ -256,7 +302,7 @@ describe("workspace CLI", () => {
 
     const exitCode = await runWorkspaceDevCli(["docs", "cat", "README.md"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,
@@ -339,6 +385,22 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("runs string Workspace Dev commands without a login shell, so a profile keeps the PATH", async () => {
+    const host = await profileResettingHost()
+    try {
+      const workspace = {
+        startSession: vi.fn(async () => ({ close: vi.fn(), commit: vi.fn(), diff: vi.fn(async () => ({ entries: [] })), exec: host.exec })),
+      }
+      await expect(runWorkspaceDevCommand({ command: "printenv PATH", workspace: workspace as never })).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: `${process.env.PATH}\n`,
+      })
+    }
+    finally {
+      await host.cleanup()
+    }
+  })
+
   it("uses the portable Workspace shell for string Workspace Dev commands", async () => {
     const exec = vi.fn(async () => ({
       exitCode: 0,
@@ -360,7 +422,7 @@ describe("workspace CLI", () => {
       stdout: "ok\n",
     })
 
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "echo ok"], {
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", "echo ok"], {
       abortSignal: undefined,
       timeout: undefined,
     })
@@ -469,7 +531,7 @@ describe("workspace CLI", () => {
         rules: {
           "**": { commit: "chore: update workspace" },
         },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       workspace,
     })).rejects.toThrow("requires a Sandbox session host")

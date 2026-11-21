@@ -253,6 +253,8 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
           }
         })
       })
+      // Build output must take the checkpointed writes above, one file at a time.
+      if (property === "writeFiles") return undefined
       return Reflect.get(target, property, target)?.bind(target)
     },
   })
@@ -269,7 +271,7 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 type TrackLifecycleOperation = <T>(operation: Promise<T>) => Promise<T>
 
-const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream", "writeFiles"])
 
 function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
   const active = new Set<Promise<unknown>>()
@@ -534,7 +536,7 @@ async function hasCompleteBundledBuildSource(
   bundledSourceByPath?: Map<string, string>,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
-  const probeKeys = source.source.probeKeys
+  const probeKeys = source.probeKeys
   if (!probeKeys?.length) {
     const paths = bundledFiles
       ?.filter(file => file.metadata?.source === source.key)

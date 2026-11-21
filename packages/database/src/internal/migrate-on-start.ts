@@ -1,16 +1,20 @@
 import { resolve } from "pathe"
 
+import { readFileSync } from "node:fs"
+
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { recordD1MigrationNames } from "./d1-migrations.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
-import type { StartMigration } from "../runtime/migrate-on-start.ts"
-import type { DatabaseIntegrationOptions, ResolvedDBViteConfig } from "../types.ts"
+import type { MigrationBackup, StartD1Migrations, StartMigration } from "../runtime/migrate-on-start.ts"
+import type { DatabaseDialect, DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
 
 /** The Nitro plugin that applies migrations at boot, relative to the Database project root. */
 export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-start.mjs"
 
 export interface MigrateOnStartSettings {
   allowDataLoss: boolean
+  backup?: MigrationBackup
   /** The app set `migrateOnStart`. Without it, only Postgres databases of a Node build migrate on start. */
   explicit: boolean
 }
@@ -21,7 +25,19 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
   const value = options?.migrateOnStart
   if (value === false) return
   if (value === undefined) return { allowDataLoss: false, explicit: false }
-  return { allowDataLoss: value !== true && value.allowDataLoss === true, explicit: true }
+  if (value === true) return { allowDataLoss: false, explicit: true }
+  const backup = resolveMigrationBackup(value.backup)
+  return { allowDataLoss: value.allowDataLoss === true, ...backup && { backup }, explicit: true }
+}
+
+function resolveMigrationBackup(value: boolean | MigrationBackupOptions | undefined): MigrationBackup | undefined {
+  if (!value) return
+  if (value === true) return { keep: 3 }
+  const keep = value.keep ?? 3
+  if (!Number.isInteger(keep) || keep < 1) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ problem: `\`keep\` is ${JSON.stringify(keep)}, and must be a whole number of 1 or more.` })
+  }
+  return { ...value.dir && { dir: value.dir }, keep }
 }
 
 /**
@@ -31,7 +47,8 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
  */
 export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined, settings: MigrateOnStartSettings, host: string | undefined): string[] {
   if (settings.explicit) {
-    assertMigrateOnStartSupported(config, host)
+    assertMigrateOnStartSupported(host)
+    if (settings.backup) assertMigrationBackupSupported(config)
     return config?.databaseNames ?? []
   }
   if (!config || host !== "node") return []
@@ -54,18 +71,18 @@ interface RenderMigrateOnStartOptions {
  * migrations are read now, so the server output does not need the migrations folder. A folder that cannot be read
  * fails only the call that needs it, so a build that never migrates in the server does not fail.
  */
-export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, { allowDataLoss }: { allowDataLoss: boolean }): string {
-  const databases: Record<string, { dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
+export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, settings: Pick<MigrateOnStartSettings, "allowDataLoss" | "backup"> | undefined): string {
+  const databases: Record<string, { d1?: StartD1Migrations, dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
     try {
-      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir), name)
-      if (migrations.length) databases[name] = { dialect: config!.databases[name]!.dialect, migrations }
+      const database = readShippedDatabaseMigrations(config!, name)
+      if (database) databases[name] = database
     }
     catch (error) {
       databases[name] = { problem: error instanceof Error ? error.message : String(error) }
     }
   }
-  return `export default ${JSON.stringify({ allowDataLoss, databases })}\n`
+  return `export default ${JSON.stringify({ allowDataLoss: settings?.allowDataLoss ?? false, ...settings?.backup && { backup: settings.backup }, databases })}\n`
 }
 
 /**
@@ -74,7 +91,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
  * when no database has migrations.
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
-  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name).length)
+  const databases = options.databases.filter(name => readShippedDatabaseMigrations(config, name))
   if (!databases.length) return
   return [
     `import { databases } from ${JSON.stringify(options.registryImport)}`,
@@ -91,24 +108,57 @@ export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options
   ].join("\n")
 }
 
-/** Fails the build when a database cannot migrate in the server process. `host` is `undefined` or `node` for Node. */
-export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | undefined, host: string | undefined) {
+/** Fails the build when the server cannot migrate its databases. `host` is `undefined` or `node` for Node. */
+export function assertMigrateOnStartSupported(host: string | undefined) {
   if (host && host !== "node") {
     throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: `The build targets ${host}.` })
   }
-  if (!config) return
-  for (const name of config.databaseNames) {
-    if (config.databases[name]!.cloudflare?.http) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: "It uses Cloudflare D1 over HTTP." })
+}
+
+/**
+ * Fails the build when `migrateOnStart.backup` cannot copy a database: a Postgres database, or a SQLite database whose
+ * `connection.url` is remote libSQL or in memory. A URL from the environment is checked when the server starts.
+ */
+function assertMigrationBackupSupported(config: ResolvedDBViteConfig | undefined) {
+  for (const name of config?.databaseNames ?? []) {
+    const database = config!.databases[name]!
+    if (database.dialect === "postgresql") {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: name, problem: "It is a Postgres database." })
+    }
+    if (database.cloudflare?.http) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: name, problem: "It uses Cloudflare D1 over HTTP." })
+    }
+    const url = database.connection?.url
+    if (typeof url === "string" && (url === ":memory:" || /^(?:libsql|https?|wss?):/i.test(url))) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: name, problem: url === ":memory:" ? "It is in memory." : "It uses remote libSQL." })
     }
   }
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+export function readStartMigrations(migrationsDir: string, dialect: DatabaseDialect, database?: string): StartMigration[] {
   const entries = readMigrations(migrationsDir, database)
+  return startMigrationsFromEntries(migrationsDir, entries, dialect)
+}
+
+function startMigrationsFromEntries(migrationsDir: string, entries: ReturnType<typeof readMigrations>, dialect: DatabaseDialect): StartMigration[] {
   return entries.map((entry) => {
-    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
+    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries, dialect)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
+}
+
+function readShippedDatabaseMigrations(config: ResolvedDBViteConfig, name: string) {
+  const database = config.databases[name]!
+  const migrationsDir = resolve(config.rootDir, database.migrationsDir)
+  const mayUseD1 = database.dialect === "sqlite" && (database.cloudflare || config.definitionDefaults?.cloudflareProjections[name]?.resource === "opaque")
+  const entries = readMigrations(migrationsDir, name, { flat: Boolean(database.cloudflare?.http) })
+  const migrations = startMigrationsFromEntries(migrationsDir, entries, database.dialect)
+  const d1: StartD1Migrations | undefined = mayUseD1 ? {
+    files: recordD1MigrationNames(migrationsDir).map((file) => {
+      const { dataLoss, statements } = readPendingMigration(migrationsDir, file.tag, entries, "sqlite")
+      return { dataLoss, name: file.name, sql: readFileSync(file.source, "utf8"), statements, tag: file.tag }
+    }),
+  } : undefined
+  if (migrations.length || d1?.files.length) return { ...d1 && { d1 }, dialect: database.dialect, migrations }
 }

@@ -1,13 +1,14 @@
 
+import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { defineOperation } from "@vite-hub/internal/operations"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { inspectServerEnv } from "@vite-hub/env/server"
-import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
-import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -25,10 +26,7 @@ function call(body: string, init: RequestInit = {}): Promise<Response> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  for (const key of [consoleInvocationsKey, consoleInvocationsRootKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey]) {
-    Reflect.deleteProperty(globalThis, key)
-    Reflect.deleteProperty(process, key)
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
 })
 
 describe("Console RPC", () => {
@@ -36,29 +34,10 @@ describe("Console RPC", () => {
     const store = createMemoryAgentInvocationStore()
     const timestamp = "2026-08-23T12:00:00.000Z"
     await store.create({ id, createdAt: timestamp, updatedAt: timestamp, status: "completed", observations: [], traceId: "trace-rpc-encoded" })
-    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    installConsoleInvocations(process.cwd(), defineAgentInvocations({ store }))
     const response = await call(operationRpcBody("invocations.get", { id }))
     expect(response.status).toBe(200)
     await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { invocation: { id } } })
-  })
-
-  it("preserves request bindings through Env status inspection", async () => {
-    installConsoleSections("/console-rpc-env", ["env"])
-    const binding = "request-only-secret"
-    installConsoleEnv("/console-rpc-env", { entries: [] }, async (event) => {
-      expect(event["~standard"].runtime?.cloudflare?.env).toEqual({ RPC_TOKEN: binding })
-      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } })
-    })
-    const request = Object.assign(new Request(callURL, {
-      body: operationRpcBody("env.get", { status: true }),
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      method: "POST",
-    }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await consoleRpcHandler.fetch(request)
-    expect(response.status).toBe(200)
-    const body = await operationRpcResponseResult(response)
-    expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
-    expect(JSON.stringify(body)).not.toContain(binding)
   })
 
   it("returns operation results and errors with no-store headers", async () => {
@@ -173,6 +152,34 @@ describe("Console RPC", () => {
       i: "probe",
       e: expect.objectContaining({ code: "CONSOLE_NOT_FOUND", message: "Console operation not found.", status: 404 }),
     })
+  })
+
+  it("says that an operation that runs app code needs console.invoke", async () => {
+    const start = defineOperation({
+      description: "Start a fixture run.",
+      input: v.object({}),
+      invoke: true,
+      kind: "write",
+      name: "fixture.start",
+      run: () => ({ started: true }),
+      section: "fixture",
+    })
+    installConsoleOperations([{ operations: [start], plugin: "fixture-plugin" }], { invoke: false })
+    try {
+      const held = await call(operationRpcBody("fixture.start", {}))
+      expect(held.status).toBe(404)
+      const failure = await operationRpcResponseResult(held)
+      expect(failure).toMatchObject({ code: "CONSOLE_NOT_FOUND", message: expect.stringContaining("console.invoke"), status: 404 })
+      expect(failure).toMatchObject({ fix: expect.stringContaining("invoke: true") })
+
+      // An operation that the app does not have at all is a version mismatch, not stale Console data.
+      const missing = await operationRpcResponseResult(await call(operationRpcBody("fixture.nothing", {})))
+      expect(missing).toMatchObject({ code: "CONSOLE_NOT_FOUND", message: "Console operation not found." })
+      expect(missing).toMatchObject({ fix: expect.not.stringContaining("Reload") })
+    }
+    finally {
+      installConsoleOperations([])
+    }
   })
 
   it("sends a thrown operation error with its code and message, and without the stack", async () => {

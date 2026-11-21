@@ -35,7 +35,7 @@ A URL, Cloudflare account ID, or AI Gateway ID is missing or not valid, or the g
 
 ### GATEWAYS_R0005
 
-`ask()` was called on a gateway that only routes model requests.
+`gateway.ask()` was called on a gateway that only routes model requests.
 
 ### GATEWAYS_R0006
 
@@ -47,11 +47,11 @@ A Jev question that the `ask` builders do not make, or one that is too large.
 
 ### GATEWAYS_R0008
 
-The provider rejected the key with 401 or 403. `status` is 503, with `providerStatus` and `requestId`. The `fix` names the variable to rotate.
+The provider rejected the key with 401 or 403. `gateway.ask()` returns it as `[error, undefined]`. `status` is 503, with `providerStatus` and `requestId`. The `fix` names the variable to rotate.
 
 ### GATEWAYS_R0009
 
-The provider still failed after three attempts. `status` is 502, with `providerStatus` and `requestId`.
+The provider still failed after three attempts. `gateway.ask()` returns it as `[error, undefined]`. `status` is 502, with `providerStatus` and `requestId`.
 
 ### GATEWAYS_R0010
 
@@ -59,7 +59,7 @@ The provider still failed after three attempts. `status` is 502, with `providerS
 
 ### GATEWAYS_R0011
 
-`askWithModel()` needs the `ai` package. Install it with `pnpm add ai`.
+`ask(prompt, { model, schema })` and `askWithModel()` need the `ai` package. Install it with `pnpm add ai`.
 
 ### GATEWAYS_R0012
 

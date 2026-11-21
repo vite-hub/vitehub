@@ -29,7 +29,8 @@ it.each([false, true])("counts deleted files alongside other changes (mixed: %s)
     global: { stubs: { AgentInvocation: true, UIcon: true } },
   })
   try {
-    await wrapper.get('[data-slot="agent-session-details-toggle"]').trigger("click")
+    // happy-dom does not implement the native popover invoker action.
+    await wrapper.get('[data-slot="agent-session-details"]').trigger("beforetoggle", { newState: "open" })
     const row = wrapper.findAll('[data-slot="agent-session-details-row"]').find(row => row.text().includes("Changed files"))
     expect(row?.find(".vh-agent-session__row-value").text()).toBe(mixed ? "2" : "1")
   }
@@ -96,7 +97,7 @@ it("restores desktop surfaces, visibility, and maximization through the URL and 
     await router.push("/session?details=open&tab=workspace")
     await flushPromises()
     expect(selected()).toContain("Workspace")
-    await wrapper.findAll('[role="tab"]').find(tab => tab.text().includes("Trace"))!.trigger("mousedown", { button: 0 })
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text().includes("Trace"))!.trigger("click")
     await flushPromises()
     expect(router.currentRoute.value.query.tab).toBe("trace")
     router.back()

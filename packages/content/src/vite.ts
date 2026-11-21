@@ -36,6 +36,11 @@ export interface HubContentOptions {
   importBase?: string
 }
 
+interface InternalContentOptions extends HubContentOptions {
+  /** The module that exports `kv`. `vitehub()` sets `vite-hub/kv`, which every app lists. Defaults to `@vite-hub/kv`. */
+  kvImport?: string
+}
+
 /**
  * Prefix of the modules that hold Content snapshots: `<prefix><instance>` is the index, `<prefix><instance>:<n>` a shard
  * of parsed documents. `\0` keeps other plugins away.
@@ -151,7 +156,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
 
   async function registerKV(code: string, id: string): Promise<string> {
     if (!kvEnabled || code.includes("__vitehubRegisterContentKV") || resolve(id.replace(/\?.*$/, "")) !== await discover()) return ""
-    return `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
+    return `import { kv as __vitehubContentKV } from ${JSON.stringify((options as InternalContentOptions).kvImport ?? "@vite-hub/kv")}; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
   }
 
   return {
@@ -359,26 +364,30 @@ async function inspectContentSetup(options: ContentConsoleOptions): Promise<Vite
 }
 
 /**
- * Finds the Content module of the project, but only when it may define document collections. Discovery reads the
+ * Finds the Content module when it may define document collections or imports `github()`. Discovery reads the
  * `defineContent()` call without running it; anything it cannot follow, such as options imported from another file,
  * counts as maybe.
  */
-async function findContentCollectionsEntry(options: ContentConsoleOptions): Promise<string | undefined> {
+async function findContentConsoleEntry(options: ContentConsoleOptions): Promise<string | undefined> {
   const file = await findContentEntry(options)
   if (!file) return
-  return (await inspectContentEntry(file, options.contentImportBase)).collections ? file : undefined
+  const features = await inspectContentEntry(file, options.contentImportBase)
+  if (features.collections || features.github) return file
 }
 
 /**
  * Console section for Content. It edits the document collections of the default export of `server/content.ts`.
- * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
- * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
+ * Document actions check `content.can()` with the signed-in Console user. The dashboard also shows GitHub Source heads.
  */
 export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
   actions: { export: "createContentConsoleActions", module: ownModule(import.meta.url, "runtime/console") },
-  description: "Edit, publish, and restore Content documents.",
-  entry: options => findContentCollectionsEntry(options),
-  inspect: options => inspectContentSetup(options),
+  description: "Edit Content documents and inspect GitHub Sources.",
+  entry: findContentConsoleEntry,
+  async inspect(options, entry) {
+    const features = await inspectContentEntry(entry, options.contentImportBase)
+    if (features.github && !features.collections) return { sourceHeadsOnly: true }
+    return inspectContentSetup(options)
+  },
   icon: "i-vitehub-content",
   id: "content",
   label: "Content",
@@ -393,10 +402,10 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   },
 }
 
-/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room authority. */
+/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room driver. */
 export interface ContentRealtimeContributionOptions {
-  /** The room authority: Durable Objects on Cloudflare, or one process. */
-  authority: "cloudflare" | "memory"
+  /** The Realtime driver: Durable Objects on Cloudflare, or one process. */
+  driver: "cloudflare" | "memory"
   /** Directory for the generated files, such as `.vitehub/nitro/realtime`. */
   directory: string
   projectRoot: string
@@ -444,7 +453,7 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
     writeFile(plugin, [
       `import { installContentLive } from ${JSON.stringify(options.contentImport)}`,
       `import { refreshRealtimeDocument } from ${JSON.stringify(options.realtimeImport)}`,
-      ...(options.authority === "cloudflare"
+      ...(options.driver === "cloudflare"
         ? [
             'import { env } from "cloudflare:workers"',
             "",

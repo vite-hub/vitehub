@@ -1,6 +1,6 @@
-import { hasViteHubPagePassReader, readViteHubPagePass } from "@vite-hub/internal/runtime/page-tools"
+import { viteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { normalizeCommentPage } from "../page.ts"
 
@@ -11,6 +11,8 @@ import type { CommentsRequestEvent, CommentSubject, CommentsUser } from "../type
 export interface CommentsSessionOptions {
   /** Reads the ViteHub Auth user only when no custom `identify` is configured. */
   session?: (event: CommentsRequestEvent) => Promise<CommentsUser | null | undefined>
+  /** Reads the person signed in with GitHub, in an app without Auth. */
+  githubLogin?: { user: (event: CommentsRequestEvent) => Promise<CommentsUser | null> }
 }
 
 /** The user of a request, and what the server checked before the policy runs. */
@@ -20,35 +22,34 @@ export interface CommentsIdentity {
 }
 
 /**
- * The user of a request, shared by the overlay API, Realtime presence, the MCP tools, and the comment operations.
- * With `identify`, the app decides: `identify` names the user and `authorize` decides what they may do. Without
- * `identify`, it is the user of `session`: the ViteHub Auth user, else the person signed in with GitHub.
+ * The person that Site access in the Console signed in to an app without Auth, with their roles in `role`, as
+ * `commentsRoleAllows()` reads them. A Console member has `comments-*` roles, a guest the roles of the invite.
  */
-export async function resolveCommentsIdentity(comments: Comments, event: CommentsRequestEvent, options: CommentsSessionOptions = {}): Promise<CommentsIdentity> {
-  let user: CommentsUser | null
-  if (comments.options.identify) {
-    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
-    getStandardContext(event)
-    user = await comments.options.identify({ event }) ?? null
-  }
-  else {
-    user = await options.session?.(event).catch(() => null) ?? null
-  }
-  return user ? { user, gate: {} } : await passIdentity(event)
+async function siteUser(event: CommentsRequestEvent): Promise<CommentsUser | null> {
+  const read = viteHubSiteVisitorReader()
+  if (!read) return null
+  const visitor = await read(getStandardContext(event).req).catch(() => undefined)
+  if (!visitor) return null
+  const { roles, ...person } = visitor
+  return { ...person, role: roles.join(",") }
 }
 
 /**
- * A browser that the Console linked to the app, when nobody signed in: a Console member under their Console name, or
- * a guest under the name the member gave them. Its grants decide, through `gate.pass`.
+ * The user of a request, shared by the overlay API, Realtime presence, the MCP tools, and the comment operations.
+ * With `identify`, the app decides: `identify` names the user, `null` is anonymous, and `authorize` decides what they may do. Without
+ * `identify`, it is the user of `session`, the ViteHub Auth user. Then, when there is none, the person of the Site
+ * access cookie, and last the person signed in with GitHub.
  */
-async function passIdentity(event: CommentsRequestEvent): Promise<CommentsIdentity> {
-  // Apps without the Console read no pass, and their events need no request.
-  const pass = hasViteHubPagePassReader() ? await readViteHubPagePass(getStandardContext(event).req) : undefined
-  if (!pass) return { user: null, gate: {} }
-  const user: CommentsUser = { id: pass.person.id, name: pass.person.name }
-  // A guest pass is a person the app verified, not a guest that named itself, so it is not `guest`: it owns its messages.
-  if (pass.person.image) user.image = pass.person.image
-  return { user, gate: { pass: { grants: pass.grants } } }
+export async function resolveCommentsIdentity(comments: Comments, event: CommentsRequestEvent, options: CommentsSessionOptions = {}): Promise<CommentsIdentity> {
+  if (comments.options.identify) {
+    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
+    getStandardContext(event)
+    return { user: await comments.options.identify({ event }) ?? null, gate: {} }
+  }
+  const user = await options.session?.(event).catch(() => null)
+    ?? await siteUser(event)
+    ?? await options.githubLogin?.user(event).catch(() => null)
+  return { user: user ?? null, gate: {} }
 }
 
 /**

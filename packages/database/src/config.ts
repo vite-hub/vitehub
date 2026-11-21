@@ -33,7 +33,7 @@ import type {
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
-import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTargets, resolveImplicitDefaultDialect } from "./contributions.ts"
+import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTargets, resolveImplicitDefaultDialect, selectMigrationContributions } from "./contributions.ts"
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
@@ -52,6 +52,8 @@ const legacyConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const indexFilePattern = /^index\.(?:c|m)?[jt]s$/i
 const databaseSourcePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?ts$/i
+/** The seed file of `vitehub seed`, in the folder of a Database. */
+const seedFilePattern = /^seed\.m?[jt]s$/i
 const indexFileNames = ["index.ts", "index.mts", "index.cts", "index.js", "index.mjs", "index.cjs"]
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
@@ -160,13 +162,23 @@ function readConfigExpression(expression: Expression | undefined): DatabaseConfi
   const envName = readProcessEnvName(expression)
   if (envName) return createRuntimeEnvConfigValue([envName])
   if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
-  const primary = readProcessEnvName(unwrapExpression(expression.left))
-  if (!primary) return
+  const names = readProcessEnvChain(unwrapExpression(expression.left))
+  if (!names) return
   const fallback = unwrapExpression(expression.right)
   const fallbackEnvName = readProcessEnvName(fallback)
-  if (fallbackEnvName) return createRuntimeEnvConfigValue([primary, fallbackEnvName])
+  if (fallbackEnvName) return createRuntimeEnvConfigValue([...names, fallbackEnvName])
   const staticFallback = readStaticStringLiteral(fallback)
-  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([primary], staticFallback)
+  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue(names, staticFallback)
+}
+
+/** The names in `process.env.A || process.env.B || ...`, in order. */
+function readProcessEnvChain(expression: Expression): string[] | undefined {
+  const name = readProcessEnvName(expression)
+  if (name) return [name]
+  if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
+  const left = readProcessEnvChain(unwrapExpression(expression.left))
+  const right = readProcessEnvName(unwrapExpression(expression.right))
+  return left && right ? [...left, right] : undefined
 }
 
 /** Reads `env({ source: env.source("NAME" | ["NAME", ...]), default: "value" })`. */
@@ -237,6 +249,18 @@ export function readDatabaseDefinitionReadReplication(file: string): boolean | u
   const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"), file)
   const expression = readObjectPropertyValue(body, "readReplication")
   return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
+}
+
+/**
+ * The read replicas of a Postgres Definition's `connection.replicas`: the number of entries of an array literal, or
+ * `true` when the source sets it in another form, such as a spread or a variable. Undefined when it does not set it.
+ */
+export function readDatabaseDefinitionReplicas(file: string): number | true | undefined {
+  const connection = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"), file)
+  const replicas = resolveModuleExpression(readObjectPropertyValue(connection, "replicas"), file)
+  if (replicas === undefined || (replicas.type === "Identifier" && replicas.name === "undefined")) return
+  if (replicas.type !== "ArrayExpression") return true
+  return replicas.elements.some(element => element === null || element.type === "SpreadElement") ? true : replicas.elements.length
 }
 
 /**
@@ -615,7 +639,8 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
 export function readDatabaseDefinitionDriver(file: string): PostgresDatabaseDriver | undefined {
   const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "driver")
   if (expression === undefined) return
-  if (readStaticStringLiteral(expression) === "pglite") return "pglite"
+  const driver = readStaticStringLiteral(expression)
+  if (driver === "pglite" || driver === "node-postgres") return driver
   throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({ file })
 }
 
@@ -662,6 +687,7 @@ export function serverDatabaseName(directory: string, file: string): string | un
     return depth === parts.length - 1 && indexFilePattern.test(fileName) ? parts.slice(0, depth).join("/") : undefined
   }
   if (parts.includes("migrations")) return
+  if (parts.length > 1 && seedFilePattern.test(fileName)) return
   if (legacyConfigFilePattern.test(fileName)) {
     const folder = parts.slice(0, -1).join("/")
     throw databaseErrorDiagnostics.DATABASE_LEGACY_CONFIG_FILE({ file, name: folder || "default" })
@@ -870,7 +896,7 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
  * layer owns the database options. The implicit default Database uses the folder of `server/databases/default.ts`.
  * The Vite forms keep their migrations beside the Definition file.
  */
-function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
+export function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const appServerDir = serverDirs?.[0] ?? resolve(rootDir, "server")
   const serverMigrations = resolve(appServerDir, "databases", definition.name, "migrations")
   if (definition.migrationsDir) return relative(rootDir, definition.migrationsDir)
@@ -937,6 +963,12 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
   })
 }
 
+/** Fails for a `database.driver` other than "cloudflare", such as the former "d1", which ViteHub would ignore. */
+export function assertDatabaseOptionsDriver(options: { driver?: unknown } | false | undefined): void {
+  if (!options || options.driver === undefined || options.driver === "cloudflare") return
+  throw databaseErrorDiagnostics.DATABASE_UNKNOWN_DRIVER({ driver: JSON.stringify(options.driver) ?? String(options.driver) })
+}
+
 export function resolveDBViteConfig(
   options?: DatabaseOptions,
   rootDir = process.cwd(),
@@ -952,6 +984,7 @@ export function resolveDBViteConfig(
   } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
+  assertDatabaseOptionsDriver(options)
 
   const definitions = discoverDatabaseDefinitions(rootDir, {
     contributions: context.contributions,
@@ -1029,9 +1062,10 @@ export function resolveDBViteConfig(
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect]))
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [], dialects)
   // Uses add no tables, but their target must exist and have their dialect, as for tables.
-  resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
+  const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
+  const migrationContributionsByDatabase = selectMigrationContributions(tableContributionsByDatabase, usesByDatabase)
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
-  if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
+  if (options && options.driver === "cloudflare") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
   const bindingOwners = new Map<string, string>()
   for (const definition of definitions) {
@@ -1065,6 +1099,7 @@ export function resolveDBViteConfig(
     }),
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
+    migrationContributionsByDatabase,
     rootDir,
     tableContributionsByDatabase,
   }

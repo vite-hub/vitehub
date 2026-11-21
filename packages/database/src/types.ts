@@ -2,7 +2,7 @@ import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTabl
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
-import type { ResolvedDatabaseContribution } from "./contributions.ts"
+import type { ResolvedDatabaseContribution, ResolvedDatabaseMigrations } from "./contributions.ts"
 
 export type DatabaseDialect = "sqlite" | "postgresql"
 
@@ -52,7 +52,7 @@ export interface DatabaseRuntimeD1Options {
   databaseId?: DatabaseConfigValue
   databaseName?: DatabaseConfigValue
   cloudflare?: Pick<CloudflareD1BindingConfig, "http">
-  driver: "d1"
+  driver: "cloudflare"
   local?: DatabaseLocalRuntimeOptions
   migrationsTable?: string
   previewDatabaseId?: DatabaseConfigValue
@@ -60,11 +60,22 @@ export interface DatabaseRuntimeD1Options {
   readReplication?: boolean
 }
 
+export interface MigrationBackupOptions {
+  /** The folder of the copies. A relative path starts at the server's working directory. Defaults to `backups` beside the database file. */
+  dir?: string
+  /** The number of copies to keep for each database file, including the new one. Defaults to 3. */
+  keep?: number
+}
+
 export interface DatabaseIntegrationOptions {
   cli?: false | {
+    drop?: false
     export?: false
     generate?: false
     migrate?: false
+    reset?: false
+    seed?: false
+    sql?: false
     up?: false
   }
   /**
@@ -78,7 +89,22 @@ export interface DatabaseIntegrationOptions {
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
+    /**
+     * Copies each local SQLite file with `VACUUM INTO` before the server applies its pending migrations. A start with no
+     * pending migration, or an empty database, makes no copy. A failed copy stops the start before any migration.
+     * Postgres and remote libSQL fail with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. `true` keeps the 3 newest copies in
+     * a `backups` folder beside the database file.
+     */
+    backup?: boolean | MigrationBackupOptions
   }
+  /**
+   * Adds `wrangler d1 migrations apply <binding> --remote` steps before the deploy command in `nitro.json`.
+   * For the generated `wrangler deploy --config` command, `vitehub deploy` applies these steps without a prompt and
+   * stops before deploying if one fails. `nitro deploy --prebuilt` and Workers Builds do not use the saved command:
+   * put the migration steps in their deploy command. The build fails with
+   * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
+   */
+  migrateOnDeploy?: boolean
   projectRoot?: string
 }
 
@@ -117,13 +143,21 @@ export interface CloudflareHyperdriveConfig {
 
 export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
+  /**
+   * Read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. `db.$replica` sends a query to one of them, picked at
+   * random. Other queries use `url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore them.
+   */
+  replicas?: Array<DatabaseConfigValue | undefined>
 }
 
 /**
- * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
- * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ * The client of a Postgres Database. Without `driver`, ViteHub uses postgres.js.
+ *
+ * - `node-postgres` uses the `pg` package and its `Pool`. Install `pg` in the app. `db.$client` is the Pool.
+ * - `pglite` runs the Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ *   `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
  */
-export type PostgresDatabaseDriver = "pglite"
+export type PostgresDatabaseDriver = "node-postgres" | "pglite"
 
 export interface PostgresDatabaseDefinitionOptions<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -183,7 +217,13 @@ export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TPar
 export type RuntimePostgresDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations> & {
+  /**
+   * The database on one read replica of `connection.replicas`, picked at random for each read. It is the primary
+   * database when there are no replicas, or when Hyperdrive or PGlite serves the database. Writes belong on `db`.
+   */
+  readonly $replica: PgAsyncDatabase<PgQueryResultHKT, TRelations>
+}
 
 export interface DatabaseDefinition<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -202,13 +242,11 @@ export type RuntimeDrizzleDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
 > = SQLiteAsyncDatabase<"async", unknown, TRelations> & {
-  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
+  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. A literal list types each result. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
+  /** Execute a list of queries that the code builds. An empty list runs nothing and resolves `[]`. */
+  batch(queries: readonly BatchItem<"sqlite">[]): Promise<unknown[]>
 }
-export type Database<
-  TSchema extends Record<string, unknown> = Record<string, unknown>,
-  TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = DatabaseDefinition<TSchema, TRelations> & RuntimeDrizzleDatabase<TSchema, TRelations>
 
 /** A module whose `schema` tables join a database. */
 export interface DatabaseSchemaSource {
@@ -298,6 +336,8 @@ export interface ResolvedDBViteConfig {
   rootDir: string
   /** Tables that Vite plugins contribute, by target Database name. */
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
+  /** Folders of `.sql` migrations that Vite plugins contribute, by target Database name. */
+  migrationContributionsByDatabase: Record<string, ResolvedDatabaseMigrations[]>
 }
 
 export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {

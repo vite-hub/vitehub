@@ -8,13 +8,15 @@ import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
+  name: optional(string()),
   permissions: optional(record(string(), string())),
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   steps: array(object({ name: optional(string()), if: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
-const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
+// Jobs after the gate, such as the preview publish, wait for it and are not part of it.
+const jobNames = Object.entries(workflow.jobs).filter(([name, job]) => name !== "ci" && !job.needs?.includes("ci")).map(([name]) => name)
 const gate = workflow.jobs.ci!
 
 function runGate(results: Record<string, { result: string }>, event = "pull_request", fullSuite = event !== "pull_request") {
@@ -29,6 +31,43 @@ function runGate(results: Record<string, { result: string }>, event = "pull_requ
 const successfulJobs = Object.fromEntries(jobNames.map(name => [name, { result: "success" }]))
 
 describe("CI merge gate", () => {
+  it("selects ui-sdk browser checks for a lockfile-only version bump under pipefail", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-ui-sdk-selection-"))
+    const command = workflow.jobs["ui-sdk"]?.steps.find(step => step.name === "Select the checks")?.run
+    if (!command) throw new Error("The ui-sdk job must select its browser checks")
+    try {
+      const lockfile = readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8")
+      const before = join(directory, "before.yaml")
+      const after = join(directory, "after.yaml")
+      writeFileSync(before, lockfile)
+      const version = lockfile.match(/^ {2}'@ui-sdk\/core@([^(':]+)':$/m)?.[1]
+      if (!version) throw new Error("pnpm-lock.yaml must resolve @ui-sdk/core")
+      writeFileSync(after, lockfile.replaceAll(version, `${version}-next`))
+      const diff = spawnSync("git", ["diff", "--no-index", "--exit-code", "--unified=1000", before, after], { encoding: "utf8" })
+      expect(diff.status, diff.stderr).toBe(1)
+      // Keep the real lockfile diff larger than a pipe buffer to expose early reader exits.
+      expect(diff.stdout.length).toBeGreaterThan(65_536)
+      writeFileSync(join(directory, "diff"), diff.stdout)
+      writeFileSync(join(directory, "git"), `#!/bin/sh
+if [ "$2" = "--name-only" ]; then
+  echo pnpm-lock.yaml
+else
+  cat "$SELECTION_DIFF"
+fi
+`, { mode: 0o755 })
+      const output = join(directory, "output")
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, FULL_SUITE: "false", BASE_REF: "origin/main", GITHUB_OUTPUT: output, SELECTION_DIFF: join(directory, "diff") },
+      })
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(output, "utf8")).toBe("run=true\n")
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it("runs standalone Node tests once across Agent shards and preserves failures", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-node-test-sharding-"))
     const fixture = join(directory, "fixture.test.mjs")
@@ -57,12 +96,44 @@ describe("CI merge gate", () => {
     expect(gate.if).toBe("${{ always() }}")
   })
 
+  it("publishes previews only after the gate passes, under the required check name", () => {
+    const publish = workflow.jobs["publish-preview"]
+    expect(publish?.name).toBe("publish preview packages")
+    expect(publish?.needs).toEqual(["ci"])
+    expect(publish?.if).toBe([
+      "${{ !cancelled() && needs.ci.result == 'success' &&",
+      "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}",
+    ].join(" "))
+  })
+
   it.each(["pull_request", "push", "workflow_dispatch"])("accepts successful checks on %s", (event) => {
     const result = runGate(successfulJobs, event)
     expect(result.status, result.stderr).toBe(0)
   })
 
-  const sites = { docs: "docs-deploy", console: "console-deploy" }
+  it("requires the default success condition across all consumer matrix shards", () => {
+    const marker = workflow.jobs["consumer-contracts-success"]
+    expect(marker?.needs).toEqual(["consumer-contracts"])
+    expect(marker?.if).toBeUndefined()
+  })
+
+  it("requires the default success condition across all package test shards", () => {
+    const marker = workflow.jobs["package-tests-success"]
+    expect(marker?.needs).toEqual(["package-tests"])
+    expect(marker?.if).toBeUndefined()
+  })
+
+  it("runs docs verification on pull requests before changes can reach production", () => {
+    const docs = workflow.jobs.docs
+    expect(docs?.if).toBeUndefined()
+    expect(docs?.["continue-on-error"]).not.toBe(true)
+    expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
+    // `vp run verify` gates the release on this typecheck, so pull requests run it too.
+    expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs typecheck")).toBe(true)
+  })
+
+  // Each site deploys after every verification job and its own build, and not after the other site.
+  const sites = { docs: "docs-deploy", "docs-demo": "docs-demo-deploy", console: "console-deploy" }
 
   it.each(Object.entries(sites))("requires successful %s verification and deployment on pushes", (build, deploy) => {
     for (const name of [build, deploy]) {
@@ -73,6 +144,42 @@ describe("CI merge gate", () => {
       }
     }
     expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
+  })
+
+  it("reads current pixel acceptance on every rerun and fails closed on API errors", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-pixels-"))
+    const pixels = workflow.jobs["console-pixels"]
+    expect(pixels?.permissions).toEqual({ contents: "read", "pull-requests": "read" })
+    const compare = pixels?.steps.find(step => step.name === "Compare")
+    if (!compare?.run) throw new Error("The pixel job must compare captures")
+    const run = (accepted: boolean, apiStatus = "0") => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", compare.run!], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        GITHUB_OUTPUT: join(directory, "output"),
+        GITHUB_REPOSITORY: "vite-hub/vitehub",
+        PR_NUMBER: "4593",
+        RUNNER_TEMP: directory,
+        EXPECTED: "false", // The original event was unlabeled, even after the label is added.
+        LIVE_EXPECTED: String(accepted),
+        API_STATUS: apiStatus,
+      },
+    })
+    try {
+      writeFileSync(join(directory, "gh"), '#!/bin/sh\n[ "$1" = "api" ] && [ "$2" = "repos/vite-hub/vitehub/pulls/4593" ] || exit 2\nprintf "%s\\n" "$LIVE_EXPECTED"\nexit "$API_STATUS"\n')
+      writeFileSync(join(directory, "node"), "#!/bin/sh\nexit 1\n") // A changed shot on every attempt.
+      for (const name of ["gh", "node"]) chmodSync(join(directory, name), 0o755)
+      expect(run(false).status).toBe(1)
+      const added = run(true)
+      expect(added.status, added.stderr).toBe(0)
+      expect(added.stdout).toContain("::warning::")
+      expect(run(false).status, "Removing acceptance must reject the same shots again").toBe(1)
+      expect(run(true, "1").status, "An API failure must not accept changes").not.toBe(0)
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("rejects a stale Console with the same entry script, including workflow reruns", () => {
@@ -175,29 +282,49 @@ describe("CI merge gate", () => {
 
   const pullRequestJobs = [
     "checks",
+    "schedule-os-select",
     "workflow-lint",
+    "doctor",
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "typecheck",
+    "ui-sdk",
+    "service-tests",
+    "agent-codex-emulator",
     "docs",
     "docs-snippets",
+    "docs-demo",
     "console",
+    "console-pixels",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "service-tests", "docs", "docs-snippets", "console"].includes(name) ? "success" : "skipped",
+      result: [...pullRequestJobs, "contracts-examples"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it.each(["node-22", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
+  it.each(["node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
     const results = { ...successfulJobs, [name]: { result: "skipped" } }
     expect(runGate(results, "pull_request").status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
     expect(runGate(results, "workflow_dispatch").status).not.toBe(0)
     expect(runGate(results, "pull_request", true).status).not.toBe(0)
+  })
+
+  it.each(["push", "workflow_dispatch"])("accepts the Doctor job skipped on %s", (event) => {
+    expect(runGate({ ...successfulJobs, doctor: { result: "skipped" } }, event).status).toBe(0)
+  })
+
+  it("runs Doctor on the lines that a pull request changes", () => {
+    const doctor = workflow.jobs.doctor
+    const step = doctor?.steps.find(item => item.run?.includes("doctor:typescript"))
+    expect(doctor?.if).toBe("${{ github.event_name == 'pull_request' }}")
+    expect(step?.env?.VITE_DOCTOR_SINCE).toBe("${{ github.event.pull_request.base.sha }}")
+    expect(step?.run).toContain("--format agent")
   })
 
   it("rejects the push-only checks skipped on a repair-main pull request", () => {
@@ -208,7 +335,7 @@ describe("CI merge gate", () => {
     const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("contracts-examples: skipped")
-    expect(result.stderr).toContain("node-22: skipped")
+    expect(result.stderr).toContain("node-floor: skipped")
     expect(result.stderr).toContain("prepublish-contracts: skipped")
   })
 

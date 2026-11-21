@@ -15,7 +15,7 @@ it("registers KV in Nitro 3's separate prerender compilation", async () => {
     // The Source stays offline; only the host's Content/KV registration is under test here.
     "server/content.ts": `
       import { defineContent } from '@vite-hub/content'
-      export default defineContent({ logger: false, sources: { docs: {
+      export default defineContent({ logger: false, access: "public", sources: { docs: {
         name: 'github', authenticated: async () => true,
         resolveRevision: async () => ({ id: '${sha}', immutable: true, ref: 'main' }),
         getKeys: async () => [], getItem: async () => undefined,

@@ -29,6 +29,8 @@ export interface CodemodResult {
 export interface CodemodContext {
   /** Absolute path of the project directory. */
   cwd: string
+  /** Original project directory for read-only installed dependency inspection when cwd is a scratch copy. */
+  dependencyRoot?: string
 }
 
 /** Why a codemod applies to a project, such as "nuxt.config.ts lists nuxt-safe-runtime-config". */
@@ -42,13 +44,10 @@ export interface Codemod {
   description: string
   /** Positional arguments after the codemod name, for help output. */
   usage: string
+  /** Detect again against the scratch project if earlier steps changed it. */
+  detectAfterEdits?: boolean
   /** Tells whether the project uses what this codemod migrates. It must be cheap and must not throw for a project that does not use it. */
   detect: (context: CodemodContext) => Promise<Detection | undefined>
   /** Plans the edits. It must not write files; the runner writes them. */
   run: (context: CodemodContext) => Promise<CodemodResult>
-}
-
-/** A codemod cannot migrate the project. The CLI prints the message and exits with code 1. */
-export class CodemodError extends Error {
-  override name = "CodemodError"
 }

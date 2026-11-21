@@ -18,15 +18,23 @@ export * from "./components/comments.ts";
 export * from "./components/connection-status.ts";
 export * from "./components/copy-button.ts";
 export * from "./components/device-frame.ts";
+export { DropField } from "./components/drop-field.ts";
+export type { DropFieldSlots } from "./components/drop-field.ts";
 export * from "./components/filter-search.ts";
+export { HoldToDelete } from "./components/hold-to-delete.ts";
 export * from "./components/marker.ts";
 export * from "./components/message.ts";
+export { MotionList } from "./components/motion-list.ts";
+export { MorphText, RollNumber, SwapIcon, vRing } from "./components/motion.ts";
+export { Progress } from "./components/progress.ts";
+export * from "./components/relative-time.ts";
 export * from "./components/status.ts";
 export * from "./components/sync-status.ts";
 export * from "./components/trace.ts";
 export {
   PlaygroundRender,
   type PlaygroundIssue,
+  type PlaygroundOpenEvent,
   type PlaygroundPane,
   type PlaygroundPaneSlotProps,
   type PlaygroundPreset,
@@ -37,5 +45,6 @@ export type { PlaygroundFiles } from "./playground/share.ts";
 export * from "./composables/attachments.ts";
 export * from "./composables/highlighted-code.ts";
 export * from "./config.ts";
+export { uiSdkComponents } from "./ui-sdk/components.ts";
 export * from "./headless.ts";
 export type * from "./types.ts";

@@ -18,6 +18,8 @@ describe("@vite-hub/auth package contract", () => {
       "./console",
       "./console-runtime",
       "./database",
+      "./forward",
+      "./internal/server",
       "./mcp",
       "./nuxt",
       "./package.json",
@@ -26,8 +28,33 @@ describe("@vite-hub/auth package contract", () => {
       "./runtime/server",
       "./schema",
       "./server",
+      "./test",
       "./vite",
       "./vue",
+    ])
+  })
+
+  it("keeps setters, factories, and access helpers out of the server API", async () => {
+    expect(Object.keys(await import("../src/server.ts")).sort()).toEqual([
+      "AbilityError",
+      "aggregateAuthEvents",
+      "can",
+      "checkAuthMember",
+      "createAuthHandler",
+      "default",
+      "getAuthConsoleForRequest",
+      "getAuthEvents",
+      "handleAuth",
+      "listAuthEvents",
+      "requireAbility",
+      "requireAuth",
+      "requireAuthorization",
+      "requireCaller",
+      "signOut",
+      "useAuth",
+      "withAnonymousAuthorization",
+      "withAuth",
+      "withAuthorization",
     ])
   })
 
@@ -39,6 +66,8 @@ describe("@vite-hub/auth package contract", () => {
     "./console",
     "./console-runtime",
     "./database",
+    "./forward",
+    "./internal/server",
     "./mcp",
     "./nuxt",
     "./presets",
@@ -46,6 +75,7 @@ describe("@vite-hub/auth package contract", () => {
     "./runtime/server",
     "./schema",
     "./server",
+    "./test",
     "./vue",
     "./vite",
   ])("loads documented export %s from the built package", async (entry) => {

@@ -1,6 +1,5 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
-import { fileURLToPath } from "node:url";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
@@ -38,7 +37,6 @@ export default defineConfig({
       alwaysBundle,
       neverBundle: [
         "vite",
-        "esbuild",
         "#vitehub/agent/registry",
         "#vitehub/agent/provider-agent",
         "#vitehub/env/server",
@@ -54,6 +52,7 @@ export default defineConfig({
         /^evlog(?:\/|$)/,
         /^posthog-node$/,
         /^evalite/,
+        /^@emulators\//,
         /^vitest/,
       ],
       onlyBundle: false,
@@ -62,6 +61,7 @@ export default defineConfig({
       "src/capabilities.ts",
       "src/channels.ts",
       "src/durability.ts",
+      "src/test/emulate-models.ts",
       "src/index.ts",
       "src/messages.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",
@@ -78,13 +78,21 @@ export default defineConfig({
       "src/observability/host.ts",
       "src/observability/posthog.ts",
       "src/operations.ts",
+      "src/page.ts",
       "src/invocations/index.ts",
+      // `vitehub agent emulator` loads only this entry, so it runs without a project or Agent config.
+      "src/internal/agent-emulator-cli.ts",
+      // `vitehub agent invocations` loads only this entry, so it runs where `vite` is not installed.
+      "src/internal/agent-invocations-cli.ts",
+      // `vitehub agent state migrate` loads only this entry, for the same reason.
+      "src/internal/agent-state-cli.ts",
       "src/internal/default-invocations.ts",
       "src/internal/default-invocations-core.ts",
       "src/internal/default-invocations-libsql.ts",
       "src/invocations/app.ts",
       "src/invocations/database.ts",
       "src/invocations/drizzle.ts",
+      "src/invocations/postgres.ts",
       "src/state.ts",
       "src/cloudflare/state.ts",
       "src/runtime/registry.ts",
@@ -97,6 +105,8 @@ export default defineConfig({
       "src/server/registry.ts",
       "src/server/workspace.ts",
       "src/test.ts",
+      "src/ui.ts",
+      "src/ui/vue.ts",
       "src/vue.ts",
       "src/vite.ts",
     ],

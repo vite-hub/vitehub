@@ -1,7 +1,7 @@
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "./ask.ts"
-import type { AiGatewayUsage } from "./types.ts"
+import type { AiGatewayAskError, AiGatewayAskResult, AiGatewayUsage } from "./types.ts"
 import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
 
 type Advocaat = typeof import("advocaat")
@@ -99,7 +99,7 @@ function validateQuestionCriteria(name: string, question: AskQuestion): void {
   }
 }
 
-function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
+export function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
   if (!isObject(answer) || answer.type !== "choice" || typeof answer.choice !== "string" || !isObject(answer.probabilities)) return false
   if (typeof answer.confidence !== "number" || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) return false
   if (!isObject(question.criteria) || !Object.hasOwn(question.criteria, answer.choice)) return false
@@ -204,18 +204,18 @@ async function requestJevWithRetry(
   state: AdvocaatEntry,
   batch: Record<string, AdvocaatQuestion>,
   options: JevRoute & { signal?: AbortSignal },
-): Promise<JevResponse> {
+): Promise<[error: Extract<AiGatewayAskError, { status: number }>, response: undefined] | [error: undefined, response: JevResponse]> {
   const provider = options.label
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJev(advocaat, state, batch, options)
+      return [undefined, await requestJev(advocaat, state, batch, options)]
     }
     catch (error) {
       if (options.signal?.aborted) throw error
       const status = errorStatus(error)
       const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
       if (status === 401 || status === 403) {
-        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, status: 503 })
+        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, providerStatus: status, status: 503 } as const), undefined]
       }
       // A failed fetch is surfaced as a TypeError without a status. Response
       // decoding and validation can also throw TypeError, but those are
@@ -226,7 +226,7 @@ async function requestJevWithRetry(
         : retryableJevStatuses.has(status)
       if (!transient) throw error
       if (attempt + 1 >= jevAttempts) {
-        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0009({ provider, status, attempts: jevAttempts, cause: error }), { ...details, status: 502 })
+        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0009({ provider, status, attempts: jevAttempts, cause: error }), { ...details, status: 502 as const }), undefined]
       }
       await waitForRetry(attempt, options.signal)
     }
@@ -401,13 +401,13 @@ function jevQuestionBatches(state: AdvocaatEntry, wire: Record<string, AdvocaatQ
   const sharedSize = jevInputSize(state) + 2048
   const maxRequestSize = 60_000
   const maxQuestionSize = 30_000
-  if (sharedSize >= maxQuestionSize) throw new RangeError("[vitehub] Jev shared state exceeds the safe per-question input budget.")
+  if (sharedSize >= maxQuestionSize) throw gatewayDiagnostics.GATEWAYS_JEV_INPUT_TOO_LARGE({})
   const batches: Record<string, AdvocaatQuestion>[] = []
   let batch: Record<string, AdvocaatQuestion> = Object.create(null)
   let size = sharedSize
   for (const [name, question] of Object.entries(wire)) {
     const questionSize = jevInputSize({ [name]: question }) + 128
-    if (sharedSize + questionSize > maxQuestionSize) throw new RangeError(`[vitehub] Jev question "${name}" exceeds the safe per-question input budget.`)
+    if (sharedSize + questionSize > maxQuestionSize) throw gatewayDiagnostics.GATEWAYS_JEV_INPUT_TOO_LARGE({ question: name })
     if (size + questionSize > maxRequestSize && Object.keys(batch).length) {
       batches.push(batch)
       batch = Object.create(null)
@@ -421,7 +421,7 @@ function jevQuestionBatches(state: AdvocaatEntry, wire: Record<string, AdvocaatQ
 }
 
 /** Runs independent keyed questions in bounded Jev requests; empty questions require no credentials or API call. */
-export async function askJev<const Q extends AskQuestions>(context: JevRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
+export async function askJev<const Q extends AskQuestions>(context: JevRequestContext, state: unknown, questions: Q): Promise<AiGatewayAskResult<Q>> {
   if (!isObject(questions) || Array.isArray(questions)) {
     throw gatewayDiagnostics.GATEWAYS_R0007({ message: "[vitehub] Jev questions must be an object of questions built with ask." })
   }
@@ -431,7 +431,7 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
   }))
   if (!Object.keys(wire).length) {
     // SAFETY: An empty validated question map has no answers and matches AskAnswers<Q>.
-    return {} as AskAnswers<Q>
+    return [undefined, {} as AskAnswers<Q>]
   }
   const entry = toEntry(state)
   const batches = jevQuestionBatches(entry, wire)
@@ -442,17 +442,21 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
     context.abortSignal?.throwIfAborted()
     const observed = await observeJevBatch(context.observe, { ...(options.model ? { model: options.model } : {}), provider: options.name }, questions, batch, { count: batches.length, index: batchIndex })
     try {
-      const response = await requestJevWithRetry(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      const [error, response] = await requestJevWithRetry(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      if (error) {
+        await observed.failed(error)
+        return [error, undefined]
+      }
       await observed.usage(response)
       const usage = jevUsageRecord(options.name, response)
       if (usage) context.recordUsage?.(usage)
       context.abortSignal?.throwIfAborted()
       for (const name of Object.keys(batch)) {
-        if (!Object.hasOwn(response.answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)
+        if (!Object.hasOwn(response.answers, name)) throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "missing" })
         const answer = response.answers[name]
         const question = questions[name]
         if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) {
-          throw new Error(`[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`)
+          throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "choice" })
         }
         const scoreAnswer: Record<string, unknown> | undefined = isObject(answer) && answer.type === "score" ? answer : undefined
         output[name] = question?.type === "score" && scoreAnswer
@@ -467,5 +471,5 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
     }
   }
   // SAFETY: Each requested key has an SDK answer; choice distributions are validated and score legends restore public criteria.
-  return Object.fromEntries(Object.entries(output)) as AskAnswers<Q>
+  return [undefined, Object.fromEntries(Object.entries(output)) as AskAnswers<Q>]
 }

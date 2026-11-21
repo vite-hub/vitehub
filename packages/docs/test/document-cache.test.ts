@@ -1,14 +1,18 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { gzipSync } from "node:zlib"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
-const { getItem, parsed, useKV } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), useKV: vi.fn() }))
-vi.mock("nitro/kv", () => ({ useKV }))
-// Development has no packed files, so the handlers read Nitro server assets.
-vi.mock("#docs/files", () => ({ default: null }))
+const { getItem, parsed, read, config } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), read: vi.fn(), config: { appBase: "/" } }))
+// Development has no packed files, so the handlers read each file on its own.
+vi.mock("#docs/files", () => ({ default: { read } }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/image-sizes", () => ({ default: {} }))
+vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro", () => ({ serverFetch: () => new Response(null, { status: 404 }) }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: config.appBase, site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
@@ -23,7 +27,8 @@ vi.mock("#docs/manifest", async () => {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
-  useKV.mockImplementation(() => ({ getItem }))
+  config.appBase = "/"
+  read.mockImplementation((_store: string, file: string) => getItem(file))
   getItem.mockImplementation((key: string) =>
     readFile(resolve(import.meta.dirname, "fixtures/content", key), "utf8"),
   )
@@ -35,7 +40,7 @@ async function app() {
   return new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
 }
 
-it("shares each page parse between concurrent page and search requests", async () => {
+it("parses each page once for concurrent page and search requests", async () => {
   const server = await app()
   const page = () =>
     server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
@@ -44,13 +49,97 @@ it("shares each page parse between concurrent page and search requests", async (
   for (const response of responses) expect(response.status).toBe(200)
   expect(await responses[0]!.json()).toMatchObject({ page: { path: "/docs/kv" } })
   expect(await responses[2]!.json()).toContainEqual(expect.objectContaining({ id: "/docs/kv" }))
+  // The page route and search read the same Content, so each file is read and parsed once.
   const files = getItem.mock.calls.map(([file]) => file)
+  expect(files).toContain("docs/kv/index.md")
   expect(new Set(files).size).toBe(files.length)
   expect(parsed).toHaveBeenCalledTimes(files.length)
   await page()
   await search()
   expect(getItem).toHaveBeenCalledTimes(files.length)
   expect(parsed).toHaveBeenCalledTimes(files.length)
+})
+
+it.each([undefined, "docs-1"])("reads packed production pages from %s through Content without Nitro server assets", async (source) => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const original = page.source
+  page.source = source
+  onTestFinished(() => { page.source = original })
+  const markdown = "# Packed page\n\nOnly in the production bundle.\n"
+  const bytes = Buffer.from(markdown)
+  const rewritten = Buffer.from("# Agent copy\n\nRewritten for agents.\n")
+  const agentSource = `docs_${source ? source.slice("docs-".length) : 0}`
+  vi.doMock("#docs/files", () => ({ default: {
+    index: { [source ?? "docs"]: { [page.file]: [0, bytes.length] }, "docs-agent": { [`${agentSource}/${page.file}`]: [bytes.length, bytes.length + rewritten.length] } },
+    packed: gzipSync(Buffer.concat([bytes, rewritten])).toString("base64"),
+  } }))
+  onTestFinished(() => { vi.doMock("#docs/files", () => ({ default: { read } })) })
+  getItem.mockResolvedValue(null)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  expect(JSON.stringify(await response.json())).toContain("Only in the production bundle.")
+  const { docsContent } = await import("../src/runtime/content.ts")
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const rawServer = new H3().get("/raw/**", raw)
+  const copy = await (await rawServer.fetch(new Request("https://docs.example.com/raw/docs/kv.md"))).text()
+  expect(copy).toContain("Rewritten for agents.")
+  expect(copy).not.toContain("Only in the production bundle.")
+  expect((await docsContent().page("/docs/kv"))?.content).toContain("Rewritten for agents.")
+  expect(read).not.toHaveBeenCalled()
+})
+
+it("serves exact raw URLs and reads only the requested page on a cold runtime", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const fixtures = [
+    { ...page, path: "/docs/Guide", file: "upper.md" },
+    { ...page, path: "/docs/guide", file: "lower.md" },
+    { ...page, path: "/docs/missing", file: "missing.md" },
+  ]
+  manifest.pages.push(...fixtures)
+  onTestFinished(() => { manifest.pages.splice(-fixtures.length) })
+  read.mockImplementation((store: string, file: string) => store === "docs" && file !== "missing.md" ? `Body of ${file}` : null)
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const { default: markdown } = await import("../src/runtime/server/markdown.ts")
+  const server = new H3().use(markdown).get("/raw/**", raw)
+  const request = (path: string) => server.fetch(new Request(`https://docs.example.com${path}`))
+
+  expect(await (await request("/docs/Guide.md")).text()).toContain("Body of upper.md")
+  expect(read.mock.calls.filter(([store]) => store === "docs")).toEqual([["docs", "upper.md"]])
+  const upper = await request("/raw/docs/Guide.md")
+  expect(await upper.text()).toContain("Body of upper.md")
+  expect(upper.headers.get("content-location")).toBe("/raw/docs/Guide.md")
+  const etag = upper.headers.get("etag")
+  expect(etag).not.toBeNull()
+  const fresh = await server.fetch(new Request("https://docs.example.com/raw/docs/Guide.md", { headers: { "if-none-match": etag! } }))
+  expect(fresh.status).toBe(304)
+  expect(await (await request("/raw/docs/guide.md")).text()).toContain("Body of lower.md")
+  for (const path of ["/raw/docs/GUIDE.md", "/raw/docs/guide/.md", "/raw/docs/missing.md"]) {
+    expect((await request(path)).status).toBe(404)
+  }
+})
+
+it("looks up raw URLs relative to the app base even when it contains /raw/", async () => {
+  config.appBase = "/raw/portal/"
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  manifest.pages.push({ ...page, path: "/portal/raw/docs/missing", file: "unrelated.md" })
+  onTestFinished(() => { manifest.pages.pop() })
+  read.mockImplementation((store: string, file: string) => store === "docs" ? `Body of ${file}` : null)
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const { default: markdown } = await import("../src/runtime/server/markdown.ts")
+  const server = new H3().use(markdown).get("/raw/portal/raw/**", raw)
+  const request = (path: string) => new Request(`https://docs.example.com/raw/portal/raw${path}.md`)
+
+  const direct = new H3().get("/raw/portal/raw/**", raw)
+  expect(await (await direct.fetch(request("/docs/kv"))).text()).toContain(`Body of ${page.file}`)
+  expect((await server.fetch(request("/docs/missing"))).status).toBe(404)
+  expect(read.mock.calls.filter(([store]) => store === "docs")).toEqual([["docs", page.file]])
 })
 
 it("retries a page after storage or parsing fails", async () => {
@@ -68,18 +157,17 @@ it("retries a page after storage or parsing fails", async () => {
   expect(await response.json()).toMatchObject({ page: { path: "/docs/kv" } })
 })
 
-it("keeps the compact search index without retaining every document tree", async () => {
+it("serves a page from the parse that built the search index", async () => {
   const server = await app()
   const search = () => server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect((await search()).status).toBe(200)
   const reads = getItem.mock.calls.length
   expect((await search()).status).toBe(200)
-  expect(getItem).toHaveBeenCalledTimes(reads)
   const response = await server.fetch(
     new Request("https://docs.example.com/api/_docs/page/docs/kv.json"),
   )
   expect(response.status).toBe(200)
-  expect(getItem).toHaveBeenCalledTimes(reads + 1)
+  expect(getItem).toHaveBeenCalledTimes(reads)
 })
 
 it("returns parsed credits beside a cached page document", async () => {
@@ -117,18 +205,24 @@ it("keeps page keywords in the cached search index", async () => {
   }
 })
 
-it("caches identical file names separately for each mapped source", async () => {
-  const reads = vi.fn(async (base: string) => `# ${base}`)
-  useKV.mockImplementation((base: string) => ({ getItem: () => reads(base) }))
-  const { loadDocsDocument } = await import("../src/runtime/documents.ts")
-  const load = (source: string) => loadDocsDocument("index.md", source)
-  const [first, second] = await Promise.all([load("docs"), load("docs-1")])
-  expect(JSON.stringify(first)).toContain("assets:docs")
-  expect(JSON.stringify(second)).toContain("assets:docs-1")
+it("keeps identical file names apart for each mapped source", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const source = page.source
+  onTestFinished(() => { page.source = source })
+  page.source = "docs-1"
+  const reads = vi.fn(async (store: string) => `# From ${store}.`)
+  read.mockImplementation((store: string) => reads(store))
+  const { readDocsPage } = await import("../src/runtime/content.ts")
+  const load = (source?: string) => readDocsPage({ file: page.file, source })
+  const [first, second] = await Promise.all([load(), load("docs-1")])
+  expect(JSON.stringify(first)).toContain("From docs.")
+  expect(JSON.stringify(second)).toContain("From docs-1.")
   expect(first).not.toEqual(second)
-  expect(await load("docs")).toBe(first)
-  expect(await load("docs-1")).toBe(second)
-  expect(reads.mock.calls).toEqual([["assets:docs"], ["assets:docs-1"]])
+  expect(await load()).toEqual(first)
+  expect(await load("docs-1")).toEqual(second)
+  expect(reads.mock.calls).toEqual([["docs"], ["docs-1"]])
 })
 
 it("reads mapped page and search content from the configured storage mount", async () => {
@@ -138,8 +232,8 @@ it("reads mapped page and search content from the configured storage mount", asy
   const source = page.source
   onTestFinished(() => { page.source = source })
   page.source = "docs-1"
-  const mapped = vi.fn(async () => "# Mapped page\n\nOnly in mapped content.")
-  useKV.mockImplementation((base: string) => ({ getItem: base === "assets:docs-1" ? mapped : getItem }))
+  const mapped = vi.fn(async (_file: string) => "# Mapped page\n\nOnly in mapped content.")
+  read.mockImplementation((store: string, file: string) => store === "docs-1" ? mapped(file) : getItem(file))
   const server = await app()
   const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
   expect(response.status).toBe(200)
@@ -147,5 +241,51 @@ it("reads mapped page and search content from the configured storage mount", asy
   const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(search.status).toBe(200)
   expect(JSON.stringify(await search.json())).toContain("Only in mapped content.")
+  // The page route and search share one read.
   expect(mapped).toHaveBeenCalledExactlyOnceWith(page.file)
+})
+
+it("gives the page route the same document as the docs parser", async () => {
+  const markdown = [
+    "---\ntitle: Same\n---\n",
+    "# Same\n\n- one\n\n- two\n",
+    ":::example\n```md\n## Install\n\n- [ ] task\n```\n:::\n",
+    "## Install\n\n> [!NOTE]\n> Read this.\n",
+    "::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n",
+    "::question{#callback}\nWhich callback runs first?\n\n- [x] A promise\n- [ ] A timer\n::\n",
+  ].join("\n")
+  getItem.mockResolvedValue(markdown)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  const { document } = await response.json()
+  const { parseDocsDocument } = await import("../src/runtime/documents.ts")
+  expect(document).toEqual(JSON.parse(JSON.stringify(await parseDocsDocument(markdown))))
+  expect(JSON.stringify(document)).toContain("comark-html")
+  expect(document.toc).toEqual([expect.objectContaining({ text: "Install" })])
+})
+
+it("searches unloaded panel pages while excluding hidden pages on the server", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { docsAppManifest } = await import("../src/manifest.ts")
+  const { createDocsSearch, docsManifestPages } = await import("../src/navigation.ts")
+  const section = manifest.sections.find(section => section.id === "kv")!
+  const original = section.pages
+  onTestFinished(() => { section.pages = original })
+  const page = original[0]!
+  section.pages = [
+    ...original,
+    { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },
+    { ...page, id: "diagnostics/kv_invalid_cursor", path: "/docs/kv/diagnostics/kv_invalid_cursor", sourceTitle: "KV_INVALID_CURSOR", seo: { index: false }, navigation: true },
+    { ...page, id: "hidden", path: "/docs/kv/hidden", navigation: false },
+    { ...page, id: "hidden-code", path: "/docs/kv/hidden-code", seo: { index: false }, navigation: false },
+  ]
+  const appManifest = docsAppManifest(manifest, { panels: true }).manifest
+  expect(docsManifestPages(appManifest).some(page => page.path.endsWith("/kv_invalid_cursor"))).toBe(false)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+  expect(response.status).toBe(200)
+  const records = await response.json()
+  expect(createDocsSearch(records)("KV_INVALID_CURSOR", 12).map(record => record.id)).toContain("/docs/kv/diagnostics/kv_invalid_cursor")
+  expect(records.some((record: { id: string }) => record.id.startsWith("/docs/kv/hidden"))).toBe(false)
 })

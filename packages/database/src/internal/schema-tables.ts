@@ -182,6 +182,33 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
 }
 
 /**
+ * The exact SQL names and columns of each contributed table. It loads the contribution module even when the
+ * contribution lists its `tables`, because the list has no columns. `parent` resolves the module as below.
+ */
+export async function loadContributedTableColumns(
+  contribution: CollectedDatabaseContribution,
+  parent: string,
+  options: Pick<DatabaseTableNameOptions, "alias"> = {},
+): Promise<Array<{ name: string, schema?: string, columns: string[] }>> {
+  let module: Record<string, unknown>
+  try {
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${describeDatabaseContribution(contribution)}` })
+  }
+  const schema = module[contribution.definition.export]
+  const { getColumns, getTableName, is, Table } = await import("drizzle-orm")
+  const { getTableConfig, PgTable } = await import("drizzle-orm/pg-core")
+  const tables: Array<{ name: string, schema?: string, columns: string[] }> = []
+  for (const value of isRecord(schema) ? Object.values(schema) : []) {
+    if (!is(value, Table)) continue
+    tables.push({ name: getTableName(value), schema: is(value, PgTable) ? getTableConfig(value).schema ?? "public" : undefined, columns: Object.values(getColumns(value)).map(column => column.name) })
+  }
+  return tables
+}
+
+/**
  * Loads the tables of a contribution. `parent` is the file that imports the contribution, so package specifiers
  * resolve from the application. A missing or non-object export fails with `DATABASE_INVALID_CONTRIBUTION`. A module
  * that cannot load fails with `DATABASE_SCHEMA_LOAD_FAILED`, unless `onFallback` accepts it; its tables are then known only at runtime.

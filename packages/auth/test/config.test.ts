@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverAuthAbilities, discoverAuthDefinition, discoverAuthDefinitions } from "../src/discovery.ts"
 import { resolveAuthViteConfig } from "../src/config.ts"
+import { defineAuth } from "../src/definition.ts"
+import { checkBuiltAuthPages } from "../src/runtime/server.ts"
+import { resolveAuthOptions } from "../src/runtime-options.ts"
+import { writeNuxtAuthDefinition } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 
@@ -187,12 +191,11 @@ describe("resolveAuthViteConfig", () => {
       "  appName: 'ViteHub',",
     ])
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toEqual({
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
       access: {
         routes: [],
       },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: {
         handler: file,
         name: "default",
@@ -200,25 +203,57 @@ describe("resolveAuthViteConfig", () => {
       },
       rootDir,
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
     })
   })
 
-  it("resolves named database and KV placement metadata", async () => {
+  it("accepts database: \"memory\" as an explicit memory store", async () => {
     const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server.auth.ts", [
-      "  basePath: '/auth',",
-      "  database: { name: 'auth', dedicated: true },",
-      "  secondaryStorage: { store: 'auth' },",
-    ])
+    await writeAuth(rootDir, "server/auth.ts", ["  database: 'memory',"])
+    const config = resolveAuthViteConfig(undefined, rootDir)
+    expect(config?.tables).toBe(false)
+  })
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
-      basePath: "/auth",
-      database: { dedicated: true, mode: "named", name: "auth" },
-      route: "/auth",
-      secondaryStorage: { mode: "named", store: "auth" },
-    })
+  it.each([
+    "database: true",
+    "database: { name: 'auth', dedicated: true }",
+    "database: { dedicated: true }",
+    "database: authDatabase",
+  ])("rejects a static database that is not authDatabase(): %s", async (option) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server.auth.ts", [`  ${option},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({
+      code: "AUTH_C0014",
+      fix: expect.stringContaining("authDatabase()"),
+    }))
+  })
+
+  it.each(["secondaryStorage: true", "secondaryStorage: { store: 'auth' }", "secondaryStorage: kvStorage"])("rejects static secondary storage: %s", async (option) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server.auth.ts", [`  ${option},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0017" }))
+  })
+
+  it.each([
+    ["{ database: { name: 'auth' } }", "AUTH_C0014"],
+    ["{ database: true }", "AUTH_C0014"],
+    ["{ secondaryStorage: { store: 'auth' } }", "AUTH_C0017"],
+  ])("rejects placement returned from a callback: %s", async (options, code) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      `export default defineAuth(() => (${options}))`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
+  })
+
+  it("accepts Better Auth adapters returned from a callback", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "export default defineAuth(({ env }) => ({ database: { dialect: createDialect(env), type: 'sqlite' }, secondaryStorage: createStorage(env) }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
   })
 
   it("resolves static access route middleware config", async () => {
@@ -244,20 +279,136 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it("resolves static public routes, and leaves them out when there are none", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], public: ['/', '/login', '/api/auth/**'] },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], public: ["/", "/login", "/api/auth/**"] })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], public: [] },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }] })
+  })
+
+  it("resolves the sign-in page or provider, and afterSignIn, for the Nuxt page guard", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { signIn: '/sign-in', afterSignIn: '/dashboard' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [], signIn: { page: "/sign-in" }, afterSignIn: "/dashboard" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], signIn: { provider: 'github', scopes: ['read:org'] } },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], signIn: { provider: true } })
+  })
+
+  it("resolves access.pages for the Nuxt page guard", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user', \"/dashboard/pricing\": false, '/login': `guest` } },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [], pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } })
+  })
+
+  it.each([
+    "pages: pageMap",
+    "pages: { ...pageMap }",
+    "pages: { [path]: 'user' }",
+    "pages: { '/dashboard/**': mode }",
+    "pages: { '/dashboard/**': 'admin' }",
+    "pages: { '/account/:id?': 'user' }",
+    // A spread or a computed key in `access` can hide `pages` from the build.
+    "...pageAccess",
+    "['pages']: { '/dashboard/**': 'user' }",
+  ])("rejects access.%s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth({ access: sharedAccess })",
+    "defineAuth({ access })",
+    "defineAuth({ access: makeAccess() })",
+    "defineAuth(() => ({ access: sharedAccess }))",
+  ])("stops the build when it cannot read access in %s", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { pages: { '/dashboard/**': 'user' } } } })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { access: sharedAccess }\n  return {} })",
+  ])("stops the build when a branch of %s can set access.pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth({ access: undefined })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { routes: ['/api/**'] } } })",
+  ])("builds %s without pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access.pages).toBeUndefined()
+  })
+
+  it.each([
+    "defineAuth(({ env }) => ({ secret: env.AUTH_SECRET }))",
+    "defineAuth(() => ({ access: { signIn: '/login', pages: { '/dashboard/**': 'user' } } as const }))",
+  ])("reads the pages of %s", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access.pages).toEqual(call.includes("pages") ? { "/dashboard/**": "user" } : undefined)
+  })
+
+  it("stops the server when the Definition has access.pages that the build did not read", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    // The server loads the generated Definition module at startup.
+    expect(await readFile(await writeNuxtAuthDefinition(rootDir, resolveAuthViteConfig(undefined, rootDir)!), "utf8")).toContain("checkBuiltAuthPages(definition, {})")
+
+    const sharedAccess = { pages: { "/dashboard/**": "user" } } as const
+    const invalid = expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    expect(() => checkBuiltAuthPages(defineAuth({ access: sharedAccess }), {})).toThrow(invalid)
+    const callback = defineAuth(() => ({ access: sharedAccess }))
+    checkBuiltAuthPages(callback, {})
+    expect(() => resolveAuthOptions(callback)).toThrow(invalid)
+    expect(() => checkBuiltAuthPages(defineAuth({ access: sharedAccess }), { "/dashboard/**": "user" })).not.toThrow()
+  })
+
+  it.each([
+    ["signIn: signInPage", "AUTH_C0028"],
+    ["signIn: 'login'", "AUTH_C0028"],
+    ["signIn: { provider: 'github', callbackURL: '/app' }", "AUTH_SIGN_IN_CALLBACK_URL_MOVED"],
+    ["afterSignIn: '//evil.example'", "AUTH_AFTER_SIGN_IN_INVALID"],
+  ])("rejects access.%s", async (value, code) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
+  })
+
+  it("resolves components.prefix for the Nuxt component names", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  components: { prefix: 'Custom' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.components).toEqual({ prefix: "Custom" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  components: {},"])
+    expect(resolveAuthViteConfig(undefined, rootDir)).not.toHaveProperty("components")
+  })
+
+  it.each(["prefix", "{ prefix }", "{ prefix: '' }", "{ prefix: ' Custom' }", "{ prefix: 'Custom', global: true }", "{ ...options }"])("rejects components written as %s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  components: ${value},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+  })
+
+  it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/**'], public: ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0064" }))
+  })
+
   it.each(["// Explain the next option", "/* Explain the next option */"])("resolves Auth metadata with %s comments", async (comment) => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
       `  ${comment}`,
       "  basePath: '/auth',",
-      `  ${comment}`,
-      "  database: {",
-      `    ${comment}`,
-      "    name: 'accounts', dedicated: true,",
-      "  },",
-      "  secondaryStorage: {",
-      `    ${comment}`,
-      "    store: 'sessions',",
-      "  },",
       "  access: {",
       `    ${comment}`,
       "    routes: [",
@@ -276,9 +427,7 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
       access: { routes: [{ route: "/public" }, { authorize: true, route: "/private" }] },
       basePath: "/auth",
-      database: { dedicated: true, mode: "named", name: "accounts" },
       route: "/auth",
-      secondaryStorage: { mode: "named", store: "sessions" },
     })
   })
 
@@ -361,7 +510,6 @@ describe("resolveAuthViteConfig", () => {
           { method: "POST", route: "/api/app" },
         ],
       },
-      database: { mode: "default" },
     })
   })
 
@@ -389,28 +537,13 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
-  it("resolves route opt-out and default secondary storage opt-in", async () => {
+  it("resolves route opt-out", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
-      "  database: true,",
       "  route: false,",
-      "  secondaryStorage: true,",
     ])
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
-      database: { mode: "default" },
-      route: false,
-      secondaryStorage: { mode: "default" },
-    })
-  })
-
-  it("rejects dynamic ViteHub-owned config", async () => {
-    const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  database: authDatabase,",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/database must be `true` or an inline object/)
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({ route: false })
   })
 
   it("rejects non-static Auth Definition option keys", async () => {
@@ -471,41 +604,42 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/access\.routes\[0\]\.route must be an inline string literal/)
   })
 
-  it("rejects indirect Auth Definition exports instead of reading the first defineAuth call", async () => {
+  it("reads the Definition of an exported const, such as one annotated for a composite TypeScript project", async () => {
     const rootDir = await createTempProject()
     const file = join(rootDir, "server", "auth.ts")
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, [
-      "import { defineAuth } from '@vite-hub/auth'",
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { defineAuth, type AuthDefinition, type AuthDefinitionResolver } from '@vite-hub/auth'",
+      "import { authDatabase } from '@vite-hub/auth/database'",
       "const unused = defineAuth({ appName: 'Unused', basePath: '/unused' })",
-      "const exported = defineAuth({ appName: 'Exported', basePath: '/exported' })",
-      "export default exported",
+      "const auth: AuthDefinition<AuthDefinitionResolver<{ plugins: [ReturnType<typeof apiKey>] }>> = defineAuth(() => ({",
+      "  basePath: '/exported',",
+      "  database: authDatabase(),",
+      "  plugins: [apiKey()],",
+      "}))",
+      "export default auth",
       "",
     ].join("\n"))
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({ basePath: "/exported", tables: { database: "default", schema: { plugins: ["apiKey"] } } })
+  })
+
+  it.each([
+    ["a let", "let auth = defineAuth({ basePath: '/auth' })\nexport default auth"],
+    ["a const that holds no defineAuth call", "const auth = makeAuth({ basePath: '/auth' })\nexport default auth"],
+  ])("rejects an exported %s", async (_label, body) => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, `import { defineAuth } from '@vite-hub/auth'\n${body}\n`)
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
   })
 
-  it("requires names for object-shaped database and secondary storage config", async () => {
-    const rootDir = await createTempProject()
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  database: { dedicated: true },",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/database.name is required/)
-
-    await rm(join(rootDir, "server", "auth.ts"))
-    await writeAuth(rootDir, "server/auth.ts", [
-      "  secondaryStorage: {},",
-    ])
-
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/secondaryStorage.store is required/)
-  })
   it.each([
     "({ env }) => { if (env.other) return { database: authDatabase('other') }; return { database: authDatabase() } }",
     "({ env }) => { if (env.other) return { database: otherAdapter }; return { database: authDatabase() } }",
-    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
-    "{ runtime: () => ({ database: authDatabase('other') }) }",
     "{ database: authDatabase('schema'), database: otherAdapter }",
     "{ database: authDatabase('schema'), 'database': otherAdapter }",
   ])("rejects ambiguous owned Database placement: %s", async (options) => {
@@ -518,6 +652,20 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/statically invariant Database/)
   })
 
+  it.each([
+    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
+    "{ advanced: { cookiePrefix: 'acme' }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }",
+    "() => ({ runtime: { secret: 'secret' } })",
+  ])("rejects the removed runtime option at build time: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0039" }))
+  })
+
   it("uses the last duplicate database property when it owns the tables", async () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.js", [
@@ -528,33 +676,129 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
   })
 
+  it("reads the additional fields and the plugins that add Auth tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { twoFactor as secondFactor, username } from 'better-auth/plugins'",
+      "import type { lastLoginMethod } from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "const plugins = [apiKey(), secondFactor()]",
+      "export default defineAuth(() => ({",
+      "  database: authDatabase(),",
+      "  plugins,",
+      "  user: { additionalFields: {",
+      "    login: { type: 'string', required: false },",
+      "    language: { type: ['en', 'es'], required: false, defaultValue: 'en' },",
+      "    credits: { type: 'number', required: true, defaultValue: () => 0, input: false },",
+      "  } },",
+      "  session: { additionalFields: { device: { type: 'string', index: true } } },",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({
+      database: "default",
+      schema: {
+        plugins: ["apiKey", "twoFactor"],
+        additionalFields: {
+          user: { login: { type: "string" }, language: { type: "string", defaultValue: "en" }, credits: { type: "number", required: true } },
+          session: { device: { type: "string", index: true } },
+        },
+      },
+    })
+  })
+
+  it("reads the plugins that a local module of the Definition calls", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "src/server/auth-plugins.ts", [
+      "import { stripe } from '@better-auth/stripe'",
+      "import { jwt } from 'better-auth/plugins'",
+      "export { twoFactorPlugins } from './two-factor'",
+      "export function authPlugins(stripeClient) {",
+      "  return [jwt(), stripe({ stripeClient, stripeWebhookSecret: '' })]",
+      "}",
+    ])
+    await writeAuthSource(rootDir, "src/server/two-factor.ts", [
+      "import { twoFactor } from 'better-auth/plugins'",
+      "export const twoFactorPlugins = () => [twoFactor()]",
+    ])
+    await writeAuthSource(rootDir, "src/server/types.ts", [
+      "import { username } from 'better-auth/plugins'",
+      "export const unused = () => username()",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import type { Plan } from '../src/server/types.ts'",
+      "import { authPlugins, twoFactorPlugins } from '../src/server/auth-plugins.ts'",
+      "export default defineAuth(({ env }) => ({",
+      "  database: authDatabase(),",
+      "  plugins: [...authPlugins(env.stripe), ...twoFactorPlugins()],",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
+  })
+
+  it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins/index.mjs", [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "import { keys } from '../keys.js'",
+      "const secondFactor = () => twoFactor()",
+      "export const accountProtection = () => [secondFactor(), ...keys()]",
+      "export const loginByUsername = () => [username()]",
+    ])
+    await writeAuthSource(rootDir, "server/keys.tsx", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export const keys = () => [apiKey()]",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { accountProtection } from './plugins'",
+      "export default defineAuth({ database: authDatabase(), plugins: accountProtection() })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["apiKey", "twoFactor"] } })
+  })
+
   it.each([
-    "{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } }",
-    "() => ({ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } })",
-    "{ database: authDatabase(), user: { additionalFields: profileFields } }",
-  ])("rejects user fields missing from the owned schema before table discovery: %s", async (options) => {
+    ["{ database: authDatabase(), user: { additionalFields: profileFields } }", /user.additionalFields must be an inline object literal/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: planField } } }", /user.additionalFields.plan must be an inline object/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: planType } } } }", /user.additionalFields.plan.type must be one of/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string', required: isRequired } } } }", /user.additionalFields.plan.required must be/],
+    ["() => ({ database: authDatabase(), session: { additionalFields: extraFields } })", /session.additionalFields must be an inline object literal/],
+  ])("asks for additional fields that the Vite plugin can read: %s", async (options, message) => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
       `export default defineAuth(${options})`,
     ])
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0055", message: expect.stringMatching(message) }))
   })
 
-  it.each(["session", "account", "verification"])("rejects %s fields missing from the owned schema before table discovery", async (model) => {
+  it("rejects a field that a table has with another type, and a renamed column", async () => {
     const rootDir = await createTempProject()
-    for (const options of [
-      `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
-      `{ database: authDatabase(), runtime: () => ({ ${model}: { additionalFields: extraFields } }) }`,
-    ]) {
+    for (const [fields, message] of [
+      ["{ role: { type: 'number' } }", /user.additionalFields declares user.role as number/],
+      ["{ login: { type: 'string', fieldName: 'github_login' } }", /fieldName cannot rename the column/],
+    ] as const) {
       await writeAuthSource(rootDir, "server/auth.ts", [
         "import { defineAuth } from 'vite-hub/auth'",
         "import { authDatabase } from 'vite-hub/auth/database'",
-        `export default defineAuth(${options})`,
+        `export default defineAuth({ database: authDatabase(), user: { additionalFields: ${fields} } })`,
       ])
-      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`${model}.additionalFields`)
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0056", message: expect.stringMatching(message) }))
     }
+  })
+
+  it("keeps additional fields to Better Auth without authDatabase()", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "export default defineAuth(() => ({ database: adapter, user: { additionalFields: profileFields } }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
   })
 
   it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {

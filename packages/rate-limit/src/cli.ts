@@ -5,10 +5,11 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseRateLimitWindow } from "./policy.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
-import type { RateLimitWindow } from "./types.ts"
+import type { Duration } from "@vite-hub/runtime"
 
 export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
@@ -37,6 +38,7 @@ const rateLimitDevTargetErrors = {
   invalidInlineTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   invalidTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   missingValue: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
+  unknownOption: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
 }
 
 const rateLimitCommands: readonly RateLimitCommand[] = [
@@ -133,9 +135,18 @@ function formatReset(result: RateLimitResetInspection): string {
   return `Reset Rate Limit ${result.name} for key ${result.key}.\nProvider: ${result.provider}\n${scopeNotice(result.scope)}\n`
 }
 
-const windowSchema = v.custom<RateLimitWindow>(value => v.is(v.pipe(v.string(), v.regex(/^\d+(?:\.\d+)?(?:ms|s|m|h|d)$/)), value))
+const windowSchema = v.custom<Duration>((value) => {
+  if (typeof value !== "string") return false
+  try {
+    parseRateLimitWindow(value as Duration)
+    return true
+  }
+  catch {
+    return false
+  }
+})
 const finiteNumber = v.pipe(v.number(), v.finite())
-const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "cloudflare"]) }
+const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "kv", "cloudflare"]) }
 const scopeSchema = v.picklist(["global", "location", "process"])
 const counterSchema = v.object({
   limit: finiteNumber, remaining: finiteNumber, resetAt: v.optional(v.pipe(finiteNumber, v.minValue(-8.64e15), v.maxValue(8.64e15))),

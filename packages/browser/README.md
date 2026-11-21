@@ -1,15 +1,15 @@
 # `@vite-hub/browser`
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fbrowser&icon=npm)](https://npmx.dev/package/@vite-hub/browser)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fbrowser&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/browser)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/browser)](https://npmx.dev/package/@vite-hub/browser)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/browser)](https://npmx.dev/package/@vite-hub/browser)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/browser` runs trusted server-side browser work through named Browser Definitions, stateless actions, or caller-managed sessions.
 
 Browser Definitions and actions currently use Cloudflare Browser Run. Low-level clients can instead start a local Chromium process on a trusted Node host.
 
-The package requires Node.js 22.18 or newer.
+The package requires Node.js 24.15 or newer.
 
 ## Choose the package
 
@@ -47,7 +47,8 @@ Call a stateless action from trusted server code:
 import { runBrowserContent } from "vite-hub/browser"
 
 export async function checkExampleDomain() {
-  const html = await runBrowserContent("https://example.com")
+  const [error, html] = await runBrowserContent("https://example.com")
+  if (error) throw error
 
   return { found: html.includes("<h1>Example Domain</h1>") }
 }
@@ -81,17 +82,15 @@ Run the discovered Definition by name:
 ```ts
 import { runBrowser } from "vite-hub/browser"
 
-const response = await runBrowser("page-content", {
+const [error, html] = await runBrowser("page-content", {
   url: "https://example.com",
 })
-
-if (!response.ok) throw new Error(await response.text())
-const html = await response.text()
+if (error) throw error
 
 console.log(html.includes("<h1>Example Domain</h1>")) // true
 ```
 
-The generated Browser registry infers the Definition's input type. `runBrowser()` returns a native `Response`. Discovery and provider failures return non-2xx JSON responses containing a stable `BROWSER_*` error code. `runBrowserContent()` returns text and throws when its response is not successful.
+The generated Browser registry infers the Definition's input and result types. `runBrowser()` returns `[error, data]`, where `data` is the value that the handler returned. An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`, and a failed handler or provider returns `BROWSER_RUN_FAILED` with the error in `error.cause`. A build without Browser throws `BROWSER_UNAVAILABLE`. `runBrowserContent()` returns `[error, html]`, with `BROWSER_CONTENT_FAILED` for a failed request. In a route, `return toResponse(error)` from `vite-hub/runtime` answers with the status of the error.
 
 Keep target validation beside the route or job that accepts the URL. A reusable Definition does not make an untrusted destination safe.
 
@@ -138,7 +137,7 @@ Use `@vite-hub/browser` in the corresponding server code. `hubBrowser()` discove
 
 ## Manage a local Chromium process
 
-`createBrowser()` is the low-level interface for a caller that owns provider selection, controller attachment, and cleanup. The local provider starts the supplied Chromium executable on the current trusted Node host.
+`createBrowser()` is the low-level interface for a caller that owns driver selection, controller attachment, and cleanup. The local driver starts the supplied Chromium executable on the current trusted Node host.
 
 ```bash
 pnpm add @vite-hub/browser playwright-core
@@ -150,7 +149,7 @@ import { playwright } from "@vite-hub/browser/controllers/playwright"
 import { localBrowser } from "@vite-hub/browser/providers/local"
 
 const browser = createBrowser({
-  provider: localBrowser({ executablePath: "/usr/bin/chromium" }),
+  driver: localBrowser({ executablePath: "/usr/bin/chromium" }),
 })
 const session = await browser.open()
 
@@ -168,7 +167,7 @@ try {
 }
 ```
 
-Set `executablePath` to an installed Chromium-compatible browser. The path above is a Linux example. `playwright-core` supplies the controller but does not download a browser.
+Set `executablePath` to an installed Chromium-compatible browser. The path above is a Linux example. `playwright-core` supplies the controller but does not download a browser. The local provider rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Close the session yourself.
 
 If reading the controller client or attachment tracing fails, ViteHub releases the attached controller before rejecting `session.attach()`. If that release also fails, the session keeps controller ownership and rejects another attachment or handoff. Call `session.close()` to retry failed rollback cleanup before terminating the provider session. Closure waits for pending controller rollback cleanup before terminating the provider; if it fails again, closure rejects and can be retried. Detach tracing does not delay provider termination after controller cleanup succeeds.
 

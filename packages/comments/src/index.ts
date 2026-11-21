@@ -1,5 +1,8 @@
+import { clientRateLimitIssue } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { markCommentsDefinition } from "./operations-core/define.ts"
-import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
+import { can, createThread, earlierReply, earlierThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
 import { commentsErrors } from "./errors.ts"
 import { pendingKey, runtimeOf, runtimes } from "./installed.ts"
 import { normalizeCommentPage } from "./page.ts"
@@ -8,6 +11,7 @@ import type { Result } from "@vite-hub/runtime"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsRuntime } from "./operations-core/service.ts"
 import type {
+  CommentActor,
   CommentMessage,
   CommentSubject,
   CommentThread,
@@ -16,18 +20,17 @@ import type {
   CommentsErrorCode,
   DefineCommentsOptions,
   EditCommentInput,
+  FindCommentThreadInput,
   ListCommentThreadsOptions,
   ReplyInput,
   ReplyOptions,
 } from "./types.ts"
 
 export { describeCommentContext } from "./context.ts"
-export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
-export { builtinCommentSubjects, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export { commentRoom, normalizeCommentPage } from "./page.ts"
+export { commentsRoleAllows, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
 export type { CommentsPolicyGate } from "./operations-core/define.ts"
-export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"
-export { commentsRuntimeOf, resolveCommentsRuntime } from "./installed.ts"
 
 type Codes<T extends CommentsErrorCode> = T
 
@@ -41,11 +44,19 @@ export interface Comments {
   getByMessage(messageId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Thread `#n` of a numbering scope, such as `site`. */
   getByNumber(scope: string, n: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /**
+   * The thread that a `create` with this `requestId` stored in the scope of the subject, else `null`. Check it before
+   * work that a retry must not do twice, such as storing files. It does not compare authors: `create` does.
+   */
+  findThread(input: FindCommentThreadInput): Promise<Result<CommentThread | null, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
+  /** The message that a `reply` with this `requestId` stored in the thread, else `null`. */
+  findReply(threadId: string, requestId: string): Promise<Result<CommentMessage | null, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
   /** Starts a thread with its first message, numbered next in the scope of its subject. Runs `onComment`. */
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   /** Adds a message to an open thread. Runs `onComment`. */
   reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
-  resolve(threadId: string, options: { by: CommentUser }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** `actor`: the agent that resolves it for `by`, as on `reply`. */
+  resolve(threadId: string, options: { by: CommentUser, actor?: CommentActor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its messages. */
   remove(threadId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
@@ -59,7 +70,7 @@ export interface Comments {
    * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `gate` says what your
    * server checked before, such as Console section access; a route of your own usually passes nothing.
    */
-  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }, gate?: CommentsPolicyGate): Promise<boolean>
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject, console?: boolean }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
   people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
@@ -82,6 +93,12 @@ function resultError(error: unknown, id: string): ReturnType<typeof commentsErro
   const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (code === "COMMENTS_R0002" || code === "COMMENTS_R0003") return commentsErrors.COMMENTS_NOT_FOUND({ id })
   if (code === "COMMENTS_R0016") return commentsErrors.COMMENTS_RESOLVED()
+  return invalidInput(error)
+}
+
+/** A diagnostic of the shared core about the input, as `COMMENTS_INVALID_INPUT`. Any other error is thrown again. */
+function invalidInput(error: unknown): ReturnType<typeof commentsErrors.COMMENTS_INVALID_INPUT> {
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (typeof code === "string" && ["COMMENTS_R0005", "COMMENTS_R0007", "COMMENTS_R0008", "COMMENTS_R0017", "COMMENTS_R0018", "COMMENTS_R0022"].includes(code)) {
     return commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) })
   }
@@ -90,6 +107,8 @@ function resultError(error: unknown, id: string): ReturnType<typeof commentsErro
 
 /** Defines Comments for the app: the access policy, the people, the hooks, and the trusted server API. */
 export function defineComments(options: DefineCommentsOptions = {}): Comments {
+  const rateLimitIssue = options.rateLimit && clientRateLimitIssue(options.rateLimit)
+  if (rateLimitIssue) throw commentsErrorDiagnostics.COMMENTS_RATE_LIMIT_INVALID({ issue: rateLimitIssue })
   const pending = new Set<Promise<unknown>>()
   const runtime = () => runtimeOf(comments)
   const notInstalled = (): [ReturnType<typeof commentsErrors.COMMENTS_NOT_INSTALLED>, undefined] => [commentsErrors.COMMENTS_NOT_INSTALLED(), undefined]
@@ -135,6 +154,31 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!current) return notInstalled()
       return one(current, await current.store.getByNumber(scope, n), `${scope}#${n}`)
     },
+    async findThread({ page, subject, requestId }) {
+      const current = await runtime()
+      if (!current) return notInstalled()
+      const target = subject ?? (page === undefined ? undefined : { id: normalizeCommentPage(page), kind: "page" })
+      if (!target) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }), undefined]
+      try {
+        const found = await earlierThread(current, { requestId, subject: target })
+        return [undefined, found ? (await withForge(current, [found]))[0]! : null]
+      }
+      catch (error) {
+        return [invalidInput(error), undefined]
+      }
+    },
+    async findReply(threadId, requestId) {
+      const current = await runtime()
+      if (!current) return notInstalled()
+      const found = await current.store.getById(threadId)
+      if (!found) return notFound(threadId)
+      try {
+        return [undefined, await earlierReply(found, requestId) ?? null]
+      }
+      catch (error) {
+        return [invalidInput(error), undefined]
+      }
+    },
     async create({ page, subject, ...input }) {
       const current = await runtime()
       if (!current) return notInstalled()
@@ -161,11 +205,11 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
         return [resultError(error, threadId), undefined]
       }
     },
-    async resolve(threadId, { by }) {
+    async resolve(threadId, { by, actor }) {
       const current = await runtime()
       if (!current) return notInstalled()
       if (!await current.store.getById(threadId)) return notFound(threadId)
-      const thread = await current.store.setStatus(threadId, "resolved", by, Date.now()).catch(gone)
+      const thread = await current.store.setStatus(threadId, "resolved", by, Date.now(), actor).catch(gone)
       if (!thread) return notFound(threadId)
       current.forge?.changed(threadId)
       return [undefined, thread]

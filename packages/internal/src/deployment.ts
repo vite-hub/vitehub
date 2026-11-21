@@ -6,8 +6,8 @@ export type DeploymentPreset = ViteHubHost
 export type DeploymentRuntime = "deno" | "node" | "workerd"
 export type DeploymentService = "blob" | "browser" | "queue" | "rateLimit" | "realtime" | "sandbox"
 
-type SupportedDeploymentServicePolicy<TAdapter extends string, TGuarantee extends string = "native"> = {
-  adapter: TAdapter
+type SupportedDeploymentServicePolicy<TDriver extends string, TGuarantee extends string = "native"> = {
+  driver: TDriver
   guarantee: TGuarantee
   supported: true
 }
@@ -18,11 +18,11 @@ type UnsupportedDeploymentServicePolicy = {
 }
 
 export interface DeploymentServices {
-  blob: SupportedDeploymentServicePolicy<"cloudflare-r2" | "fs" | "netlify-blobs" | "vercel-blob", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
+  blob: SupportedDeploymentServicePolicy<"cloudflare" | "fs" | "netlify-blobs" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
   queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
-  realtime: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
+  realtime: SupportedDeploymentServicePolicy<"cloudflare" | "node", "native"> | UnsupportedDeploymentServicePolicy
   sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
 }
 
@@ -51,12 +51,12 @@ const plans = {
     output: { directory: ".output", entry: "server/index.mjs", packaging: "none" },
     runtime: "workerd",
     services: {
-      blob: { adapter: "cloudflare-r2", guarantee: "native", supported: true },
-      browser: { adapter: "cloudflare", guarantee: "native", supported: true },
-      queue: { adapter: "cloudflare", guarantee: "native", supported: true },
-      rateLimit: { adapter: "cloudflare", guarantee: "native", supported: true },
-      realtime: { adapter: "cloudflare", guarantee: "native", supported: true },
-      sandbox: { adapter: "cloudflare", guarantee: "native", supported: true },
+      blob: { driver: "cloudflare", guarantee: "native", supported: true },
+      browser: { driver: "cloudflare", guarantee: "native", supported: true },
+      queue: { driver: "cloudflare", guarantee: "native", supported: true },
+      rateLimit: { driver: "cloudflare", guarantee: "native", supported: true },
+      realtime: { driver: "cloudflare", guarantee: "native", supported: true },
+      sandbox: { driver: "cloudflare", guarantee: "native", supported: true },
     },
   },
   deno: {
@@ -83,7 +83,7 @@ const plans = {
     output: { directory: ".netlify", entry: "functions-internal/server/server.mjs", packaging: "none" },
     runtime: "node",
     services: {
-      blob: { adapter: "netlify-blobs", guarantee: "native", supported: true },
+      blob: { driver: "netlify-blobs", guarantee: "native", supported: true },
       browser: unsupported("Netlify has no built-in Browser Provider."),
       queue: unsupported(
         "Netlify has no built-in Queue Provider with ViteHub's delivery contract.",
@@ -99,11 +99,11 @@ const plans = {
     output: { directory: ".output", entry: "server/index.mjs", packaging: "none" },
     runtime: "node",
     services: {
-      blob: { adapter: "fs", guarantee: "single-host", supported: true },
+      blob: { driver: "fs", guarantee: "single-host", supported: true },
       browser: unsupported("The Node host has no built-in Browser Provider."),
-      queue: { adapter: "local", guarantee: "single-host", supported: true },
-      rateLimit: { adapter: "memory", guarantee: "process-local", supported: true },
-      realtime: { adapter: "memory", guarantee: "process-local", supported: true },
+      queue: { driver: "local", guarantee: "single-host", supported: true },
+      rateLimit: { driver: "memory", guarantee: "process-local", supported: true },
+      realtime: { driver: "node", guarantee: "native", supported: true },
       sandbox: unsupported("The Node host has no built-in isolated Sandbox Provider."),
     },
   },
@@ -117,12 +117,12 @@ const plans = {
     },
     runtime: "node",
     services: {
-      blob: { adapter: "vercel-blob", guarantee: "native", supported: true },
+      blob: { driver: "vercel", guarantee: "native", supported: true },
       browser: unsupported("Vercel has no built-in Browser Provider."),
-      queue: { adapter: "vercel", guarantee: "native", supported: true },
+      queue: { driver: "vercel", guarantee: "native", supported: true },
       rateLimit: unsupported("Vercel has no built-in distributed Rate Limit driver."),
       realtime: unsupported("Vercel has no shared room authority for Realtime."),
-      sandbox: { adapter: "vercel", guarantee: "native", supported: true },
+      sandbox: { driver: "vercel", guarantee: "native", supported: true },
     },
   },
 } as const satisfies Record<ViteHubHost, DeploymentPlan>
@@ -180,4 +180,25 @@ export function detectHost(env: Record<string, string | undefined> = process.env
     if (host) return host
   }
   return providerHosts.find(([name]) => env[name]?.trim())?.[1]
+}
+
+/**
+ * Returns the provider variable that names another host than `host`, such as `VERCEL` when `host` is `"node"`.
+ * Returns `undefined` when `VITEHUB_HOST`, `NITRO_PRESET`, or `SERVER_PRESET` names a host, because that variable
+ * selects the host on purpose.
+ */
+export function findProviderHostConflict(host: ViteHubHost, env: Record<string, string | undefined> = process.env): { host: ViteHubHost, variable: string } | undefined {
+  if (["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET"].some(name => hostFromNitroPreset(env[name]))) return
+  const provider = providerHosts.find(([name]) => env[name]?.trim())
+  if (provider && provider[1] !== host) return { host: provider[1], variable: provider[0] }
+}
+
+/**
+ * Returns the host that `vitehub()` builds for. `vitehub deploy --host` sets `VITEHUB_HOST` with
+ * `VITEHUB_HOST_SOURCE=cli`, and that host wins over the `host` option. Otherwise the `host` option wins, then
+ * `detectHost()`, then `"node"`.
+ */
+export function resolveBuildHost(configured: ViteHubHost | undefined, env: Record<string, string | undefined> = process.env): ViteHubHost {
+  const fromCli = env.VITEHUB_HOST_SOURCE === "cli" ? hostFromNitroPreset(env.VITEHUB_HOST) : undefined
+  return fromCli ?? configured ?? detectHost(env) ?? "node"
 }

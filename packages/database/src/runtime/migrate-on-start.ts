@@ -1,11 +1,14 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { applyD1MigrationFiles, readD1LedgerOf } from "../internal/d1-ledger.ts"
+import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
+import type { D1Ledger } from "../internal/d1-ledger.ts"
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
 import type { DataLossStatement } from "../internal/migration-sql.ts"
+import type { D1HttpClient } from "./d1-http.ts"
 
 /** A Drizzle Kit migration, read at build time so the server output does not need the migrations folder. */
 export interface StartMigration {
@@ -19,7 +22,15 @@ export interface StartMigration {
   when: number
 }
 
+/** The migrations of a D1 HTTP database as Wrangler applies them. */
+export interface StartD1Migrations {
+  /** In Wrangler's order. `name` is the `.sql` file name that the table stores, and `sql` the whole file. */
+  files: Array<{ dataLoss: DataLossStatement[], name: string, sql: string, statements: string[], tag: string }>
+}
+
 export interface StartMigrationDatabase {
+  /** Set for a D1 HTTP database, which uses Wrangler's migrations table instead of Drizzle's. */
+  d1?: StartD1Migrations
   /** The runtime Drizzle database of `useDatabase(name)`. */
   db: unknown
   dialect: "postgresql" | "sqlite"
@@ -27,8 +38,17 @@ export interface StartMigrationDatabase {
   name: string
 }
 
+/** `migrateOnStart.backup` as the build resolves it. */
+export interface MigrationBackup {
+  /** Relative to the working directory. Unset, the copies go to `backups` beside the database file. */
+  dir?: string
+  keep: number
+}
+
 export interface MigrateOnStartOptions {
   allowDataLoss?: boolean
+  /** Copy each SQLite file before its pending migrations. */
+  backup?: MigrationBackup
   log?: (message: string) => void
 }
 
@@ -43,6 +63,8 @@ interface LibsqlMigrationClient {
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
   databases: StartMigrationDatabase[]
+  /** The path of the main database file. Empty for an in-memory database. */
+  file: string
   /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
   upgrade: LibsqlStatement[]
   pending: Array<{ migration: StartMigration, name: string }>
@@ -52,6 +74,10 @@ interface StartMigrationPlan {
 // `vitehub database migrate` and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
 const createMigrationsTable = `CREATE TABLE IF NOT EXISTS "${migrationsTable}" (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
+
+function isD1HttpClient(value: unknown): value is D1HttpClient {
+  return typeof value === "object" && value !== null && Reflect.get(value, "protocol") === "d1-http" && typeof Reflect.get(value, "query") === "function"
+}
 
 function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
   return typeof value === "object" && value !== null
@@ -77,15 +103,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
-  return {
-    ...match,
-    hashes,
-    upgrade: [
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
-    ],
-  }
+  return { ...match, hashes, upgrade: ledgerUpgradeStatements(migrationsTable, match) }
 }
 
 type PendingEntry = { migration: StartMigration, name: string }
@@ -157,26 +175,98 @@ function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfil
  * A local SQLite file runs all its pending migrations in one transaction. A Postgres database runs them in one
  * transaction that holds the migration lock, so of several servers that start together, one migrates and the others
  * wait and then find nothing pending. A failure keeps none of the pending migrations of that database.
+ *
+ * A D1 HTTP database uses Wrangler's migrations table, like `vitehub database migrate` and `wrangler d1 migrations
+ * apply`. Each migration and its row go in one request, so D1 keeps neither when the migration fails.
  */
-export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
+export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}, d1Owners?: Map<string, string>): Promise<void> {
   const log = options.log ?? (message => console.info(message))
-  const sqlitePlans = await planSqlite(databases.filter(database => database.dialect === "sqlite"), options)
-  const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
+  const postgresDatabase = databases.find(database => database.dialect === "postgresql")
+  if (options.backup && postgresDatabase) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: postgresDatabase.name, problem: "It is a Postgres database." })
+  }
+  const sqlite: StartMigrationDatabase[] = []
+  const d1: Array<{ client: D1HttpClient, database: StartMigrationDatabase }> = []
+  for (const database of databases) {
+    if (database.dialect !== "sqlite") continue
     const client: unknown = Reflect.get(Object(database.db), "$client")
-    if (!isPostgresClient(client)) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js." })
+    if (isD1HttpClient(client)) d1.push({ client, database })
+    else sqlite.push(database)
+  }
+  if (options.backup && d1.length) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: d1[0]!.database.name, problem: "It uses Cloudflare D1 over HTTP." })
+  }
+  const owners = new Map(d1Owners)
+  for (const { client, database } of d1) {
+    const table = client.migrationsTable
+    const key = JSON.stringify([client.target, table.toLowerCase()])
+    const owner = owners.get(key)
+    if (owner !== undefined && owner !== database.name) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: `Database "${owner}" also uses its D1 migrations table "${table}". Use one migration owner per D1 ledger, or configure separate migrations tables.` })
+    }
+    owners.set(key, database.name)
+  }
+  const d1Plans = await Promise.all(d1.map(({ client, database }) => planD1(client, database, options)))
+  const sqlitePlans = await planSqlite(sqlite, options)
+  const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
+    const value: unknown = Reflect.get(Object(database.db), "$client")
+    const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
+    if (!client) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js or a node-postgres Pool." })
     }
     return { client, database }
   })
   // The SQLite files change only after every Postgres database passed its check under the lock.
-  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, log), log })
+  await migratePostgres(postgres, {
+    ...options,
+    beforeApply: async () => {
+      if (d1Owners) for (const [key, owner] of owners) d1Owners.set(key, owner)
+      for (const plan of d1Plans) await applyD1(plan, log)
+      await applySqlite(sqlitePlans, options.backup, log)
+    },
+    log,
+  })
+}
+
+interface D1StartPlan {
+  client: D1HttpClient
+  database: StartMigrationDatabase & { d1: StartD1Migrations }
+  ledger: D1Ledger
+}
+
+/** Reads Wrangler's table of a D1 HTTP database and refuses pending migrations that lose data, unless `allowDataLoss` is set. */
+async function planD1(client: D1HttpClient, database: StartMigrationDatabase, options: MigrateOnStartOptions): Promise<D1StartPlan> {
+  if (!database.d1) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "It uses Cloudflare D1 over HTTP, and the build shipped no D1 migrations for it." })
+  }
+  const { files } = database.d1
+  const ledger = await readD1LedgerOf(client.query, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  if (!options.allowDataLoss) {
+    const losses = files.filter(file => !ledger.applied.has(file.name))
+      .flatMap(file => withoutNewTableDataLoss([file]))
+      .flatMap(file => file.dataLoss.map(loss => `${file.tag}: ${loss.reason}: ${loss.statement}`))
+    if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+  }
+  return { client, database: { ...database, d1: database.d1 }, ledger }
+}
+
+async function applyD1({ client, database, ledger }: D1StartPlan, log: (message: string) => void) {
+  const tags = new Map(database.d1.files.map(file => [file.name, file.tag]))
+  await applyD1MigrationFiles(
+    client.query,
+    ledger,
+    database.d1.files.map(file => ({ name: file.name, sql: () => file.sql })),
+    name => log(`[vitehub] Database "${database.name}": applied ${tags.get(name)}.`),
+    migration => log(`[vitehub] Database "${database.name}": recorded ${migration.tag} from ${migration.from} in ${ledger.table}.`),
+  )
 }
 
 /** The migrations that a server build ships, by Database name. The build writes them, so the server needs no migrations folder. */
 export interface ShippedMigrations {
   allowDataLoss: boolean
+  backup?: MigrationBackup
   /** A Database without migrations is not listed. `problem` says why the build could not read its migrations. */
-  databases: Record<string, Pick<StartMigrationDatabase, "dialect" | "migrations"> | { problem: string }>
+  databases: Record<string, Pick<StartMigrationDatabase, "d1" | "dialect" | "migrations"> | { problem: string }>
   /** Why this build cannot apply migrations in the server process. */
   unsupported?: string
 }
@@ -189,6 +279,7 @@ export interface EnsureMigrationsContext {
 
 // One run for each Database in this process. The server start and `ensureMigrations()` share it.
 const runs = new Map<string, Promise<void>>()
+const d1OwnersByRegistry = new WeakMap<EnsureMigrationsContext["databases"], Map<string, string>>()
 // Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
 // previous run committed, or both apply the same migration.
 let lastRun: Promise<unknown> = Promise.resolve()
@@ -210,12 +301,16 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
     const run = lastRun.then(() => context.load()).then(async (shipped) => {
       if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
       const test = getViteHubTestMode()
+      const d1Owners = d1OwnersByRegistry.get(context.databases) ?? new Map<string, string>()
+      d1OwnersByRegistry.set(context.databases, d1Owners)
+      // A container image is built once, so its operator accepts data loss for one start with this variable.
+      const allowDataLoss = shipped.allowDataLoss || process.env.VITEHUB_DATABASE_ALLOW_DATA_LOSS === "1"
       await migrateOnStart(missing.flatMap((name) => {
         const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
         if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
-        if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
-        return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
-      }), { allowDataLoss: shipped.allowDataLoss })
+        if (!(database?.migrations.length || database?.d1?.files.length) || (test && database.dialect === "sqlite")) return []
+        return [{ ...database.d1 && { d1: database.d1 }, db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
+      }), { allowDataLoss, backup: shipped.backup }, d1Owners)
     })
     for (const name of missing) runs.set(name, run)
     lastRun = run.catch(() => {
@@ -236,9 +331,12 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
     // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
     const files = await client.execute("PRAGMA database_list")
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
+    if (options.backup && (typeof file !== "string" || !file)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: database.name, problem: "It is in memory." })
+    }
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
+    const plan = plans.get(target) ?? { client, databases: [], file: typeof file === "string" ? file : "", pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
@@ -256,7 +354,9 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
   return [...plans.values()]
 }
 
-async function applySqlite(plans: StartMigrationPlan[], log: (message: string) => void) {
+async function applySqlite(plans: StartMigrationPlan[], backup: MigrationBackup | undefined, log: (message: string) => void) {
+  // Copy every file before the first one changes, so a failed copy leaves all of them as they were.
+  if (backup) for (const plan of plans) if (plan.pending.length) await backupSqlite(plan, backup, log)
   for (const { client, pending, upgrade } of plans) {
     if (!pending.length && !upgrade.length) continue
     await client.migrate([
@@ -269,6 +369,46 @@ async function applySqlite(plans: StartMigrationPlan[], log: (message: string) =
     ])
     for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
+}
+
+/**
+ * Copies a SQLite file with `VACUUM INTO`, which writes a consistent copy while other connections can read, then
+ * deletes the oldest copies of that file beyond `keep`. An empty database has nothing to keep, so it gets no copy.
+ * Copies are `<file name>-<UTC time>-before-<last pending migration><extension>`, so they sort by time.
+ */
+async function backupSqlite({ client, databases, file, pending }: StartMigrationPlan, backup: MigrationBackup, log: (message: string) => void) {
+  const objects = await client.execute("SELECT count(*) AS count FROM sqlite_master")
+  if (!Number(objects.rows[0]?.[0])) return
+  // Hosted builds bundle this module without Node's file system, so it reads the built-ins only when a copy is due.
+  const { mkdir, readdir, rm } = process.getBuiltinModule("fs/promises")
+  const { basename, dirname, extname, join, resolve } = process.getBuiltinModule("path")
+  const dir = backup.dir ? resolve(backup.dir) : join(dirname(file), "backups")
+  const extension = extname(file) || ".db"
+  // A shared directory must keep retention independent for files with the same basename.
+  const identity = backup.dir ? `-${process.getBuiltinModule("crypto").createHash("sha256").update(file).digest("hex")}` : ""
+  const stem = `${basename(file, extname(file))}${identity}`
+  const time = new Date().toISOString().replaceAll(":", "-").replace(".", "-")
+  const target = join(dir, `${stem}-${time}-before-${pending.at(-1)!.migration.name}${extension}`)
+  const copy = new RegExp(`^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-before-.+${escapeRegExp(extension)}$`)
+  try {
+    await mkdir(dir, { recursive: true })
+    await client.execute({ args: [target], sql: "VACUUM INTO ?" })
+    const copies = (await readdir(dir)).filter(name => copy.test(name)).sort()
+    for (const name of copies.slice(0, -backup.keep)) await rm(join(dir, name))
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_FAILED({
+      cause: error,
+      database: databases[0]!.name,
+      problem: error instanceof Error ? error.message : String(error),
+      target,
+    })
+  }
+  log(`[vitehub] Database "${databases[0]!.name}": copied ${file} to ${target} before ${pending.length} migration(s).`)
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 /** The part of a postgres.js client, or of one of its transactions, that migrations use. */
@@ -285,6 +425,52 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
   return typeof value === "function"
     && typeof Reflect.get(value, "begin") === "function"
     && typeof Reflect.get(value, "unsafe") === "function"
+}
+
+/** The part of a node-postgres Pool, or of one of its clients, that migrations use. */
+interface NodePostgresQueryable {
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+interface NodePostgresPool extends NodePostgresQueryable {
+  connect: () => Promise<NodePostgresQueryable & { release: (error?: Error) => void }>
+}
+
+function isNodePostgresPool(value: unknown): value is NodePostgresPool {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "connect") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+}
+
+function nodePostgresSql(queryable: NodePostgresQueryable): PostgresMigrationSql {
+  return { unsafe: async (query, parameters) => (await queryable.query(query, parameters)).rows }
+}
+
+/** Runs migrations on a node-postgres Pool: `begin()` takes one client of the pool and wraps the run in a transaction. */
+export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigrationClient {
+  return {
+    ...nodePostgresSql(pool),
+    begin: async (run) => {
+      const client = await pool.connect()
+      let failure: Error | undefined
+      try {
+        await client.query("begin")
+        const result = await run(nodePostgresSql(client))
+        await client.query("commit")
+        return result
+      }
+      catch (error) {
+        await client.query("rollback").catch((rollbackError: unknown) => {
+          // A client that cannot roll back must not go back to the pool.
+          failure = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        })
+        throw error
+      }
+      finally {
+        client.release(failure)
+      }
+    },
+  }
 }
 
 /**

@@ -23,7 +23,9 @@ function token(selector: string, name: string, css = design): string {
     if (!selectors!.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map(part => part.trim().replace(":where(.vh-docs)", "")).includes(selector)) continue
     value = body!.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim() ?? value
   }
-  return value
+  // A token that reads a shadcn/ui name, such as `--ui-bg: var(--background)`, takes the value of that name.
+  const read = /^var\((--[\w-]+)\)$/.exec(value)?.[1]
+  return read ? token(selector, read, css) : value
 }
 
 // Gray OKLCH (`oklch(L 0 0)`) to relative luminance. With no chroma, OKLab's L cubed is the linear luminance. A
@@ -74,12 +76,5 @@ describe("docs design", () => {
     expect(token(":root", "--vh-grain")).toContain("feTurbulence")
     expect(token(":root", "--vh-grain")).toContain("opacity='0.035'")
     expect(design).toMatch(/body,\s*\.vh-grain-surface\s*\{[^}]*background-image:\s*var\(--vh-grain\)/)
-  })
-
-  it("puts comark-ui's layer between Tailwind's base and its utilities", () => {
-    const module = readFileSync(fileURLToPath(new URL("../src/nuxt.ts", import.meta.url)), "utf8")
-
-    expect(module).toContain("`@layer theme, base, comark, components, utilities;`")
-    expect(module.indexOf("@layer theme, base, comark")).toBeLessThan(module.indexOf("@import \"tailwindcss\""))
   })
 })

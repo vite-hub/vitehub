@@ -1,8 +1,8 @@
 import { createCloudflareProvisionClient, isShellSafeProvisionValue, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
-import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
+import type { DiscoveredQueueDefinition } from "./types.ts"
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -25,13 +25,16 @@ function parseQueues(value: unknown): CloudflareQueue[] {
   return value as CloudflareQueue[]
 }
 
-export function createQueueProvisionStep(resolveRootDir: () => string, resolveNamePrefix: () => string | undefined = () => undefined): ProvisionStep {
+export function createQueueProvisionStep(
+  resolveDefinitions: () => DiscoveredQueueDefinition[],
+  resolveNamePrefix: () => string | undefined = () => undefined,
+): ProvisionStep {
   return {
     id: "queue:cloudflare-queues",
     provider: "cloudflare",
     recordedState() {
       const namePrefix = resolveNamePrefix()
-      const queues = new Map(discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => [definition.name, getCloudflareQueueName(definition.name, namePrefix)]))
+      const queues = new Map(resolveDefinitions().map(definition => [definition.name, getCloudflareQueueName(definition.name, namePrefix)]))
       return [{
         category: QUEUE_CLOUDFLARE_PROVISION_CATEGORY,
         declared: [...queues.keys()],
@@ -51,7 +54,7 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
 
       const request = createCloudflareProvisionClient(config, context.fetch)
       const namePrefix = resolveNamePrefix()
-      const queues = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
+      const queues = resolveDefinitions().map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
       if (!queues.length) return []
 
       // The Queues list accepts `page` but documents no page size, so result_info decides when to stop.

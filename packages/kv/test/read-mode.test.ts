@@ -29,16 +29,16 @@ describe("kv.store(name, { mode: \"read\" })", () => {
     const reader = kv.store("settings", { mode: "read" })
     expect((await reader.get("settings:theme"))[1]).toEqual({ dark: true })
     expect((await reader.has("settings:theme"))[1]).toBe(true)
-    expect((await reader.keys("settings"))[1]).toEqual(["settings:theme"])
+    expect((await reader.list({ prefix: "settings" }))[1]).toEqual({ keys: ["settings:theme"] })
     expect((await reader.list({ limit: 10, prefix: "settings:" }))[1]).toEqual({ keys: ["settings:theme"] })
   })
 
   it("has no write methods at runtime", () => {
     const reader = kv.store("default", { mode: "read" })
-    for (const method of ["set", "setIfAbsent", "delete", "clear", "getAndDelete", "increment", "store"]) {
+    for (const method of ["set", "setIfAbsent", "setMany", "delete", "clear", "getAndDelete", "increment", "store"]) {
       expect(method in reader).toBe(false)
     }
-    expect(Object.keys(reader).sort()).toEqual(["get", "has", "keys", "list"])
+    expect(Object.keys(reader).sort()).toEqual(["get", "getMany", "has", "list"])
   })
 
   it.each(["readonly", null])("rejects the invalid mode %j instead of returning a writable handle", (mode) => {

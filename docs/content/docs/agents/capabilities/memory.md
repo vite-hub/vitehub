@@ -62,7 +62,8 @@ At start, `memory()` creates each store adapter and resolves its scope. Every op
 
 ## Requirements
 
-- `memory()` requires a `stores` map. Each store needs an adapter and a scope with at least one non-empty field.
+- `memory()` requires a `stores` map. Each store needs an adapter and a scope with at least one non-empty field. A store with `retention` fails with `AGENT_R0120`, because `memory()` has no retention.
+- The JSONL store reads a missing file as empty memory. Any other read error fails the tool call, so a broken Workspace does not look like empty memory.
 - `workspaceJsonlMemoryStore()` requires a Workspace, writable when the Agent remembers or deletes.
 - A custom adapter implements `search`, `read`, `append`, `delete`, and `export`. A `MemoryStoreFactory` has a `kind` and a `create(context)` function that returns the adapter.
 
@@ -89,7 +90,7 @@ The scope comes from configuration or a scope function that gets the Capability 
 
 ## Verify memory
 
-1. Run `vitehub agent dev --agent <name>`, ask the Agent to search its memory, and check for a `memory_search` step. `agent info` does not list memory tools, because they are added when the run starts.
+1. Run `vitehub agent dev --agent <name>`, ask the Agent to search its memory, and check for a `memory_search` step. `agent get` does not list memory tools, because they are added when the run starts.
 2. Check that `memory_remember` and `memory_delete` appear only with `write.mode: 'tool'`.
 3. For the JSONL store, call `memory_remember` and check the Workspace file for a line with the scope and provenance.
 
@@ -105,7 +106,6 @@ The scope comes from configuration or a scope function that gets the Capability 
 | `stores.*.read.tools.read` | `boolean` | `true` | Allow `memory_read` for the store. |
 | `stores.*.write.mode` | `"off" \| "tool"` | `"off"` | `"tool"` adds `memory_remember` and `memory_delete`. |
 | `stores.*.write.policy` | `AgentToolPolicyDecision` | `"allow"` | Policy for write tools on the store. |
-| `stores.*.retention` | `{ export?: boolean; hardDelete?: boolean }` | none | Reserved. `memory()` does not read them. |
 
 ### Workspace JSONL store options
 

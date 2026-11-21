@@ -8,7 +8,10 @@ export interface ViteHubRuntime {
     context?: CloudflareWorkerExecutionContext
     env?: Record<string, unknown>
   }
-  /** The client IP address that the host reports. ViteHub does not read it from forwarding headers. */
+  /**
+   * The client IP address that the host reports. ViteHub does not read it from forwarding headers.
+   * Standard Context has no client address field yet (https://github.com/standard-servers/proposals/issues/4).
+   */
   clientAddress?: string
 }
 

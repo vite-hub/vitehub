@@ -118,4 +118,36 @@ describe("Database types in a Nuxt app", () => {
     })
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 60_000)
+
+  it("typechecks the generated Cloudflare middleware without @cloudflare/workers-types", async () => {
+    const root = await createApp()
+    const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+    await hubDatabase({ driver: "cloudflare" })(undefined, {
+      hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+        if (name === "nitro:config") hooks.push(callback)
+      },
+      options: { buildDir: join(root, ".nuxt"), dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} },
+    })
+    for (const hook of hooks) await hook({ alias: {}, preset: "cloudflare-module" })
+
+    // The app's tsconfig reaches the generated middleware, and `vite-hub/nuxt` adds this declaration on Cloudflare.
+    const middleware = join(root, ".vitehub/nitro/database/middleware.ts")
+    const source = await readFile(middleware, "utf8")
+    expect(source).toContain("from 'cloudflare:workers'")
+    // An app that does not list `@vite-hub/database` resolves the runtime too: the import is a path.
+    expect(source).not.toMatch(/from ["']@vite-hub\//)
+    const program = createProgram({
+      options: {
+        module: ModuleKind.ESNext,
+        moduleResolution: ModuleResolutionKind.Bundler,
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: ScriptTarget.ES2022,
+        types: [],
+      },
+      rootNames: [middleware, join(import.meta.dirname, "../../vite-hub/templates/cloudflare-workers.d.ts")],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  }, 60_000)
 })

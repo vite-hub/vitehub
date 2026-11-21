@@ -6,6 +6,19 @@ import { registerAgentInvocationInputHandler } from "../src/internal/agent-invoc
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import type { AgentChatWrapUpOptions } from "../src/index.ts"
 
+const steerAttempts = vi.hoisted(() => ({ count: 0 }))
+
+vi.mock("../src/internal/agent-invocation-control.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/internal/agent-invocation-control.ts")>()
+  return {
+    ...original,
+    sendAgentInvocationInput: (...args: Parameters<typeof original.sendAgentInvocationInput>) => {
+      steerAttempts.count += 1
+      return original.sendAgentInvocationInput(...args)
+    },
+  }
+})
+
 const originalFetch = globalThis.fetch
 const maxi = { first_name: "Maxi", id: 123, is_bot: false }
 const bot = { first_name: "ViteHub", id: 7, is_bot: true }
@@ -33,7 +46,7 @@ function mockTelegramApi() {
 function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chatId: number, messageId: number, text: string) {
   const chat = { id: chatId, title: "Support", type: "group" }
   const tasks: Array<Promise<unknown>> = []
-  const response = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+  const response = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
     body: JSON.stringify({ message: { chat, date: telegramDate, from: maxi, message_id: messageId, text: `@vitehub_test_bot ${text}` }, update_id: messageId }),
     method: "POST",
   }), "telegram", {
@@ -47,7 +60,7 @@ function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, c
 }
 
 /** An Agent whose run only finishes when it is steered, like a Provider Driver turn. */
-function slowAgent(timeout: number, wrapUp?: false | AgentChatWrapUpOptions) {
+function slowAgent(timeout: number, wrapUp?: false | AgentChatWrapUpOptions, registerAfterMs = 0) {
   const sendInput = vi.fn<(input: { prompt?: unknown }, options: { mode: string }) => "accepted">()
   const run = vi.fn(async ({ run }: { run?: { runId?: string } }) => {
     const runId = run?.runId
@@ -57,6 +70,7 @@ function slowAgent(timeout: number, wrapUp?: false | AgentChatWrapUpOptions) {
       steered = resolve
     })
     const timeoutHandle = setTimeout(() => steered("Timed out"), timeout)
+    if (registerAfterMs) await new Promise(resolve => setTimeout(resolve, registerAfterMs))
     const unregister = registerAgentInvocationInputHandler(runId, {
       sendInput: (input) => {
         sendInput(input as { prompt?: unknown }, { mode: "steer" })
@@ -109,6 +123,20 @@ describe("messages.wrapUp", () => {
     await mention(agent.handler, -502, 8_502, "Why is the connector down?")
 
     expect(agent.sendInput.mock.calls[0]?.[0]).toEqual({ prompt: "Wrap up." })
+  })
+
+  it("backs off while the Driver has not registered its input handler yet", async () => {
+    mockTelegramApi()
+    // Wrap-up fires at 100 ms. The handler arrives at 600 ms, after five attempts.
+    const agent = slowAgent(1_500, { beforeMs: 1_400 }, 600)
+    steerAttempts.count = 0
+
+    await mention(agent.handler, -505, 8_505, "Why is the connector down?")
+
+    expect(agent.sendInput).toHaveBeenCalledTimes(1)
+    await expect(agent.run.mock.results[0]?.value).resolves.toBe("Found the error-tracking issue; the cause is unverified.")
+    // A fixed 50 ms retry would make about eleven attempts in the same time.
+    expect(steerAttempts.count).toBeLessThanOrEqual(6)
   })
 
   it("does not steer short timeouts by default, or when turned off", async () => {

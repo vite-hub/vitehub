@@ -13,19 +13,19 @@ A Connection lets your server call another service, such as Gmail, as a user who
 In this tutorial, you connect a Google account and list its Gmail labels from an API route. The example only reads labels. It does not send or change mail.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). You also need a Google OAuth client with access to the Gmail API, and a test account that its consent screen allows. Connections turns on [Database](/docs/database/get-started) to store the access, but you do not need to define a database. Run every command from the app root.
+> Use the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You also need a Google OAuth client with access to the Gmail API, and a test account that its consent screen allows. Connections turns on [Database](/docs/database/get-started) to store the access, but you do not need to define a database.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Connections and the Database packages that store its data:
+Install Connections and the Database packages that store its data:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
-Then update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app:
+Update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, keeping your other options:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -35,8 +35,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -59,8 +57,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -82,8 +78,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -98,7 +92,7 @@ export default defineConfig({
 ::::
 :::
 
-- `connections: true` turns on Connections.
+- You do not add a `connections` option. The Connection file that you create later, in `server/connections/`, turns on Connections.
 - `env.server.google` reads your Google client ID and secret from environment variables. `secret: true` hides the value until your code calls `unseal()`.
 
 Connections encrypts what it stores with a key. Make a random key:
@@ -125,7 +119,7 @@ In Google Cloud, add `http://localhost:3000/_vitehub/connections/callback` and `
 ::tutorial-step{title="Define a Connection"}
 ## Define a Connection
 
-Create `server/connections/google.ts`. The file name is the name of the Connection: `google`. This Connection can only read Gmail.
+Create `server/connections/google.ts`. The file name is the name of the Connection: `google`. This Connection can only read Gmail:
 
 ```ts [server/connections/google.ts]
 import { useServerEnv } from 'vite-hub/env'
@@ -154,27 +148,27 @@ export default defineConnection({
 ::tutorial-step{title="Connect the account"}
 ## Connect the account
 
-Start the dev server in the terminal where you set the keys:
+Start the dev server in the terminal where you set the variables:
 
 ```bash [commands/start]
 pnpm dev
 ```
 
-To connect the account, use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time, and waits on `http://127.0.0.1:4799/callback`. Open that URL in your browser, sign in with the test account, and accept the consent screen. When the command ends, run the second command:
+To connect the account, use the CLI. Open a second terminal and run the first command below. It prints a connect URL that works one time and waits on `http://127.0.0.1:4799/callback`. Open that URL in your browser, sign in with your test account, and accept the consent screen. When the command ends, run the second command:
 
 ```bash [commands/connect]
 pnpm vitehub connections connect google --port 4799
 pnpm vitehub connections inspect google --json
 ```
 
-Before you connect, `inspect` shows `"status": "disconnected"` and the Gmail scope in `scopes.missing`. After you connect, it shows `"status": "connected"` and the account.
+Before connecting, `inspect` shows `"status": "disconnected"` and lists the Gmail scope in `scopes.missing`. After connecting, it shows `"status": "connected"` and the account.
 
 ::
 
 ::tutorial-step{title="Call the provider"}
 ## Call the provider
 
-Create `server/api/labels.get.ts`. This route calls Gmail as the connected account.
+Create `server/api/labels.get.ts`. This route calls Gmail as the connected account:
 
 ```ts [server/api/labels.get.ts]
 import { defineEventHandler } from 'h3'
@@ -190,7 +184,7 @@ export default defineEventHandler(async () => {
 
 - `useConnection('google')` gives you the `google` Connection. The call runs as the `server` actor, so the `access.server` rule applies.
 - `userId: 'me'` tells Gmail to use the connected account.
-- The call returns an `[error, data]` pair. Throw the error, or return the data.
+- The call returns an `[error, data]` tuple. Throw the error, or return the data.
 
 Call the route:
 
@@ -218,6 +212,6 @@ Make calls, read the activity log, and use the CLI.
 :::
 
 :::card{title="Limits and errors" icon="i-lucide-triangle-alert" to="/docs/connections/limits-and-errors"}
-See how Connections stores data, and what each error means.
+See how Connections stores data and what each error code means.
 :::
 ::

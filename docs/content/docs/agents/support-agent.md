@@ -2,7 +2,7 @@
 title: Build a support Agent
 description: Build a support Agent that answers in Teams from files it is allowed to read.
 navigation.order: 80
-navigation.group: Recipes
+navigation.group: Start
 icon: i-lucide-life-buoy
 navigation.kind: Guides
 ---
@@ -19,7 +19,7 @@ before `workspaceShell()`, so the shell gets the scoped Workspace.
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 import { glob } from 'vite-hub/workspace'
 
@@ -102,7 +102,7 @@ authorization from message text.
 
 Instructions say how to behave and what evidence to use. File access goes in
 the Workspace, and tool schemas go in Capabilities. With the `::source` and
-`::capability` directives, `vitehub agent info` reports if the policy names
+`::capability` directives, `vitehub agent get` reports if the policy names
 every Source and Capability.
 
 ## Pass trusted identity
@@ -122,10 +122,10 @@ Turn on the Node Agent host, then run from the project root:
 
 ```sh
 pnpm vite build
-# In another terminal, keep the dev server running for `agent info`.
+# In another terminal, keep the dev server running for `agent get`.
 pnpm vite dev
 pnpm vitehub inspect definitions --kind agent
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get support --json
 ```
 
 Check that the definition lists the `teams` Channel, the `docs` Source, the

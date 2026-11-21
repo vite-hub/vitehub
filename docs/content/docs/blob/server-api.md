@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/files/[...path].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
   if (error) throw error
 
   if (!object) {
-    throw createError({ statusCode: 404 })
+    throw new HTTPError({ status: 404 })
   }
 
   return object
@@ -78,7 +78,7 @@ ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a s
 Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })
@@ -87,7 +87,7 @@ export default defineEventHandler(async (event) => {
   const [error, file] = await reports.get(getRouterParam(event, 'path')!)
   if (error) throw error
   // reports.put() is a type error.
-  return file ?? createError({ statusCode: 404 })
+  return file ?? new HTTPError({ status: 404 })
 })
 ```
 
@@ -110,31 +110,69 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
 | `blob.head(pathname)` | Reads metadata or returns `null`. |
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
+| `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
+| `blob.delete({ prefix })` | Deletes every file under a prefix and returns `{ deleted }`. Read [Delete a folder](#delete-a-folder). |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
-| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
+| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, `404`, or `405` for another method. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` as an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. `serve()` returns a `400` response for it instead. `get()` and `head()` read a pathname under `.vitehub/` as a missing file. A write under `.vitehub/`, `_vitehub/derived/`, or `_vitehub/media/` throws `BLOB_R0033` with status `403`. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+
+### Copy a file
+
+`blob.copy(from, to)` copies a file in the same store and returns the new `BlobObject`. The copy keeps the content type and the custom metadata of the source. `to` follows the pathname rules of `put()`.
+
+```ts [server/api/reports/[id]/archive.post.ts] fragment
+const [error, archived] = await blob.copy(`reports/${id}.pdf`, `archive/${id}.pdf`)
+if (error?.code === 'BLOB_NOT_FOUND') throw new HTTPError({ status: 404 })
+if (error) throw error
+```
+
+A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_not_found). A file at `to` returns [`BLOB_CONFLICT`](/docs/blob/limits-and-errors#blob_conflict), as in `media.move()`. Pass `{ overwrite: true }` to replace it. ViteHub checks `to` before it copies, so two calls at the same time can both write. To move a file, call `blob.delete(from)` after the copy. Use [`media.move()`](/docs/blob/media) for a file that has a media record.
+
+| Driver | How it copies |
+| --- | --- |
+| `fs` | Copies the file and writes the metadata of the source for it. |
+| `cloudflare` | Reads the object from the binding and streams it into the new key. Without a binding, R2 copies on the server through the S3 API. |
+| `s3`, `minio`, `gcs`, `azure` | The provider copies the object on the server. |
+| `vercel` | Vercel copies the object on the server. ViteHub reads the source first to keep its content type. |
+| `netlify-blobs` | Reads the object and writes it again. |
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
+
+A Netlify Blobs listing makes one request for each page. Its files have the pathname, `httpEtag`, `size`, and `uploadedAt` that the list answer holds, but no `contentType` and empty `customMetadata`. Call `blob.head(pathname)` for the content type and custom metadata of one file.
 
 With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
 
+The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. Its cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
+
+### Delete a folder
+
+`blob.delete({ prefix })` deletes every file whose pathname starts with `prefix` and returns `{ deleted }`, the number of files it removed. It reads every `list()` page first, then deletes in batches of 100, so it works the same on every driver.
+
+```ts [server/api/runs/[id].delete.ts] fragment
+const [error, result] = await blob.delete({ prefix: `runs/${id}/` })
+if (error) throw error
+return { deleted: result.deleted }
+```
+
+The prefix matches as in `list()`: `runs/1` also matches `runs/10/`. End it with `/` to delete one folder. An empty prefix throws `BLOB_R0034` with status `400`, so a missing value never empties a store. Files under `.vitehub/` always stay. Files under `_vitehub/derived/` and `_vitehub/media/` stay unless the prefix starts with one of these folders. Each deleted file also loses its cached variants, as with `blob.delete(pathname)`. The delete is not atomic: a failure returns `BLOB_OPERATION_FAILED` and leaves the files that it did not reach, so call it again. A file written under the prefix during the call can stay.
+
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses (`400`, `404`, `405`) get only its CORS headers, the ones that start with `Access-Control-`, so a player on another origin can read a `404`. Other headers, such as an immutable `Cache-Control`, would describe a file that does not exist, so they stay off.
 
 In a Nitro 3 or H3 2 handler:
 
 ```ts [server/routes/files/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -144,16 +182,16 @@ export default defineEventHandler((event) => {
 })
 ```
 
-`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. It answers `405` with `Allow: GET, HEAD` for every other method, such as a `POST` to the file URL, and does not read the object. A storage failure throws its `ViteHubError`.
 
-HEAD responses keep the same status and headers as GET, with no body.
+HEAD responses keep the same status and headers as GET, with no body. The one difference is `Range`: a HEAD request always gets `200` with the size of the whole file.
 
 Every response that serves an object sends `X-Content-Type-Options: nosniff`. A browser opens some types as a page that can run script: `text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, `text/xsl`, `text/rdf`, every other `+xml` type, and every `multipart/*` type. For these types, and for a content type that names one of them in a list, `serve()` also sends `Content-Security-Policy: sandbox`. The browser then shows the file but runs no script and gives it no access to the app origin. An `<img>` tag still shows an SVG. When the `headers` option has a `Content-Security-Policy`, `serve()` adds `sandbox` to it as a second policy. A `304` for a `transform` always sends the sandbox, because the type of the result is not known before the transform runs.
 
 Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
 
 ```ts [server/routes/exports/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -170,7 +208,8 @@ In an H3 app, headers that middleware set on `event.res.headers` before the rout
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
 
-- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET or HEAD gets `206` with `Content-Range` and only those bytes.
+- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET gets `206` with `Content-Range` and only those bytes.
+- HEAD ignores `Range`, as [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-14.2) requires, and gets `200` with the size of the whole file.
 - A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body.
 - Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file.
 - Transformed responses ignore `Range`.
@@ -211,6 +250,31 @@ export default {
 
 Across runtimes, the cache is best effort. Source updates at the same time can remove a newer entry and cause another transform. The fingerprint check never returns an entry for the wrong source version. Drivers need no distributed locks or conditional writes.
 
+## Keep served objects in the edge cache
+
+On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
+
+```ts [server/routes/builds/[...pathname].get.ts]
+import { blob } from 'vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  // Each build uploads its files under new pathnames and never writes them again.
+  return blob.serve(event.req, `builds/${pathname}`, { edgeCache: { maxAge: 31_536_000 } })
+})
+```
+
+- Cached responses follow the same `Range` and `If-None-Match` rules as storage reads, so a video seek and a `304` skip R2 too. A request with `If-Range` reads R2.
+- Each response gets the headers of its own call: `cacheControl`, `headers`, and `download` can differ between requests for the same object. The cached copy keeps only the type, size, and `ETag` of the object.
+- Only whole `200` responses of up to 25 MB go into the cache. `HEAD` requests, `variant`, and `transform` read storage each time.
+- Each Cloudflare location, and each hostname of the app, keeps its own copy.
+- On other hosts, `edgeCache` does nothing, and `serve()` reads storage as before.
+
+> [!WARNING]
+> Nothing removes a cached copy before `maxAge` ends. A later `put()` or `delete()` on the pathname does not reach it, so give a long `maxAge` only to pathnames that are never written again, such as content-hashed names. The copy is reachable only through `serve()`, so check authorization in the route before you call it, as without `edgeCache`.
+
 ## Write options
 
 | Option | Type | Description |
@@ -218,18 +282,60 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 | `contentType` | `string` | Stored MIME type. |
 | `contentLength` | `string` | Expected content length, when the provider supports it. |
 | `customMetadata` | `Record<string, string>` | Provider custom metadata. |
-| `access` | `BlobPutOptions['access']` | `private` or `public`, when the driver supports it. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix, when the driver supports it. |
 | `prefix` | `string` | Path prefix, when the driver supports it. |
+| `ifMatch` | `string` | Writes only when the stored file still has this `httpEtag`. |
+| `overwrite` | `boolean` | `false` writes only when no file exists at the pathname. Defaults to `true`. |
+
+### Write only if unchanged
+
+Two requests that read a file, change it, and write it back can lose a change. Pass the `httpEtag` that you read as `ifMatch`, and the write happens only when nobody wrote the file in between:
+
+```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  const [headError, object] = await blob.head('settings.json')
+  if (headError) throw headError
+  const [readError, file] = await blob.get('settings.json')
+  if (readError) throw readError
+
+  const settings = { ...JSON.parse(await file?.text() ?? '{}'), ...await readBody<Record<string, unknown>>(event) }
+  const [error] = await blob.put('settings.json', JSON.stringify(settings), object
+    ? { contentType: 'application/json', ifMatch: object.httpEtag }
+    : { contentType: 'application/json', overwrite: false })
+  if (error?.code === 'BLOB_CONFLICT') return { retry: true }
+  if (error) throw error
+  return settings
+})
+```
+
+When the condition does not hold, `put()` writes nothing and returns `BLOB_CONFLICT`. Read the file again and retry. The provider checks the condition and writes in one step on the `cloudflare` store with its R2 binding, `vercel`, `netlify-blobs`, and `s3` on AWS. The `fs` driver checks it in the process, so two processes that write the same folder can still overwrite each other. The other drivers, and `cloudflare` without its binding, throw `BLOB_PUT_CONDITION_UNSUPPORTED`.
 
 ## Upload files
 
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without folders, is the pathname. ViteHub does
 not URL-decode it, so a file named `..%2Fevil.txt` stays inside `prefix`.
+It replaces the `%` of each `%XX` sequence with `_`, so `Q3 100%25.pdf` is
+stored as `Q3 100_25-<uuid>.pdf`. Renamed files get a fresh UUID suffix before the extension to avoid overwriting a different file.
 It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
+
+Set `maxFiles` to limit the number of files. A request with more files gets a
+400 error when the next file starts, before ViteHub reads that file.
+`multiple: false` is the same as `maxFiles: 1`.
+
+With `maxFiles` and `ensure.maxSize`, a request whose `Content-Length` is more
+than `maxFiles` times `maxSize` plus 64 KB for each file's form framing gets a
+413 error before the body is read. Without `maxFiles`, the total has no limit,
+so the body is read before `ensure` runs. Limit the request body on your host too.
+
+`event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
+`Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
+the event.
 
 ```ts [server/api/files.post.ts]
 import { defineEventHandler } from 'h3'
@@ -251,8 +357,12 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | `formKey` | `"files"` | Form field that holds the files. |
 | `multiple` | `true` | Set `false` to accept one file. |
+| `maxFiles` | none | The most files that `formKey` accepts. |
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
+| `onBeforeUpload` | none | Runs for each file before anything is stored, with `{ pathname, contentType, size, request }`. Throw to reject the file. Return `{ pathname }` to store it under another pathname. `put.prefix` and `put.addRandomSuffix` still apply. |
+| `onCompleted` | none | Runs with `(object, request)` after each file is stored. |
+| `direct` | `false` | Also accept [direct uploads](#direct-uploads). |
 
 In Vue, `useUpload()` from `vite-hub/blob/vue` sends the form. Nuxt
 auto-imports it when `blob` is on.
@@ -276,11 +386,121 @@ async function onChange(event: Event) {
 with `files`. It resolves with plain objects, where `uploadedAt` is an ISO
 string. Pass `headers` or `fetch` to add auth.
 
+## Direct uploads
+
+A form sends the file through your server, so the request body limit of the
+host applies. A Vercel Function accepts at most 4.5 MB. With a direct upload,
+the browser sends the file straight to storage. Your route only signs the
+upload and checks the result.
+
+Add `direct: true` to the upload route. The route still accepts a form.
+
+```ts [server/api/files.post.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The route decides who may upload.
+  const [error, result] = await blob.handleUpload(event, {
+    direct: true,
+    ensure: { maxSize: '1GB', types: ['video'] },
+    onBeforeUpload: ({ pathname }) => ({ pathname: `videos/${pathname}` }),
+    onCompleted: async (object, request) => {
+      // Save the upload in your database.
+    },
+  })
+  if (error) throw error
+  return result
+})
+```
+
+In Vue, pass `direct: true` to `useUpload()`. The rest of the API does not
+change.
+
+```vue [app/components/VideoUpload.vue]
+<script setup lang="ts">
+const progress = ref(0)
+const upload = useUpload('/api/files', {
+  direct: true,
+  multiple: false,
+  onProgress: (percent) => { progress.value = percent },
+})
+
+async function onChange(event: Event) {
+  const object = await upload(event.target as HTMLInputElement)
+  console.log(object?.pathname)
+}
+</script>
+
+<template>
+  <input type="file" accept="video/*" @change="onChange">
+  <progress :value="progress" max="100" />
+</template>
+```
+
+For each file, the client sends three requests:
+
+| Step | Request | Server |
+| --- | --- | --- |
+| `sign` | JSON `{ action: 'sign', name, contentType, size }` to the route | Checks `ensure` with the declared type and size, runs `onBeforeUpload`, and returns `{ action: 'sign', pathname, request, ticket }`. |
+| `PUT` | `request.method`, `request.url`, and `request.headers`, with the file | The storage provider stores the file. The app headers, such as `authorization`, are not sent. |
+| `complete` | JSON `{ action: 'complete', ticket }` to the route | Reads the object with `head()`, checks `ensure` again, runs `onCompleted`, and returns `[object]`. |
+
+The server chooses the pathname. The client sends only the file name. The
+`ticket` binds the selected store, pathname, and route URL path, so a client cannot
+complete a file in another store or on another route.
+`complete` checks what the store holds, not what the client declared. When
+the stored size or type fails `ensure`, it deletes the object and throws a
+400 error.
+
+> [!WARNING]
+> The client reports the completion. When the client stops after the `PUT`,
+> for example because the user closed the tab, the file stays in the store and
+> `onCompleted` does not run. Clean up files without a database row later, for
+> example with a scheduled task. A client can also send `complete` again with
+> the same ticket, so make `onCompleted` idempotent.
+
+The signed `PUT` must start within 10 minutes. The ticket for `complete` is
+valid for 24 hours. Direct uploads need `VITEHUB_SECRET`, which signs the
+ticket. A direct upload cannot set `put.access`, `put.contentLength`, or
+`put.customMetadata`, so they throw `BLOB_R0046`. `put.contentType`,
+`put.prefix`, and `put.addRandomSuffix` apply.
+
+| Driver | Direct upload | Notes |
+| --- | --- | --- |
+| `fs` | Signed link to the app | The link binds `ensure.maxSize`, so the route answers `413` for a larger body. The file still goes through the app. |
+| `cloudflare` | R2 presigned URL | Needs the S3 HTTP credentials. R2 cannot bind `maxSize`, so `complete` checks the size. |
+| `s3`, `minio`, `gcs`, `azure` | Provider presigned URL | Through files-sdk. The provider cannot bind `maxSize`, so `complete` checks the size. |
+| `vercel` | Vercel client token | Vercel checks the pathname, the type, and `ensure.maxSize`. Needs `BLOB_READ_WRITE_TOKEN`. A store that only uses Vercel OIDC cannot sign. |
+| `netlify-blobs` | No | Netlify Blobs has no presigned upload. The route answers `{ action: 'form' }`, and the client sends the files as a form, through the app. |
+
+A browser sends a `PUT` to another origin only when the bucket allows it. Add
+a CORS rule to an R2, S3, GCS, or Azure bucket that allows `PUT` from your app
+origin with the `Content-Type` header. For example, for R2 or S3:
+
+```json [cors.json]
+[
+  {
+    "AllowedOrigins": ["https://app.example"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+ViteHub does not set CORS when it provisions a bucket. The Vercel Blob API and
+the signed links of `fs` stores need no CORS rule.
+
+The client for any framework is `uploadFiles(apiBase, files, { direct: true })`
+from `@vite-hub/blob/client`. Pass `onProgress` to get the progress of the
+`PUT` requests from 0 to 100.
+
 ## Multipart uploads
 
 Use multipart uploads for files too large for one request. The client splits
 the file into parts. The server stores each part until `complete()` joins them.
-The `fs`, `cloudflare-r2` (with the R2 binding), and `vercel-blob` drivers
+The `fs`, `cloudflare` (with the R2 binding), and `vercel` drivers
 support it. Other drivers throw `BLOB_R0030`.
 
 Create one route with `action` and `pathname` params:
@@ -301,13 +521,38 @@ The route answers four requests:
 
 | Action | Method | Request | Result |
 | --- | --- | --- | --- |
-| `create` | `POST` | JSON `{ contentType? }` | `{ action, pathname, uploadId }` |
+| `create` | `POST` | JSON `{ contentType?, size? }` | `{ action, pathname, uploadId }` |
 | `upload` | `PUT` | `?uploadId=…&partNumber=…`, part bytes | `{ action, part }` |
 | `complete` | `POST` | `?uploadId=…`, JSON `{ parts }` | `{ action, object }` |
 | `abort` | `DELETE` | `?uploadId=…` | `{ action }` |
 
 Pass `{ create: { contentType, prefix, addRandomSuffix } }` to set create
 options on the server. This `contentType` replaces the one the client sends.
+
+Pass `ensure` to limit the upload, with the same options as
+[`ensureBlob()`](#ensureblobblob-options). The client chooses the pathname and
+the content type, so set it when users who are not fully trusted can upload:
+
+```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The client chooses the pathname.
+  const [error, result] = await blob.handleMultipartUpload(event, {
+    ensure: { maxSize: '1GB', types: ['video'] },
+  })
+  if (error) throw error
+  return result
+})
+```
+
+- `create` checks `types` against the content type. It also checks `maxSize`
+  against the `size` that the client declares.
+- `upload` rejects a part that is larger than `maxSize`. A `Content-Length`
+  above `maxSize` gets a 413 error before the part is read.
+- `complete` deletes the joined object and throws a 400 error when it is larger
+  than `maxSize` or its stored content type fails `types`.
 
 In Vue, `useMultipartUpload()` sends the parts and tracks progress:
 
@@ -350,9 +595,9 @@ if (completeError) throw completeError
 
 | Driver | Upload state | Notes |
 | --- | --- | --- |
-| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
-| `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
-| `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
+| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag while it copies the parts into the final file one after another, so it does not hold the whole file in memory. `abort()` deletes the parts. |
+| `cloudflare` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
+| `vercel` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
 
 The client for any framework is `@vite-hub/blob/client`, with `uploadFiles()`
 and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress`
@@ -370,35 +615,46 @@ import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
-  expiresIn: 6 * 60 * 60,
+  expiresIn: '6h',
+  download: 'Interview with Ana.mp3',
 })
 if (sourceError) throw sourceError
 
 const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'PUT',
-  expiresIn: 15 * 60,
+  expiresIn: '15m',
   contentType: 'audio/mpeg',
+  contentLength: 18_874_368,
   createOnly: true,
 })
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` driver binds it, and the other drivers fail the request.
+`expiresIn` is a duration such as `'15m'`, or a whole number of seconds. `download` makes the browser save the file with `Content-Disposition: attachment`, as it does for `blob.serve()`: `true` names the file after the last segment of the pathname, and a string sets the name.
 
-The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. `contentLength` is the exact size of the file in bytes: the provider rejects a body of another size. The client sends a body of that size, so `upload.headers` does not list `Content-Length`. `maxSize`, such as `'8MB'`, limits the size of the body. A driver that cannot bind an option fails the request, so it never allows an overwrite or a larger file silently:
+
+| Driver | `createOnly` | `contentLength` | `maxSize` | `download` |
+| --- | --- | --- | --- | --- |
+| `fs` | No | Yes | Yes | Yes |
+| `cloudflare` | Yes | Yes | No | Yes |
+| `vercel` | Yes | No | Yes | No `GET` |
+| files-sdk drivers | No | No | No | When the provider can |
+
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 
 ### Signed links of `fs` stores
 
-A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob-signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob-signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
 
-The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
+The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, the `download` name of a `GET`, and the `contentType`, `maxSize`, and `contentLength` of a `PUT`. The route rejects a request that does not match its link:
 
 | Request | Status | Code |
 | --- | --- | --- |
 | The link expired. | `403` | `BLOB_R0042` |
-| The URL, the method, or the `Content-Type` changed, or another secret signed the link. | `403` | `BLOB_R0041` |
+| The URL, the method, or the `Content-Type` changed, the body is not `contentLength` bytes, or another secret signed the link. | `403` | `BLOB_R0041` |
 | The method is not `GET` or `PUT`. | `405` | `BLOB_R0041` |
 | The body is larger than `maxSize`. | `413` | `BLOB_R0043` |
 
@@ -429,7 +685,7 @@ const avatar = image({ maxSize: '2MB' })
 export default defineEventHandler(async (event) => {
   const result = avatar['~standard'].validate(await readBody(event))
   if (result.issues) {
-    throw createError({ statusCode: 400, message: result.issues[0]!.message })
+    throw new HTTPError({ status: 400, message: result.issues[0]!.message })
   }
   await saveAvatar(event, result.value) // { pathname, contentType, size }
 })

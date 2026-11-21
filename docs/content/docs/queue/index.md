@@ -2,7 +2,7 @@
 title: Queue
 layout: landing
 navigation.title: Overview
-description: Send slow work to a queue so your route can reply at once, and run that work later on Cloudflare or Vercel.
+description: Send slow work to a queue so your route replies at once, and run jobs in the background on Node, Cloudflare, or Vercel.
 navigation.order: 1
 icon: i-lucide-list-ordered
 ---
@@ -31,12 +31,12 @@ import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name.
 // This runs later, after the route replies.
-export default defineQueue<{ email: string }>(
-  async ({ payload, attempts }) => {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, attempts }) => {
     // Send the email here
     console.log(payload.email, attempts)
   },
-)
+})
 ```
 
 ```ts [server/api/reminder.post.ts]
@@ -47,7 +47,7 @@ import { sendQueue } from 'vite-hub/queue'
 // Run the same job in 10 minutes
 export default defineEventHandler(async (event) => {
   const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-  const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
+  const [error, result] = await sendQueue('welcome-email', { email }, { delay: '10m' })
   if (error) throw error
   return result
 })
@@ -103,27 +103,27 @@ export default defineConfig({
 
 ::product-features
   :::product-feature-item{title="One file per queue" icon="i-lucide-file-code-2" to="/docs/queue/configure#define-a-queue"}
-  Add a file to `server/queues`. The file name is the queue name, and its function runs each job.
+  Create a file in `server/queues`. The file name is the queue name, and its handler runs each job.
   :::
 
   :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
-  `sendQueue()` returns when the queue accepts the job. The job runs after your route replies.
+  `sendQueue()` returns once the queue accepts the job. The job runs after your route replies.
   :::
 
   :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}
-  Set `delaySeconds` to start a job later.
+  Pass `delay`, like `'10m'`, to start a job later.
   :::
 
   :::product-feature-item{title="Typed names and data" icon="i-lucide-shield-check" to="/docs/queue/server-api#definition-owned-dispatch-types"}
-  A wrong queue name or wrong job data is a type error in your editor.
+  A wrong queue name or bad job data is a type error in your editor.
   :::
 
   :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
-  A failed job can run again, so make a second run safe.
+  Queues can retry failed jobs, so write handlers that are safe to run twice.
   :::
 
-  :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  On Node, jobs run in the server process, on one instance only. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
+  :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#drivers"}
+  On Node, jobs run in the server process. With a Postgres Default Database, every instance shares the jobs. Without one, the default `local` driver keeps jobs on one instance. Set `driver: 'postgres'` with `QUEUE_POSTGRES_URL` to share them. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 

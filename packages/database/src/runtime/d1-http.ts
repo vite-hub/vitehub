@@ -1,13 +1,15 @@
 import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
 
 import { assertD1Statement } from "./d1-limits.ts"
-import { trackDatabaseCall } from "./request-stats.ts"
+import { keepOwnClient, trackDatabaseCall } from "./request-stats.ts"
 import { createSqlProxyExecutors, sqliteProxyCodecs, toSqlRow } from "./sqlite-proxy.ts"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { createD1QueryAt, defaultD1MigrationsTable } from "../internal/d1-ledger.ts"
 
 import type { AnyRelations } from "drizzle-orm"
+import type { D1Query } from "../internal/d1-ledger.ts"
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 import type { SqlQuery, SqlResult } from "./sqlite-proxy.ts"
 
@@ -81,10 +83,8 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
     if (!accountId || !token) {
       throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables" })
     }
-    return {
-      token,
-      url: `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database/${encodeURIComponent(databaseId)}/raw`,
-    }
+    const database = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database/${encodeURIComponent(databaseId)}`
+    return { queryUrl: `${database}/query`, token, url: `${database}/raw` }
   }
 
   const token = resolveConfigValue(http.authToken)?.trim()
@@ -92,15 +92,37 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   if (!token || !url) {
     throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "`cloudflare.http.url` and `cloudflare.http.authToken`" })
   }
-  return { token, url: validateD1HttpUrl(url, config.name) }
+  const valid = validateD1HttpUrl(url, config.name)
+  return { queryUrl: valid, token, url: valid }
 }
 
-function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+/**
+ * `db.$client` of a D1 HTTP database. `query` sends SQL that can hold several statements, as one D1 batch, and returns
+ * the rows of the last statement. Migrations on start use it.
+ */
+export interface D1HttpClient {
+  migrationsTable: string
+  protocol: "d1-http"
+  query: D1Query
+  target: string
+}
+
+function migrationTarget(endpoint: string): string {
+  const url = new URL(endpoint)
+  url.hash = ""
+  if (url.origin === "https://api.cloudflare.com") url.pathname = url.pathname.replace(/\/(?:raw|query)$/, "")
+  return url.href
+}
+
+/** A Drizzle database that sends each query to a D1 `/raw` endpoint or a proxy with the same protocol. */
+export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: { token: string, url: string },
   relations: TRelations,
   request: typeof fetch,
 ) {
   async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
+    // An empty batch sends no request, as libSQL runs nothing.
+    if (!queries.length) return []
     for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     // One HTTP request per call, so a batch is one call.
@@ -173,10 +195,16 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
     if (!databaseId) {
       throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "`cloudflare.databaseId`" })
     }
-    const connection = resolveCloudflareD1HttpConnection(config, databaseId)!
-    if (cached?.url === connection.url && cached.token === connection.token) return cached.database
-    const database = createCloudflareD1HttpDb<TSchema, TRelations>(connection, relations, request)
-    cached = { database, ...connection }
+    const { queryUrl, token, url } = resolveCloudflareD1HttpConnection(config, databaseId)!
+    if (cached?.url === url && cached.token === token) return cached.database
+    const client: D1HttpClient = {
+      migrationsTable: config.cloudflare?.migrationsTable ?? defaultD1MigrationsTable,
+      protocol: "d1-http",
+      query: createD1QueryAt(queryUrl, token, problem => databaseErrorDiagnostics.DATABASE_D1_MIGRATION_FAILED({ database: config.name, problem }), request),
+      target: migrationTarget(queryUrl),
+    }
+    const database = keepOwnClient(createCloudflareD1HttpDb<TSchema, TRelations>({ token, url }, relations, request), client)
+    cached = { database, token, url }
     return database
   }
 }

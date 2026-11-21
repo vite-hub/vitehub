@@ -25,6 +25,15 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorPeers = {
+  "@tiptap/core": "both",
+  "@tiptap/extension-image": "both",
+  "@tiptap/extension-list": "both",
+  "@tiptap/extension-table": "both",
+  "@tiptap/pm": "both",
+  "@tiptap/starter-kit": "both",
+} satisfies Readonly<Record<string, OptionalPeerUsage>>
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -35,6 +44,11 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
   ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["@vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
+  // Agent UI checks json-render specs and reads the form schemas of @vite-hub/forms. Its entries are Zod schemas.
+  ["@vite-hub/agent/ui", { "@json-render/core": "both", "@json-render/vue": "runtime", "@vite-hub/forms": "both", "zod": "runtime" }],
+  // The Vue renderer reads the json-render state store, which needs Zod, and draws Button and Tabs with @ui-sdk/vue.
+  ["@vite-hub/agent/ui/vue", { "@json-render/vue": "both", "@ui-sdk/vue": "runtime", "@vite-hub/forms": "both", "zod": "runtime" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
@@ -45,15 +59,17 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // The assistant preset is an Agent Definition on the ChatGPT gateway.
   ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
-  // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
-  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
+  ["@vite-hub/content/editor", { ...contentEditorPeers, "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { ...contentEditorPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
-  ["@vite-hub/forms/vue", { "@formisch/vue": "both" }],
+  // Only the Formisch entry needs Formisch. `@vite-hub/forms/vue` draws and sends forms without it.
+  ["@vite-hub/forms/formisch", { "@formisch/vue": "both", "vue": "both" }],
   ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
+  // The Nuxt module loads @nuxt/kit. Its declarations do not import it.
+  ["@vite-hub/kit/nuxt", { "@nuxt/kit": "runtime", "@nuxt/schema": "declaration" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
@@ -61,6 +77,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/ui/markdown-editor", {
     "@nuxt/ui": "both",
     "@tiptap/core": "both",
+    "@tiptap/extension-drag-handle": "declaration",
+    "@tiptap/extension-drag-handle-vue-3": "declaration",
     "@tiptap/extension-image": "both",
     "@tiptap/extension-list": "both",
     "@tiptap/extension-table": "both",
@@ -70,21 +88,23 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
-  ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
-  ["@vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  ["vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console keeps the Agent journal in libSQL.
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
+  // `node --import vite-hub/test/register` starts the Vite server of the app on import, so it needs Vite to load.
+  ["vite-hub/test/register", { "vite": "runtime" }],
   ["vite-hub/env/database", { "drizzle-orm": "both" }],
+  ["vite-hub/forms/formisch", { "@formisch/vue": "both", "vue": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
-  ["vite-hub/logs", { "evlog": "both" }],
+  ["vite-hub/logs", { "evlog": "declaration" }],
   ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
@@ -100,8 +120,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
     "vue": "both",
   }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
-  ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
-  ["vite-hub/workflow/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/agent/vite", { "vite": "both" }],
   ["@vite-hub/auth/vite", { "vite": "both" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],
@@ -130,7 +148,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "ui", "web-container", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "device", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "sync", "ui", "web-container", "webhooks", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

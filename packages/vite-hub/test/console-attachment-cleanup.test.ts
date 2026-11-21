@@ -32,10 +32,11 @@ function connect(base: string): Pick<BlobStorage, "put" | "delete" | "list" | "g
         throw error
       }
     },
-    async delete(paths) {
+    // The fixture deletes pathnames only; `delete({ prefix })` is not used here.
+    delete: (async (paths: string | string[]) => {
       for (const path of typeof paths === "string" ? [paths] : paths) await rm(filename(path), { force: true })
       return [undefined, undefined]
-    },
+    }) as BlobStorage["delete"],
     async list(options) {
       const paths = (await readdir(base)).map(file => Buffer.from(file, "base64url").toString()).filter(path => path.startsWith(options?.prefix ?? "")).sort()
       const limit = options?.limit ?? paths.length
@@ -175,10 +176,10 @@ it("retains the whole batch if a later deletion fails", async () => {
   const failure = new Error("Second deletion failed")
   expect(await rollbackConsoleAttachments({
     ...storage,
-    async delete(object) {
+    delete: (async (object: string | string[]) => {
       if (object === abandoned[1]) throw failure
       return storage.delete(object)
-    },
+    }) as BlobStorage["delete"],
   }, abandoned)).toEqual([failure])
   await retryConsoleAttachmentCleanup(connect(base))
   expect((await storage.list())[1]?.blobs).toEqual([])
@@ -212,7 +213,7 @@ it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record i
   const abandoned = path()
   await storage.put(abandoned, "image")
   await storage.put(`${cleanupPrefix}batch/${crypto.randomUUID()}`, body)
-  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).resolves.toBe(true)
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs).toEqual([])
@@ -229,7 +230,7 @@ it("preserves unknown ownership if quarantine persistence fails", async () => {
   await storage.put(record, "{")
   await expect(retryConsoleAttachmentCleanup({ ...storage, async put() { throw new Error("Write unavailable") } })).rejects.toThrow("Write unavailable")
   expect(await (await storage.get(record))[1]!.text()).toBe("{")
-  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).resolves.toBe(true)
 })
 
 it("rejects reuse when another request quarantines a record during the ownership scan", async () => {

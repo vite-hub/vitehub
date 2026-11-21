@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
@@ -9,6 +10,8 @@ import { env } from "vite-hub/env"
 // The Console is a ViteHub app: Auth signs people in, and the Database keeps the linked projects. The host comes from
 // VITEHUB_HOST or the build variables of the host, and is `node` without them.
 const host = detectHost() ?? "node"
+// The build writes this path into the server, so build with the folder that the server uses, such as /data in Docker.
+const dataDir = resolve(process.env.VITEHUB_DATA_DIR ?? ".data")
 
 // The Console page is the Console client of vite-hub in `account` mode. Build it first with
 // `pnpm --filter vite-hub build:console-account`.
@@ -16,8 +19,9 @@ const page = resolve(import.meta.dirname, "../vite-hub/.vitehub/console-account"
 const pageModule = "#console-page"
 
 function database() {
-  // A VPS keeps SQLite in the data folder and applies new migrations when the server starts.
-  if (host === "node") return { migrateOnStart: true }
+  // A VPS keeps SQLite in the data folder and applies new migrations when the server starts. `dataDir` moves the other
+  // local stores, not the Database, so the file needs its own URL.
+  if (host === "node") return { migrateOnStart: true, connection: { url: pathToFileURL(resolve(dataDir, "database/sqlite.db")).href } }
   // Vercel has no local disk. The Console keeps its data in hosted libSQL, such as Turso from the Vercel Marketplace.
   if (host === "vercel") {
     return {
@@ -36,6 +40,15 @@ export default defineConfig({
     vitehub({
       auth: true,
       database: database(),
+      // Comments on the Console's own pages, for the people in VITEHUB_CONSOLE_COMMENTERS (server/comments.ts). With
+      // `console: true`, a Console can link this one as an app, with signed calls, to triage them.
+      comments: true,
+      console: true,
+      // Node cannot trust Host or forwarding headers as the identity of this deployment.
+      publicUrl: process.env.VITEHUB_CONSOLE_PUBLIC_URL,
+      // The ViteHub MCP. /mcp serves the docs tools to anyone. /mcp/account adds the tools of the person's team, after
+      // OAuth sign-in with the Console account (mcpOAuth() in server/auth.ts).
+      mcp: { publicRoute: "/mcp", route: "/mcp/account" },
       env: {
         server: {
           auth: {
@@ -48,7 +61,7 @@ export default defineConfig({
         },
       },
       host: host,
-      ...(host === "node" ? { dataDir: process.env.VITEHUB_DATA_DIR ?? ".data" } : {}),
+      ...(host === "node" ? { dataDir } : {}),
     }),
     {
       // The server answers Console routes such as /kv with this page. Its asset names change with each build.

@@ -1,10 +1,11 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { LanguageModelMiddleware } from "ai"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
 
 /** Own provider retries so each attempt spends the Invocation's shared allowance. */
 export function executionBudgetMiddleware(budget: ExecutionBudget, maxRetries = 2): LanguageModelMiddleware {
-  if (!Number.isInteger(maxRetries) || maxRetries < 0) throw new RangeError("maxRetries must be a non-negative integer")
+  if (!Number.isInteger(maxRetries) || maxRetries < 0) throw agentDiagnostics.AGENT_MAX_RETRIES_INVALID()
   const encoder = new TextEncoder()
   const bytes = (value: unknown) => encoder.encode(JSON.stringify(value) ?? "").byteLength
   async function attempt<T>(execute: () => PromiseLike<T>, inputBytes: number, signal?: AbortSignal): Promise<T> {

@@ -2,7 +2,6 @@ import { createLogger, initLogger } from "evlog";
 import { Diagnostic } from "nostics";
 import { describe, expect, it } from "vitest";
 import { createLogBuffer } from "../src/logs/memory.ts";
-import { LogCursorExpiredError } from "../src/logs/source.ts";
 
 const entry = (id: string) => ({
   id,
@@ -14,6 +13,15 @@ const entry = (id: string) => ({
 });
 
 describe("Logs source", () => {
+  it.each([["trace", "debug"], ["fatal", "error"]] as const)("maps Evlog %s to the Console %s level without losing the event", async (level, expected) => {
+    const buffer = createLogBuffer();
+    const event = { timestamp: entry("a").timestamp, service: "app", environment: "test", level, message: "Event" };
+    buffer.drain({ event });
+    const page = await buffer.source.query({ level: expected });
+    expect(page.entries).toHaveLength(1);
+    expect(page.entries[0]?.level).toBe(expected);
+    expect(page.entries[0]?.data.level).toBe(level);
+  });
   it("reuses Evlog emission and redaction while retaining Nostics guidance", async () => {
     const buffer = createLogBuffer();
     initLogger({
@@ -62,9 +70,9 @@ describe("Logs source", () => {
     expect((await buffer.source.query({})).entries).toHaveLength(2);
     buffer.append(entry("c"));
     expect((await buffer.source.query({})).dropped).toBe(1);
-    await expect(buffer.source.query({ cursor: "a" })).rejects.toBeInstanceOf(
-      LogCursorExpiredError,
-    );
+    await expect(buffer.source.query({ cursor: "a" })).rejects.toMatchObject({
+      code: "LOGS_CURSOR_EXPIRED",
+    });
   });
   it("snapshots structured fields and keeps query callers from mutating stored events", async () => {
     const buffer = createLogBuffer();

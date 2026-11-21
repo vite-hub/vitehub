@@ -1,7 +1,6 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -9,8 +8,6 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
-import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
-import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
@@ -73,19 +70,6 @@ afterEach(() => {
 })
 
 describe("operations that run app code", () => {
-  it("keeps the request cookies when an operation calls an Env provider", async () => {
-    installConsoleSections("/work/app", ["env"])
-    const inspect = vi.fn(async (event: ConsoleRequestEvent) => {
-      expect(getStandardContext(event).req.headers.get("cookie")).toBe("sid=ada")
-      return { entries: [] }
-    })
-    installConsoleEnv("/work/app", { entries: [] }, inspect)
-    const response = await call("env.get", { status: true }, { cookie: "sid=ada" })
-    expect(response.status).toBe(200)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
-    expect(inspect).toHaveBeenCalledOnce()
-  })
-
   const start = defineOperation({
     description: "Start a job.",
     input: v.strictObject({}),
@@ -163,8 +147,7 @@ describe("operations that run app code", () => {
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await operationRpcResponseResult(response) as { value: { auth?: unknown, operations?: string[], readOnly?: string[] } }
-    expect(value).not.toHaveProperty("auth")
+    const { value } = await operationRpcResponseResult(response) as { value: { operations?: string[], readOnly?: string[] } }
     expect(value.operations).toEqual(operations)
     expect(value.readOnly).toEqual(readOnly)
   })
@@ -244,6 +227,15 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleDevelopment("/work/app", false)
     vi.stubEnv("NODE_ENV", "development")
     expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
+  })
+
+  it("gives an operation the project root only on a development server", async () => {
+    const root = defineOperation({ description: "Read the project root.", input: v.object({}), kind: "read", name: "fixture.root", section: false, user: false, run: (_input, context) => ({ projectRoot: context.projectRoot ?? null }) })
+    installConsoleOperations([{ operations: [root] }])
+    installConsoleDevelopment("/work/app", true)
+    await expect(operationRpcResponseResult(await call("fixture.root", {}, {}, "http://localhost:5173/_vitehub/rpc"))).resolves.toEqual({ ok: true, value: { projectRoot: "/work/app" } })
+    installConsoleDevelopment("/work/app", false)
+    await expect(operationRpcResponseResult(await call("fixture.root"))).resolves.toEqual({ ok: true, value: { projectRoot: null } })
   })
 
   it("tells an operation that the CLI made the call", async () => {

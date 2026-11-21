@@ -19,7 +19,15 @@ const renamedExports = new Map<string, ReadonlyMap<string, string>>([
   ["@vite-hub/kv/vite", new Map([["hubKv", "hubKV"]])],
   ["@vite-hub/workspace/mountx", new Map([["createWorkspaceDriver", "createMountxDriver"]])],
   ["vite-hub/console/server", new Map([["console", "agentConsole"]])],
+  ["vite-hub/workspace", new Map([["fetch", "url"]])],
+  ["@vite-hub/workspace", new Map([["fetch", "url"]])],
+  ["vite-hub/source", new Map([["createSource", "useSource"]])],
+  ["@vite-hub/source", new Map([["createSource", "useSource"]])],
 ])
+
+/** Source registry exports that ViteHub removed. A file in `server/sources/` replaces them. */
+const removedSourceExports = new Set(["clearSources", "registerSource", "registerSources"])
+const sourceModules = new Set(["vite-hub/source", "@vite-hub/source"])
 
 /** Modules that export `kv` or `blob`, whose `del()` became `delete()`. */
 const storageModules = new Map([
@@ -41,9 +49,10 @@ const renamedStrings = new Map([
 ])
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
+const sourceDefinitionPath = /(?:^|\/)server\/sources\/.+\.[cm]?[jt]s$/
 const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
+const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|\bcreateSource\b|\bregisterSources?\b|\bclearSources\b|vite-hub\/workspace|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
 
 interface Block {
   code: string
@@ -140,6 +149,11 @@ function importSource(node: Node | null | undefined): string | undefined {
  * pattern. Returns false when the block declares the name again, so the codemod cannot tell the uses apart.
  */
 function renameReferences(context: FileContext, from: string, to: string, declaration: Node, binding?: Node): boolean {
+  let newNameInUse = false
+  walk(context.program, (node) => {
+    if (node.type === "Identifier" && node.name === to) newNameInUse = true
+  })
+  if (newNameInUse) return false
   if (localDeclarations(context.program, binding).has(from)) {
     followUp(context, declaration, `\`${from}\` is also declared in this file, so the codemod renamed only the import. Rename the uses of the import to \`${to}\` by hand.`)
     return false
@@ -189,7 +203,8 @@ function rewriteExports(context: FileContext) {
         overwrite(context, specifier.imported, to)
         continue
       }
-      overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
+      if (name === "fetch") overwrite(context, specifier.imported, `${to} as ${name}`)
+      else overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
     }
   }
 
@@ -226,7 +241,15 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
       overwrite(context, property.key, to)
       continue
     }
-    overwrite(context, property, renameReferences(context, from, to, property, property.value) ? to : `${to}: ${from}`)
+    if (from === "fetch") {
+      overwrite(context, property.key, `${to}: ${from}`)
+      continue
+    }
+    if (property.value.type === "AssignmentPattern") {
+      overwrite(context, property.key, `${to}: ${from}`)
+      continue
+    }
+    overwrite(context, property.key, renameReferences(context, from, to, property, property.value) ? to : `${to}: ${from}`)
   }
 }
 
@@ -310,6 +333,34 @@ function rewriteSecretCall(context: FileContext, call: CallExpression) {
   overwrite(context, second, second.type === "Identifier" && second.name === "event" ? "{ event }" : `{ event: ${source} }`)
 }
 
+/** Lists imports of the removed Source registry. Moving each Source to its own file is not mechanical. */
+function sourceRegistryFollowUps(context: FileContext) {
+  for (const statement of context.program.program.body) {
+    if (statement.type !== "ImportDeclaration" || !sourceModules.has(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      const name = importedName(specifier)
+      if (!name || !removedSourceExports.has(name)) continue
+      followUp(context, specifier, `\`${name}\` is removed. Move each Source to \`server/sources/<name>.ts\` as its default export, such as \`export default github({ repo: 'acme/docs' })\`. ViteHub registers it by its file name and generates its type, so delete the \`registerSources()\` call and the \`ViteHubSourceMap\` declaration. Then open it with \`useSource('<name>')\`.`)
+    }
+  }
+}
+
+function isRuntimeDefaultExport(statement: Node): boolean {
+  if (statement.type === "ExportDefaultDeclaration") {
+    const { type }: { type: string } = statement.declaration
+    return type !== "TSInterfaceDeclaration"
+  }
+  return statement.type === "ExportNamedDeclaration" && statement.exportKind !== "type" && statement.specifiers.some((specifier) => {
+    if (specifier.type === "ExportDefaultSpecifier" || (specifier.type === "ExportSpecifier" && specifier.exportKind === "type")) return false
+    return (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default"
+  })
+}
+
+function sourceFileFollowUp(context: FileContext) {
+  if (context.program.program.body.some(isRuntimeDefaultExport)) return
+  context.followUps.push({ file: context.file, message: "Each file under `server/sources/` must now default-export a Source. Add a default export and keep any named exports that other files import, or move the file outside `server/sources/` if you only use it directly." })
+}
+
 /** Renames the operation and Console MCP tool names in string literals, such as a client allowlist. */
 function rewriteStrings(context: FileContext) {
   const { block } = context
@@ -323,7 +374,10 @@ function rewriteStrings(context: FileContext) {
   })
 }
 
-/** Lists env and Wrangler files that set `NUXT_APP_SECRET`, which ViteHub no longer reads. It never prints values. */
+/**
+ * Lists env and Wrangler files that set `NUXT_APP_SECRET` without `VITEHUB_SECRET`. ViteHub read it implicitly, so app code
+ * cannot show whether ViteHub used it, and other modules such as nuxt-og-image read it too. It never prints values.
+ */
 async function appSecretFollowUps(cwd: string): Promise<FollowUp[]> {
   const files = (await glob(envPatterns, { cwd, ignore: ignoredPatterns, dot: true })).sort()
   const followUps: FollowUp[] = []
@@ -335,7 +389,7 @@ async function appSecretFollowUps(cwd: string): Promise<FollowUp[]> {
     followUps.push({
       file,
       line: text.slice(0, index).split("\n").length,
-      message: "ViteHub no longer reads `NUXT_APP_SECRET`. Set `VITEHUB_SECRET` to the same value, here and in each deployment.",
+      message: "ViteHub reads its secret from `VITEHUB_SECRET` now, not from `NUXT_APP_SECRET`. If ViteHub used this value, for example for Auth sessions, signed Blob URLs, or `deriveSecret()`, also set `VITEHUB_SECRET` to it, here and in each deployment. Keep `NUXT_APP_SECRET` when another module, such as nuxt-og-image, reads it.",
     })
   }
   return followUps
@@ -357,7 +411,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
-    if (!needle.test(source)) continue
+    const isSourceDefinition = sourceDefinitionPath.test(file) && !/\.d\.[cm]?ts$/.test(file)
+    if (!isSourceDefinition && !needle.test(source)) continue
     const output = new MagicString(source)
     for (const block of scriptBlocks(file, source)) {
       let program: File
@@ -373,13 +428,15 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       rewriteDeletes(context)
       rewriteSecrets(context)
       rewriteStrings(context)
+      sourceRegistryFollowUps(context)
+      if (isSourceDefinition) sourceFileFollowUp(context)
     }
     if (output.hasChanged()) edits.push({ path: file, before: source, after: output.toString() })
   }
 
   followUps.push(...await appSecretFollowUps(cwd), ...await scriptFollowUps(cwd))
   const notes = [
-    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of \`hubDb\`, \`hubKv\`, \`createWorkspaceDriver\`, or \`console\`.`] : []),
+    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of ViteHub APIs.`] : []),
     ...(counts.deletes ? [`Renamed ${counts.deletes} \`del()\` call(s) on KV and Blob to \`delete()\`.`] : []),
     ...(counts.secrets ? [`Moved the event of ${counts.secrets} \`deriveSecret()\` call(s) into \`{ event }\`.`] : []),
     ...(counts.strings ? [`Renamed ${counts.strings} operation or MCP tool name(s) from \`del\` to \`delete\`.`] : []),
@@ -397,13 +454,15 @@ const detections: [RegExp, string][] = [
   [/\bhubDb\b/, "hubDb"],
   [/\bhubKv\b/, "hubKv"],
   [/\bcreateWorkspaceDriver\b/, "createWorkspaceDriver"],
+  [/\bcreateSource\b/, "createSource"],
+  [/\bfetch\b[^;]*from ["']@?vite-hub\/workspace["']/, "fetch() from vite-hub/workspace"],
   [/\b(?:kv|blob)\.del\(/, "del()"],
   [/\bderiveSecret\([^),]+,/, "deriveSecret() with a positional event"],
 ]
 
 export const renamedApis: Codemod = {
   name: "renamed-apis",
-  description: "Rename hubDb, hubKv, createWorkspaceDriver, kv.del(), blob.del(), and the positional deriveSecret() event",
+  description: "Rename hubDb, hubKv, createWorkspaceDriver, the Workspace fetch() Source to url(), createSource, kv.del(), blob.del(), and the positional deriveSecret() event, and list registerSources() calls to move to server/sources/",
   usage: "[dir]",
   async detect({ cwd }) {
     // Reuse the edit planner so detection covers every supported migration form.
