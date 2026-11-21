@@ -425,13 +425,15 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
 
     async pair(input, origin) {
       const code: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "code") : undefined
+      const url: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "url") : undefined
+      const inbox: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "inbox") : undefined
+      if (typeof code !== "string" || !code || code.length > 64) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the code of the setup prompt." }), undefined]
+      if ((typeof url === "string") === (typeof inbox === "string")) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Send `url`, the webhookUrl of the T3 task, or `inbox`, \"Claude Code\" or \"Codex\"." }), undefined]
       const tools = await webhooks()
       const plain = insecure(origin)
       if (plain) {
-        if (typeof code === "string" && code) {
-          const [error] = await tools.refuseMemberPairing(code)
-          if (error) throw error
-        }
+        const [error] = await tools.refuseMemberPairing(code)
+        if (error) throw error
         return plain
       }
       const [error, result] = await tools.pairMemberEndpoint(input, { hosts })
