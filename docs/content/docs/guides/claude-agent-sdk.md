@@ -154,11 +154,11 @@ Each Invocation runs in a new temporary folder, deleted at the end. To give Clau
 While the dev server runs, inspect the Definition and send a prompt from another terminal:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent coder --url http://localhost:3000
+pnpm vitehub agent get coder --dev --url http://localhost:3000
 pnpm vitehub agent dev --agent coder --url http://localhost:3000 -p "Which tools can you use?"
 ```
 
-`agent info` shows the Driver, its execution authority, tools, and instructions, without running Claude Code. See [Talk to an Agent during development](/docs/cli/agents#talk-to-an-agent-during-development).
+`agent get` shows the Driver, its execution authority, tools, and instructions, without running Claude Code. See [Talk to an Agent during development](/docs/cli/agents#talk-to-an-agent-during-development).
 
 ### Connect a Channel
 
@@ -166,7 +166,7 @@ A Channel starts an Invocation from a message, such as a GitHub pull request com
 
 ```ts [server/agents/coder.ts]
 import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 import { anthropic } from 'vite-hub/gateways'
 
 export default defineAgent({

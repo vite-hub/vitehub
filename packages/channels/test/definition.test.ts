@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, stripe, webhook } from "../src/index.ts"
+import { stripe, webhook } from "../src/adapters.ts"
+import { defineChannel } from "../src/index.ts"
 import { isChannelDefinition } from "../src/definition.ts"
 
 describe("defineChannel", () => {

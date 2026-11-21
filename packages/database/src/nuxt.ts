@@ -23,6 +23,7 @@ import { renderNuxtContentDatabasePlugin, resolveNuxtContentDatabase, type NuxtC
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
+import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
@@ -303,6 +304,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
           // Production output has no PGlite.
           const pglite = building && runtime ? pgliteDatabases(runtime) : []
           if (pglite.length) throw databaseErrorDiagnostics.DATABASE_PGLITE_IN_BUILD({ databases: pglite })
+          if (building && runtime) await assertContributedTablesGenerated(runtime, { alias: nuxtOptions.alias })
           if (building && provider === "cloudflare") {
             assertDistinctNuxtD1Bindings(runtime, d1, config)
             // Without a D1 resource, the Vite build removes the hosted runtime and Nitro cannot load the

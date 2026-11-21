@@ -250,6 +250,11 @@ export interface QueueDefinitionOptions {
   cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
   concurrency?: number
+  /**
+   * Cloudflare: the most messages in one batch, from 1 to 100. Cloudflare's default is 10. Write it as a number literal,
+   * because the build reads it from the file to configure the consumer.
+   */
+  maxBatchSize?: number
   onDispatchError?: (error: unknown, context: { name: string }) => unknown | Promise<unknown>
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
@@ -458,7 +463,7 @@ export interface LocalQueueJob {
   state: "dead" | "pending" | "running"
 }
 
-/** One stored job with its payload, as `vitehub queue jobs show` shows it. */
+/** One stored job with its payload, as `vitehub queue jobs get` shows it. */
 export interface LocalQueueJobDetail extends LocalQueueJob {
   /** The local provider only: the file of the job. */
   file?: string

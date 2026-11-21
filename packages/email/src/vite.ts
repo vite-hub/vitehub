@@ -450,7 +450,9 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
-      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
+      // The entry imports only the template file and `@vite-hub/markdown-template`. Nuxt materializes templates before
+      // it writes the `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir, tsconfig: false })
     }
     finally {
       await rm(entry, { force: true })
@@ -652,6 +654,9 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
           rootDir: config.root,
+          // The entry imports only ViteHub's own modules, and `nuxt prepare` reaches it before Nuxt writes the
+          // `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+          tsconfig: false,
         })
       }
       finally {

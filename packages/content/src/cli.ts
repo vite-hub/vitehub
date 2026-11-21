@@ -56,7 +56,7 @@ type ContentCliOption =
   | "status" | "title-template" | "xml" | "yes"
 
 type ContentCliCommandName =
-  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
+  | "collections" | "list" | "get" | "status" | "diff" | "revisions" | "edit" | "delete" | "restore"
   | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap" | "previews" | "head" | "advance" | "pin" | "unpin"
   | "check"
 
@@ -124,7 +124,7 @@ const contentDevTargetErrors = {
 const contentCommands: readonly ContentCliCommand[] = [
   { description: "List collections and singletons with their fields and document counts.", name: "collections", options: [], positionals: [] },
   { description: "List the documents of a collection with their state, title, and field issues. Reads the draft unless --ref published.", name: "list", options: ["ref", "search", "limit", "cursor"], positionals: ["collection"] },
-  { description: "Print the stored file of one document, frontmatter included, and its field issues. Omit the id for a singleton.", name: "show", options: ["ref"], positionals: ["collection", "id?"] },
+  { description: "Print the stored file of one document, frontmatter included, and its field issues. Omit the id for a singleton.", name: "get", options: ["ref"], positionals: ["collection", "id?"] },
   { description: "Show whether each document is draft, published, changed, or deleted, with field issues and schedules.", name: "status", options: [], positionals: ["collection?", "id?"] },
   { description: "Print a unified diff of one document from published to draft, frontmatter included. Omit the id for a singleton.", name: "diff", options: [], positionals: ["collection", "id?"] },
   { description: "List the revisions that saved, removed, restored, or published one document, newest first.", name: "revisions", options: ["ref", "limit", "cursor"], positionals: ["collection", "id?"] },
@@ -181,7 +181,7 @@ const optionHelp: Record<ContentCliOption, string> = {
   "dry-run": "  --dry-run            List the changes, with each draft digest and field issue count, and change nothing.",
   "file": "  --file <path>        Save this file as the draft instead of opening an editor. `-` reads standard input.",
   "id": "  --id <id>            Select only this document of --collection. Repeatable.",
-  "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `show --json` prints it.",
+  "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `get --json` prints it.",
   "ignore": "  --ignore <path>      With --dir: a link target that another route serves, such as /docs/*/diagnostics/**. Repeatable.",
   "limit": "  --limit <n>          Show at most n entries. Defaults to 20 for revisions and 50 for list. Maximum 100.",
   "max-age": "  --max-age <seconds>  How long signed links work: 3600 (one hour) by default, 86400 at most.",
@@ -1112,7 +1112,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       else context.stdout.write(patch)
       return 0
     }
-    case "show": {
+    case "get": {
       const { failure, result } = await call("show", requestBody(parsed))
       if (failure) return writeFailure(parsed, context, failure)
       if (parsed.json) print(result)

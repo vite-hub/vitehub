@@ -144,6 +144,49 @@ After a sleep, the provider runs `index.ts` again from the start. Completed step
 
 A single-file Workflow, such as `server/workflows/remind-user.ts`, runs as one root step. A replay after a sleep would run the code before the sleep again. So `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. Move the Workflow to a folder to fix it.
 
+## Wait for a signal
+
+A folder Workflow can also wait for a value from outside the run, such as a webhook. `context.createSignal<T>()` returns `{ token, wait() }`. Give `token` to the other service, then call `wait()`. `resumeWorkflow(token, value)` sends the value, and `wait()` returns it:
+
+```ts [server/workflows/summary/index.ts] fragment
+import { defineWorkflow } from 'vite-hub/workflow'
+
+export default defineWorkflow<{ callId: string }>({
+  handler: async ({ createSignal, payload, steps }) => {
+    const transcript = createSignal<{ text: string }>()
+    await steps.requestTranscript({ callId: payload.callId, token: transcript.token })
+    const { text } = await transcript.wait()
+    return await steps.summarize({ text })
+  },
+})
+```
+
+```ts [server/api/webhooks/transcript.post.ts] fragment
+import { resumeWorkflow } from 'vite-hub/workflow'
+
+export default defineEventHandler(async (event) => {
+  // Check the webhook signature first. The token is not a secret.
+  const { token, text } = await readBody(event)
+  const [error] = await resumeWorkflow(token, { text })
+  if (error?.code === 'WORKFLOW_SIGNAL_NOT_WAITING') throw createError({ status: 503 })
+  if (error) throw error
+  return { ok: true }
+})
+```
+
+ViteHub makes the token from the Workflow name, the run id, and the call order (`signal-1`, `signal-2`), so a replay gets the same token. Send the value as JSON.
+
+| Provider | Signal |
+| --- | --- |
+| Cloudflare | Durable. Uses `step.waitForEvent()` with the event type `vitehub-signal-1`, for at most 365 days. `resumeWorkflow()` calls `instance.sendEvent()` through the Workflow binding. |
+| OpenWorkflow | Durable. Uses `step.waitForSignal()`. A signal waits one year, then the run fails with `WORKFLOW_SIGNAL_TIMEOUT`. OpenWorkflow drops a value that comes before the wait, so `resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING`. Retry later. |
+| Inline runs (`vite dev`, Cloudflare without a binding) | Waits in memory. A value that comes before the wait is kept. Not durable: a restart loses the run. |
+| Vercel | Not supported yet. `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`. A `native` entry can wait with `defineHook()` from Workflow DevKit, and `resumeWorkflow()` resumes its hook token. |
+
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` if the run is missing or already finished. OpenWorkflow also returns this code when the run has not reached the wait or no longer waits for that token. An inline run accepts one value per signal, even before the wait. Cloudflare can queue an event before the wait. Success on Cloudflare confirms that the provider accepted the event, not that the run consumed it or that this was the first event for the token.
+
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_TOKEN_INVALID` for a string that `createSignal()` did not make, or for a token of another provider, such as an inline token from `vite dev`. A single-file Workflow cannot wait: `wait()` in a root step throws `WORKFLOW_ROOT_STEP_SIGNAL`.
+
 ## Production checks
 
 Use Queue when background delivery is enough. Use Workflow when you must inspect run state, resume work, or run several steps over time.

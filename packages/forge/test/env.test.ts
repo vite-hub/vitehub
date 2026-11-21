@@ -32,6 +32,7 @@ describe("forgeEnv", () => {
     ["github", { FORGES_GITHUB_TOKEN: "token" }],
     ["gitlab", { FORGES_GITLAB_TOKEN: "token" }],
     ["forgejo", { FORGES_FORGEJO_TOKEN: "token" }],
+    ["gitea", { FORGES_GITEA_TOKEN: "token", FORGES_GITEA_BASE_URL: "https://gitea.example.test" }],
   ])("uses FORGES_ names that forges reads for %s", (forge, env) => {
     expect(providersFromEnv(env)).toContainEqual(expect.objectContaining({ forge, provider: expect.any(Object) }))
   })

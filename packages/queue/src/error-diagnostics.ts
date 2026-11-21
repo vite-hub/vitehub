@@ -67,7 +67,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_JOB_RUNNING: {
       why: "The job is running now.",
-      fix: "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.",
+      fix: "Wait for the attempt to end, then run `vitehub queue jobs get` for its state.",
     },
 
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
@@ -176,6 +176,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_INVALID_NAME: {
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
+    },
+    QUEUE_MAX_BATCH_SIZE_INVALID: {
+      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads the options from the file to configure the Cloudflare consumer, so they cannot use a spread or a computed key.`,
+      fix: "Write each option, such as `maxBatchSize: 5` (a whole number from 1 to 100), directly in the object of `export default defineQueue({ ... })`, without a variable, a spread, or a computed key.",
     },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,

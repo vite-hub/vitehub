@@ -1,7 +1,8 @@
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, resolveRegisteredWorkspaceDefinition, url as urlSource, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, url as urlSource, useWorkspace } from "../src/index.ts"
+import { resolveRegisteredWorkspaceDefinition } from "../src/core/registry.ts"
 import type { FetchSourceOptions } from "../src/sources/fetch.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"

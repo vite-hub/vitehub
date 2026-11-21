@@ -529,7 +529,7 @@ Built-in Channels and gateway presets use vendor names as conventional names. So
 - Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `prefix: false` in the `env` option.
 - `prefix: 'APP_'` in the `env` option changes the prefix. `prefix: false` reads only the conventional names.
 
-Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` and `vitehub env inspect --json` list every name of a declaration in `names`, in read order. The build writes the same names to `deployment.json`. No output shows a value.
+Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` and `vitehub env list --json` list every name of a declaration in `names`, in read order. The build writes the same names to `deployment.json`. No output shows a value.
 
 On Cloudflare, the Wrangler config lists a required secret only when it has one exact name. Wrangler has no fallback names, so name pairs work at runtime only. For an exact Wrangler entry, set `prefix: false`, or a source equal to the canonical name.
 

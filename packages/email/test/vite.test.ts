@@ -514,6 +514,33 @@ describe("hubEmail", () => {
     }
   })
 
+  it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
+    const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(root, "server", "emails", "welcome.md"), "Hello {{ data.name }}"),
+    ])
+
+    const paths = await hubEmail({ driver: "resend" }).api.prepareTypes({ materialize: true, projectRoot: root })
+
+    // SAFETY: prepareTypes materializes each template as a module that exports its renderer.
+    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<string> }
+    await expect(template.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+  })
+
+  it("bundles the Email definition before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    const root = await createTempProject()
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    const plugin = hubEmail({ driver: "cloudflare" })
+    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toMatch(/from\s*"cloudflare:workers"/)
+  })
+
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
     const parentTemplate = join(root, "server", "emails", "monthly.md")

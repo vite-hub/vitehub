@@ -24,7 +24,7 @@ curl -s -X POST http://127.0.0.1:4731/_vitehub/agents/docs/chat \
 
 It answers HTTP 503 with `{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."}`.
 
-Without `@openai/codex` in this app, the same request answers `AGENT_R1026` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent info --agent docs` inspects the Agent.
+Without `@openai/codex` in this app, the same request answers `AGENT_R1026` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent get docs` inspects the Agent.
 
 The app has no Database Definition. Connections and the CMS store their data in the implicit `default` Database, and `corepack pnpm vitehub inspect definitions --kind database` shows which plugins need it.
 
