@@ -79,15 +79,15 @@ async function retainedDefinition(root: string): Promise<{ definition: Workspace
 
 function format(name: string, value: unknown): string {
   const operation = registry.get(`workspace.${name}`)!
-  return (operation.cli!.format as (output: unknown) => string)(value)
+  return ((operation.cli || undefined)!.format as (output: unknown) => string)(value)
 }
 
 describe("workspace operations", { timeout: 30_000 }, () => {
-  it("is the vitehub workspace history, refs, show, changes, commit, and stale commands over the workspaces section", () => {
+  it("is the vitehub workspace history, refs, get, changes, commit, and stale commands over the workspaces section", () => {
     expect(workspaceOperations.map(operation => [operation.name, operation.kind, operation.section, operationCliPath(operation)])).toEqual([
       ["workspace.history", "read", "workspaces", { command: "history", namespace: "workspace" }],
       ["workspace.refs", "read", "workspaces", { command: "refs", namespace: "workspace" }],
-      ["workspace.show", "read", "workspaces", { command: "show", namespace: "workspace" }],
+      ["workspace.show", "read", "workspaces", { command: "get", namespace: "workspace" }],
       ["workspace.changes", "read", "workspaces", { command: "changes", namespace: "workspace" }],
       ["workspace.commit", "write", "workspaces", { command: "commit", namespace: "workspace" }],
       ["workspace.stale", "read", "workspaces", { command: "stale", namespace: "workspace" }],

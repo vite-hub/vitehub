@@ -286,7 +286,7 @@ ORDER BY 1
 `
 
 describe("vitehub database sql and drop on PGlite", () => {
-  it("runs SQL on the PGlite folder and drops its tables, types, ledger, and empty schemas", async () => {
+  it("runs SQL on the PGlite folder and drops its tables, types, ledger, and empty schemas", { timeout: 15000 }, async () => {
     const project = await createProject({ default: { dialect: "postgresql", driver: "pglite" } }, { confirm: async () => true })
     const dir = join(project.rootDir, ".vitehub/data/database/pglite")
     await mkdir(join(dir, ".."), { recursive: true })

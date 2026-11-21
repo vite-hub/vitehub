@@ -11,7 +11,6 @@ const codes = {
   WORKFLOW_OPERATION_UNSUPPORTED: workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ operation: "cancel", provider: "vercel" }),
   WORKFLOW_REGISTRY_MISSING: workflowErrorDiagnostics.WORKFLOW_REGISTRY_MISSING({ workflow: "welcome" }),
   WORKFLOW_RUN_AMBIGUOUS: workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: "r1", workflows: "a, b" }),
-  WORKFLOW_RUN_NOT_FOUND: workflowErrorDiagnostics.WORKFLOW_RUN_NOT_FOUND({ id: "r1" }),
   WORKFLOW_RUN_UNKNOWN: workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId: "r1" }),
   WORKFLOW_RUNS_UNAVAILABLE: workflowErrorDiagnostics.WORKFLOW_RUNS_UNAVAILABLE(),
 }

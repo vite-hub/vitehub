@@ -8,7 +8,7 @@ import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, hasViteConfigPlugin, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -852,9 +852,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   let command: "build" | "serve" | undefined
-  const processStorageOptions = (plugins: readonly unknown[] | undefined) => ({
-    ...(hasVitePlugin(plugins, databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
-    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasVitePlugin(plugins, "@vite-hub/kv/vite"),
+  const processStorageOptions = (hasPlugin: (name: string) => boolean) => ({
+    ...(hasPlugin(databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
+    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
   })
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
@@ -900,7 +900,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
-        ...processStorageOptions(config.plugins),
+        ...processStorageOptions(typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function"
+          ? name => hasVitePlugin(config.plugins, name)
+          : name => hasViteConfigPlugin(env, name)),
         preliminary: true,
         root: config.root || process.cwd(),
         serverDirs,
@@ -921,7 +923,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       const definitions = discoverRegistrySchedules()
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
-      const storage = processStorageOptions(config.plugins)
+      const storage = processStorageOptions(name => hasVitePlugin(config.plugins, name))
       if (config.command) {
         const nitro = await createScheduleNitroConfig({
           ...options,

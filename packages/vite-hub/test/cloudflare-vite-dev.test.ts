@@ -82,6 +82,64 @@ it("uses the effective runner for both Cloudflare modules and only applies in de
   expect(plugin.resolveId("cloudflare:email")).toBe("\0vitehub-dev:cloudflare-email")
 })
 
+// workerd does not inherit the shell, so ViteHub passes its own variables, such as VITEHUB_AGENT_STATE_URL, as bindings.
+it.each(["default", "explicit", "shell"] as const)("passes VITEHUB_* shell variables to the miniflare dev runner (%s environment)", async (selection) => {
+  const { nitro } = await import(createRequire(import.meta.url).resolve("nitro/vite")) as { nitro: (config?: NitroConfig) => PluginOption }
+  const root = await mkdtemp(join(tmpdir(), "vitehub-miniflare-vite-dev-"))
+  const packages = fileURLToPath(new URL("../..", import.meta.url))
+  let server: Awaited<ReturnType<typeof createServer>> | undefined
+  vi.stubEnv("VITEST", undefined)
+  vi.stubEnv("VITEHUB_SHELL_PROBE", "libsql://state.example.test")
+  vi.stubEnv("OTHER_SHELL_PROBE", "stays in the shell")
+  vi.stubEnv("CLOUDFLARE_ENV", selection === "default" ? undefined : selection === "shell" ? "staging" : "unused")
+  vi.stubEnv("CLOUDFLARE_INCLUDE_PROCESS_ENV", undefined)
+  try {
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(join(packages, "vite-hub/node_modules/miniflare"), join(root, "node_modules/miniflare"), "dir")
+    await symlink(join(packages, "vite-hub/node_modules/h3"), join(root, "node_modules/h3"), "dir")
+    await symlink(join(packages, "vite-hub"), join(root, "node_modules/vite-hub"), "dir")
+    await mkdir(join(root, "server/routes"), { recursive: true })
+    await writeFile(join(root, "server/routes/env.ts"), [
+      "import { defineHandler } from 'nitro'",
+      "export default defineHandler(() => ({ vitehub: process.env.VITEHUB_SHELL_PROBE ?? null, other: process.env.OTHER_SHELL_PROBE ?? null, configured: process.env.CONFIG_PROBE ?? null }))",
+      "",
+    ].join("\n"))
+    server = await createServer({
+      root,
+      configFile: false,
+      appType: "custom",
+      logLevel: "silent",
+      plugins: [vitehub({ host: "cloudflare", env: false }), nitro({
+        devServer: { runner: "miniflare" },
+        cloudflare: selection === "default" ? undefined : {
+          wranglerEnv: selection === "explicit" ? "staging" : undefined,
+          wrangler: { env: { staging: { vars: { CONFIG_PROBE: "staging" } } } },
+        },
+      })],
+      server: { port: 0, watch: null, fs: { allow: [root, join(packages, "..")] } },
+    })
+    await server.listen()
+    const url = new URL("/env", server.resolvedUrls!.local[0]!)
+    // Miniflare starts after the dev server listens and answers 503 until then.
+    let response = await fetch(url)
+    for (const deadline = Date.now() + 60_000; response.status === 503 && Date.now() < deadline;) {
+      await new Promise(resolve => setTimeout(resolve, 250))
+      response = await fetch(url)
+    }
+    expect(response.status, (await response.clone().text()).slice(0, 300)).toBe(200)
+    expect(await response.json()).toEqual({
+      vitehub: "libsql://state.example.test",
+      other: null,
+      configured: selection === "default" ? null : "staging",
+    })
+  }
+  finally {
+    await server?.close()
+    vi.unstubAllEnvs()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)
+
 it.each(["late override", "standalone Agent"] as const)("inlines packages for Miniflare selected by %s", async (scenario) => {
   const { nitro } = await import(createRequire(import.meta.url).resolve("nitro/vite")) as { nitro: (config?: NitroConfig) => PluginOption }
   const root = await mkdtemp(join(tmpdir(), "vitehub-dev-loading-"))
