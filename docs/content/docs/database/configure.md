@@ -526,14 +526,14 @@ The build then puts one `wrangler d1 migrations apply <binding> --remote` for ea
 npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json
 ```
 
-- **Order.** `vitehub deploy` runs this command, so it applies the migrations first. When a migration fails, the command stops and the Worker does not deploy.
-- **Other deploy commands.** `nitro deploy --prebuilt` runs the preset's default deploy command, not the one in `nitro.json`. Workers Builds runs the deploy command set on the Worker. Neither applies the migrations, so put the migrate steps before the deploy in that command, as [Workers Builds](/docs/frameworks-hosts/cloudflare#workers-builds) shows.
+- **Order.** `vitehub deploy` supports the generated `npx wrangler deploy --config ...` command and its migration steps, not arbitrary commands in `nitro.json`. It applies the migrations first and stops before deploying if a migration fails.
+- **Other deploy commands.** `nitro deploy --prebuilt` uses `commands.deploy` from the loaded Nitro config, which defaults to the preset's command. It does not use `commands.deploy` from `nitro.json`. Workers Builds uses the deploy command set on the Worker. For either path, put the migrate steps before the deploy, as [Workers Builds](/docs/frameworks-hosts/cloudflare#workers-builds) shows.
 - **Ledger.** Wrangler applies the migration files that the build copies into the server output, and records them in Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`). `vitehub database migrate` reads the same table, so you can still run it by hand.
 - **Old code.** The Worker that serves traffic runs on the new tables until the deploy finishes. Write migrations that the previous code can use, for example add a column before you drop the old one.
-- **Without `migrateOnDeploy`.** `vitehub deploy` reads the migrations table of each D1 binding and stops with [`SETUP_DEPLOY_D1_MIGRATIONS_PENDING`](/docs/cli/diagnostics/setup_deploy_d1_migrations_pending) when the build has a migration that the table does not list. `nitro deploy --prebuilt` and a plain `wrangler deploy` apply nothing and print no warning, so the new code answers with errors until you apply the migrations.
-- **Prompt.** In CI, Wrangler applies the migrations without a question. In a terminal, Wrangler asks first.
+- **Without `migrateOnDeploy`.** `vitehub deploy` reads the migrations table of each D1 binding and stops with [`SETUP_DEPLOY_D1_MIGRATIONS_PENDING`](/docs/cli/diagnostics/setup_deploy_d1_migrations_pending) when the build has a migration that the table does not list. With the default `nitro deploy --prebuilt` command or a plain `wrangler deploy`, apply migrations yourself before deploying.
+- **Prompt.** `vitehub deploy` runs Wrangler without a prompt, even from a terminal. A direct, interactive `wrangler d1 migrations apply` can prompt. If you decline, Wrangler exits successfully and a deploy chained with `&&` still runs.
 - **Preview.** `vitehub deploy --preview` and `--temporary` do not apply migrations, so a preview version does not change the production database.
-- **Limits.** The option works only for a Cloudflare build where each Database has a D1 binding. Another host, D1 over HTTP, or Postgres fails the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`. Your own `nitro.commands.deploy` gets the same migrate steps in front of it.
+- **Limits.** The option works only for a Cloudflare build where each Database has a D1 binding. Another host, D1 over HTTP, or Postgres fails the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`. The build also prepends migration steps to a custom `nitro.commands.deploy`, but `vitehub deploy` rejects the result unless it matches the supported Wrangler command shape.
 
 ## Export a database
 

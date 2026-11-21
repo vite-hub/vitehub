@@ -98,10 +98,10 @@ export interface DatabaseIntegrationOptions {
     backup?: boolean | MigrationBackupOptions
   }
   /**
-   * Applies the pending migrations of each Cloudflare D1 binding as part of the deploy, before the Worker deploys. The
-   * generated deploy command in `nitro.json` runs `wrangler d1 migrations apply <binding> --remote` first, so
-   * `vitehub deploy` stops when a migration fails. `nitro deploy --prebuilt` and Workers Builds do not run that command:
-   * put the migrate steps in their deploy command. The build fails with
+   * Adds `wrangler d1 migrations apply <binding> --remote` steps before the deploy command in `nitro.json`.
+   * For the generated `wrangler deploy --config` command, `vitehub deploy` applies these steps without a prompt and
+   * stops before deploying if one fails. `nitro deploy --prebuilt` and Workers Builds do not use the saved command:
+   * put the migration steps in their deploy command. The build fails with
    * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
    */
   migrateOnDeploy?: boolean
