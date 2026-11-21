@@ -117,6 +117,14 @@ describe("discoverQueueDefinitions", () => {
     ])
   })
 
+  it("scans equivalent server roots only once", async () => {
+    const rootDir = await createTempDir("vitehub-queue-equivalent-roots-")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(join(rootDir, "server", "queues", "sync.ts"), "export default null\n")
+
+    expect(discoverQueueDefinitions({ rootDir, serverRootDirs: [rootDir, `${rootDir}/`] }).map(definition => definition.name)).toEqual(["sync"])
+  })
+
   it("discovers server queue directories through Vite discovery", async () => {
     const rootDir = await createTempDir("vitehub-queue-vite-server-discovery-")
     await mkdir(join(rootDir, "server", "queues", "emails"), { recursive: true })

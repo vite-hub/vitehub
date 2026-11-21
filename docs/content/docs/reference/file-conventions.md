@@ -121,6 +121,10 @@ Each Markdown file in `server/emails` becomes a typed email renderer. ViteHub dr
 
 Names need non-empty path segments, and no `.` or `..` segments, query strings, fragments, backslashes, or trailing `.md`. Names must be unique across all server directories.
 
+## Cloudflare Worker exports
+
+On Cloudflare, the named exports of `server/cloudflare.ts` become exports of the Worker entry, so a Durable Object, Workflow, or `WorkerEntrypoint` class in your app can run. Bindings and migrations stay in your project Wrangler config. Other hosts ignore the file. Read [Your own Worker classes](/docs/frameworks-hosts/cloudflare#your-own-worker-classes).
+
 ## Generated files
 
 Generated files in `.vitehub/**` and host output folders show what discovery and Provider Output made. Edit your Definition files, not these.

@@ -69,7 +69,7 @@ The Agent's Gmail Channel is `channels.gmail`. Pass it to `pollGmailChannel()` o
 
 ```ts [server/schedules/poll.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { pollGmailChannel } from 'vite-hub/agent/channels'
+import { pollGmailChannel } from 'vite-hub/channels/adapters'
 import inbox from '../agents/inbox'
 
 export default defineSchedule({

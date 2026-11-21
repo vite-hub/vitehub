@@ -58,6 +58,7 @@ import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
+import { cloudflareEntryExportsModule } from "./cloudflare-entry-exports.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
@@ -66,6 +67,7 @@ import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
 import { writeDockerfile, type DockerfileBuild } from "./dockerfile.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
+import { assertCloudflareResources } from "./cloudflare-resources.ts"
 import { addCloudflareVars, cloudflareServerEnvVars } from "./cloudflare-vars.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -913,11 +915,15 @@ function deploymentNitroModule(
   envDir: () => string | false | undefined,
   deploy: DeploymentDeployManifest | undefined,
   cloudflareVars: () => ReturnType<typeof cloudflareServerEnvVars>,
+  resolvedPlugins: () => readonly unknown[] | undefined,
+  realtime: boolean,
 ) {
   return (nitro: {
     hooks: {
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
+      beforeEach: (callback: (event: { name: string }) => void) => void
+      hookOnce: (name: "compiled", callback: () => Promise<void>) => () => void
     }
     logger: { warn(message: string): void }
     options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean, nodeCompat?: boolean, wrangler?: unknown }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
@@ -943,6 +949,17 @@ function deploymentNitroModule(
       }
       // Nitro passes the configuration for its resolved builder.
       nitro.hooks.hook("build:config", (_nitro, config) => addPackagesPlugin(config.rolldown ?? config.rollup))
+    }
+    if (plan.host === "cloudflare") {
+      let removeCheck: (() => void) | undefined
+      nitro.hooks.beforeEach(function appendResourceCheckBeforeDispatch({ name }) {
+        if (name !== "compiled") return
+        removeCheck?.()
+        removeCheck = nitro.hooks.hookOnce("compiled", async () => {
+          if (nitro.options.cloudflare?.deployConfig === false) return
+          await assertCloudflareResources(nitro.options.output.serverDir, resolvedPlugins() ?? [], { realtime })
+        })
+      })
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
@@ -1199,6 +1216,7 @@ function deploymentPlugins(
             // a number that another chunk imports from the entry. Keep shared values in internal chunks.
             const rollupConfig = cloneRecord(nitro.rollupConfig)
             if (rollupConfig.preserveEntrySignatures === undefined) nitro.rollupConfig = { ...rollupConfig, preserveEntrySignatures: "strict" }
+            if (building) nitro.modules = [...(Array.isArray(nitro.modules) ? nitro.modules : []), cloudflareEntryExportsModule]
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
@@ -1294,7 +1312,7 @@ function deploymentPlugins(
               const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
               nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars, () => resolvedPlugins, Boolean(options.realtime))
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,

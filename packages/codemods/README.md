@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, and `cli-get-list`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -63,7 +63,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
 | `auth-sign-in` | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts`. `vitehub migrate` runs it. |
-| `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
+| `channels` | Imports of `vite-hub/agent/channels` to `vite-hub/channels/adapters` and `vite-hub/channels`, Agent `http()` calls to `channelAdapter("http", options)` where safe, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
 | `auth-accessors` | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()`. `vitehub migrate` runs it. |
 | `workspace-repo` | The GitHub Workspace Store option `repository` to `repo`. `vitehub migrate` runs it. |
 | `kv-list-prefix` | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })`. `vitehub migrate` runs it. |
@@ -72,6 +72,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `cms-roles` | The `cms` preset option `access: "roles"` to `roles: true`. `vitehub migrate` runs it. |
 | `choices-package` | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices`. `vitehub migrate` runs it. |
 | `cli-get-list` | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list`. `vitehub migrate` runs it. |
+| `cli-agent-tree` | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -448,9 +449,31 @@ npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
 
 ## `channels`
 
-`http()` is removed. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+`vite-hub/agent/channels` is removed, and so is `http()`:
 
-The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+| Old | New |
+| --- | --- |
+| `import { slack, webChat } from "vite-hub/agent/channels"` | `import { slack, webChat } from "vite-hub/channels/adapters"` |
+| `import { defineChannelTrigger, ignored } from "vite-hub/agent/channels"` | `import { defineChannelTrigger, ignored } from "vite-hub/channels"` |
+| `import { webhook } from "vite-hub/channels"` | `import { webhook } from "vite-hub/channels/adapters"` |
+| `http(options)` | `channelAdapter("http", options)` |
+
+`vite-hub/channels` has `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()`, and needs no `@vite-hub/agent`. Every adapter, also `webhook()` and `stripe()`, comes from `vite-hub/channels/adapters`. A namespace import, a re-export, an `import()` call, and a `vi.mock()` path move to `vite-hub/channels/adapters`, and the report lists each mock. The owner path `@vite-hub/agent/channels` stays.
+
+The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of Webhooks:
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` in a `webhooks` registration | `secret: "X"` |
+| `secretToken: () => …` in a `webhooks` registration | `secret: () => …` |
+| `secret: process.env.X` in `webhook()` or `stripe()` | `secret: "X"` |
+| `signature: "github-sha256"` or `"stripe-sha256"` | `signature: "github"` or `"stripe"` |
+| `signature: { preset: "hmac-sha256", … }` | `signature: { type: "hmac-sha256", … }` |
+| `{ preset: "stripe-sha256", toleranceSeconds: 600 }`, `stripe({ toleranceSeconds: 600 })` | `{ type: "stripe", tolerance: "600s" }`, `stripe({ tolerance: "600s" })` |
+
+A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A direct read like `useServerEnv().github.webhookSecret` moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify, `secretToken` strings, and possible hard-coded secrets on `stripe()` or with an old signature. Move hard-coded secrets to server variables and set `secret` to the variable name.
 
 It also moves webhook secrets and signatures to the names of Webhooks:
 
@@ -514,6 +537,25 @@ The codemod updates simple shell invocations. It skips scripts and steps with co
 
 ```sh
 npx @vite-hub/codemods cli-get-list [dir] [--dry-run]
+```
+
+## `cli-agent-tree`
+
+Every Agent command is under `vitehub agent`. The codemod moves the `vitehub` calls in `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files:
+
+| Old | New |
+| --- | --- |
+| `vitehub agents list`, `vitehub agents invoke <agent>` | `vitehub agent list`, `vitehub agent invoke <agent>` |
+| `vitehub agents status --agent <name>`, `vitehub agent get --agent <name>` | `vitehub agent get <name>` |
+| `vitehub invocations list\|get\|cancel\|undo\|delete\|capabilities\|workspace` | `vitehub agent invocations …` |
+| `vitehub conversations export` | `vitehub agent conversations export` |
+
+The codemod leaves old Console deletes untouched. Migrate them by hand to `vitehub agent invocations delete <id> --url <app>` with the same app, and use `--yes` in scripts. Without `--url` the new command deletes from the journal file.
+
+Migrate old `invocations list` and `get` calls by hand. Check the new command's `--help` for supported inputs. The CLI list output no longer includes the Console cursor, and get emits a flat record with `--json` and does not accept observation paging options. The Console RPC still supports the old contracts. For Agent inspection, `--url` selects the Console unless you add `--dev` to select the Dev Loop.
+
+```sh
+npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
 ```
 
 ## Check real apps
