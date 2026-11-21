@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 
 import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, collectViteHubResourceSummaries, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { PROVISION_STATE_FILE, readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { operationCliPath } from "@vite-hub/internal/operations"
 import { basename, dirname, relative, resolve } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -67,7 +68,7 @@ function operationInspector(operations: readonly AnyOperation[]) {
         { label: "Kind", value: operation.kind },
         { label: "Section", value: typeof operation.section === "string" ? operation.section : operation.section === false ? "any" : "from input" },
         { label: "Description", value: operation.description },
-        { label: "Command", value: `vitehub ${operation.cli?.namespace ?? (typeof operation.section === "string" ? operation.section : operation.name.slice(0, operation.name.indexOf(".")))} ${operation.cli?.command ?? operation.name.slice(operation.name.indexOf(".") + 1)}` },
+        { label: "Command", value: operation.cli === false ? "none" : `vitehub ${operationCliPath(operation).namespace} ${operationCliPath(operation).command}` },
       ],
       file: "operations",
       name: operation.name,

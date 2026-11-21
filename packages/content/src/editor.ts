@@ -1,10 +1,26 @@
-import { createEditorCodec } from "comark-ui/editor"
 import comarkUi from "comark-ui/html"
+import type * as ComarkEditor from "comark-ui/editor"
 import type { EditorCodec, EditorCodecOptions } from "comark-ui/editor"
 import type { RealtimeEditor } from "@vite-hub/realtime"
 
-export { ComarkImage as ContentImage } from "comark-ui/editor"
+import { contentClientDiagnostics } from "./client-diagnostics.ts"
+
 export type { EditorCodecOptions as ContentEditorOptions } from "comark-ui/editor"
+
+/** The Tiptap or ProseMirror package that a failed load of the editor names, when one of them is not installed. */
+function missingEditorPackage(error: unknown): string | undefined {
+  if (!(error instanceof Error) || Reflect.get(error, "code") !== "ERR_MODULE_NOT_FOUND") return
+  return /["'](@tiptap\/[\w.-]+|prosemirror-[\w-]+)["']/u.exec(error.message)?.[1]
+}
+
+// Tiptap and ProseMirror are optional peers. Without them, the editor load fails with a code that names the package.
+const { ComarkImage, createEditorCodec }: typeof ComarkEditor = await import("comark-ui/editor").catch((error: unknown) => {
+  const name = missingEditorPackage(error)
+  throw name ? contentClientDiagnostics.CONTENT_EDITOR_PACKAGES_MISSING({ name, cause: error }) : error
+})
+
+/** Comark UI's image node, as the Content editor uses it. */
+export const ContentImage: typeof ComarkEditor.ComarkImage = ComarkImage
 
 /** Content's codec and schema, ready for a browser editor or a collaborative room. */
 export function createContentEditorCodec(options: EditorCodecOptions = {}): EditorCodec {

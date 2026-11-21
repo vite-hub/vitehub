@@ -8,6 +8,7 @@ it.each([
   contentErrorDiagnostics.CONTENT_EDITOR_FAILED({ command: "vi", code: 1 }),
   contentErrorDiagnostics.CONTENT_LIVE_DOCUMENT_HELD({ holder: "Cleo" }),
   contentErrorDiagnostics.CONTENT_LIVE_ROOM_UNKNOWN({ documentId: "posts/missing" }),
+  contentClientDiagnostics.CONTENT_EDITOR_PACKAGES_MISSING({ name: "@tiptap/core" }),
   contentClientDiagnostics.CONTENT_FIELD_ADDRESS_INVALID({ part: "field path", value: "hero title" }),
 ])("gives $code a fix and its own docs page", (error) => {
   expect(error.fix).toMatch(/\S/)

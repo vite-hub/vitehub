@@ -91,7 +91,7 @@ Inline runs buffer a returned `Response` body before they complete. Each inspect
 Inspection holds a weak reference to an active inline run:
 
 - A run that your code still reaches stays inspectable. An abandoned run can be garbage-collected and then reports `unknown`.
-- ViteHub keeps completed inline runs for five minutes, up to 1,024 per runtime. Completed runs do not push out active ones.
+- ViteHub keeps completed inline runs for five minutes, up to 1,024 per runtime. Completed runs do not push out active ones. In `vite dev`, `getWorkflowRun()` also reads the dev run history, which keeps the newest 200 runs until the dev server restarts.
 - Without `WeakRef` or `FinalizationRegistry`, inspection uses strong references, up to 1,024. A new run then pushes out the oldest active entry, even if it is still reachable. That entry reports `unknown`, also after it completes.
 
 Use a durable provider when inspection must survive abandonment or a process restart.

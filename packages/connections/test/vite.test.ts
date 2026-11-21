@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite";
-import { mergeConfig, resolveConfig } from "vite";
+import { mergeConfig, normalizePath, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { discoverConnectionDefinitions } from "../src/discovery.ts";
@@ -382,9 +382,22 @@ describe("hubConnections", () => {
     const httpServer = createHttpServer();
     const module = {};
     const invalidateModule = vi.fn();
+    const registry = {};
+    const invalidateRegistry = vi.fn();
+    const reload = vi.fn();
     const logger = { error: vi.fn() };
     const server = {
       config: { base: "/", root, logger, server: {} },
+      environments: {
+        nitro: {
+          config: { consumer: "server" },
+          hot: { send: reload },
+          moduleGraph: {
+            getModulesByFile: (file: string) => file === normalizePath(registryFile) ? new Set([registry]) : undefined,
+            invalidateModule: invalidateRegistry,
+          },
+        },
+      },
       httpServer,
       moduleGraph: { getModuleById: () => module, invalidateModule },
       watcher,
@@ -396,14 +409,18 @@ describe("hubConnections", () => {
     watcher.emit("add", docsFile);
     await vi.waitFor(async () => {
       expect(invalidateModule).toHaveBeenCalledWith(module);
+      expect(invalidateRegistry).toHaveBeenCalledWith(registry);
+      expect(reload).toHaveBeenCalledWith({ type: "full-reload", triggeredBy: normalizePath(registryFile) });
       await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(`${docsFile}?raw`));
     });
 
     invalidateModule.mockClear();
+    reload.mockClear();
     await rm(docsFile);
     watcher.emit("unlink", docsFile);
     await vi.waitFor(async () => {
       expect(invalidateModule).toHaveBeenCalledWith(module);
+      expect(reload).toHaveBeenCalledOnce();
       await expect(readFile(registryFile, "utf8")).resolves.not.toContain('docs["github"]');
     });
     expect(logger.error).not.toHaveBeenCalled();
