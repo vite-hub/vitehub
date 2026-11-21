@@ -27,7 +27,7 @@ const ownerPlugins: Record<string, { name: string, previousName?: string, packag
   workspace: { name: "hubWorkspace", package: "workspace" },
 }
 
-const configFunctions = new Set(["defineConfig", "defineNuxtConfig"])
+const configFunctions = new Set(["defineConfig", "defineNuxtConfig", "defineNitroConfig"])
 
 export interface OptionsMigration {
   code: string
@@ -37,7 +37,7 @@ export interface OptionsMigration {
 }
 
 /** The object of `defineConfig({...})`, `defineConfig(() => ({...}))`, `defineNuxtConfig({...})`, or `export default {...}`. */
-function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
+export function findConfigRoot(program: File, followUps: FollowUp[], file: string): ObjectExpression | undefined {
   const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
   if (!exported) return undefined
   let value = unwrapExpression(exported.declaration)
@@ -153,26 +153,25 @@ function reindent(text: string, from: string, to: string): string {
  * a test file. Without it, the file's default export is the config.
  */
 /**
- * `findRoots` picks the config objects. With `keyed`, each root holds the vite-hub options in its `vitehub` key, the
- * same way as a Nuxt config, such as an object that `nuxt.config.ts` imports from another file.
+ * `findOptions` selects the options objects traced from a config that imports this file.
  */
-export function migrateViteHubOptions(file: string, code: string, findRoots?: (program: File) => ObjectExpression[], { keyed = false } = {}): OptionsMigration {
+export function migrateViteHubOptions(file: string, code: string, findOptions?: (program: File) => ObjectExpression[]): OptionsMigration {
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
-  if (!/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
+  if (!findOptions && !/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
   let program: File
   try {
-    program = parseProgram(code)
+    program = parseProgram(code, { jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) })
   }
   catch {
     return unchanged
   }
-  const defaultRoot = findRoots ? undefined : findConfigRoot(program, followUps, file)
-  const roots = findRoots ? findRoots(program) : defaultRoot ? [defaultRoot] : []
-  if (!roots[0]) return unchanged
-  const nuxt = keyed || basename(file).startsWith("nuxt.config")
-  const editor = new ConfigEditor({ code, fileName: file, path: file, program, root: roots[0] })
+  const importedOptions = findOptions?.(program)
+  const root = importedOptions ? importedOptions[0] : findConfigRoot(program, followUps, file)
+  if (!root) return unchanged
+  const nuxt = basename(file).startsWith("nuxt.config")
+  const editor = new ConfigEditor({ code, fileName: file, path: file, program, root })
   const resolveBinding = bindingResolver(program)
   const removed = new Set<Node>()
   const additions = new Map<ObjectExpression, string[]>()
@@ -201,12 +200,11 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     changed = true
   }
 
-  for (const root of roots) {
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
-  const optionObjects: ObjectExpression[] = []
+  const optionObjects: ObjectExpression[] = importedOptions ?? []
   const environmentOptions: ObjectExpression[] = []
   const emptyCalls: Array<Node & { type: "CallExpression" }> = []
-  if (nuxt) {
+  if (!importedOptions && nuxt) {
     const key = objectValue(property(root, "vitehub")?.value)
     if (key) optionObjects.push(key)
     const entry = findViteHubEntry({ code, fileName: file, path: file, program, root })
@@ -220,10 +218,10 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       if (inline) environmentOptions.push(inline)
     }
   }
-  else {
+  else if (!importedOptions) {
     const names = importedNames(program, ["vite-hub"], "vitehub")
     const local = callsOf(root, names, resolveBinding)
-    for (const call of local.length || findRoots ? local : callsOf(program, names, resolveBinding)) {
+    for (const call of local.length ? local : callsOf(program, names, resolveBinding)) {
       const [argument] = call.arguments
       const options = objectValue(argument)
       if (options) optionObjects.push(options)
@@ -231,7 +229,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     }
   }
 
-  for (const options of [...optionObjects, ...environmentOptions]) {
+  for (const options of new Set([...optionObjects, ...environmentOptions])) {
     renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
     const sandbox = property(options, "sandbox")
     const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
@@ -310,8 +308,8 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     else remove(evlog)
   }
 
-  // Env declarations: the top-level Vite `env` key, or `vite.env` in a Nuxt config, move into the Env options.
-  const viteObject = nuxt ? objectValue(property(root, "vite")?.value) : root
+  // Only a config root, not an imported options object, can contain legacy top-level Vite keys.
+  const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
   const envProperty = viteObject ? property(viteObject, "env") : undefined
   if (envProperty && viteObject) {
     const envValue = unwrapExpression(envProperty.value)
@@ -319,7 +317,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     const sourceIndent = indentAt(code, start(envProperty))
     const hubEnvNames = importedNames(program, ["@vite-hub/env/vite", "vite-hub/env/vite"], "hubEnv")
     const localHubEnvCalls = callsOf(root, hubEnvNames, resolveBinding)
-    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length || findRoots ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
+    const hubEnvCalls = nuxt ? [] : localHubEnvCalls.length ? localHubEnvCalls : callsOf(program, hubEnvNames, resolveBinding)
     const viteHubTargets = optionObjects.length + emptyCalls.length
     const moveInto = (target: ObjectExpression, nested: boolean): boolean => {
       const targetEnv = nested ? property(target, "env") : undefined
@@ -410,8 +408,6 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       }
     }
   }
-  }
-
   for (const [object, entries] of additions) editor.insertProperties(object, entries, removed)
   return changed ? { code: editor.output.toString(), changed, followUps, notes } : unchanged
 }

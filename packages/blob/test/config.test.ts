@@ -251,6 +251,21 @@ describe("blob config", () => {
     })
   })
 
+  it.each(["NETLIFY", "NETLIFY_DEV"])("keeps the inferred Netlify store name under %s", (flag) => {
+    expect(resolveBlobViteConfig({ name: "existing-assets" }, { env: { [flag]: "true" } }).blob?.store)
+      .toEqual({ driver: "netlify-blobs", name: "existing-assets" })
+  })
+
+  it.each([
+    { env: {}, hosting: "netlify" },
+    { env: { BLOB_READ_WRITE_TOKEN: "token" }, hosting: "vercel" },
+    { env: {} },
+    { env: { S3_ACCESS_KEY_ID: "key", S3_BUCKET: "assets", S3_SECRET_ACCESS_KEY: "secret" }, hosting: "cloudflare" },
+  ])("rejects a Cloudflare-only key when inference selects another driver: %j", (input) => {
+    expect(() => normalizeBlobOptions({ bucketName: "assets" }, input))
+      .toThrow(expect.objectContaining({ code: "BLOB_UNKNOWN_STORE_OPTION", message: expect.stringContaining("bucketName") }))
+  })
+
   it("normalizes explicit Netlify Blobs stores", () => {
     expect(normalizeBlobOptions({
       consistency: "strong",

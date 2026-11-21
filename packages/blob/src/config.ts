@@ -389,14 +389,17 @@ const blobDriverOptions: Record<BlobStoreConfig["driver"], readonly string[]> = 
 }
 
 /** A store without `driver` reads these when the host picks the Cloudflare or the Netlify driver. */
-const inferredBlobStoreOptions = ["binding", "bucketName", "jurisdiction", "name"]
+const inferredBlobStoreOptions: Partial<Record<BlobStoreConfig["driver"], readonly string[]>> = {
+  "cloudflare": ["binding", "bucketName", "jurisdiction"],
+  "netlify-blobs": ["name"],
+}
 
 /**
  * A config object that a variable or another file builds skips TypeScript's check of unknown keys. A store without
  * `driver` ignores a driver option, such as `token` of a Vercel store, so Blob throws for every unknown key.
  */
-function assertKnownBlobStoreKeys(store: object, driver: BlobStoreConfig["driver"] | undefined, path: string, extra: readonly string[] = []): void {
-  const known = new Set(["driver", "remote", ...extra, ...driver ? blobDriverOptions[driver] : inferredBlobStoreOptions])
+function assertKnownBlobStoreKeys(store: object, driver: BlobStoreConfig["driver"] | undefined, path: string, extra: readonly string[] = [], inferredKeys: readonly string[] = []): void {
+  const known = new Set(["driver", "remote", ...extra, ...(driver ? blobDriverOptions[driver] : inferredKeys)])
   // An option set to `undefined` is the same as an omitted one.
   const key = Object.keys(store).find(name => !known.has(name) && Reflect.get(store, name) !== undefined)
   if (key === undefined) return
@@ -606,7 +609,6 @@ export function normalizeBlobOptions(
   const serve = normalizeServeOptions(optionRecord?.serve)
   const images = normalizeImagesOptions(options?.images)
   const { serve: _serve, images: _images, ...storeOptions } = options || {}
-  const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined
 
   if (hasStoresConfig(options)) {
     // With `stores`, each store holds its own driver options.
@@ -634,31 +636,30 @@ export function normalizeBlobOptions(
     assertKnownBlobStoreKeys(explicit, explicit.driver, "blob", moduleOptions)
     return createResolvedConfig(env, applyDevelopmentMode(resolved, mode), undefined, serve, images)
   }
-  if (explicit) assertKnownBlobStoreKeys(explicit, undefined, "blob", moduleOptions)
+  const inferred = (driver: BlobStoreConfig["driver"], resolveStore: () => ResolvedBlobStoreConfig) => {
+    assertKnownBlobStoreKeys(storeOptions, undefined, "blob", [], inferredBlobStoreOptions[driver])
+    return createResolvedConfig(env, applyDevelopmentMode(resolveStore(), mode), undefined, serve, images)
+  }
 
   // NuxtHub checks its `S3_*` variables before the host, so an app that moves from NuxtHub keeps its bucket.
   const s3 = resolveS3EnvStore(env)
   if (s3) {
-    return createResolvedConfig(env, applyDevelopmentMode(s3, mode), undefined, serve, images)
+    return inferred("s3", () => s3)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
+    return inferred("cloudflare", () => resolveCloudflareStore(storeOptions as Partial<CloudflareR2BlobStoreConfig>, env))
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
+    return inferred("netlify-blobs", () => resolveNetlifyStore({ name: (storeOptions as Partial<NetlifyBlobsStoreConfig>).name }))
   }
 
-  if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
+  if (hasVercelBlobEnv(env) || hosting.includes("vercel")) {
+    return inferred("vercel", () => resolveVercelStore({}, env, servedRoute(serve, "default")))
   }
 
-  if (hosting.includes("vercel")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
-  }
-
-  return createResolvedConfig(env, applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
+  return inferred("fs", () => resolveFsStore({}, env))
 }
 
 export function warnVercelBlobFallback(

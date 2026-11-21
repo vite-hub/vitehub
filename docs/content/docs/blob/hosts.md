@@ -38,7 +38,7 @@ Each command runs a `blob.*` operation through the Console RPC, on the dev serve
 
 ## Cloudflare R2 bucket
 
-An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`. The driver is `cloudflare`: the former `cloudflare-r2` fails with `BLOB_C0001`, and `npx @vite-hub/codemods driver-key` renames it. A store key that its driver does not read, such as `token` on an `fs` store, fails with `BLOB_UNKNOWN_STORE_OPTION`. A store without `driver` reads only `remote`, `binding`, `bucketName`, `jurisdiction`, and `name`.
+An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`. The driver is `cloudflare`: the former `cloudflare-r2` fails with `BLOB_C0001`, and `npx @vite-hub/codemods driver-key` renames it. A store key that its driver does not read, such as `token` on an `fs` store, fails with `BLOB_UNKNOWN_STORE_OPTION`. Without `driver`, every store accepts `remote`, an inferred Cloudflare store also accepts `binding`, `bucketName`, and `jurisdiction`, and an inferred Netlify store also accepts `name`. If `S3_*` selects S3 instead of the host driver, set `driver` explicitly to use Cloudflare or Netlify options.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

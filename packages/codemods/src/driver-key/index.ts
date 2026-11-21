@@ -5,10 +5,13 @@ import { detectStyle, end, keyName, line, parseProgram, quoteString, start, walk
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { importedConfigOptions, optionsAt } from "../shared/config-imports.ts"
+import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { findConfigRoot } from "../vitehub-options/transform.ts"
+
 import type { File, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
-import { configImportedFiles, vitehubKeyObjects } from "../shared/config-imports.ts"
 
 /** The old key that picked the backend of a feature. The new key is always `driver`. */
 const renamedKeys = {
@@ -151,24 +154,32 @@ function renameKey(context: FileContext, property: ObjectProperty) {
   context.changed = true
 }
 
-/** The value without `as const`, `satisfies`, a type assertion, or parentheses around it. */
-function unwrapValue(node: ObjectProperty["value"]): ObjectProperty["value"] {
+function unwrapSafeValue(node: Node): Node {
   let value = node
-  while (value.type === "TSAsExpression" || value.type === "TSSatisfiesExpression" || value.type === "TSTypeAssertion" || value.type === "TSNonNullExpression" || value.type === "ParenthesizedExpression") value = value.expression
+  while (value.type === "ParenthesizedExpression" || value.type === "TSNonNullExpression" || (
+    (value.type === "TSAsExpression" || value.type === "TSTypeAssertion")
+    && value.typeAnnotation.type === "TSTypeReference" && value.typeAnnotation.typeName.type === "Identifier" && value.typeAnnotation.typeName.name === "const"
+  )) value = value.expression
   return value
 }
 
-function renameValue(context: FileContext, property: ObjectProperty, values: Readonly<Record<string, string>>, label: string) {
-  const value = unwrapValue(property.value)
+/** Returns false when the property's driver needs manual migration. */
+function renameValue(context: FileContext, property: ObjectProperty, values: Readonly<Record<string, string>>, label: string): boolean {
+  const value = unwrapExpression(property.value)
   if (value.type === "StringLiteral") {
     const next = Object.hasOwn(values, value.value) ? values[value.value] : undefined
-    if (!next) return
+    if (!next) return true
+    if (unwrapSafeValue(property.value) !== value) {
+      context.followUps.push({ file: context.file, line: line(property), message: `\`${label}\` has an explicit type constraint. Update "${value.value}" to "${next}" and update the constraint by hand.` })
+      return false
+    }
     context.output.overwrite(start(value), end(value), quoteString(next, context.style))
     context.changed = true
-    return
+    return true
   }
   const renamed = Object.entries(values).map(([from, to]) => `"${from}" is now "${to}"`).join(", ")
   context.followUps.push({ file: context.file, line: line(property), message: `\`${label}\` is not a string literal. Check its value: ${renamed}.` })
+  return false
 }
 
 /** Rewrites the options object of one feature: the old key becomes `driver`, and old driver values get the new name. */
@@ -201,11 +212,10 @@ function rewriteFeature(context: FileContext, feature: Feature | "browser", obje
 function rewriteWorkspaceStore(context: FileContext, object: ObjectExpression) {
   const properties = objectProperties(object)
   const provider = properties.find(entry => propertyName(entry) === "provider")
-  const providerValue = provider && unwrapValue(provider.value)
+  const providerValue = provider && unwrapExpression(provider.value)
   if (!provider || providerValue?.type !== "StringLiteral" || !workspaceStoreDrivers.has(providerValue.value)) return
   if (properties.some(entry => propertyName(entry) === "driver")) return
-  renameKey(context, provider)
-  renameValue(context, provider, renamedValues.store, "store.driver")
+  if (renameValue(context, provider, renamedValues.store, "store.driver")) renameKey(context, provider)
 }
 
 function rewriteWorkspace(context: FileContext, object: ObjectExpression) {
@@ -264,9 +274,9 @@ function rewriteProgram(context: FileContext, program: File) {
 async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { reportParseErrors: true }): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
   // A config file can take its vite-hub options from another file, such as `vitehub: hostProfile.vitehub`.
-  const imported = new Set(configImportedFiles(cwd, files.filter(file => configFile.test(basename(file)))))
+  const imported = importedConfigOptions(cwd, files.filter(file => configFile.test(basename(file))), (program, file) => findConfigRoot(program, [], file))
   const edits: FileEdit[] = []
-  const followUps: FollowUp[] = []
+  const followUps = imported.followUps
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
@@ -281,9 +291,10 @@ async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { report
     }
     const context: FileContext = { changed: false, file, followUps, output: new MagicString(source), rewritten: new Set(), style: detectStyle(source, program) }
     rewriteProgram(context, program)
-    if (imported.has(file)) {
+    const positions = imported.options.get(file)
+    if (positions) {
       const resolveApi = resolveApis(program)
-      for (const options of vitehubKeyObjects(program)) rewriteConfig(context, options, resolveApi)
+      for (const options of optionsAt(program, positions)) rewriteConfig(context, options, resolveApi)
     }
     if (context.changed) edits.push({ path: file, before: source, after: context.output.toString() })
   }

@@ -4,8 +4,8 @@ import { join } from "node:path"
 import { glob } from "tinyglobby"
 
 import { codemodError } from "../error-diagnostics.ts"
-import { configImportedFiles, vitehubKeyParents } from "../shared/config-imports.ts"
-import { migrateViteHubOptions } from "./transform.ts"
+import { importedConfigOptions, optionsAt } from "../shared/config-imports.ts"
+import { findConfigRoot, migrateViteHubOptions } from "./transform.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -50,16 +50,17 @@ async function configFiles(cwd: string): Promise<string[]> {
 /** Each config file, then each file that a config file imports, with the migration of its vite-hub options. */
 async function migrations(cwd: string) {
   const files = await configFiles(cwd)
+  const imported = importedConfigOptions(cwd, files, (program, file) => findConfigRoot(program, [], file))
   const results = []
   for (const file of files) {
     const before = await readFile(join(cwd, file), "utf8")
     results.push({ before, file, result: migrateViteHubOptions(file, before) })
   }
-  for (const file of configImportedFiles(cwd, files)) {
+  for (const [file, positions] of [...imported.options.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const before = await readFile(join(cwd, file), "utf8")
-    results.push({ before, file, result: migrateViteHubOptions(file, before, vitehubKeyParents, { keyed: true }) })
+    results.push({ before, file, result: migrateViteHubOptions(file, before, program => optionsAt(program, positions)) })
   }
-  return results
+  return { results, followUps: imported.followUps }
 }
 
 /** Source lines that name a renamed option type. The codemod reports them and edits nothing. */
@@ -79,9 +80,9 @@ async function renamedTypeReferences(cwd: string): Promise<FollowUp[]> {
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edits: FileEdit[] = []
-  const followUps: FollowUp[] = []
+  const { results, followUps } = await migrations(cwd)
   const notes: string[] = []
-  for (const { before, file, result } of await migrations(cwd)) {
+  for (const { before, file, result } of results) {
     followUps.push(...result.followUps)
     notes.push(...result.notes)
     if (result.changed) edits.push({ path: file, before, after: result.code })
@@ -104,10 +105,11 @@ export const vitehubOptions: Codemod = {
   description: "Renames preset to host, moves observability.logs to logs and Env declarations into vitehub({ env }), and removes devtools and contentImportBase",
   usage: "[dir]",
   async detect({ cwd }) {
-    for (const { file, result } of await migrations(cwd)) {
+    const { results, followUps } = await migrations(cwd)
+    for (const { file, result } of results) {
       if (result.changed || result.followUps.length) return { reason: `${file} uses vite-hub options that moved` }
     }
-    return undefined
+    return followUps[0] ? { reason: `${followUps[0].file} passes vite-hub options that need manual review` } : undefined
   },
   run: migrate,
 }

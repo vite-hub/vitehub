@@ -36,7 +36,7 @@ describe("driver-key", () => {
     // strata builds its options in `build/host-profile.ts` and passes them as `vitehub: hostProfile.vitehub`.
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-driver-key-"))
     try {
-      await writeFile(join(cwd, "nuxt.config.ts"), "import { createHostProfile } from './build/host-profile.ts'\nconst hostProfile = createHostProfile()\nexport default defineNuxtConfig({ vitehub: hostProfile.vitehub })\n")
+      await writeFile(join(cwd, "nuxt.config.ts"), "import { createHostProfile } from './build/host-profile.js'\nconst hostProfile = createHostProfile()\nexport default defineNuxtConfig({ vitehub: hostProfile.vitehub })\n")
       await mkdir(join(cwd, "build"))
       const profile = (blob: string, kv: string) => [
         "export const cloudflareKVNamespaceId = '4f701e72f4414181b2a760cbb798fa8d'",
@@ -46,9 +46,10 @@ describe("driver-key", () => {
         `      blob: { binding: 'BLOB', bucketName: 'strata-og-images', driver: '${blob}' as const },`,
         "      email: { driver: 'resend' as const },",
         `      kv: { binding: 'KV', driver: '${kv}' as const, namespaceId: cloudflareKVNamespaceId },`,
-        "    },",
+        "    } as const,",
         "  }",
         "}",
+        "export const unrelated = { vitehub: { queue: { provider: 'bullmq' } } }",
         "",
       ].join("\n")
       await writeFile(join(cwd, "build/host-profile.ts"), profile("cloudflare-r2", "cloudflare-kv-binding"))
@@ -61,6 +62,22 @@ describe("driver-key", () => {
     finally {
       await rm(cwd, { recursive: true, force: true })
     }
+  })
+
+  it("leaves explicitly constrained driver literals for manual migration", async () => {
+    const result = await migrateSource("nuxt.config.ts", [
+      "export default defineNuxtConfig({ vitehub: {",
+      "  blob: { driver: 'cloudflare-r2' as 'cloudflare-r2' },",
+      "  kv: { driver: 'cloudflare-kv-binding' satisfies 'cloudflare-kv-binding' },",
+      "  workspace: { store: { provider: 'vercel-blob' as 'vercel-blob' } },",
+      "} })",
+    ].join("\n"))
+    expect(result.edits).toEqual([])
+    expect(result.followUps.map(({ line, message }) => [line, message])).toEqual([
+      [2, expect.stringContaining("type constraint")],
+      [3, expect.stringContaining("type constraint")],
+      [4, expect.stringContaining("type constraint")],
+    ])
   })
 
   it("leaves a key that already reads driver and reports a config that sets both", async () => {
