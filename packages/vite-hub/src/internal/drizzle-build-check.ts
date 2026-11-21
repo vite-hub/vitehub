@@ -3,6 +3,7 @@ import { findPackageJSON } from "node:module"
 import { isAbsolute } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { isPlainObject } from "@vite-hub/internal/object"
 import type { Plugin } from "vite"
 
 import { unsupportedPeerPackagesError } from "./optional-owners.ts"
@@ -24,8 +25,9 @@ export function drizzleBuildCheckPlugin(): Plugin {
         try {
           const owner = findPackageJSON(from)
           if (!owner) return
-          const { name } = JSON.parse(readFileSync(owner, "utf8")) as { name?: string }
-          if (name !== "@vite-hub/agent" && name !== "@vite-hub/database") return
+          const ownerPackage: unknown = JSON.parse(readFileSync(owner, "utf8"))
+          if (!isPlainObject(ownerPackage)) return
+          if (ownerPackage.name !== "@vite-hub/agent" && ownerPackage.name !== "@vite-hub/database") return
           manifest = findPackageJSON("drizzle-orm", from)
         }
         catch (error) {
@@ -33,7 +35,9 @@ export function drizzleBuildCheckPlugin(): Plugin {
           throw error
         }
         if (!manifest) return
-        const { version } = JSON.parse(readFileSync(manifest, "utf8")) as { version?: string }
+        const drizzlePackage: unknown = JSON.parse(readFileSync(manifest, "utf8"))
+        if (!isPlainObject(drizzlePackage) || typeof drizzlePackage.version !== "string") return
+        const { version } = drizzlePackage
         const error = unsupportedPeerPackagesError(["drizzle-orm"], () => version)
         if (error) throw error
       },

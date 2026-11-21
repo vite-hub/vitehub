@@ -160,7 +160,7 @@ const runtimeEntries = [
   // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
   // session request.
   "src/console/runtime/server/page-auth.ts",
-  "src/console/runtime/server/page-session.ts",
+  "src/console/runtime/server/page-tools-route.ts",
   "src/console/runtime/server/site-session.ts",
 ];
 
@@ -643,7 +643,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/page-auth"];
-          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tools-route"];
           delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
