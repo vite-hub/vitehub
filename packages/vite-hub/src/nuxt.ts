@@ -177,6 +177,7 @@ type NuxtLike = {
     dev?: boolean
     experimental?: {
       emitRouteChunkError?: unknown
+      extraPageMetaExtractionKeys?: string[]
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{

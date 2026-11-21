@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MotionList } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
@@ -96,7 +97,7 @@ async function remove(name: string): Promise<void> {
     <UEmpty v-if="!crops.length && !adding" variant="naked" size="xs" icon="i-lucide-crop" title="No crops yet">
       <template #description><ConsoleCodeText text="Add one for each layout that needs its own framing, such as `mobile` at 4:5." /></template>
     </UEmpty>
-    <ul v-if="crops.length" class="divide-y divide-default rounded-lg border border-default">
+    <MotionList v-if="crops.length" tag="ul" class="divide-y divide-default rounded-lg border border-default">
       <li v-for="crop in crops" :key="crop.name" class="flex items-center gap-3 p-2">
         <div class="h-14 shrink-0 overflow-hidden rounded-md bg-elevated" :style="{ aspectRatio: String(crop.ratio), background: file.color }">
           <img
@@ -148,7 +149,7 @@ async function remove(name: string): Promise<void> {
           />
         </UDropdownMenu>
       </li>
-    </ul>
+    </MotionList>
 
     <form v-if="adding" class="grid gap-2 rounded-lg border border-default p-2" @submit.prevent="add">
       <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">

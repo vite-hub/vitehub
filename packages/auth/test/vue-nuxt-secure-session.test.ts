@@ -14,6 +14,7 @@ const nuxt = vi.hoisted(() => ({
   event: undefined as PageEvent | undefined,
   middleware: undefined as ((route: Route) => unknown) | undefined,
   state: { value: undefined as unknown },
+  guardRoute: { value: undefined as unknown },
 }))
 
 const nitro = vi.hoisted(() => ({ serverFetch: vi.fn<(request: Request) => Promise<Response>>() }))
@@ -37,7 +38,7 @@ vi.mock("#app", () => ({
   },
   useRouter: () => ({ currentRoute: { value: { fullPath: "/", meta: {} } } }),
   useRuntimeConfig: () => ({ public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/" } } }),
-  useState: () => nuxt.state,
+  useState: (key: string) => key === "vitehub:auth:guard-route" ? nuxt.guardRoute : nuxt.state,
 }))
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -51,6 +52,7 @@ afterEach(() => {
   nuxt.event = undefined
   nuxt.middleware = undefined
   nuxt.state = { value: undefined }
+  nuxt.guardRoute = { value: undefined }
 })
 
 async function signUp(definition: AuthDefinition, url: string, headers: Record<string, string>): Promise<{ cookie: string, names: string[] }> {

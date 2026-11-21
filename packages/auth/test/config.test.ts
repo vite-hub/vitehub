@@ -304,6 +304,21 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
   })
 
+  it("resolves components.prefix for the Nuxt component names", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  components: { prefix: 'Custom' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.components).toEqual({ prefix: "Custom" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  components: {},"])
+    expect(resolveAuthViteConfig(undefined, rootDir)).not.toHaveProperty("components")
+  })
+
+  it.each(["prefix", "{ prefix }", "{ prefix: '' }", "{ prefix: ' Custom' }", "{ prefix: 'Custom', global: true }", "{ ...options }"])("rejects components written as %s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  components: ${value},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+  })
+
   it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/**'], public: ${value} },`])
@@ -510,17 +525,35 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/access\.routes\[0\]\.route must be an inline string literal/)
   })
 
-  it("rejects indirect Auth Definition exports instead of reading the first defineAuth call", async () => {
+  it("reads the Definition of an exported const, such as one annotated for a composite TypeScript project", async () => {
     const rootDir = await createTempProject()
     const file = join(rootDir, "server", "auth.ts")
     await mkdir(dirname(file), { recursive: true })
     await writeFile(file, [
-      "import { defineAuth } from '@vite-hub/auth'",
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { defineAuth, type AuthDefinition, type AuthDefinitionResolver } from '@vite-hub/auth'",
+      "import { authDatabase } from '@vite-hub/auth/database'",
       "const unused = defineAuth({ appName: 'Unused', basePath: '/unused' })",
-      "const exported = defineAuth({ appName: 'Exported', basePath: '/exported' })",
-      "export default exported",
+      "const auth: AuthDefinition<AuthDefinitionResolver<{ plugins: [ReturnType<typeof apiKey>] }>> = defineAuth(() => ({",
+      "  basePath: '/exported',",
+      "  database: authDatabase(),",
+      "  plugins: [apiKey()],",
+      "}))",
+      "export default auth",
       "",
     ].join("\n"))
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({ basePath: "/exported", tables: { database: "default", schema: { plugins: ["apiKey"] } } })
+  })
+
+  it.each([
+    ["a let", "let auth = defineAuth({ basePath: '/auth' })\nexport default auth"],
+    ["a const that holds no defineAuth call", "const auth = makeAuth({ basePath: '/auth' })\nexport default auth"],
+  ])("rejects an exported %s", async (_label, body) => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, `import { defineAuth } from '@vite-hub/auth'\n${body}\n`)
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
   })
