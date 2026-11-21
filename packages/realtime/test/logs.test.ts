@@ -6,8 +6,8 @@ import { setEvlogBridge } from "@vite-hub/internal/runtime/request-log"
 
 import { logRealtime } from "../src/log.ts"
 import { encodeWorkspaceChange } from "../src/protocol.ts"
-import { createRealtimeHandler } from "../src/server.ts"
-import { appendParagraph, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, settle } from "./harness.ts"
+import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
+import { appendParagraph, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, FakeSql, settle } from "./harness.ts"
 
 import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
@@ -20,8 +20,9 @@ afterEach(() => {
 const app = "https://app.example"
 
 /** evlog's request logger, where evlog's Nitro plugin puts it. */
-function requestLogger() {
-  return { set: vi.fn(), warn: vi.fn(), error: vi.fn() }
+function requestLogger(path?: string) {
+  const fields = { path }
+  return { fields, set: vi.fn((update: Record<string, unknown>) => { Object.assign(fields, update) }), warn: vi.fn(), error: vi.fn() }
 }
 
 /** The evlog bridge that `vitehub()` installs. Each event's logger is kept, so a test can read what it logged. */
@@ -48,8 +49,9 @@ function server(definition: Partial<RealtimeDefinition>, options?: RealtimeHandl
   // SAFETY: Each test passes the access fields that a Definition needs.
   const docs = { document: adapter, ...definition } as RealtimeDefinition
   const handler = createRealtimeHandler({ docs: async () => ({ default: docs }) } as never, options)
-  return (path: string, init: { origin?: string, log?: ReturnType<typeof requestLogger>, method?: string } = {}) => {
+  return (path: string, init: { origin?: string, log?: ReturnType<typeof requestLogger>, method?: string, body?: ArrayBuffer } = {}) => {
     const request = new Request(`${app}/api/_vitehub/realtime/docs/${path}`, {
+      body: init.body,
       method: init.method,
       headers: init.method ? { origin: init.origin ?? app } : { upgrade: "websocket", ...init.origin ? { origin: init.origin } : {} },
     })
@@ -108,12 +110,42 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
   })
 
   it("hashes the room of a Definition without a document, whose id can be a token", async () => {
-    const log = requestLogger()
-    await server({ document: false, authorize: () => false })("tabs/0b6c8f9e-2f6d-4d2a-9a51-7f1f3c0e1d2a", { log })
+    const token = "0b6c8f9e-2f6d-4d2a-9a51-7f1f3c0e1d2a"
+    const log = requestLogger(`/api/_vitehub/realtime/docs/tabs/${token}`)
+    await server({ document: false, authorize: () => false })(`tabs/${token}`, { log })
 
     const [fields] = realtimeFields(log) as Array<{ room: string }>
     expect(fields).toMatchObject({ definition: "docs", refused: "authorize", status: 401 })
     expect(fields!.room).toMatch(/^#[0-9a-f]{8}$/)
+    expect(JSON.stringify(log.fields)).not.toContain(token)
+  })
+
+  it("records the response status and diagnostic code for an unsynchronized save", async () => {
+    const log = requestLogger()
+    const client = new Y.Doc()
+    try {
+      appendParagraph(client, "Unsynchronized edit")
+      const response = await server({ access: "public", editor: createStubEditor().editor })("guides/welcome.md?document=save", {
+        body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+        method: "POST",
+        log,
+      })
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toMatchObject({ data: { code: "REALTIME_SYNC_PENDING" } })
+      expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "error", status: 409, code: "REALTIME_SYNC_PENDING" }])
+    }
+    finally {
+      client.destroy()
+    }
+  })
+
+  it("uses H3's HTTP status for a legacy statusCode without changing the response", async () => {
+    const log = requestLogger()
+    const error = Object.assign(new Error("Unavailable"), { statusCode: 503 })
+    const response = await server({ authorize: () => { throw error } })("guides/welcome.md?document=save", { method: "POST", log })
+
+    expect(response.status).toBe(503)
+    expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 503 }])
   })
 
   it("sets a refusal of a document request", async () => {
@@ -189,6 +221,73 @@ describe("Realtime log events after the upgrade", () => {
 })
 
 describe("Realtime log events: one per failure, and none lost", () => {
+  it.each(["save", "release"] as const)("logs a failed last-peer %s before disposing a Durable Object room", async (failed) => {
+    const evlog = fakeEvlog()
+    const { adapter } = createMemoryAdapter({ page: { body: "Start" } })
+    const hold = vi.fn().mockResolvedValue(undefined)
+    const release = vi.fn().mockRejectedValue(new Error("Release unavailable"))
+    adapter.save.mockRejectedValue(new Error("Store unavailable"))
+    const document = failed === "release" ? { ...adapter, hold, release } : adapter
+    const app = createTestServer({ access: "public", document, editor: createStubEditor().editor }, { durable: new FakeSql() })
+    const client = await app.connect("page")
+    await settle()
+    if (failed === "save") appendParagraph(client.doc, "Unsaved edit")
+    client.close()
+    client.doc.destroy()
+    await settle()
+
+    expect(failed === "save" ? adapter.save : release).toHaveBeenCalledOnce()
+    expect(evlog.events.map(event => event.fields.realtime)).toEqual([
+      { definition: "docs", room: "page", failed },
+    ])
+  })
+
+  it("reports a failed Durable Object refresh but not a successful no-op", async () => {
+    const evlog = fakeEvlog()
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ reseeded: false }))
+    const durableObjects = { idFromName: () => ({}), get: () => ({ fetch }) }
+
+    await expect(refreshRealtimeDocument("docs", "page", { durableObjects })).resolves.toBe(false)
+    await expect(refreshRealtimeDocument("docs", "page", { durableObjects })).resolves.toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(evlog.events.map(event => event.fields.realtime)).toEqual([
+      { definition: "docs", room: expect.stringMatching(/^#[0-9a-f]{8}$/), failed: "refresh", status: 500 },
+    ])
+  })
+
+  it("does not log an unverified room ID in a failed refresh fan-out", async () => {
+    const evlog = fakeEvlog()
+    const bus = createMemoryBusNetwork().bus()
+    const publish = vi.spyOn(bus, "publish")
+    const connect = server({ access: "public", document: false }, { bus: () => bus })
+    const token = "synthetic-presence-id-for-a-refresh"
+
+    const client = peer()
+    const hooks = (await connect(token)).crossws!
+    hooks.open(client)
+    await settle()
+    publish.mockClear().mockRejectedValue(new Error("Bus unavailable"))
+    await expect(refreshRealtimeDocument("docs", token)).resolves.toBe(false)
+    const failures = evlog.events.filter(event => (event.fields.realtime as { failed: string }).failed === "bus-publish")
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: "refresh" }))
+    expect(failures).not.toHaveLength(0)
+    expect(JSON.stringify(failures.map(event => event.fields))).not.toContain(token)
+  })
+
+  it("logs separate failed operations that share the same error object", () => {
+    const evlog = fakeEvlog()
+    const error = new Error("Redis retries exhausted")
+    for (const room of ["first", "second"]) {
+      logRealtime("warn", "Realtime could not renew a room lock.", { definition: "docs", room, failed: "bus-lock" }, error)
+    }
+    expect(evlog.events.map(event => event.fields.realtime)).toEqual([
+      { definition: "docs", room: "first", failed: "bus-lock" },
+      { definition: "docs", room: "second", failed: "bus-lock" },
+    ])
+  })
+
   it("logs one close for a connection that keeps sending bad frames, and drops its frames", async () => {
     vi.spyOn(Date, "now").mockReturnValue(100)
     const evlog = fakeEvlog()

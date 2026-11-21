@@ -64,7 +64,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 
 | Field | Meaning |
 | --- | --- |
-| `definition`, `room` | The Realtime Definition and the room id. The room id of a `document: false` Definition can be a token, such as a page id, so the event has a short hash of it: `#3f2a9c1e`. |
+| `definition`, `room` | The Realtime Definition and the room id. The room id of a `document: false` Definition can be a token, such as a page id, so the event has a short hash of it: `#3f2a9c1e`. Realtime also replaces the request log's `path` with a route pattern when the room is presence-only or its kind is unknown. |
 | `refused` | `path`, `definition`, `origin`, `session`, `identify`, `authorize`, or `room` (the room could not open). `error` for other failures. |
 | `status` | The HTTP status that the browser got. |
 | `code` | The diagnostic code of the cause, such as `AUTH_R0007` when the Auth origin check refused the request. |
@@ -78,7 +78,7 @@ Failures after the WebSocket opens have no request. Realtime logs each one as it
 | `closed` | Once for each connection: the server closed the connection with a close code from the table above, or `4403` for a write without access, or `1013` for updates that come too quickly. Level `warn`. |
 | `failed: "peer"` | The connection failed. Level `error`, with the error. |
 | `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
-| `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Level `warn`. |
+| `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Refresh diagnostics hash the room id since the caller may not know the room kind. Level `warn`. |
 
 Realtime sends these events to evlog when the app installs evlog and registers its Nitro module. They also reach the app's `evlog:drain` hooks. Without evlog, or with evlog's `enabled: false`, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
 

@@ -649,6 +649,10 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" && /^[\w.-]{1,100}$/.test(code) ? code : undefined
 }
 
+function redactRealtimePath(event: H3Event): void {
+  requestLog(event)?.set({ path: `${routePrefix}:definition/:room` })
+}
+
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
   if (definition.authorize === true && !definition.identify) {
     let auth
@@ -740,6 +744,11 @@ export interface RealtimeRefreshOptions {
   durableObjects?: RealtimeDurableObjectNamespace
 }
 
+/** Refresh callers can name a room before the server has verified its Definition. */
+function refreshLogFields(definition: string, documentId: string): RealtimeLogFields {
+  return { definition, room: realtimeRoomLabel(documentId, true) }
+}
+
 /**
  * Tells the open room of a document that its stored copy changed outside the room, such as a save by an Agent or the
  * CLI. A room without unsaved edits re-seeds at once and resets its clients. A room with unsaved edits finds the change
@@ -761,7 +770,7 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
     }
     catch (error) {
       // The next save of that room finds the change.
-      logRealtime("warn", "Realtime could not refresh an open room.", { definition, room: documentId, failed: "refresh" }, error)
+      logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definition, documentId), failed: "refresh" }, error)
     }
   }
   return reseeded
@@ -772,17 +781,22 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
  * Only the Durable Object may refresh them: from the Worker's request, a room's sockets cannot receive the reset.
  */
 async function refreshDurableRoom(binding: RealtimeDurableObjectNamespace, definition: string, documentId: string): Promise<boolean> {
+  const fields = { ...refreshLogFields(definition, documentId), failed: "refresh" }
   try {
     const room = documentId.split("/").map(encodeURIComponent).join("/")
     const response = await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
       `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?document=refresh`,
       { method: "POST", headers: { [internalRefreshHeader]: "1" } },
     ))
-    const result: unknown = response.ok ? await response.json() : undefined
+    if (!response.ok) {
+      logRealtime("warn", `Realtime could not refresh an open room (HTTP ${response.status}).`, { ...fields, status: response.status })
+      return false
+    }
+    const result: unknown = await response.json()
     return result instanceof Object && "reseeded" in result && result.reseeded === true
   }
   catch (error) {
-    logRealtime("warn", "Realtime could not refresh an open room.", { definition, room: documentId, failed: "refresh" }, error)
+    logRealtime("warn", "Realtime could not refresh an open room.", fields, error)
     return false
   }
 }
@@ -875,13 +889,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     return realtimeRoomFields(room.key, room.kind === "events" && !room.workspace)
   }
 
-  /** Logs a failed save that runs on its own, such as the save after the last person leaves. */
-  function saveFailed(room: DocumentRoom) {
-    return (error: unknown) => {
-      // A 409 is a room that closed or re-seeded: nothing was lost.
-      if (room.destroyed || (error instanceof HTTPError && error.status === 409)) return
-      logRealtime("warn", "Realtime could not save a room.", { ...roomFields(room), failed: "save" }, error)
-    }
+  /** Logs a failed background save before the queue releases the room. */
+  function saveInBackground(room: DocumentRoom, reason: "idle" | "leave"): void {
+    enqueue(room, async () => {
+      try {
+        await saveRoom(room, reason, false)
+      }
+      catch (error) {
+        if (error instanceof HTTPError && error.status === 409) return
+        logRealtime("warn", "Realtime could not save a room.", { ...roomFields(room), failed: "save" }, error)
+      }
+    }).catch(() => {})
   }
 
   function publish(room: Room, type: RealtimeBusMessageType, data: Uint8Array): void {
@@ -951,7 +969,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       const [definitionName, documentId]: unknown[] = Array.isArray(key) ? key : []
       if (typeof definitionName === "string" && typeof documentId === "string") {
         refreshOpenRoom(definitionName, documentId, false).catch((error: unknown) => {
-          logRealtime("warn", "Realtime could not refresh an open room.", { definition: definitionName, room: documentId, failed: "refresh" }, error)
+          logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definitionName, documentId), failed: "refresh" }, error)
         })
       }
       return
@@ -1053,6 +1071,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       idFromName(name: string): unknown
     } | undefined
     if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
+    redactRealtimePath(event)
     let request = event.req
     if (request.headers.has(internalRefreshHeader) || request.headers.has(internalRequestHeader)) {
       // Only refreshRealtimeDocument() and requestRealtimeRoom() may send them, straight to the Durable Object.
@@ -1625,15 +1644,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   function releaseHold(room: DocumentRoom): void {
     if (room.holdTimer) clearInterval(room.holdTimer)
     room.holdTimer = undefined
-    if (room.dirty && room.resolved.persistence) enqueue(room, () => saveRoom(room, "leave", false)).catch(saveFailed(room))
+    if (room.dirty && room.resolved.persistence) saveInBackground(room, "leave")
     enqueue(room, async () => {
       if (room.writers.size > 0 || !room.held) return
       room.held = false
-      await room.resolved.adapter.release?.(room.context)
-    }).catch((error: unknown) => {
-      room.held = false
-      if (!room.destroyed) logRealtime("warn", "Realtime could not release a room.", { ...roomFields(room), failed: "release" }, error)
-    })
+      try {
+        await room.resolved.adapter.release?.(room.context)
+      }
+      catch (error) {
+        logRealtime("warn", "Realtime could not release a room.", { ...roomFields(room), failed: "release" }, error)
+      }
+    }).catch(() => { room.held = false })
   }
 
   function scheduleSave(room: DocumentRoom, delay?: number): void {
@@ -1645,7 +1666,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const wait = delay ?? Math.max(0, Math.min(persistence.debounce, room.firstDirtyAt + persistence.maxWait - now))
     room.idleTimer = setTimeout(() => {
       room.idleTimer = undefined
-      enqueue(room, () => saveRoom(room, "idle", false)).catch(saveFailed(room))
+      saveInBackground(room, "idle")
     }, wait)
   }
 
@@ -1954,7 +1975,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         await (await sharedBus())?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() })
       }
       catch (error) {
-        logRealtime("warn", "Realtime could not ask the other instances to refresh a room.", { definition: definitionName, room: documentId, failed: "bus-publish" }, error)
+        logRealtime("warn", "Realtime could not ask the other instances to refresh a room.", { ...refreshLogFields(definitionName, documentId), failed: "bus-publish" }, error)
       }
     }
     const pending = rooms.get(key)
@@ -2098,6 +2119,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const { definitionName, documentId, searchParams, workspaceEvents } = await refusing("path", () => parseRoomPath(event.req.url))
     fields.definition = definitionName
     const definition = await refusing("definition", () => getDefinition(definitionName))
+    if (definition.document === false) redactRealtimePath(event)
     fields.room = realtimeRoomLabel(documentId, definition.document === false)
     const resolved = definition.document === false ? undefined : await refusing("definition", () => resolveRealtimeDefinition(definition))
     const user = await identify(event.req, event, definitionName, definition)
@@ -2114,10 +2136,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
    */
   function logRefusal(event: H3Event, error: unknown, upgrade: boolean): void {
     const mark = typeof error === "object" && error !== null ? refusals.get(error) : undefined
-    if (!mark && !upgrade) return
-    const status = error instanceof HTTPError ? error.status : 500
-    const code = errorCode(mark?.cause ?? error)
-    const fields: RealtimeLogFields = { ...requestFields.get(event), refused: mark?.reason ?? "error", status, ...code ? { code } : {} }
+    const request = requestFields.get(event)
+    if (request?.room === undefined) redactRealtimePath(event)
+    const httpError = upgrade
+      ? error instanceof HTTPError ? error : undefined
+      : HTTPError.isError(error) ? error : new HTTPError(error as Error)
+    const data: unknown = httpError?.data
+    const status = httpError?.status ?? 500
+    const code = errorCode(data) ?? errorCode(mark?.cause ?? error)
+    const fields: RealtimeLogFields = { ...request, refused: mark?.reason ?? "error", status, ...code ? { code } : {} }
     const log = requestLog(event)
     log?.set({ realtime: fields })
     if (!upgrade || status < 500) return
@@ -2218,7 +2245,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         return
       }
       if (room.kind === "document" && room.peers.size === 0 && room.dirty && room.resolved.persistence) {
-        enqueue(room, () => saveRoom(room, "leave", false)).catch(saveFailed(room))
+        saveInBackground(room, "leave")
         return
       }
       releaseRoom(room)
@@ -2478,11 +2505,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     if (forwarded) return forwarded
     // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.
     if (event.req.headers.has(internalRefreshHeader) && resolveRealtimeRoomSql(event)) {
+      redactRealtimePath(event)
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       return { reseeded: await refreshOpenRoom(definitionName, documentId) }
     }
     // Inside the Durable Object, a request from requestRealtimeRoom(). The Worker strips the header from client requests.
     if (event.req.headers.has(internalRequestHeader) && resolveRealtimeRoomSql(event)) {
+      redactRealtimePath(event)
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       const input: unknown = await event.req.json().catch(() => undefined)
       const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
@@ -2499,7 +2528,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     // After a Durable Object hibernates, crossws restores each socket's peer with a bare GET of its first URL, with no
     // headers, and resolves its hooks again. Those hooks take the answers to `requestRealtimeRoom()`, which match by
     // peer id. The rest of the room protocol still needs the original upgrade.
-    if (event.req.method === "GET" && isBareRequest(event.req)) return restoredPeerHandler(event)
+    if (event.req.method === "GET" && isBareRequest(event.req)) {
+      redactRealtimePath(event)
+      return restoredPeerHandler(event)
+    }
     if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       try {
         return await httpHandler(event)

@@ -16,9 +16,6 @@ export interface RealtimeLogFields {
   failed?: string
 }
 
-/** Errors that a log event already has. A failure that two steps see gets one event. */
-const logged = new WeakSet<object>()
-
 /**
  * The label of a room in logs. A `document: false` room id can be a random token that lets a person join, such as a
  * page id, so the log gets a short hash of it. A cryptographic hash adds nothing here: a short or guessable id can be
@@ -58,10 +55,6 @@ export function realtimeRoomFields(key: string, presence: boolean): RealtimeLogF
  * Object and in socket callbacks, which have no `waitUntil()`.
  */
 export function logRealtime(level: "warn" | "error", message: string, fields: RealtimeLogFields, error?: unknown, options: { console?: boolean } = {}): void {
-  if (typeof error === "object" && error !== null) {
-    if (logged.has(error)) return
-    logged.add(error)
-  }
   logFailure({ field: "realtime", fields: { ...fields }, level, message, ...(error === undefined ? {} : { error }) }, () => {
     if (options.console === false) return
     const text = `[vitehub] ${message}`
