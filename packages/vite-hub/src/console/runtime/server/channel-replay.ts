@@ -1,5 +1,6 @@
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
-import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
+import { createExecutionContext } from "@vite-hub/runtime"
+import { createRuntimeWaitUntilController } from "@vite-hub/runtime/internal/context"
 
 import { agentConsole } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"

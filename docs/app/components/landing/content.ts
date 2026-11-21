@@ -325,6 +325,41 @@ export const landingPrimitives = [
     to: "/docs/ui",
     icon: "i-vitehub-ui",
   },
+  {
+    id: "sync",
+    name: "Sync",
+    description: "Local table sync",
+    to: "/docs/sync",
+    icon: "i-vitehub-sync",
+  },
+  {
+    id: "device",
+    name: "Device",
+    description: "Stored browser reads",
+    to: "/docs/device",
+    icon: "i-vitehub-device",
+  },
+  {
+    id: "forge",
+    name: "Forge",
+    description: "Git forge identity",
+    to: "/docs/forge",
+    icon: "i-vitehub-forge",
+  },
+  {
+    id: "webhooks",
+    name: "Webhooks",
+    description: "Signed event delivery",
+    to: "/docs/webhooks",
+    icon: "i-vitehub-webhooks",
+  },
+  {
+    id: "mcp",
+    name: "MCP server",
+    description: "App MCP server",
+    to: "/docs/mcp",
+    icon: "i-vitehub-mcp",
+  },
 ] as const;
 
 // Providers follow docs/content/docs/frameworks-hosts/support-matrix.md.

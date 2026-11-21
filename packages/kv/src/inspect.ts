@@ -36,9 +36,9 @@ export function inspectKVStores(build: ResolvedKVModuleOptions, dev: ResolvedKVM
   })
 }
 
-function cloudflareStores(options: KVOptions | undefined, env: Record<string, string | undefined>): Map<string, ResolvedCloudflareKVStoreConfig> {
+function cloudflareStores(options: KVOptions | undefined, env: Record<string, string | undefined>, hosting?: string): Map<string, ResolvedCloudflareKVStoreConfig> {
   const stores = new Map<string, ResolvedCloudflareKVStoreConfig>()
-  const kv = resolveKVViteConfig(options, { env }).kv
+  const kv = resolveKVViteConfig(options, { env, hosting }).kv
   if (!kv) return stores
   for (const [name, store] of Object.entries(kv.stores || { default: kv.store })) {
     if (store.driver === "cloudflare") stores.set(name, store)
@@ -47,11 +47,11 @@ function cloudflareStores(options: KVOptions | undefined, env: Record<string, st
 }
 
 /** Lists the Workers KV namespaces that KV Stores bind, with where each id comes from. Reads local config and Provision State only. */
-export function inspectKVResources(options: KVOptions | undefined, provisionRoot: string, env: Record<string, string | undefined> = process.env): ViteHubResourceSummary[] {
-  const stores = cloudflareStores(options, env)
+export function inspectKVResources(options: KVOptions | undefined, provisionRoot: string, env: Record<string, string | undefined> = process.env, hosting?: string): ViteHubResourceSummary[] {
+  const stores = cloudflareStores(options, env, hosting)
   if (!stores.size) return []
   // `KV_NAMESPACE_ID` fills only a store without a configured id, so resolving without it shows which ids config sets.
-  const configured = cloudflareStores(options, { ...env, KV_NAMESPACE_ID: undefined })
+  const configured = cloudflareStores(options, { ...env, KV_NAMESPACE_ID: undefined }, hosting)
   const provisionState = readProvisionStateSync(provisionRoot)
   return [...stores].map(([storeName, store]): ViteHubResourceSummary => {
     const configuredId = configured.get(storeName)?.namespaceId

@@ -2,8 +2,9 @@ import { consoleSignatureHeader, readConsolePublicKeys, verifyConsoleSignature }
 import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { formatDiagnostic } from "nostics"
 
-import { consoleDiagnosticBody } from "../diagnostics.ts"
+import { consoleDiagnostic, consoleDiagnosticBody } from "../diagnostics.ts"
 
 import type { ConsoleCaller, ConsoleSignatureCode } from "@vite-hub/internal/console-signature"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -24,6 +25,14 @@ export function consoleSignatureRejection(status: 401 | 500, code: ConsoleSignat
     },
     status,
   })
+}
+
+/**
+ * Print a setup failure of the app, such as a malformed `VITEHUB_CONSOLE_KEY_<NAME>`, in the server log, as an
+ * unhandled error prints. Only the caller gets the coded `500`, so without this line the host log shows nothing.
+ */
+function logSetupFailure(code: ConsoleSignatureCode, message: string): void {
+  globalThis.console.error(formatDiagnostic(consoleDiagnostic(code, message)))
 }
 
 /** The host environment of this request: the Cloudflare `env`, then `process.env` for the names it does not set. */
@@ -60,7 +69,10 @@ export function isConsoleRpcPath(pathname: string): boolean {
  */
 export async function checkConsoleSignature(request: Request, event: ConsoleRequestEvent): Promise<ConsoleSignatureCheck> {
   const keys = readConsolePublicKeys(requestEnv(event))
-  if (!(keys instanceof Map)) return { ok: false, response: consoleSignatureRejection(keys.status, keys.code, keys.message) }
+  if (!(keys instanceof Map)) {
+    logSetupFailure(keys.code, keys.message)
+    return { ok: false, response: consoleSignatureRejection(keys.status, keys.code, keys.message) }
+  }
   const url = new URL(request.url)
   if (request.method !== "POST" || !isConsoleRpcPath(url.pathname)) {
     return { ok: false, response: consoleSignatureRejection(401, "CONSOLE_SIGNATURE_INVALID", `Signed requests reach only POST ${operationRpcPath}.`) }
@@ -70,7 +82,9 @@ export async function checkConsoleSignature(request: Request, event: ConsoleRequ
   if (!origin) {
     // An unsigned request is an error of the caller. A signed request is an error of the app setup.
     if (!request.headers.has(consoleSignatureHeader)) return { ok: false, response: consoleSignatureRejection(401, "CONSOLE_SIGNATURE_MISSING", "This request is not signed.") }
-    return { ok: false, response: consoleSignatureRejection(500, "CONSOLE_SIGNATURE_ORIGIN", "Signed requests on Node require vitehub({ publicUrl }) to identify this deployment. The request Host cannot supply its identity.") }
+    const message = "Signed requests on Node require vitehub({ publicUrl }) to identify this deployment. The request Host cannot supply its identity."
+    logSetupFailure("CONSOLE_SIGNATURE_ORIGIN", message)
+    return { ok: false, response: consoleSignatureRejection(500, "CONSOLE_SIGNATURE_ORIGIN", message) }
   }
   const verified = await verifyConsoleSignature({ headers: request.headers, keys, method: request.method, origin, url })
   if (!verified.ok) return { ok: false, response: consoleSignatureRejection(verified.status, verified.code, verified.message) }

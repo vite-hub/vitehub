@@ -1,4 +1,5 @@
-import { parseDuration, runtimeErrorDiagnostics, toResultError } from "@vite-hub/runtime"
+import { parseDuration, toResultError } from "@vite-hub/runtime"
+import { runtimeErrorDiagnostics } from "@vite-hub/runtime/internal/error-diagnostics"
 
 import type { Duration, Result } from "@vite-hub/runtime"
 
