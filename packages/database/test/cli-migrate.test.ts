@@ -1,4 +1,5 @@
 import { spawn as spawnProcess } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
@@ -6,8 +7,6 @@ import { dirname, join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
-import { createHash } from "node:crypto"
 
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
@@ -26,6 +25,34 @@ afterEach(async () => {
 })
 
 const databaseUrl = "file:.vitehub/data/database/sqlite.db"
+
+/** Runs SQL on the local database file, as another tool left it. */
+async function seedDatabase(rootDir: string, sql: string) {
+  await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
+  const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+  try {
+    await client.executeMultiple(sql)
+  }
+  finally {
+    client.close()
+  }
+}
+
+async function rows(rootDir: string, sql: string) {
+  const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+  try {
+    const result = await client.execute(sql)
+    return result.rows.map(row => result.columns.map((_, index) => row[index]))
+  }
+  finally {
+    client.close()
+  }
+}
+
+async function folder(migrationsDir: string, tag: string, sql: string) {
+  await mkdir(join(migrationsDir, tag), { recursive: true })
+  await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
+}
 
 /**
  * Waits for the next second. Drizzle Kit 1.0 names a SQLite migration folder by the current second only, and Drizzle
@@ -745,34 +772,6 @@ describe("vitehub database migrate", () => {
 })
 
 describe("vitehub database migrate with an existing migrations table", () => {
-  /** Runs SQL on the local database file, as another tool left it. */
-  async function seedDatabase(rootDir: string, sql: string) {
-    await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
-    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
-    try {
-      await client.executeMultiple(sql)
-    }
-    finally {
-      client.close()
-    }
-  }
-
-  async function rows(rootDir: string, sql: string) {
-    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
-    try {
-      const result = await client.execute(sql)
-      return result.rows.map(row => result.columns.map((_, index) => row[index]))
-    }
-    finally {
-      client.close()
-    }
-  }
-
-  async function folder(migrationsDir: string, tag: string, sql: string) {
-    await mkdir(join(migrationsDir, tag), { recursive: true })
-    await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
-  }
-
   it("keeps the migrations that NuxtHub recorded in _hub_migrations, and applies the next one", async () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
