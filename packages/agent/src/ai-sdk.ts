@@ -1,7 +1,8 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
-import { formatRuntimeDiagnosticError, isExecutionBudgetExceededError, type ExecutionBudget, type ExecutionBudgetExceededError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, type ExecutionBudget, type ExecutionBudgetExceededError } from "@vite-hub/runtime"
+import { isExecutionBudgetExceededError } from "@vite-hub/runtime/internal/execution-budget"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {

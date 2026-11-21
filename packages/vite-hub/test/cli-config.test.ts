@@ -336,6 +336,47 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
+  it.each(["option", "environment variable"])("requires the Telegram token in env check with simulation enabled by %s", async source => {
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-channel-env-"));
+    roots.push(root);
+    await mkdir(join(root, "server/agents"), { recursive: true });
+    await writeFile(join(root, "server/agents/chat.ts"), `
+import { defineAgent } from "vite-hub/agent"
+import { telegram } from "vite-hub/agent/channels"
+export default defineAgent({ driver: { model: "openai/gpt-5.1-mini" }, channels: { telegram: telegram({ mode: "webhook" }) } })
+`);
+    await writeFile(join(root, "vite.config.ts"), `
+import { vitehub } from "vite-hub"
+export default { plugins: [vitehub({ agent: { channels: { simulate: ${source === "option"} } } })] }
+`);
+
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEHUB_CHANNELS", source === "option" ? undefined : "simulate");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", undefined);
+    vi.stubEnv("VITEHUB_TELEGRAM_BOT_TOKEN", undefined);
+    let stdout = "";
+    let stderr = "";
+    try {
+      const code = await runViteHubCli({
+        args: ["env", "check", "--stage", "production", "--json"],
+        cwd: root,
+        loadConfig: loadViteHubCliConfig,
+        stdout: { write: chunk => { stdout += chunk; return true } },
+        stderr: { write: chunk => { stderr += chunk; return true } },
+      });
+      expect(code, stderr).toBe(1);
+    }
+    finally {
+      vi.unstubAllEnvs();
+    }
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      stage: "production",
+      entries: expect.arrayContaining([expect.objectContaining({ path: "env.server.telegram.botToken", required: true, status: "missing" })]),
+    });
+  });
 })
 
 describe("shipped ViteHub CLI production discovery", () => {

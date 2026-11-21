@@ -540,7 +540,7 @@ With the owner packages, use `@vite-hub/ui`. You need no Comark UI install, comp
 
 `markdown.plugins` extends the preset. A plugin with a preset plugin's name replaces it, so an app can set file readers, icon collections, or a private diagram service. The include plugin stays off. Badges and chips load images by URL.
 
-Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for schema, Markdown conversion, and the loss check. Content installs its Comark and Tiptap runtimes, so apps do not configure them. Components need no separate editor node definition. A document that cannot round-trip opens read-only and stays editable in Source.
+Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for schema, Markdown conversion, and the loss check. Content installs its Comark runtime. The editor also needs the Tiptap packages, which are optional peers: install them only when the app edits Content in the browser or live, as [Live editing](/docs/content/editing-together#live-editing) shows. Components need no separate editor node definition. A document that cannot round-trip opens read-only and stays editable in Source.
 
 ### Render HTML on the server
 
@@ -574,6 +574,6 @@ An unknown component renders as an element with its tag name. Pass a document fr
 
 Replace the app's Comark renderer, component map, and stylesheet imports with `Markdown` from `vite-hub/ui`. Pass the parsed page as `value`. Keep only app-specific overrides in `components`.
 
-Remove Comark UI and Tiptap packages you installed only for Content. Keep packages the app imports directly, such as search plugins or custom editor extensions.
+Remove Comark UI packages you installed only for Content. Keep the Tiptap packages when the app uses `vite-hub/content/editor` or live editing. Keep packages the app imports directly, such as search plugins or custom editor extensions.
 
 For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The `contentEditorComponents`, `contentEditorKitOptions`, `contentMarkdownLossOf`, and `describeContentMarkdownLoss` helpers are removed. Use the codec's `verify()` method. There are no compatibility aliases.

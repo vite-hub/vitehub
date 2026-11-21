@@ -38,7 +38,7 @@ import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type WorkspaceAccessRuntime = Pick<
-  typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
+  typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace") & typeof import("@vite-hub/workspace/internal/workspace"),
   | "attachWorkspaceSourceRequestExecution"
   | "assertModelWorkspaceGlobPattern"
   | "createWorkspaceSourceResolutionFacade"
@@ -326,6 +326,7 @@ async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
   return {
     ...(await import("@vite-hub/workspace")),
     ...(await import("@vite-hub/workspace/runtime")),
+    ...(await import("@vite-hub/workspace/internal/workspace")),
   }
 }
 
