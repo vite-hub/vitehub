@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MarkdownDocument } from "@comark/vue/components/MarkdownDocument"
-import { components as blocks } from "comark-ui/vue/lazy"
+import { components as lazyBlocks } from "comark-ui/vue/lazy"
 import { camelize, capitalize, defineAsyncComponent } from "vue"
 import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
@@ -18,6 +18,8 @@ const props = defineProps<{
   /** Components by tag, such as `{ pre: DocsCodePre }`. */
   components?: Record<string, Component>
 }>()
+
+const blocks: Record<string, Component> = lazyBlocks
 
 // `::note`, `::tip`, and the other callout components draw comark-ui's GitHub callout, the same as a `> [!NOTE]` quote.
 const callout = (type: string, title?: string): Component => defineComponent({
