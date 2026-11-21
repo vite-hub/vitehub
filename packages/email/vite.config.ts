@@ -15,7 +15,6 @@ export default defineConfig({
         "@vite-hub/env",
         "@vite-hub/markdown-template",
         "comark",
-        "esbuild",
         "vite",
       ],
       onlyBundle: false,
@@ -23,7 +22,8 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/cli.ts",
-      "src/drivers/cloudflare-email.ts",
+      "src/drivers/cloudflare.ts",
+      "src/drivers/log.ts",
       "src/drivers/resend.ts",
       "src/markdown.ts",
       "src/operations.ts",

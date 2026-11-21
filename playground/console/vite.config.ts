@@ -30,6 +30,11 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
+      // The Nuxt UI utility names on shadcn tokens. The file is copied to dist/ as it is; this reads it before a build.
+      {
+        find: "@vite-hub/kit/styles/tailwind.css",
+        replacement: resolve(workspaceRoot, "packages/kit/src/styles/tailwind.css"),
+      },
       {
         find: "@vite-hub/ui/styles.css",
         replacement: resolve(workspaceRoot, "packages/ui/styles.css"),

@@ -100,7 +100,7 @@ it.each([false, true])(
               },
             }),
           },
-          webhooks: { path: "/support", secretToken: false },
+          webhooks: { path: "/support", secret: false },
         }),
       },
     })
@@ -177,7 +177,7 @@ it("rejects webhook steering into a named task", async () => {
             }),
           },
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

@@ -1,6 +1,6 @@
 import type { Driver, TransactionOptions } from "unstorage"
 
-import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
+import type { KVAtomicOperation, KVDriver, KVDriverAtomicOperations, KVPageOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import type { KVDatabases } from "./database.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -25,7 +25,7 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract at the internal driver boundary.
   getAndDeleteItem?: <T = unknown>(key: string) => Promise<T | null>
   incrementItem?: (key: string, ttl: number) => Promise<number>
-  listKeys: (options: KVListOptions) => Promise<KVListPage>
+  listKeys: (options: KVPageOptions) => Promise<KVListPage>
   /** Writes the serialized value only when the key is missing. Resolves `true` when this call wrote it. */
   setIfAbsentItem?: (key: string, value: string, ttl?: number) => Promise<boolean>
 }
@@ -40,7 +40,7 @@ const atomicDriverMethods = {
 
 // The type requires exactly the operations that `KVDriverAtomicOperations` lists for each driver.
 const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOperations[Driver], true> } = {
-  "cloudflare-kv-binding": {},
+  "cloudflare": {},
   "database": { deleteIfEquals: true, getAndDelete: true, increment: true, setIfAbsent: true },
   "deno-kv": { setIfAbsent: true },
   "fs-lite": { setIfAbsent: true },
@@ -50,7 +50,7 @@ const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOpera
 
 /** Other optional unstorage methods that a driver has. */
 const otherOptionalDriverMethods: Partial<Record<KVDriver, readonly string[]>> = {
-  "cloudflare-kv-binding": ["validateBatch"],
+  "cloudflare": ["validateBatch"],
   "fs-lite": ["getItemRaw", "getMeta", "setItemRaw"],
 }
 
@@ -80,14 +80,13 @@ async function createDatabaseDriver(store: Extract<ResolvedKVStoreConfig, { driv
 
 async function createRuntimeDriver(store: ResolvedKVStoreConfig, loadDatabases: KVDatabasesLoader | undefined): Promise<KVRuntimeDriver> {
   switch (store.driver) {
-    case "cloudflare-kv-binding": {
+    case "cloudflare": {
       const { localBase } = store
       if (localBase) {
         const { default: factory } = await import("./cloudflare-kv-local.ts")
         return factory({ ...store, localBase })
       }
       const { default: factory } = await import("./cloudflare-kv.ts")
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This adapter accepts the resolved Cloudflare record and returns KVRuntimeDriver.
       // SAFETY: The discriminated configuration is resolved and the adapter installs every KVRuntimeDriver member.
       return factory(store as unknown as Record<string, unknown>) as KVRuntimeDriver
     }
@@ -133,11 +132,9 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions, loadD
   // SAFETY: The proxy below supplies driver methods lazily and preserves these two concrete own properties.
   const target = { name: `lazy:${config.store.driver}`, options: config.store } as AnyRecord
 
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The proxy get trap supplies the complete KVRuntimeDriver contract.
   // SAFETY: The get trap forwards every required method to a resolved KVRuntimeDriver.
   return new Proxy(target as unknown as KVRuntimeDriver, {
     get(t, prop) {
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Proxy targets are accessed through the intentionally open internal record.
       // SAFETY: AnyRecord is the private representation used to inspect proxy properties.
       const own = (t as unknown as AnyRecord)[prop]
       if (own !== undefined) return own
@@ -145,7 +142,6 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions, loadD
         return async () => {
           disposed = true
           if (!driverPromise) return
-          // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The promise resolves only from createRuntimeDriver.
           // SAFETY: createRuntimeDriver returns the callable driver record inspected here.
           const driver = await driverPromise as unknown as AnyRecord
           // SAFETY: dispose is optional and invoked only when callable.
@@ -164,7 +160,6 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions, loadD
       const optionalMethods = lazyOptionalDriverMethods[config.store.driver]
       if (!lazyDriverMethods.has(prop) && !optionalMethods.has(prop)) return undefined
       return async (...args: unknown[]) => {
-        // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- resolve returns a KVRuntimeDriver represented as a callable record.
         // SAFETY: createRuntimeDriver owns the resolved driver's methods.
         const driver = await resolve() as unknown as AnyRecord
         // SAFETY: The method name comes from the required or provider-supported method sets above.

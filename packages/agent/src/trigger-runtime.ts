@@ -5,7 +5,7 @@ import {
   channelDeliveryFinishEffectsContextKey,
   normalizeCapabilities,
 } from "./capability-runtime.ts"
-import { AgentHttpError } from "./http-error.ts"
+import { agentHttpError, type AgentHttpError } from "./http-error.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { runInvocationReference } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
@@ -41,7 +41,9 @@ import type {
   ResolvedAgentTriggerTask,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { githubHmacSignatureFormat, verifyViteHubHmacSignature, viteHubHmacSha256 } from "@vite-hub/internal/secret"
+import { parseDuration } from "@vite-hub/runtime"
+import { serverVariable } from "./internal/server-variable.ts"
+import { githubHmacSignatureFormat, stripeSignatureToleranceSeconds, verifyViteHubHmacSignature, verifyViteHubStripeSignature } from "@vite-hub/internal/secret"
 import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -456,6 +458,8 @@ async function resolveWebhookSecret(
   context: AgentCallbackContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
+  // A string names the server variable that holds the secret, as in Webhooks.
+  if (typeof value === "string") return serverVariable(value)
   if (typeof value === "function") {
     return unsealWebhookSecret(await value(context))
   }
@@ -483,7 +487,7 @@ async function verifyBearerSignature(secret: string, header: string): Promise<bo
 }
 
 function missingBearerSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
-  return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
+  return agentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secret resolved to no secret. Set the server variable that secret names, or return false from a secret function to disable verification.`)
 }
 
 async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
@@ -491,15 +495,11 @@ async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  return [...await viteHubHmacSha256(secret, value)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
-type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
+type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { type: "hmac-sha256" }>
 
 function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
-  if (signature === "github-sha256") return { preset: "hmac-sha256", ...githubHmacSignatureFormat }
-  if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
+  if (signature === "github") return { type: "hmac-sha256", ...githubHmacSignatureFormat }
+  if (isRecord(signature) && "type" in signature && signature.type === "hmac-sha256") return signature
   return undefined
 }
 
@@ -513,48 +513,19 @@ async function constantTimeEqual(left: string, right: string): Promise<boolean> 
 }
 
 function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition["signature"]): number | undefined {
-  if (signature === "stripe-sha256") return 300
-  if (isRecord(signature) && "preset" in signature && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? 300
+  if (signature === "stripe") return stripeSignatureToleranceSeconds
+  if (isRecord(signature) && "type" in signature && signature.type === "stripe") {
+    return signature.tolerance === undefined ? stripeSignatureToleranceSeconds : parseDuration(signature.tolerance, "tolerance") / 1000
+  }
   return undefined
 }
 
-// Verifies `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, as during secret rotation.
-async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number, receivedAt = Date.now()): Promise<boolean> {
-  if (!Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
-  let timestamp: string | undefined
-  let signatureCount = 0
-  const signatures: string[] = []
-  for (const part of header.split(",")) {
-    const separator = part.indexOf("=")
-    if (separator <= 0) continue
-    const key = part.slice(0, separator).trim()
-    const value = part.slice(separator + 1).trim()
-    if (key === "t") timestamp = value
-    else if (key === "v1") {
-      if (++signatureCount > 32) return false
-      if (/^[a-f0-9]{64}$/.test(value)) signatures.push(value)
-    }
-  }
-  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
-  const timestampSeconds = Number(timestamp)
-  if (!Number.isSafeInteger(timestampSeconds)) return false
-  if (Math.floor(receivedAt / 1000) - timestampSeconds > toleranceSeconds) return false
-  const prefix = new TextEncoder().encode(`${timestamp}.`)
-  const payload = new Uint8Array(prefix.length + rawBody.length)
-  payload.set(prefix)
-  payload.set(rawBody, prefix.length)
-  const expected = await hmacSha256(secret, payload.buffer)
-  let verified = false
-  for (const signature of signatures) verified = await constantTimeEqual(expected, signature) || verified
-  return verified
-}
-
 function webhookVerificationError(message: string): AgentHttpError {
-  return new AgentHttpError(401, message)
+  return agentHttpError(401, message)
 }
 
 function unresolvedSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
-  return webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but it resolved to no secret. Configure the secret; secretToken: false explicitly disables verification.`)
+  return webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secret but it resolved to no secret. Set the server variable that secret names; secret: false explicitly disables verification.`)
 }
 
 export interface AgentWebhookVerificationOptions {
@@ -573,34 +544,34 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
 ): Promise<AgentWebhookVerificationResult> {
   let unconfigured: AgentWebhookRegistrationDefinition<TRuntimeConfig> | undefined
   for (const registration of registrations) {
-    const secretToken = await resolveWebhookSecret(registration.secretToken, context)
-    if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
+    const resolvedSecret = await resolveWebhookSecret(registration.secret, context)
+    if (resolvedSecret !== undefined && resolvedSecret !== false && typeof resolvedSecret !== "string") {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secret to an invalid value.`)
     }
-    if (!secretToken && secretToken !== false && registration.signature === "bearer") throw missingBearerSecretError(registration)
+    if (!resolvedSecret && resolvedSecret !== false && registration.signature === "bearer") throw missingBearerSecretError(registration)
     const secretHeader = webhookSecretHeader(registration)
     if (!secretHeader) {
-      if (secretToken === false) return { registration, verified: true }
-      if (secretToken) {
-        throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.`)
+      if (resolvedSecret === false) return { registration, verified: true }
+      if (resolvedSecret) {
+        throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secret but no secretHeader is configured. Verification requires secretHeader; secret: false explicitly disables verification.`)
       }
-      if (registration.secretToken !== undefined) {
+      if (registration.secret !== undefined) {
         throw unresolvedSecretError(registration)
       }
       if (registration.signature === undefined) unconfigured ??= registration
       continue
     }
-    if (secretToken === false) {
+    if (resolvedSecret === false) {
       return { registration, verified: true }
     }
-    if (!secretToken) {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
+    if (!resolvedSecret) {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${secretHeader}" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.`)
     }
     throw webhookVerificationError(`[vitehub] Webhook secret header "${secretHeader}" is required.`)
   }
   // No registration verified the request. A required check never passes by default.
   if (unconfigured) {
-    throw webhookVerificationError(`[vitehub] Webhook registration "${unconfigured.id || unconfigured.provider}" declares no verification. Set secretToken with secretHeader, signature: "bearer", or signature: { verify }; secretToken: false explicitly disables verification.`)
+    throw webhookVerificationError(`[vitehub] Webhook registration "${unconfigured.id || unconfigured.provider}" declares no verification. Set secret with secretHeader, signature: "bearer", or signature: { verify }; secret: false explicitly disables verification.`)
   }
   throw webhookVerificationError("[vitehub] Webhook secret verification failed.")
 }
@@ -646,31 +617,31 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
   }
 
   for (const { headerValue, registration } of targeted) {
-    const secretToken = await resolveWebhookSecret(registration.secretToken, verificationContext)
-    if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
+    const resolvedSecret = await resolveWebhookSecret(registration.secret, verificationContext)
+    if (resolvedSecret !== undefined && resolvedSecret !== false && typeof resolvedSecret !== "string") {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secret to an invalid value.`)
     }
-    if (secretToken === false) {
+    if (resolvedSecret === false) {
       return { registration, verified: true }
     }
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
       // A declared secret that resolves to nothing must not reach `verify` as an empty key.
-      if (!secretToken && registration.secretToken !== undefined) {
+      if (!resolvedSecret && registration.secret !== undefined) {
         throw unresolvedSecretError(registration)
       }
       const rawBody = await readRawBody()
-      if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
+      if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: resolvedSecret || "" })) {
         return { registration, verified: true }
       }
       continue
     }
-    if (!secretToken) {
+    if (!resolvedSecret) {
       if (registration.signature === "bearer") throw missingBearerSecretError(registration)
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.`)
     }
     if (headerValue === null) continue
     if (registration.signature === "bearer") {
-      if (await verifyBearerSignature(secretToken, headerValue)) {
+      if (await verifyBearerSignature(resolvedSecret, headerValue)) {
         return { registration, verified: true }
       }
       continue
@@ -678,19 +649,19 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
-      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance, options.receivedAt)) {
+      if (await verifyViteHubStripeSignature(resolvedSecret, headerValue, rawBody, { receivedAt: options.receivedAt, toleranceSeconds: stripeTolerance })) {
         return { registration, verified: true }
       }
       continue
     }
     const hmacSignature = hmacSignaturePreset(registration.signature)
     if (hmacSignature) {
-      if (await verifyViteHubHmacSignature(secretToken, headerValue, await readRawBody(), hmacSignature)) {
+      if (await verifyViteHubHmacSignature(resolvedSecret, headerValue, await readRawBody(), hmacSignature)) {
         return { registration, verified: true }
       }
       continue
     }
-    if (await constantTimeEqual(secretToken, headerValue)) {
+    if (await constantTimeEqual(resolvedSecret, headerValue)) {
       return { registration, verified: true }
     }
   }
@@ -699,7 +670,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
 }
 
 function requiresWebhookSecretHeader(registrations: AgentWebhookRegistrationDefinition[]) {
-  return registrations.some(registration => registration.signature === "bearer" || (registration.secretToken !== undefined && registration.secretToken !== false))
+  return registrations.some(registration => registration.signature === "bearer" || (registration.secret !== undefined && registration.secret !== false))
 }
 
 function withAgentTriggerContext<CALL_OPTIONS>(

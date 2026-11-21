@@ -8,7 +8,8 @@
       <!-- One frame for every route, so the rail stays mounted while a page loads and between sections. -->
       <ConsoleFrame :active="active" :sections-base="sectionsBase">
         <RouterView v-slot="{ Component }">
-          <component :is="Component" v-if="Component" />
+          <!-- A page reads the navigation when it mounts. When a newer answer changes it, the page mounts again. -->
+          <component :is="Component" v-if="Component" :key="`${navigationChanges}:${route.meta.contributedNavigationVersion ?? 0}`" />
           <!-- The same panel and status as the server page, so the first paint does not change shape. -->
           <UDashboardPanel v-else id="console-opening">
             <template #header>
@@ -18,7 +19,7 @@
             </template>
             <template #body>
               <p role="status" class="vitehub-console-opening">
-                <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
                 Opening Console…
               </p>
             </template>
@@ -30,21 +31,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import { RouterView, useRoute } from "vue-router";
 
 import { isConsoleSectionId } from "../sections";
 import ConsoleFrame from "../components/console-frame.vue";
 import ConsoleProjectGate from "../components/console-project-gate.vue";
 import ConsoleSidebarTrigger from "../components/console-sidebar-trigger.vue";
+import Icon from "../components/console-icon.vue";
 import { useConsoleProjects } from "./project-session";
+import { subscribeConsoleNavigation } from "./sections";
 
-defineProps<{ sectionsBase: string }>();
+const props = defineProps<{ sectionsBase: string }>();
 
 const route = useRoute();
 const gate = useConsoleProjects().gate;
 // The Overview has no section, so the rail marks its home item.
 const active = computed(() => isConsoleSectionId(route.meta.consoleSection) ? route.meta.consoleSection : undefined);
+
+// The first navigation is the one that the pages read. Each later one changed, such as the answer of this visit after
+// the stored one.
+const navigationChanges = ref(0);
+let navigationShown = false;
+onScopeDispose(subscribeConsoleNavigation(props.sectionsBase, () => {
+  // Contributed pages remount only after the router has matched the replacement descriptor.
+  if (navigationShown && route.meta.contributedNavigationVersion === undefined) navigationChanges.value++;
+  navigationShown = true;
+}));
 
 // The skip link moves focus to the first control of the page content: in the main landmark, or next to the first
 // heading. Focus never lands on a container, so the theme's focus ring never frames the whole page. A page without a

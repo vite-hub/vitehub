@@ -5,14 +5,18 @@ import {
   discoverViteHubDevServer,
   fetchViteHubDevEndpoint,
   readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
+  requireViteHubDevServerUrl,
 } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
-import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
+import { agentDevLoopDiscoveryFetch, isCompatibleAgentDevServerRoot } from "./internal/agent-dev-loop-cli.ts"
+import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
+import { runAgentStateCli } from "./internal/agent-state-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { conversationsExportUsage, runConversationsExportCli } from "./internal/conversations-cli.ts"
@@ -163,7 +167,7 @@ function writeDevUsage(context: AgentCliContext): void {
     "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
     "  --cli <name>      Run a Capability CLI command attached to the Agent.",
     "  --input <json|@file>  Agent Trigger payload as a JSON object, or @file to read it from a file.",
-    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>       App URL, such as http://localhost:3000. Defaults to the dev server of this project.",
     "  --timeout <ms>    Stream inactivity timeout; command deadline. Defaults to 90000.",
     "  -h, --help        Show this help.",
     "",
@@ -594,7 +598,7 @@ export async function runAgentEvalCli(
     parsed = parseEvalArgs(args)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeEvalUsage(context)
     return 1
   }
@@ -637,14 +641,12 @@ const agentDevTargetErrors = {
   invalidInlineTimeout: (message: string) => agentDiagnostics.AGENT_R0394({ message }),
   invalidTimeout: (message: string) => agentDiagnostics.AGENT_R0393({ message }),
   missingValue: (message: string) => agentDiagnostics.AGENT_R0385({ message }),
+  unknownOption: (message: string) => agentDiagnostics.AGENT_R0395({ message }),
 }
 
-function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
+function parseDevArgs(args: string[]): Omit<ParsedDevArgs, "url"> & { url?: string } {
   const message: string[] = []
-  const parsed: ParsedDevArgs = {
-    help: false,
-    url: resolveViteHubDevServerUrl(env),
-  }
+  const parsed: Omit<ParsedDevArgs, "url"> & { url?: string } = { help: false }
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -769,7 +771,7 @@ async function readDiscovery(
 ): Promise<AgentDevTarget | undefined> {
   const server = await discoverViteHubDevServer<Partial<AgentDevLoopDiscoveryResponse>>({
     endpoint: agentDevEndpoint,
-    fetch: fetchImpl,
+    fetch: agentDevLoopDiscoveryFetch(fetchImpl, context.rootDir),
     isCompatibleRoot: isCompatibleAgentDevServerRoot,
     rootDir: context.rootDir,
     serverUrl: parsed.url,
@@ -1217,12 +1219,12 @@ export async function runAgentDevCli(
   context: AgentCliContext,
   options: AgentDevCliOptions = {},
 ): Promise<number> {
-  let parsed: ParsedDevArgs
+  let parsed: ReturnType<typeof parseDevArgs>
   try {
-    parsed = parseDevArgs(args, context.env)
+    parsed = parseDevArgs(args)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeDevUsage(context)
     return 1
   }
@@ -1242,20 +1244,29 @@ export async function runAgentDevCli(
       else parsed.payload = parseDevInput(parsed.input)
     }
     catch (error) {
-      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
       return 1
     }
   }
 
   const fetchImpl = options.fetch || globalThis.fetch
-  const target = await readDiscovery(parsed, context, fetchImpl)
+  let url: string
+  try {
+    url = parsed.url ?? requireViteHubDevServerUrl([context.rootDir, resolveViteHubProjectRoot(context.rootDir)], context.env, "agent dev")
+  }
+  catch (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    return 1
+  }
+  const resolvedArgs = { ...parsed, url }
+  const target = await readDiscovery(resolvedArgs, context, fetchImpl)
   if (!target) return 1
 
   if (parsed.cli) {
-    return await sendDevCliCommand(target, parsed, context, fetchImpl)
+    return await sendDevCliCommand(target, resolvedArgs, context, fetchImpl)
   }
   if (workspaceCommand) {
-    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.root, target.tokenOptions)
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, resolvedArgs, context, fetchImpl, target.root, target.tokenOptions)
   }
 
   const payloadStartsInvocation = parsed.payload && (
@@ -1263,13 +1274,13 @@ export async function runAgentDevCli(
     || Array.isArray(parsed.payload.messages) && parsed.payload.messages.length > 0
   )
   if (parsed.message || payloadStartsInvocation) {
-    return await sendDevMessage(target, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
+    return await sendDevMessage(target, parsed.message || "", [], resolvedArgs, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {
     context.stderr.write("Pass a message or run in an interactive terminal.\n")
     return 1
   }
-  return await runInteractiveDevLoop(parsed, context, fetchImpl, target)
+  return await runInteractiveDevLoop(resolvedArgs, context, fetchImpl, target)
 }
 
 export function createAgentCliContributor(options?: false | AgentCliContributorOptions): AgentCliContributor | undefined {
@@ -1282,10 +1293,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const evalFiles = discoverAgentEvalFiles(evalRoots)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
-      description: "Inspect a discovered Agent through a running Vite Development Server.",
-      name: "info",
+      description: "Inspect a discovered Agent through the Dev Loop or the app's Console.",
+      name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent info [--agent <name>] [--json]",
+      usage: "vitehub agent get [name] [--url <app>] [--dev] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
@@ -1294,10 +1305,29 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
     {
+      description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
+      name: "conversations",
+      run: async (args, context) => await runAgentConversationsCli(args, context),
+      usage: conversationsExportUsage,
+    },
+    {
+      description: "Show the AI emulator that answers Agent models under VITEHUB_MODELS=emulate: its rules and recent calls.",
+      name: "emulator",
+      // The emulator reader loads the gateway package, so only this command imports it.
+      run: async (args, context) => await (await import("./internal/agent-emulator-cli.ts")).runAgentEmulatorCli(args, context),
+      usage: "vitehub agent emulator [--url <url>] [--json]",
+    },
+    {
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [--url <url>] [--json]",
+    },
+    {
+      description: "Move Chat State keys that an explicit `messages.state` wrote without a scope to their Channel scope.",
+      name: "state",
+      run: async (args, context) => await runAgentStateCli(args, context),
+      usage: "vitehub agent state migrate --agent <name> --channel <adapter>[=<channel>]... [--url <libsql-url>] [--apply]",
     },
   ]
   if (evalFiles.length) {
@@ -1326,7 +1356,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         description: "External Channel registration workflows.",
         features: [
           {
-            description: "Download one deployed Channel conversation and its attachments. `conversations export --format json --output <directory>` writes the same archive.",
+            description: "Download one deployed Channel conversation and its attachments. `agent conversations export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               envDir: options?.envDir,
@@ -1338,7 +1368,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             description: "Send past Channel messages from a Channel history through its trigger.",
             name: "replay",
             run: async (args, context) => await runAgentChannelReplayCli(args, context),
-            usage: "vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--label <label>] [--query <key=value>]... [--limit <n>]",
+            usage: "vitehub channels replay --agent <name> --channel <name> [--url <app>] [--dry-run] [--force] [--label <label>] [--query <key=value>]... [--limit <n>]",
           },
           {
             description: "Inspect and synchronize provider-owned Channel webhooks and account resources for a deployed stage.",
@@ -1352,20 +1382,18 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         ],
         name: "channels",
       },
-      {
-        description: "Export Channel conversations.",
-        features: [
-          {
-            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
-            name: "export",
-            run: async (args, context) => await runConversationsExportCli(args, context),
-            usage: conversationsExportUsage,
-          },
-        ],
-        name: "conversations",
-      },
     ],
   }
+}
+
+/** `vitehub agent conversations export`: the one command of the `conversations` group. */
+async function runAgentConversationsCli(args: string[], context: Parameters<typeof runConversationsExportCli>[1]): Promise<number> {
+  const [command, ...rest] = args
+  if (command === "export") return await runConversationsExportCli(rest, context)
+  const stream = command === undefined || command === "-h" || command === "--help" ? context.stdout : context.stderr
+  if (command !== undefined && stream === context.stderr) stream.write(`Unknown command: vitehub agent conversations ${command}.\n`)
+  stream.write(`Usage: ${conversationsExportUsage}\n`)
+  return stream === context.stdout ? 0 : 1
 }
 
 export { runAgentInfoCli, runAgentInvocationsCli }

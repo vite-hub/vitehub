@@ -4,24 +4,24 @@ import type { Plugin } from "vite"
 import { deferQueue, dynamicQueue, sendQueue, useQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueProviderOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
+import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueDriverOptions, QueueErrorCode, QueueJob, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("keeps development disclosure out of public local provider options", () => {
-  expectTypeOf<LocalQueueProviderOptions>().not.toHaveProperty("development")
+  expectTypeOf<LocalQueueDriverOptions>().not.toHaveProperty("development")
   expectTypeOf<ResolvedLocalQueueOptions>().not.toHaveProperty("development")
 })
 
 it("returns a vite plugin", () => {
   expectTypeOf(hubQueue()).toMatchTypeOf<Plugin>()
-  expectTypeOf(hubQueue({ provider: "cloudflare" })).toMatchTypeOf<Plugin>()
-  expectTypeOf(hubQueue({ provider: "vercel" }, { importBase: "vite-hub/queue" })).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ driver: "cloudflare" })).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ driver: "vercel" }, { importBase: "vite-hub/queue" })).toMatchTypeOf<Plugin>()
   // @ts-expect-error The import base is an internal option, not a public Queue option.
   hubQueue({ importBase: "vite-hub/queue" })
 })
 
 it("infers queue payload types", () => {
-  const queue = defineQueue<{ email: string }>(async (job) => job.payload.email)
+  const queue = defineQueue<{ email: string }>({ handler: async ({ payload }) => payload.email })
   expectTypeOf(queue.handler).parameters.toEqualTypeOf<[{
     attempts: number
     id: string
@@ -30,22 +30,38 @@ it("infers queue payload types", () => {
   }]>()
 })
 
+it("infers the payload from an annotated handler", () => {
+  const queue = defineQueue({ handler: async ({ payload }: QueueJob<{ email: string }>) => payload.email })
+  expectTypeOf(queue.handler).parameter(0).toEqualTypeOf<QueueJob<{ email: string }>>()
+})
+
+it("rejects the removed handler argument", () => {
+  // @ts-expect-error Pass one object with `handler`.
+  defineQueue(async () => {})
+})
+
+it("rejects an extra options argument", () => {
+  // @ts-expect-error Options belong in the definition object.
+  defineQueue({ handler: async () => {} }, { concurrency: 2 })
+})
+
 it("types Queue error codes", () => {
   expectTypeOf<QueueErrorCode>().toEqualTypeOf<
     | "QUEUE_PROVIDER_FAILED"
     | "QUEUE_PROVIDER_INVALID_RESPONSE"
     | "QUEUE_UNSUPPORTED_OPTION"
+    | "RUNTIME_DURATION_INVALID"
   >()
-  expectTypeOf<CloudflareQueueErrorCode>().toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+  expectTypeOf<CloudflareQueueErrorCode>().toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">()
   expectTypeOf<VercelQueueErrorCode>().toEqualTypeOf<QueueErrorCode>()
 })
 
 it("types the codes of each method", () => {
   expectTypeOf(sendQueue<"welcome">).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
   expectTypeOf(dynamicQueue.send).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
-  expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
-  expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
-  expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION">>>()
+  expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
+  expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
+  expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
   expectTypeOf(deferQueue<"welcome">).returns.toEqualTypeOf<void>()
 })
 
@@ -63,15 +79,15 @@ it("narrows Queue results by the error element", async () => {
   if (client.provider === "cloudflare") {
     const [sendError] = await client.send({ email: "ada@example.test" })
     if (sendError) {
-      expectTypeOf(sendError.code).toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+      expectTypeOf(sendError.code).toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">()
       // @ts-expect-error A Cloudflare send never returns an invalid provider response.
       void (sendError.code === "QUEUE_PROVIDER_INVALID_RESPONSE")
     }
   }
 })
 
-const welcome = defineQueue<{ email: string }>(job => job.payload.email)
-const audit = defineQueue<{ payload: string, region: string, id: string }>(job => job.payload.id)
+const welcome = defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })
+const audit = defineQueue<{ payload: string, region: string, id: string }>({ handler: ({ payload }) => payload.id })
 
 declare module "../src/types.ts" {
   interface QueueRegistry {
@@ -81,7 +97,13 @@ declare module "../src/types.ts" {
 }
 
 it("checks dispatch against the selected Queue Definition", async () => {
-  await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
+  await sendQueue("welcome", { email: "ada@example.test" }, { delay: "1s" })
+  await sendQueue("welcome", { email: "ada@example.test" }, { retention: 3600 })
+  await sendQueue("welcome", { email: "ada@example.test" }, { retention: "1 hour" })
+  // @ts-expect-error `delay` is a duration string such as "1m". A number of seconds is only for a lifetime.
+  await sendQueue("welcome", { email: "ada@example.test" }, { delay: 60 })
+  // @ts-expect-error `delaySeconds` is now `delay`.
+  await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 60 })
   deferQueue("audit", { payload: "event", region: "business", id: "row-1" })
   const client = await useQueue("welcome")
   // @ts-expect-error ViteHub generates the message ID. Use `idempotencyKey` to deduplicate.
@@ -89,7 +111,7 @@ it("checks dispatch against the selected Queue Definition", async () => {
   // @ts-expect-error Payload belongs to welcome, not audit.
   await sendQueue("welcome", { payload: "event", region: "business", id: "row-1" })
   // @ts-expect-error No envelope form remains.
-  await sendQueue("welcome", { payload: { email: "ada@example.test" }, delaySeconds: 1 })
+  await sendQueue("welcome", { payload: { email: "ada@example.test" }, delay: "1s" })
   // @ts-expect-error Named clients retain their definition's payload.
   await client.send({ count: 1 })
   if (client.provider === "cloudflare") {

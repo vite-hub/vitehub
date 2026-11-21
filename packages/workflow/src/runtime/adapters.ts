@@ -1,4 +1,5 @@
-import { deserializeResponse, getViteHubErrorShape, isSerializedResponse } from "@vite-hub/runtime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -9,14 +10,18 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { toCloudflareStartParams } from "./delay.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
-import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
+import { cloudflareSignalEventType } from "./cloudflare-runner.ts"
+import { cancelOpenWorkflowRun, getOpenWorkflowRun, resumeOpenWorkflowSignal, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { toWorkflowRunError } from "./run-error.ts"
-import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { readWorkflowSignalToken, resumeInlineWorkflowSignal } from "./signals.ts"
+import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeEvent, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, CloudflareWorkflowInstance, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import type { WorkflowOperationName } from "../errors.ts"
+import type { WorkflowSignalAddress } from "./signals.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   definition: WorkflowDefinition<TPayload, TResult>
@@ -33,6 +38,24 @@ interface GetWorkflowAdapterContext {
   event: unknown
   id: string
   name: string
+}
+
+/**
+ * Resumes a run that waits on `context.createSignal()`. An inline run waits in this process. A durable run waits in
+ * the provider of the token, which must be the provider of this app.
+ */
+async function resumeViteHubSignal<TPayload>(
+  config: ResolvedWorkflowOptions,
+  token: string,
+  payload: TPayload,
+  durable?: (address: WorkflowSignalAddress) => Promise<void>,
+): Promise<WorkflowSignalResult> {
+  const address = readWorkflowSignalToken(token)
+  if (!address) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
+  if (address.host === "inline") resumeInlineWorkflowSignal(token, address, payload)
+  else if (address.host === config.driver && durable) await durable(address)
+  else throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
+  return { id: address.run, provider: config.driver }
 }
 
 interface WorkflowRuntimeAdapter {
@@ -319,7 +342,22 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
       return await inlineAdapter(config).run(context)
     },
-    resume: () => unsupportedOperation("cloudflare", "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, signal, workflow }) => {
+      const binding = resolveCloudflareInspectionBinding(getWorkflowRuntimeEvent(), config.binding, workflow)
+      if (!binding) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+      const { instance, run: current } = await readCloudflareRun(binding, run)
+      if (!instance || finishedRunStatuses.has(current.status)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+      await runWorkflowProviderOperation("cloudflare", "resume-signal", async () => {
+        if (!instance.sendEvent) unsupportedOperation("cloudflare", "signals")
+        try {
+          await instance.sendEvent({ payload, type: cloudflareSignalEventType(signal) })
+        }
+        catch (error) {
+          if (isCloudflareInstanceNotFound(error)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+          throw error
+        }
+      })
+    }),
   }
   return adapter
 }
@@ -327,9 +365,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 const warnedInlineOpenWorkflowNames = new Set<string>()
 
 /**
- * Every OpenWorkflow worker registers the discovered Workflow Definitions of the build registry when it starts. Any
- * worker can claim a run, so a run of another definition, such as an inline `createWorkflow(name, handler)` or an Agent
- * Workflow, could wait in storage on a worker that never registers it. Those runs execute inline in this process.
+ * Every OpenWorkflow worker registers the Workflow Definitions of the build registry when it starts: discovered
+ * Workflows and discovered Agent Workflows. Any worker can claim a run, so a run of an inline
+ * `createWorkflow(name, handler)` could wait in storage on a worker that never registers it. Those runs execute inline
+ * in this process. A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, so Agent turns are
+ * never inline.
  */
 function isDurableOpenWorkflowDefinition(name: string): boolean {
   const registry = getWorkflowRuntimeRegistry()
@@ -345,10 +385,14 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     get: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
       ? await getOpenWorkflowRun(config, name, id)
       : await inline.get({ event, id, name }),
-    resume: () => unsupportedOperation("openworkflow", "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, workflow }) => {
+      if (!await resumeOpenWorkflowSignal(config, workflow, run, token, payload)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+    }),
     run: async (context) => {
       const { definition, event, name, options, payload, startAt } = context
       if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
+      // An Agent turn must be durable. The registry has every discovered Agent, so this one is not discovered.
+      if (definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery) throw workflowErrorDiagnostics.WORKFLOW_AGENT_NOT_DISCOVERED({ name })
       if (!warnedInlineOpenWorkflowNames.has(name)) {
         warnedInlineOpenWorkflowNames.add(name)
         console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
@@ -368,54 +412,78 @@ async function waitUntilTime(startAt: number | undefined): Promise<void> {
   }
 }
 
+/** The inline run state forgets a finished run after five minutes. `vite dev` keeps its run history longer. */
+function recordedDevRun(config: ResolvedWorkflowOptions, name: string, id: string): WorkflowRun<unknown, unknown> | undefined {
+  const record = getWorkflowDevRecorder()?.get(name, id)
+  if (record?.status !== "completed" && record?.status !== "failed") return
+  return {
+    ...(record.status === "failed" ? { error: toWorkflowRunError(record.error) } : {}),
+    id,
+    provider: config.driver,
+    result: isSerializedResponse(record.result) ? deserializeResponse(record.result) : record.result,
+    status: record.status,
+  }
+}
+
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
-    cancel: () => unsupportedOperation(config.provider, "cancellation"),
+    cancel: () => unsupportedOperation(config.driver, "cancellation"),
     async get({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>> {
       const run = getWorkflowRunState(name, id)
       if (run) {
         if (run.status === "running") {
           return {
             id,
-            provider: config.provider,
+            provider: config.driver,
             status: run.startAt === undefined ? "running" : "queued",
           }
         }
         return {
           ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          provider: config.provider,
+          provider: config.driver,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
         }
       }
+      const recorded = recordedDevRun(config, name, id)
+      if (recorded) return recorded
       return {
         id,
-        provider: config.provider,
+        provider: config.driver,
         status: "unknown",
       }
     },
     async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload, startAt }: RunWorkflowAdapterContext<TPayload, TResult>) {
       const existing = getWorkflowRunState(name, id)
+      // A second start with the id of a run that the dev history still has returns that run, as `get` reports it.
+      const recorded = existing ? undefined : recordedDevRun(config, name, id)
+      if (recorded) {
+        // SAFETY: The recorded run belongs to this Workflow Definition, so it has its payload and result types.
+        return {
+          ...recorded,
+          metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+        } as WorkflowRun<TPayload, TResult>
+      }
       if (existing) {
         return {
           ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+          metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
-          provider: config.provider,
+          provider: config.driver,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
           status: existing.status === "running" ? "queued" : existing.status,
         }
       }
       resolveDispatchObserver(event)?.()
       // Only `vite dev` has a recorder. It records the run in the dev history.
-      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.provider)
+      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.driver)
       const execute = () => runSerializedWorkflowHandler({
         id,
         name,
         payload,
-        provider: config.provider,
+        provider: config.driver,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
       // A timer holds a delayed run in this process. It is not durable: a restart loses the run.
@@ -426,24 +494,23 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         })
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
-        // SAFETY: Workflow provider normalization establishes the asserted run contract.
-        .catch(error => ({ error, status: "failed" as const }))
+        .catch((error: unknown) => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run, payload, true)
       runState.startAt = startAt
-      const waitUntil = resolveWaitUntil(event)
-      if (waitUntil) {
-        waitUntil(runState.promise)
-      }
+      const notify = runState.promise.then(async (outcome) => {
+        if (outcome.status === "failed") await emitWorkflowFailed(name, id, outcome.error, definition)
+      })
+      resolveWaitUntil(event)?.(notify)
 
       return {
         id,
-        metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+        metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
         payload,
-        provider: config.provider,
+        provider: config.driver,
         status: "queued",
       }
     },
-    resume: () => unsupportedOperation(config.provider, "signals"),
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload),
   }
 }
 
@@ -452,14 +519,14 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
  * dev server runs the normal handler inline, as for every other Workflow there.
  */
 function runsNatively<TPayload, TResult>(definition: WorkflowDefinition<TPayload, TResult> | undefined): definition is WorkflowDefinition<TPayload, TResult> {
-  return Boolean(definition?.options?.native) && !getWorkflowDevRecorder()
+  return Boolean(definition?.native) && !getWorkflowDevRecorder()
 }
 
 /** Whether a registered Workflow has a native Vercel entry, so a run of it can wait for a signal. */
 async function hasNativeWorkflowDefinition(): Promise<boolean> {
   const names = new Set([...Object.keys(getWorkflowRuntimeRegistry() ?? {}), ...getInlineWorkflowDefinitions().keys()])
   for (const name of names) {
-    if ((await loadWorkflowDefinition(name))?.options?.native) return true
+    if ((await loadWorkflowDefinition(name))?.native) return true
   }
   return false
 }
@@ -481,15 +548,17 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         : await fallback.get({ event: undefined, id, name })
     },
     async resume(token, payload) {
-      // `vite dev` runs every Workflow inline, and an inline run never waits for a signal.
-      if (getWorkflowDevRecorder()) unsupportedOperation(config.provider, "signals")
+      // `context.createSignal()` throws on Vercel, so a ViteHub token comes from another app or provider.
+      if (readWorkflowSignalToken(token)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TOKEN_INVALID({ provider: config.driver })
+      // `vite dev` runs every Workflow inline, and an inline run never waits for a hook.
+      if (getWorkflowDevRecorder()) unsupportedOperation(config.driver, "signals")
       try {
         return await resumeVercelWorkflowSignal(token, payload)
       }
       catch (error) {
         // Without the Workflow DevKit, an app with no native entry runs only inline. Installing the SDK does not help.
         if (getViteHubErrorShape(error)?.code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" && !await hasNativeWorkflowDefinition()) {
-          unsupportedOperation(config.provider, "signals")
+          unsupportedOperation(config.driver, "signals")
         }
         throw error
       }
@@ -505,10 +574,10 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
 }
 
 export function getWorkflowRuntimeAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  if (config.provider === "cloudflare") {
+  if (config.driver === "cloudflare") {
     return createCloudflareAdapter(config)
   }
-  if (config.provider === "openworkflow") {
+  if (config.driver === "openworkflow") {
     return createOpenWorkflowAdapter(config)
   }
   return createVercelAdapter(config)

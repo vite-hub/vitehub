@@ -27,14 +27,6 @@ export function browserProviderError(provider: string, operation: string, option
   })
 }
 
-export function browserDefinitionNotFoundError(name: string): ViteHubError {
-  return new ViteHubError(
-    "BROWSER_DEFINITION_NOT_FOUND",
-    `[vitehub:browser] Browser Definition ${JSON.stringify(name)} was not found.`,
-    { details: { name } },
-  )
-}
-
 function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
   return getViteHubErrorShape(value)?.code.startsWith("BROWSER_") === true
 }

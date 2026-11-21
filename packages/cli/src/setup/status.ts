@@ -1,7 +1,6 @@
-import { existsSync } from "node:fs"
-
+import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
-import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -73,7 +72,7 @@ function readHost(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus["h
   return fromEnv ? { name: fromEnv, source: "env" } : { name: "node", source: "default" }
 }
 
-function readEnabled(project: SetupProject, id: FeatureId): Enabled {
+function readEnabled(project: SetupProject, id: FeatureId, withoutDefinitions: ReadonlySet<FeatureId> | undefined): Enabled {
   const config = project.config
   if (!config || (!config.ok && config.reason === "no-vitehub")) return { enabled: "off", reason: "default" }
   if (!config.ok) return { enabled: "unknown", reason: "config" }
@@ -82,10 +81,11 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
   if (value) return { enabled: value.value === false ? "off" : "on", reason: "config" }
   if (config.site.spread) return { enabled: "unknown", reason: "config" }
   if (features[id].enabledByDefault) return { enabled: "on", reason: "default" }
+  if (withoutDefinitions?.has(id)) return { enabled: "off", reason: "default" }
   const discovery = features[id].enabledByDiscovery
   const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
   if (discovery && !directories) return { enabled: "unknown", reason: "default" }
-  const discovered = discovery?.some(file => directories?.some(directory => existsSync(join(directory, file))))
+  const discovered = discovery?.some(file => directories?.some(directory => hasDefinitionFiles(join(directory, file))))
   return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 
@@ -108,21 +108,19 @@ function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureS
 }
 
 /** What the project enables, on which host, and what each enabled feature still needs. Reads the config without running it. */
-export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus {
+export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, withoutDefinitions?: ReadonlySet<FeatureId>): SetupStatus {
   const host = readHost(project, env)
-  const enabled = new Map(featureIds.map(id => [id, readEnabled(project, id)]))
+  const enabled = new Map(featureIds.map(id => [id, readEnabled(project, id, withoutDefinitions)]))
   const on = featureIds.filter(id => enabled.get(id)!.enabled === "on")
   // An implication never overrides a key that the config sets to `false` or to an expression.
   const keep = featureIds.filter(id => enabled.get(id)!.enabled !== "on" && enabled.get(id)!.reason === "config")
   const maybeOn = featureIds.filter(id => enabled.get(id)!.enabled !== "off")
   const disabled = keep.filter(id => enabled.get(id)!.enabled === "off")
-  const hosts = host.name === "unknown" ? featureHosts.filter(name => name !== "dev") : [host.name]
-  const definite = hosts.map(name => impliedFeatures(on, name, keep))
-  const possible = new Set(hosts.flatMap(name => impliedFeatures(maybeOn, name, disabled)))
-  for (const id of possible) {
+  const definite = impliedFeatures(on, keep)
+  for (const id of impliedFeatures(maybeOn, disabled)) {
     const state = enabled.get(id)!
     if (state.enabled === "off" && state.reason === "default") {
-      enabled.set(id, { enabled: definite.every(ids => ids.includes(id)) ? "on" : "unknown", reason: "implied" })
+      enabled.set(id, { enabled: definite.includes(id) ? "on" : "unknown", reason: "implied" })
     }
   }
 
@@ -145,10 +143,8 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
-      // A feature that only an implication turns on and that runs inline there needs no provider option. Outside
-      // Netlify, Workflow storage options select OpenWorkflow without `workflow.provider`.
-      const providerChosen = state.reason === "implied" && host.name !== "unknown" && impliedInline(id, on, host.name)
-        || id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
+      // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
+      const providerChosen = id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }
     }),

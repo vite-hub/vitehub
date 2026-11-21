@@ -10,6 +10,7 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import type { ConsoleBlobObject } from "../client/blob-media";
 import type { ConsoleMediaFile } from "../client/media-library";
 import ConsoleStatGrid from "./console-stat-grid.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The raw metadata of one Blob object, next to the Blob browser: what the store recorded, HTTP metadata, and custom
@@ -46,7 +47,7 @@ const customMetadata = computed(() => sorted(props.object?.customMetadata));
 <template>
   <aside class="flex min-h-0 flex-col bg-default" :aria-label="`Details of ${file.name}`">
     <header class="flex h-(--ui-header-height) shrink-0 items-center gap-2 border-b border-default px-4">
-      <UIcon :name="consoleMediaTypeIcons[type]" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
+      <Icon :name="consoleMediaTypeIcons[type]" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
       <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-highlighted" :title="file.pathname">{{ file.name }}</h2>
       <!-- The list opens a file with a double click. This button is the keyboard and touch way to do the same. -->
       <UTooltip text="Open in a new tab">

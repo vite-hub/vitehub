@@ -71,3 +71,20 @@ export interface TestScheduleRunRecord {
   target: string
   updatedAt: Date
 }
+
+/** The user to sign in. Auth creates it when no user has this email. Other fields, such as `role`, go to the new user. */
+export interface SignInTestUser {
+  email?: string
+  name?: string
+  [field: string]: unknown
+}
+
+/** A signed-in session of the app's Auth Definition. */
+export interface TestSignIn {
+  /** The `cookie` header of the session. */
+  cookie: string
+  /** Headers with the session cookie. Pass them to a `Request` so that `requireAuth()` accepts it. */
+  headers: Headers
+  session: { id: string, token: string, userId: string, expiresAt: Date, [field: string]: unknown }
+  user: { id: string, email: string, name: string, [field: string]: unknown }
+}

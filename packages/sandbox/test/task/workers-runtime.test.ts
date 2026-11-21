@@ -5,7 +5,7 @@ import { createSandboxTaskFeaturePlan } from "../../src/task/feature.ts"
 
 // workerd allows `new Function` while a Worker starts but not during a request, which is when Nitro loads route chunks.
 it("loads the generated Cloudflare provider loader during a Workers request", async () => {
-  const plan = await createSandboxTaskFeaturePlan({ provider: "cloudflare" }, [], { aliasPath: "/tmp/vitehub-sandbox-task/index.js" }, {})
+  const plan = await createSandboxTaskFeaturePlan({ driver: "cloudflare" }, [], { aliasPath: "/tmp/vitehub-sandbox-task/index.js" }, {})
   const loader = plan.artifacts?.find(artifact => artifact.key === "sandbox-task-provider-loader")?.contents ?? ""
   const bundle = await build({
     bundle: true,

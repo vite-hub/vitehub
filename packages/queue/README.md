@@ -1,9 +1,9 @@
 # @vite-hub/queue
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fqueue&icon=npm)](https://npmx.dev/package/@vite-hub/queue)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fqueue&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/queue)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/queue)](https://npmx.dev/package/@vite-hub/queue)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/queue)](https://npmx.dev/package/@vite-hub/queue)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/queue` discovers background job handlers during a Vite build and connects `sendQueue()` to Cloudflare Queues, Vercel Queues, or a Node server that runs the jobs from Postgres or from local files. In `vite dev`, every app runs its jobs in the dev server, so you can test a handler without an account. A successful enqueue means the provider accepted the job. It does not mean the handler finished.
 
@@ -16,7 +16,7 @@ pnpm add @vite-hub/queue
 pnpm add -D @vite-hub/cli vite
 ```
 
-The package requires Node.js 22.19 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
+The package requires Node.js 24.15 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
 
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
@@ -35,8 +35,10 @@ Define the handler in a discoverable file:
 // src/welcome-email.queue.ts
 import { defineQueue } from "@vite-hub/queue";
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Send welcome email to ${payload.email}`);
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Send welcome email to ${payload.email}`);
+  },
 });
 ```
 
@@ -67,7 +69,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   nitro: { preset: "cloudflare-module", serverEntry: "./src/server.ts" },
-  plugins: [hubQueue({ provider: "cloudflare" }), nitro()],
+  plugins: [hubQueue({ driver: "cloudflare" }), nitro()],
 });
 ```
 
@@ -81,18 +83,18 @@ A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email`
 
 That build proves discovery and generated output only. In the built Worker, `sendQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
-## Choose a provider
+## Choose a driver
 
 | Provider   | Choose it when                                                                                        | Generated output                                                    | Enqueue options                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delaySeconds`                                  |
-| Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
-| Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
-| Postgres   | One or more Node servers share a Postgres database                                                    | A Nitro plugin that starts workers in each server process           | `delaySeconds`, `idempotencyKey`                               |
+| Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delay`                                         |
+| Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delay`, `idempotencyKey`, `region`, `retention`               |
+| Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delay`, `idempotencyKey`                                      |
+| Postgres   | One or more Node servers share a Postgres database                                                    | A Nitro plugin that starts workers in each server process           | `delay`, `idempotencyKey`                                      |
 
-The ViteHub framework host selects Cloudflare for `host: "cloudflare"` and Vercel for `host: "vercel"`. For `host: "node"` and a Nitro `node-server` preset, it selects the postgres provider when the app has a Postgres Default Database, else the local provider. `vitehub({ queue: { provider: "postgres" } })` or `{ provider: "local" }` picks one on Node. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+The ViteHub framework host selects Cloudflare for `host: "cloudflare"` and Vercel for `host: "vercel"`. For `host: "node"` and a Nitro `node-server` preset, it selects the postgres driver when the app has a Postgres Default Database, else the local driver. `vitehub({ queue: { driver: "postgres" } })` or `{ driver: "local" }` picks one on Node. Set `driver` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue driver for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
-Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
+Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retention`.
 
 Vercel needs a generated topic and the `@vercel/queue` runtime. It rejects Cloudflare's `contentType` option. The [Vercel host guide](https://vitehub.dev/docs/frameworks-hosts/vercel) explains the generated Build Output boundary.
 
@@ -112,7 +114,7 @@ export default defineConfig({
 })
 ```
 
-`hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
+`hubQueue({ driver: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
 Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `useQueue()` in the dev server, or give the direct client a separate `base` directory.
 
@@ -121,7 +123,7 @@ When a production server reopens a dev store, it redacts stored errors without a
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs of each Queue Definition.
 - The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart. If that was the fourth attempt, the job becomes a dead job instead.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before completion is saved, or if both deleting the job and saving its completed state fail. Make handler side effects idempotent.
-- `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key. A dead job does not hold its key. `sendBatch()` stores all jobs or none.
+- `delay` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key. A dead job does not hold its key. `sendBatch()` stores all jobs or none.
 - The jobs survive a restart on the same disk. Another host, a new container, or an ephemeral filesystem does not have them. Run one server process per directory: there is no lock between processes, so two processes can run the same job.
 - `onError` and `callbackOptions` are Cloudflare and Vercel options. The local provider does not call them.
 
@@ -129,7 +131,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres provider keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts
@@ -139,14 +141,14 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
-  plugins: [hubQueue({ provider: "postgres" }), nitro()],
+  plugins: [hubQueue({ driver: "postgres" }), nitro()],
 })
 ```
 
 - The first server creates the table and its indexes under `pg_advisory_xact_lock`, so servers that start at the same time do not race.
 - Workers claim jobs with `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`. A send wakes the workers with `NOTIFY`. Without it, each worker checks every second.
 - A claim holds a job for 30 seconds, and a running handler renews it. When a process stops during a handler, another instance runs the job again with the next attempt number after the claim ends.
-- Retries, dead jobs, `delaySeconds`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow the local rules above. `concurrency` applies per process.
+- Retries, dead jobs, `delay`, `idempotencyKey`, `sendBatch()`, and `concurrency` follow the local rules above. `concurrency` applies per process.
 - When Nitro closes, the workers stop taking jobs and wait up to 10 seconds for the running jobs.
 - `vitehub queue list` shows the table and its database without the password, and `durability: "shared"`. `vitehub queue jobs` and the Console read the table, so any instance shows the jobs of all instances.
 - `vite dev` runs the jobs of a postgres app with the local provider and the same rules, so development needs no Postgres.
@@ -161,11 +163,11 @@ The dev server follows the documented defaults of the provider of the build, so 
 | --- | --- | --- | --- |
 | Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
 | Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |
-| Largest `delaySeconds` | 86400 (24 hours) | 604800 (7 days) | No limit |
-| Retention | None | `retentionSeconds` from 60 to 604800, default 86400 | None |
+| Largest `delay` | `"24h"` (86400 seconds) | `"7d"` (604800 seconds) | No limit |
+| Retention | None | `retention` from `"1m"` to `"7d"`, default `"1d"` | None |
 | Largest payload | 128 KB of JSON | 100 MB of JSON | No limit |
 | Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
-| Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
+| Rejected options | `idempotencyKey`, `region`, `retention` | `contentType` | `contentType`, `region`, `retention` |
 
 The sources are the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails `sendQueue()` with `QUEUE_PROVIDER_FAILED`, and `error.cause` names the limit. A rejected option fails with `QUEUE_UNSUPPORTED_OPTION` and names the provider of the build.
 
@@ -181,7 +183,7 @@ List, inspect, run again, and remove the stored jobs with the CLI. The commands 
 
 ```sh
 pnpm vitehub queue jobs list --state dead
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
@@ -209,6 +211,32 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 
 `sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
 
+## Add a Queue from another plugin
+
+A package can add a Queue Definition from its Vite plugin, so the app needs no file in `server/queues/`. Put the entry in `vitehub.queues`:
+
+```ts
+import { fileURLToPath } from "node:url"
+
+import type { Plugin } from "vite"
+import type { QueueContributingPlugin } from "@vite-hub/queue/vite"
+
+export function webhooks(): Plugin & QueueContributingPlugin {
+  return {
+    name: "@acme/webhooks",
+    vitehub: {
+      queues: [{
+        name: "acme-webhooks",
+        definition: { module: fileURLToPath(new URL("./deliver.js", import.meta.url)) },
+        reason: "Delivers webhooks after their delay.",
+      }],
+    },
+  }
+}
+```
+
+`definition.module` is an absolute path or `file:` URL of a module with `export default defineQueue(...)`. `vitehub.queues` can also be a function that gets `{ root, projectRoot, serverDirs }` and returns the list. Queue treats the entry like a discovered file: it goes in the registry and the generated types, and gets its Cloudflare binding, Vercel consumer route, provisioning, and inspection. `vitehub inspect` shows the plugin and the reason. A name that a file or another plugin also uses fails with `QUEUE_DEFINITION_DUPLICATE`, and an invalid entry fails with `QUEUE_CONTRIBUTION_INVALID`.
+
 ## Public imports
 
 | Import                           | Purpose                                                                             |
@@ -234,7 +262,7 @@ The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your Typ
 ```ts
 import { sendQueue, useQueue } from "@vite-hub/queue"
 
-const [error] = await sendQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
+const [error] = await sendQueue("welcome-email", { email: "ada@example.com" }, { delay: "1m" })
 const queue = await useQueue("welcome-email")
 const [sendError] = await queue.send({ email: "ada@example.com" })
 ```

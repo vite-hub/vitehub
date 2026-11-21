@@ -7,6 +7,7 @@ import { executeSandboxTaskDefinition } from "../../src/task/runtime/execute.ts"
 import { createHandlerError, extractSandboxTaskOutputFromExecution, readExecOutputWithRecovery, tryParseSandboxTaskOutput } from "../../src/task/runtime/output-recovery.ts"
 import { toSandboxTaskError } from "../../src/task/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../../src/task/runtime/binary-sidecars.ts"
+import { sandboxErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
 import type { TaskSandbox } from "../../src/task/runtime/task-sandbox.ts"
 
@@ -103,6 +104,11 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxTaskOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
+/** The error the Cloudflare transport throws when the `exec` request fails. */
+function cloudflareExecError(cause: Error) {
+  return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox exec failed: ${cause.message}`, cause, retryable: undefined })
+}
+
 function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
   const files = new Map<string, Uint8Array>()
   const directories = new Set<string>(["/"])
@@ -123,6 +129,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     executionAuthority: unknownExecutionAuthority,
     id: "fake",
     provider: options.provider ?? "vercel",
+    tempDir: "/tmp",
     closesAfterRun: false,
     async close() {},
     async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal }): Promise<SandboxExecResult> {
@@ -303,7 +310,7 @@ describe("executeSandboxTaskDefinition", () => {
         async onExecute({ args, write }) {
           write(args.at(-1)!, new TextEncoder().encode(output))
           if (failure === "transport error")
-            throw Object.assign(new Error("transport unavailable"), { code: "SANDBOX_TASK_TRANSPORT_ERROR", provider: "cloudflare" })
+            throw cloudflareExecError(Object.assign(new Error("Network connection lost."), { retryable: true }))
           return { ok: true, stdout: "", stderr: "", code: 0 }
         },
       })
@@ -431,7 +438,7 @@ describe("executeSandboxTaskDefinition", () => {
 
   it("does not cross the handler boundary when Definition staging fails", async () => {
     const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     sandbox.files.write = vi.fn(async () => {
       throw new Error("container is starting")
     })
@@ -446,18 +453,18 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toThrow("container is starting")
 
-    expect(onHandlerStart).not.toHaveBeenCalled()
+    expect(onCommandStart).not.toHaveBeenCalled()
   })
 
   it("crosses the handler boundary before user code can fail", async () => {
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     const { sandbox } = createFakeSandbox({
       provider: "cloudflare",
       async onExecute({ args, write }) {
-        expect(onHandlerStart).toHaveBeenCalledOnce()
+        expect(onCommandStart).toHaveBeenCalledOnce()
         write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
           error: { message: "container is starting" },
           ok: false,
@@ -476,13 +483,13 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_HANDLER_ERROR",
       message: "container is starting",
     })
 
-    expect(onHandlerStart).toHaveBeenCalledOnce()
+    expect(onCommandStart).toHaveBeenCalledOnce()
   })
 
   it("bounds handler diagnostics before constructing the public error", () => {
@@ -525,7 +532,7 @@ describe("executeSandboxTaskDefinition", () => {
 
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
     let setupAborted = false
     sandbox.mkdir = async (_path, options) => await new Promise<void>((_resolve, reject) => {
       options?.signal?.addEventListener("abort", () => {
@@ -546,7 +553,7 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_TIMEOUT",
       details: { provider: "cloudflare", timeout: 10 },
@@ -555,12 +562,12 @@ describe("executeSandboxTaskDefinition", () => {
     expect(setupAborted).toBe(true)
     expect(execCalls.some(call => call.cmd === "node")).toBe(false)
     expect(execCalls.some(call => call.cmd === "rm")).toBe(true)
-    expect(onHandlerStart).not.toHaveBeenCalled()
+    expect(onCommandStart).not.toHaveBeenCalled()
   })
 
   it("marks execution started only when the handler launcher begins", async () => {
     const { sandbox } = createFakeSandbox()
-    const onHandlerStart = vi.fn()
+    const onCommandStart = vi.fn()
 
     await executeSandboxTaskDefinition(
       sandbox,
@@ -574,10 +581,10 @@ describe("executeSandboxTaskDefinition", () => {
       },
       undefined,
       undefined,
-      { onHandlerStart },
+      { onCommandStart },
     )
 
-    expect(onHandlerStart).toHaveBeenCalledOnce()
+    expect(onCommandStart).toHaveBeenCalledOnce()
   })
 
   it("imports the generated entry once with the default Node launcher", async () => {
@@ -1216,6 +1223,55 @@ describe("executeSandboxTaskDefinition", () => {
       cmd: "rm",
       args: ["-rf", "--", expect.stringMatching(/^\/tmp\/vitehub-sandbox-task\/release-notes-/)],
     })
+  })
+
+  it("does not wait for output when the handler command hit a cold start", async () => {
+    const coldStart = cloudflareExecError(new Error("The container is starting. Please retry in a moment."))
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "node") throw coldStart
+      return await exec(command, args, options)
+    })
+    const readFile = vi.spyOn(sandbox, "readFile")
+
+    await expect(executeSandboxTaskDefinition(sandbox, "release-notes", undefined, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default { handler() { return { ok: true } } }" },
+    })).rejects.toBe(coldStart)
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("marks the package install as a command before it starts", async () => {
+    const onCommandStart = vi.fn()
+    const { sandbox, execCalls } = createFakeSandbox()
+    const exec = sandbox.exec.bind(sandbox)
+    const startedBefore: Array<{ cmd: string, calls: number }> = []
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      startedBefore.push({ cmd: command, calls: onCommandStart.mock.calls.length })
+      return await exec(command, args, options)
+    })
+
+    await executeSandboxTaskDefinition(sandbox, "release-notes", undefined, {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { handler() { return { ok: true } } }" },
+      project: {
+        digest: "c".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64",
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm", cwd: "." },
+        packagePath: ".",
+      },
+    }, undefined, undefined, { onCommandStart })
+
+    expect(startedBefore.find(call => call.cmd === "pnpm")?.calls).toBe(1)
+    expect(execCalls.some(call => call.cmd === "pnpm")).toBe(true)
+    // The install, the project publish, and the handler.
+    expect(onCommandStart).toHaveBeenCalledTimes(3)
   })
 
   it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {

@@ -33,17 +33,13 @@ const dynamicError = {
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
-    CHANNELS_B0001: {
-      ...dynamicError,
-      fix: "Set `agent: true` next to `channels: true` in `vitehub()`, and install the Agent package with `pnpm add @vite-hub/agent`.",
-    },
     CHANNELS_C0001: {
       ...dynamicError,
       fix: "Pass an object with an `adapter` to `defineChannel()`, such as `export default defineChannel({ adapter: stripe() })` in server/channels/<name>.ts.",
     },
     CHANNELS_C0007: {
       ...dynamicError,
-      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()` or `webhook()` from `vite-hub/channels`, `slack()` from `vite-hub/agent/channels`, or your own `{ kind, send }`.",
+      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()`, `webhook()`, or `slack()` from `vite-hub/channels/adapters`, or your own `{ kind, send }`.",
     },
     CHANNELS_C0008: {
       ...dynamicError,
@@ -59,9 +55,19 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     CHANNELS_C0011: {
       ...dynamicError,
-      fix: "Set both `signature` and `secret` in `webhook()`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`, and a `header` for `signature: 'token'`. To accept unsigned requests, set `secret: false` and no `signature`.",
+      fix: "Set both `signature` and `secret` in `webhook()`. `secret` names the server variable that holds the secret, such as `webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' })`, or is a function that returns it. `signature` is `'bearer'`, `'token'` with a `header`, `'github'`, `'stripe'`, `{ type: 'hmac-sha256' }`, `{ type: 'stripe', tolerance: '5m' }`, or `{ verify }`. To accept unsigned requests, set `secret: false` and no `signature`.",
     },
-    CHANNELS_R0002: dynamicError,
-    CHANNELS_R0003: dynamicError,
+    CHANNELS_R0002: {
+      ...dynamicError,
+      fix: "Add a Channel Definition in `server/channels/<name>.ts` whose file name is the name that the message names, or pass the name of an existing Channel to `useChannel()`.",
+    },
+    CHANNELS_R0003: {
+      ...dynamicError,
+      fix: "Pass a nonempty Channel name to `useChannel()`, such as `useChannel(\"alerts\")`.",
+    },
+    CHANNELS_WEBHOOK_HOST_OFF: {
+      why: ({ channel }: { channel: string }) => `[vitehub] The Channel "${channel}" receives webhooks, and the Agent package that serves them is off.`,
+      fix: "Remove `agent: false` from `vitehub()`: a Channel file that receives webhooks turns the webhook host on. Outside `vitehub()`, add `hubAgent()` from `@vite-hub/agent/vite` next to `hubChannels()`.",
+    },
   },
 })

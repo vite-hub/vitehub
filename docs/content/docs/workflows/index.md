@@ -2,7 +2,7 @@
 title: Workflows
 layout: landing
 navigation.title: Overview
-description: Run long tasks in steps, get a run id at once, and check the status and result later.
+description: Run long tasks in steps, get a run ID at once, and check the status and result later.
 navigation.order: 1
 icon: i-lucide-workflow
 ---
@@ -17,13 +17,12 @@ import { defineWorkflow } from 'vite-hub/workflow'
 
 // Each numbered file in this folder is a step.
 // They run in the order you call them.
-export default defineWorkflow(
-  'onboard-user',
-  async (payload: { email: string }, { steps }) => {
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
     const user = await steps.createUser(payload)
     return await steps.sendWelcome(user)
   },
-)
+})
 ```
 
 ```ts [server/workflows/onboard-user/01.create-user.ts]
@@ -54,7 +53,10 @@ import { startWorkflow } from 'vite-hub/workflow'
 // Start a run and return its id at once
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
-  return startWorkflow('onboard-user', body)
+  if (!body) return new Response('Missing body', { status: 400 })
+  const [error, run] = await startWorkflow('onboard-user', body)
+  if (error) throw error
+  return run
 })
 ```
 
@@ -63,9 +65,11 @@ import { defineEventHandler, getRouterParam } from 'h3'
 import { getWorkflowRun } from 'vite-hub/workflow'
 
 // Read the status and result of one run
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  return getWorkflowRun('onboard-user', id)
+  const [error, run] = await getWorkflowRun('onboard-user', id)
+  if (error) throw error
+  return run
 })
 ```
 ::
@@ -76,23 +80,23 @@ export default defineEventHandler((event) => {
   :::
 
   :::product-feature-item{title="Split work into steps" icon="i-lucide-list-checks" to="/docs/workflows/get-started#define-the-workflow-steps"}
-  Put numbered files in a workflow folder. A durable host can retry a failed step.
+  Put numbered files in a workflow folder so durable hosts can retry failed steps.
   :::
 
   :::product-feature-item{title="Start now, check later" icon="i-lucide-play-circle" to="/docs/workflows/server-api#start-a-run"}
-  `startWorkflow()` starts a run and returns its id. Your route does not wait for the work.
+  `startWorkflow()` starts a run and returns its ID. Your route does not wait for the work.
   :::
 
   :::product-feature-item{title="Status and result" icon="i-lucide-activity" to="/docs/workflows/server-api#inspect-a-run"}
-  `getWorkflowRun()` returns the status (queued, running, completed, or failed) and the result.
+  `getWorkflowRun()` returns the status, whether queued, running, completed, or failed, and the result.
   :::
 
-  :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#providers"}
+  :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#drivers"}
   Use Cloudflare, Vercel, or OpenWorkflow with Postgres or SQLite on your own server. Routes stay the same.
   :::
 
   :::product-feature-item{title="Clear error codes" icon="i-lucide-circle-alert" to="/docs/workflows/limits-and-errors#structured-errors"}
-  Throw an error with a fixed code that is the same on every host.
+  Throw errors with fixed codes that work the same on every host.
   :::
 ::
 

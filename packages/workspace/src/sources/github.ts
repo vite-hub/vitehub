@@ -1,4 +1,4 @@
-import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
+import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
 import { matchesAny } from "../core/path.ts"
@@ -71,6 +71,11 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       await prepareWorkspaceSource(source, ctx)
+    },
+    async checkAccess(ctx) {
+      // Without a token at build, a token that only the deployed app has can still read a private repository.
+      if (!await resolveGitHubAuth(resolvedOptions.auth, ctx.rootDir)) return
+      await (await getSourceForRoot(ctx.rootDir)).resolveRevision?.(ctx)
     },
     async getKeys(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)

@@ -116,10 +116,18 @@ describe("Babysitter CI attribution", () => {
 
   it("validates bypassInheritedChecks", () => {
     expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: { "Vite-Hub/ViteHub": ["CI", "publish preview packages"], "acme/app": [] } })).toEqual({
-      mode: "direct", method: "squash", ready: approvedIfOutside, bypassInheritedChecks: new Map([["vite-hub/vitehub", new Set(["ci", "publish preview packages"])]]) });
-    expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: {} })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
+      mode: "direct", method: "squash", foldStacks: true, ready: approvedIfOutside, bypassInheritedChecks: new Map([["vite-hub/vitehub", new Set(["ci", "publish preview packages"])]]) });
+    expect(resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: {} })).toEqual({ mode: "direct", method: "squash", foldStacks: true, ready: approvedIfOutside });
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: ["ci"] })).toThrow("bypassInheritedChecks");
     expect(() => resolveBabysitterMerge({ strategy: "direct", bypassInheritedChecks: { "acme/app": [""] } })).toThrow("bypassInheritedChecks");
+  });
+
+  it("validates forkHeadBranches", () => {
+    expect(resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "Vite-Hub/ViteHub": "preview/pr-{number}" } })).toEqual({
+      mode: "direct", method: "squash", foldStacks: true, ready: approvedIfOutside, forkHeadBranches: new Map([["vite-hub/vitehub", "preview/pr-{number}"]]) });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: ["preview/pr-{number}"] })).toThrow("forkHeadBranches");
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "acme/app": "preview" } })).toThrow("forkHeadBranches");
+    expect(() => resolveBabysitterMerge({ strategy: "direct", forkHeadBranches: { "acme/app": "preview/pr-{number}?x" } })).toThrow("forkHeadBranches");
   });
 });
 

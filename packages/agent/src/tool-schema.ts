@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -34,7 +35,7 @@ export function withAgentToolJsonSchema<TSchema extends AgentToolSchema>(schema:
   const converts = Object.hasOwn(standard, "jsonSchema") && Boolean((standard as Partial<StandardJSONSchemaV1["~standard"]>).jsonSchema)
   // SAFETY: Valibot exposes async metadata; ownership is checked before reading this optional field.
   if (!converts && standard.vendor === "valibot" && Object.hasOwn(schema, "async") && (schema as { async?: unknown }).async === true) {
-    throw new Error("[vitehub] Async Valibot Agent tool schemas cannot be converted to JSON Schema.")
+    throw agentDiagnostics.AGENT_TOOL_SCHEMA_ASYNC_VALIBOT()
   }
   // SAFETY: The own `~standard` marker above makes this branch of AgentToolSchema a Standard Schema.
   return withValibotJsonSchema(schema as TSchema & StandardSchemaV1, { target: "draft-07" })

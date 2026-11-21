@@ -9,7 +9,7 @@ import { consoleAccessAllows, readConsoleOperationUser, withConsoleAccess, type 
 import { isConsoleRpcPath } from "./console-signature.ts"
 import { consoleOperationRegistry, isHeldBackConsoleOperation } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
-import { isConsoleDevelopmentBuild } from "./development.ts"
+import { consoleDevelopmentContext } from "./development.ts"
 import { consoleDiagnostic } from "../diagnostics.ts"
 import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
@@ -191,6 +191,10 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
+  // A read-only caller, such as read_operation of the ViteHub MCP, runs only the operations, and the calls, that read.
+  if (context.access.readOnly && classification.kind !== "read" && !classification.readOnly) {
+    throw consoleRequestError(403, `${operation.name} is a ${classification.kind} operation, and this caller may only read.`, "CONSOLE_ACCESS_DENIED")
+  }
   assertOperationConfirmation(request, classification)
   // An MCP call is unconfirmed unless the signed caller says that the person agreed.
   if (mcp) assertOperationConfirmed(classification, context.access.confirmed === true)
@@ -198,7 +202,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
     access: context.access,
-    development: isConsoleDevelopmentBuild(),
+    ...consoleDevelopmentContext(),
     request,
     response: context.response,
     // A signed request names its signer. Without a signature, the CLI names itself with a header; only the

@@ -41,7 +41,7 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
-import type { WorkflowDuration, WorkflowExecutionContext, WorkflowProvider, WorkflowProviderContext } from "@vite-hub/workflow"
+import type { WorkflowDuration, WorkflowExecutionContext, WorkflowDriver, WorkflowProviderContext } from "@vite-hub/workflow"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
@@ -98,10 +98,11 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   )
   if (!journal) return
   const { getWorkflowRun } = await loadAgentWorkflowModule()
-  // ponytail: Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
+  // Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
   for (let attempt = 0; attempt < 166; attempt++) {
     try {
-      const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
+      const [error, run] = await getWorkflowRun(recovery.workflowName, recovery.runId)
+      if (error) throw error
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
         await journal.finish(run.status, run.status === "failed" ? run.error : undefined)
         await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
@@ -119,7 +120,7 @@ export type AgentWorkflowRunner<TRuntimeConfig extends AgentRuntimeConfig = Agen
   input: AgentRunInput<CALL_OPTIONS>,
 ) => Promise<Response | AgentRunResult | unknown>
 
-function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
+function agentRuntimeFromWorkflowProvider(provider: WorkflowDriver): AgentRuntimeName {
   if (provider === "cloudflare") return "cloudflare-agents"
   if (provider === "vercel") return "vercel"
   return "unknown"

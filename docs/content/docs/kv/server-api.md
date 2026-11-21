@@ -66,7 +66,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 const [writeError] = await kv.setMany([
   { key: 'profile:ada', value: { name: 'Ada' } },
   { key: 'profile:linus', value: { name: 'Linus' } },
-], { ttl: 3600 })
+], { ttl: '1h' })
 if (writeError) throw writeError
 
 const [readError, profiles] = await kv.getMany<{ name: string }>(['profile:ada', 'profile:grace', 'profile:linus'])
@@ -81,12 +81,12 @@ The options work as in `get()` and `set()` and apply to every key. In `setMany()
 | `redis` | `MGET`, 1000 keys per command. | One pipeline. |
 | `database` | One `SELECT` per 200 keys. | One `INSERT ... ON CONFLICT` per 200 entries. |
 | `upstash` | One `MGET`. | One request per entry, 16 at a time. |
-| `cloudflare-kv-binding` | One bulk `get()` per 100 keys. | One `put()` per entry, 16 at a time. It checks every entry against the [Workers KV limits](/docs/kv/limits-and-errors#limits) before it writes any. |
+| `cloudflare` | One bulk `get()` per 100 keys. | One `put()` per entry, 16 at a time. It checks every entry against the [Workers KV limits](/docs/kv/limits-and-errors#limits) before it writes any. |
 | `deno-kv`, `fs-lite` | One read per key, 16 at a time. | One write per key, 16 at a time. |
 
 ### Read-only handles
 
-Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods (`set()`, `setMany()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`, `lock()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
+Pass `{ mode: 'read' }` to `kv.store()` for code that only reads. The handle has `get()`, `getMany()`, `has()`, and `list()`. Write methods (`set()`, `setMany()`, `setIfAbsent()`, `delete()`, `deleteIfEquals()`, `clear()`, `increment()`, `getAndDelete()`, `lock()`) are type errors and absent at runtime. The default store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
 import { defineEventHandler } from 'h3'
@@ -121,12 +121,12 @@ if (incrementError) throw incrementError
 Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes only when the key is empty, in one atomic step. It returns `true` to the one call that wrote:
 
 ```ts [server/api/uploads/[ticket].put.ts] fragment
-const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
+const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: '10m' })
 if (claimError) throw claimError
-if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
+if (!claimed) throw new HTTPError({ status: 409, message: 'Ticket already used' })
 ```
 
-`setIfAbsent()` needs a value: `undefined` fails with `KV_OPERATION_FAILED`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
+`setIfAbsent()` needs a value: `undefined` returns `KV_INVALID_VALUE`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
 
 | Driver | `setIfAbsent()` |
 | --- | --- |
@@ -135,7 +135,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
 | `deno-kv` | Atomic. One commit that checks the key is missing. Deno KV deletes expired keys some time after the TTL, so a key can stay longer than `ttl`. |
 | `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. A key with `ttl` expires on time, and a later call can claim it. |
-| `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
+| `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
 `increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
 
@@ -159,7 +159,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 `kv.lock(key, { ttl })` gives a lock that one runner holds at a time, across all server processes that share the store. Use it for a cron job or a sync that must not run twice at once. `run()` takes the lock, calls your function, and releases the lock, also when the function throws:
 
 ```ts [server/tasks/daily-report.ts] fragment
-const [error, result] = await kv.lock('cron:daily-report', { ttl: 60 }).run(async () => {
+const [error, result] = await kv.lock('cron:daily-report', { ttl: '1m' }).run(async () => {
   return await sendDailyReport()
 })
 if (error) throw error
@@ -167,7 +167,7 @@ if (!result.acquired) return // Another runner holds the lock.
 console.log(result.value)
 ```
 
-- `ttl` is required, in seconds. The lock expires after `ttl`, so a crashed runner never keeps it. Pick a value longer than the work.
+- `ttl` is required: a duration such as `'1m'`, or a number of seconds. The lock expires after `ttl`, so a crashed runner never keeps it. Pick a value longer than the work.
 - `wait` is optional, in seconds. Without it, `run()` returns `{ acquired: false }` at once when the lock is held. With it, `run()` polls with backoff until the lock is free or `wait` ends.
 - An error from your function is thrown again after the release. A failed release returns `KV_OPERATION_FAILED`, after your function ran. The lock then expires after `ttl`.
 
@@ -195,9 +195,9 @@ finally {
 | --- | --- |
 | `redis`, `upstash` | Atomic. `SET NX` with a TTL, and a script that deletes the key only when it holds the owner token. Upstash rounds `ttl` up to whole seconds. |
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement, and one `DELETE` that checks the owner token. Expiry uses the clock of the Database. |
-| `deno-kv`, `fs-lite`, `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
+| `deno-kv`, `fs-lite`, `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
 
-The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`.
+The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`. For work that runs longer than you can predict, use a lease, which its holder can renew. See [Locks and leases](/docs/guides/run-one-at-a-time).
 
 ## Runtime helper
 
@@ -208,16 +208,15 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getMany<T>(keys, { type? })` | Reads many keys in one call. Returns one value or `null` per key, in the order of `keys`. See [Read and write many keys](#read-and-write-many-keys). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
-| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, every driver expires the value after that many seconds. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
+| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, a duration such as `'1h'` or a number of seconds, every driver expires the value after that time. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
 | `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries, with the options of `kv.set()`. Not atomic. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
 | `kv.delete(key)` | Deletes one key. |
 | `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
-| `kv.keys(base?)` | Lists keys under an optional base prefix. |
-| `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
-| `kv.clear(base?)` | Deletes keys under an optional base prefix. `kv.clear('users')` deletes `users:alice` but not `users-old:alice`. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
+| `kv.list({ prefix?, limit?, cursor? })` | Lists the keys that start with `prefix`, as text: `'user'` matches `users:alice`, and `'users:'` matches only the keys below `users`. Without `limit`, it returns every key and no cursor. With `limit`, it reads one page; pass the returned `cursor` to read the next page. |
+| `kv.clear({ prefix? })` | Deletes the keys that start with `prefix`, with the same text match as `list()`. `kv.clear({ prefix: 'users:' })` deletes `users:alice` but not `users-old:alice`. Without `prefix`, it deletes every key of the store. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
 | `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`, so you need no `try/catch`. `error.code` is typed per method, and `why`, `fix`, and `docs` explain it. Provider failures are `KV_OPERATION_FAILED`, with the provider error in `cause`. Configuration errors, such as an unknown store, throw. Read [Limits and errors](/docs/kv/limits-and-errors) for each code.
@@ -288,9 +287,10 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
+import { definePlugin } from 'nitro'
 import { disposeKVStores } from 'vite-hub/kv'
 
-export default defineNitroPlugin((nitroApp) => {
+export default definePlugin((nitroApp) => {
   nitroApp.hooks.hook('close', disposeKVStores)
 })
 ```

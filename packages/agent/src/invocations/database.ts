@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { sql, type SQL } from "drizzle-orm"
 import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
@@ -60,8 +61,7 @@ const sqliteDialect = new SQLiteDialect()
 function statementSql(query: string, values: readonly unknown[]): SQL {
   const parts = query.split("?")
   if (parts.length - 1 !== values.length) {
-    // Internal invariant: ViteHub writes these statements and passes one value for each placeholder.
-    throw new TypeError("[vitehub] Database Agent Invocation statement parameters do not match its placeholders.")
+    throw invariantError("ViteHub writes each Database Agent Invocation statement with one value for each placeholder")
   }
   return sql.join(parts.map((part, index) => index === 0 ? sql.raw(part) : sql`${values[index - 1]}${sql.raw(part)}`))
 }
@@ -73,7 +73,6 @@ function statementResult<T = Record<string, unknown>>(rows: unknown[]): Invocati
   }
   return {
     meta: { changes: rows.length },
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The runtime guard establishes the row shape before applying the caller's projection type.
     // SAFETY: The runtime check above verifies every result is a named row object.
     results: rows as T[],
   }
@@ -105,7 +104,6 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
 function d1Client(value: unknown): RuntimeD1Client | undefined {
   if (!isRecord(value) || typeof Reflect.get(value, "prepare") !== "function" || typeof Reflect.get(value, "batch") !== "function") return
   // SAFETY: The runtime shape check verifies the D1 prepare and batch methods used by this adapter.
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
   return value as unknown as RuntimeD1Client
 }
 

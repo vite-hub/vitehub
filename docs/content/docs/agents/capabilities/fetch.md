@@ -75,7 +75,7 @@ Use `inputSchema` for endpoint arguments and `schema` when model behavior depend
 
 ## Verify HTTP requests
 
-1. `vitehub agent info --agent <name> --json` has a `fetch` entry in `tools` (keyed by Capability id, not tool names).
+1. `vitehub agent get <name> --json` has a `fetch` entry in `tools` (keyed by Capability id, not tool names).
 2. A run's trace shows only the named tools.
 3. With `inputSchema`, invalid input fails before the request leaves the process.
 

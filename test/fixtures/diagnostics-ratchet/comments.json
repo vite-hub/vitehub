@@ -1,0 +1,7 @@
+{
+  "rawErrors": {},
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/comments/src/runtime/mcp.ts": 1
+  }
+}

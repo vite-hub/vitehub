@@ -10,6 +10,7 @@ import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 import { setupCommands } from "../src/setup/commands.ts"
+import { cliProcess } from "./setup-deploy-helpers.ts"
 import { setupCommandNames } from "@vite-hub/internal/operations"
 
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
@@ -86,7 +87,7 @@ describe("ViteHub CLI", () => {
     // SAFETY: The mock deliberately returns so tests can observe the requested exit status.
     const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     runViteHubCliEntrypoint({
-      args: ["agent", "info"],
+      args: ["agent", "get"],
       loadConfig: async () => { throw error },
       stderr,
       stdout,
@@ -154,6 +155,33 @@ export default ({ mode }) => ({
       expect(JSON.parse(stdout.output())).toEqual({ mode: "production", publicUrl: override ?? "https://production.example.com" })
       expect(process.env.VITEHUB_TEST_PUBLIC_URL).toBe(previous)
     }
+  })
+
+  it("passes the root selected by Vite's config environment to commands", async () => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "web"))
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  root: process.env.NODE_ENV === "development" ? "web" : "wrong",
+  plugins: [{
+    name: "root-contributor",
+    vitehub: { cli: { namespaces: [{ name: "probe", features: [{ name: "root", run(args, context) { context.stdout.write(context.rootDir); return 0 } }] }] } },
+  }],
+}
+`)
+    const stdout = stream()
+    const stderr = stream()
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+    expect(stderr.output()).toBe("")
+    expect(stdout.output()).toBe(join(rootDir, "web"))
   })
 
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
@@ -482,7 +510,7 @@ export default ({ mode }) => ({
     const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
-      runHostCli: noHostCli, args: ["provision", "run"],
+      runHostCli: noHostCli, args: ["provision", "run", "--host", "netlify"],
       cwd: "/repo",
       loadConfig,
       runtimeNamespaces,
@@ -496,9 +524,10 @@ export default ({ mode }) => ({
   })
 
   it.each([
-    { args: ["inspect", "definitions"], expectedExitCode: 0, feature: "definitions" },
-    { runHostCli: noHostCli, args: ["provision", "run"], expectedExitCode: 1, feature: "run" },
-  ])("reserves built-in namespaces from runtime features ($args)", async ({ args, expectedExitCode, feature }) => {
+    { args: ["inspect", "definitions"], expectedExitCode: 0, feature: "definitions", loadsConfig: 1 },
+    // Provision loads the config only after it reads `--host`.
+    { runHostCli: noHostCli, args: ["provision", "run"], expectedExitCode: 1, feature: "run", loadsConfig: 0 },
+  ])("reserves built-in namespaces from runtime features ($args)", async ({ args, expectedExitCode, feature, loadsConfig }) => {
     const runtime = vi.fn(() => 42)
     const stdout = stream()
     const stderr = stream()
@@ -509,7 +538,7 @@ export default ({ mode }) => ({
 
     expect(exitCode).toBe(expectedExitCode)
     expect(runtime).not.toHaveBeenCalled()
-    expect(loadConfig).toHaveBeenCalledOnce()
+    expect(loadConfig).toHaveBeenCalledTimes(loadsConfig)
   })
 
   it("runs runtime namespaces without loading the project config", async () => {
@@ -529,12 +558,40 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("answers project help from a help namespace without loading the project config", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const migrate = vi.fn((args: string[], context: { stdout: { write: (chunk: string) => unknown } }) => {
+      context.stdout.write(args.includes("--help") ? "Usage: vitehub database migrate\n" : "migrated\n")
+      return 0
+    })
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "migrate", run: migrate }, { name: "custom", run: () => 0 }], name: "database" }] } } }],
+      root: "/repo",
+    }))
+    const helpNamespaces = { database: vi.fn(async () => ({ description: "Database development workflows.", features: [{ name: "migrate", run: migrate }], name: "database" })) }
+
+    expect(await runViteHubCli({ args: ["database", "migrate", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "-h"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).not.toHaveBeenCalled()
+    expect(stdout.output()).toContain("Usage: vitehub database migrate\n")
+    expect(stdout.output()).toContain("Usage: vitehub database <feature>")
+    expect(migrate).toHaveBeenCalledWith(["--help"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+
+    // A feature that only the project contributes, and a run without help, load the project.
+    expect(await runViteHubCli({ args: ["database", "custom", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "migrate"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).toHaveBeenCalledTimes(2)
+    expect(stdout.output()).toContain("migrated\n")
+    expect(stderr.output()).toBe("")
+  })
+
   it("runs a runtime feature without the project config and loads it for the other features", async () => {
     const stdout = stream()
     const runtime = vi.fn(() => 0)
     const project = vi.fn(() => 0)
     const loadConfig = vi.fn(async () => ({
-      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "info", run: project }], name: "agent" }] } } }],
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "invocations", run: project }, { name: "get", run: project }], name: "agent" }] } } }],
       root: "/repo",
     }))
     const runtimeFeatures = [{ features: [{ name: "invocations", run: runtime }], name: "agent" }]
@@ -543,7 +600,7 @@ export default ({ mode }) => ({
     expect(runtime).toHaveBeenCalledWith(["list"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
     expect(loadConfig).not.toHaveBeenCalled()
 
-    expect(await runViteHubCli({ args: ["agent", "info"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["agent", "get"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(project).toHaveBeenCalledOnce()
     expect(await runViteHubCli({ args: ["agent", "--help"], cwd: "/app", loadConfig, runtimeFeatures, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledTimes(2)
@@ -687,20 +744,45 @@ export default ({ mode }) => ({
     expect(stderr.output()).toContain("No ViteHub integration contributed the \"kv\" commands")
   })
 
-  it("requires a host for provision", async () => {
+  it("resolves the provision host like deploy, and names --host when that host has no provision", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ name: "app" })}\n`)
     const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
-      runHostCli: noHostCli, args: ["provision", "run"],
-      loadConfig: async () => ({ plugins: [], root: "/repo" }),
+      runHostCli: noHostCli, args: ["provision", "run"], cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }),
       stderr,
       stdout,
     })
 
     expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("--host cloudflare|vercel")
-    expect(stderr.output()).toContain("Usage: vitehub provision run")
+    expect(stderr.output()).toMatch(/The host of this project is \S+, and provision supports cloudflare and vercel\. Pass --host cloudflare\|vercel/)
     expect(stdout.output()).toBe("")
+  })
+
+  it.each([
+    { provider: "cloudflare" as const, args: ["run", "--dry-run"], env: { CLOUDFLARE_API_TOKEN: "token", CLOUDFLARE_ACCOUNT_ID: "shell-account" }, expected: { CLOUDFLARE_ACCOUNT_ID: "linked-account" } },
+    { provider: "vercel" as const, args: ["status"], env: { VERCEL_TOKEN: "token", VERCEL_TEAM_ID: "team_shell", VERCEL_PROJECT_ID: "prj_shell" }, expected: { VERCEL_TEAM_ID: "team_linked", VERCEL_PROJECT_ID: "prj_linked" } },
+  ])("uses the linked $provider scope for provision $args", async ({ provider, args, env, expected }) => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "package.json"), '{"name":"app"}\n')
+    await mkdir(join(rootDir, ".vitehub"))
+    await writeFile(join(rootDir, ".vitehub/link.json"), JSON.stringify({
+      schemaVersion: 2,
+      targets: { [provider]: {
+        account: { id: provider === "cloudflare" ? "linked-account" : "team_linked" },
+        project: { id: "prj_linked", name: "app" },
+        verified: true, linkedAt: "2026-11-19T00:00:00.000Z",
+      } },
+    }))
+    const plan = vi.fn(async (_context: ProvisionContext) => [])
+    const plugin = { vitehub: { cli: { namespaces: [], provision: [{ id: `test:${provider}`, provider, plan }] } } }
+    await expect(runViteHubCli({
+      args: ["provision", ...args], cwd: rootDir, env, runHostCli: noHostCli,
+      loadConfig: async () => ({ plugins: [plugin], root: rootDir }), stderr: stream(), stdout: stream(),
+    })).resolves.toBe(0)
+    expect(plan).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining(expected) }))
   })
 
   it.each([
@@ -738,6 +820,32 @@ export default ({ mode }) => ({
     expect(exitCode).toBe(0)
     expect(apply).not.toHaveBeenCalled()
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+  })
+
+  it.each([["run", "--dry-run"], ["status"]])("loads the config of a build for the --host of provision %s, as deploy does", async (...args) => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const hostsSeen: Array<[string | undefined, string | undefined, string]> = []
+    // A config that picks its store with `detectHost()` declares the Cloudflare resource only on a Cloudflare build.
+    const loadConfig = vi.fn(async (_root: string, command: "build" | "serve") => {
+      hostsSeen.push([process.env.VITEHUB_HOST, process.env.VITEHUB_HOST_SOURCE, command])
+      return { plugins: process.env.VITEHUB_HOST === "cloudflare" ? [provisionPlugin(apply)] : [], root: rootDir, vitehubConfigResolved: true as const }
+    })
+    const stdout = stream()
+
+    const exitCode = await runViteHubCli({
+      runHostCli: noHostCli, args: ["provision", ...args, "--host", "cloudflare"],
+      cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
+      loadConfig,
+      stderr: stream(),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(hostsSeen).toEqual([["cloudflare", "cli", "build"]])
+    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+    expect(apply).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -861,6 +969,48 @@ export default ({ mode }) => ({
     expect(apply).toHaveBeenCalledOnce()
     expect(JSON.parse(await readFile(join(rootDir, "app", ".vitehub", "provision.json"), "utf8")))
       .toEqual({ cloudflare: { test: { demo: "id" } } })
+  })
+
+  it.each([
+    { args: ["run", "--dry-run"] },
+    { args: ["run"] },
+    { args: ["status"] },
+  ])("uses values from Nuxt .env for provision $args", { timeout: 30_000 }, async ({ args }) => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env"), "VERCEL_TOKEN=dotenv-token\nVERCEL_PROJECT_ID=dotenv-project\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), `
+export default {
+  vite: { plugins: process.env.VITEHUB_HOST === "vercel" ? [{
+    name: "fixture-vercel-provision",
+    vitehub: { cli: { namespaces: [], provision: [{
+      id: "test:vercel",
+      provider: "vercel",
+      plan: ({ env }) => {
+        if (env.VERCEL_TOKEN !== "dotenv-token" || env.VERCEL_PROJECT_ID !== "dotenv-project") throw new Error("Missing .env values")
+        if (env.VITEHUB_HOST !== "node" || env.VITEHUB_HOST_SOURCE !== undefined) throw new Error("Discovery host override leaked")
+        return [{ kind: "test-resource", name: "demo", exists: false, apply: () => ({}) }]
+      },
+    }] } },
+  }] : [] },
+}
+`)
+    const stdout = stream()
+    const originalToken = process.env.VERCEL_TOKEN
+
+    await expect(runViteHubCli({
+      args: ["provision", ...args, "--host", "vercel"],
+      cwd: rootDir,
+      env: { VITEHUB_HOST: "node" },
+      runHostCli: noHostCli,
+      stderr: stream(),
+      stdout,
+    })).resolves.toBe(0)
+
+    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+    expect(process.env.VERCEL_TOKEN).toBe(originalToken)
   })
 
   it("provisions with the token and account of a wrangler login", async () => {
@@ -1005,6 +1155,36 @@ export default function (_options, nuxt) {
       fromEnv: directory === undefined ? undefined : "https://env.production.example.com",
       publicUrl: directory === undefined ? `https://${stage ?? "development"}.example.com` : "https://env.production.example.com",
     })
+  })
+
+  // Vite reads DEBUG when it is first imported, so the CLI runs in its own process.
+  it("prints no env value with DEBUG=vite:env when it loads a Nuxt --stage config", { timeout: 60_000 }, async () => {
+    const rootDir = await createTempDir()
+    const canary = "stage-secret-canary-7f3a"
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env.production"), `VITEHUB_TEST_STAGE_SECRET=${canary}\n`)
+    await writeFile(join(rootDir, "nuxt.config.ts"), `export default { modules: ["./discovery-module.ts"] }\n`)
+    await writeFile(join(rootDir, "discovery-module.ts"), `
+export default function (_options, nuxt) {
+  const loaded = process.env.VITEHUB_TEST_STAGE_SECRET?.length
+  nuxt.options.vite.plugins ||= []
+  nuxt.options.vite.plugins.push({
+    name: "fixture-stage-secret",
+    vitehub: { cli: { namespaces: [{ name: "channels", features: [{ name: "sync", run: (_args, context) => {
+      context.stdout.write(JSON.stringify({ loaded }))
+      return 0
+    } }] }] } },
+  })
+}
+`)
+
+    const result = await cliProcess(["channels", "sync", "--stage", "production"], rootDir, { ...process.env, DEBUG: "vite:env", VITEHUB_TEST_STAGE_SECRET: undefined }).exited
+
+    expect(result.code, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({ loaded: canary.length })
+    expect(result.stderr).not.toContain(canary)
   })
 
   it("fails closed when provision credentials are missing", async () => {

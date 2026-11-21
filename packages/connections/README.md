@@ -1,9 +1,9 @@
 # @vite-hub/connections
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fconnections&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fconnections&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/connections)](https://npmx.dev/package/@vite-hub/connections)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/connections)](https://npmx.dev/package/@vite-hub/connections)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/connections` stores one OAuth grant or API key per Connection and lets server code call the provider API with typed methods. Each call applies the Connection access rules, can wait for approval, and is recorded as Env Bridge activity. Application code never reads the token.
 
@@ -12,10 +12,10 @@ Install this owner package alongside `vite-hub` and use `@vite-hub/connections` 
 ## Install the owner package
 
 ```sh
-pnpm add @vite-hub/connections drizzle-orm
+pnpm add @vite-hub/connections drizzle-orm@1.0.0-rc.5
 ```
 
-The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
+The package requires Node.js 24.15 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
 
 ## Define a Connection
 
@@ -266,6 +266,6 @@ Start the local app and run `vitehub connections connect chatgpt`. The CLI opens
 
 For a VM, sign in on the laptop first. Run `vitehub connections export chatgpt --file ./chatgpt-grant.json`, transfer that owner-only file over SSH, then run `vitehub connections import chatgpt --file ./chatgpt-grant.json` against the destination app. Import keeps the destination host ID and immediately rotates the refresh token. Export removes the source token set, so the source can no longer use or revoke the transferred grant. Delete both copies of the transfer file after import. If export is interrupted after removing the source grant, sign in again. Do not copy a running grant to two refresh owners.
 
-Sign out with `vitehub connections revoke chatgpt --confirm chatgpt`. Revocation keeps the registration and host ID for the next sign-in.
+Sign out with `vitehub connections revoke chatgpt`. It asks first, and needs `--yes` without a terminal. Revocation keeps the registration and host ID for the next sign-in.
 
 OpenAI plan usage is available to open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join OpenAI's waitlist first. ViteHub does not enforce eligibility or fall back to API billing.

@@ -53,7 +53,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 
 ## Limits
 
-A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare host, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare host checks the same limits.
+A store with the `cloudflare` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare host, so a key that Cloudflare rejects fails during development with the same code. When the dev runtime has no binding, the local `fs-lite` store of the Cloudflare host checks the same limits.
 
 | Limit | Cloudflare KV | Code |
 | --- | --- | --- |
@@ -63,6 +63,16 @@ A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](h
 Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl` below 60 seconds to 60, also in the local store of `vite dev`, so a short `ttl` does not fail.
 
 `fs-lite`, `deno-kv`, and `upstash` do not check these limits. Upstash [limits requests](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans differ. ViteHub does not know your plan, so a larger request fails with `KV_OPERATION_FAILED`.
+
+## See expiry failures in logs
+
+A `database` store deletes expired rows in the background, at most once a minute. A failed delete does not fail the write that started it. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, KV logs each failure as its own evlog event:
+
+```json
+{ "level": "warn", "action": "kv", "message": "KV could not delete expired rows", "kv": { "op": "expiry-sweep", "driver": "database", "namespace": "sessions", "code": "SQLITE_BUSY" } }
+```
+
+`code` is the `code` of the error, else its class name. When the KV Nitro plugin cannot read the KV configuration at startup, it logs `kv: { op: "read-config" }`. A streak of failed deletes logs once, and a delete that works ends the streak. The event never holds the error's message. Without evlog, or with evlog's `enabled: false`, KV prints the failure to the server console.
 
 ## Runtime errors
 
@@ -76,7 +86,7 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 ### KV_INVALID_TTL
 
-The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive number of seconds. Upstash rounds up to whole seconds.
+The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
 
 ### KV_INVALID_WAIT
 
@@ -106,7 +116,7 @@ The serialized value is larger than 25 MiB, the Cloudflare KV limit. Store large
 
 ### KV_DATABASE_UNAVAILABLE
 
-A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare-kv-binding`.
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare`.
 
 ### KV_DENO_KV_UNAVAILABLE
 
@@ -122,7 +132,7 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
+`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`. The former `cloudflare-kv-binding` is now `cloudflare`; `npx @vite-hub/codemods driver-key` renames it.
 
 ### KV_INVALID_REMOTE
 

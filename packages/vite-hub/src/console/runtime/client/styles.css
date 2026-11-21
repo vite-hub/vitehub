@@ -1,6 +1,20 @@
+/*
+ * The layer order comes first. Tailwind and Nuxt UI use theme, base, components, and utilities. The kit family loads in
+ * `kit`: after base, so Preflight does not reset the parts, and before utilities, so classes win. The family's own
+ * `ui-sdk` layer is inside `kit`. A top-level `ui-sdk` layer cannot go after base: when a ui-sdk part mounts, such as
+ * the toaster, ui-sdk puts a `<style>` with that layer first in `<head>`, so ui-sdk is always the first layer.
+ */
+@layer theme, base, kit, components, utilities;
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tailwind.css";
 @import "@vite-hub/ui/theme.css";
+/*
+ * The kit style family under a `.ui-sdk` scope root. Parts move from Nuxt UI to ui-sdk one by one inside a scope root,
+ * and a scope root holds no Nuxt UI component (see "Move a part to ui-sdk" in playground/console/README.md). The tokens
+ * come from theme.css, including the foreground, input, overlay, and popup tokens that the scoped family reads.
+ */
+@import "@vite-hub/kit/styles/default.scoped.css" layer(kit);
 @source "../components";
 @source "../../app.config.ts";
 
@@ -61,15 +75,6 @@ body {
   background: var(--background);
   color: var(--ui-text);
   min-height: 100vh;
-}
-
-/* Toasts enter from below and leave by fading. Reduced motion skips both. */
-@keyframes vitehub-console-toast-in {
-  from { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
-}
-
-@keyframes vitehub-console-toast-out {
-  to { opacity: 0; }
 }
 
 /* Thin scrollbars keep dense lists from showing a wide system gutter. */

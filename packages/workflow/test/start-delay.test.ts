@@ -19,6 +19,7 @@ import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
 import type { VercelRun, VercelWorkflowRuntime } from "../src/runtime/vercel.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(async () => {
   resetWorkflowRuntime()
@@ -37,12 +38,12 @@ async function waitFor(check: () => Promise<boolean>, timeout = 2_000) {
 describe("inline runs", () => {
   function inlineWorkflow() {
     const seen: unknown[] = []
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
-      remind: async () => ({ default: defineWorkflow("remind", async (payload: { to: string }) => {
+      remind: async () => ({ default: defineWorkflow<{ to: string }>({ handler: async ({ payload }) => {
         seen.push(payload)
         return "sent"
-      }) }),
+      } }) }),
     })
     return seen
   }
@@ -51,13 +52,13 @@ describe("inline runs", () => {
     const seen = inlineWorkflow()
     const startedAt = Date.now()
 
-    const run = await startWorkflow("remind", { to: "ada" }, { delay: 150 })
+    const run = await unwrap(startWorkflow("remind", { to: "ada" }, { delay: "150ms" }))
 
     expect(run.status).toBe("queued")
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(seen).toEqual([])
-    await expect(getWorkflowRun("remind", run.id)).resolves.toMatchObject({ status: "queued" })
-    await waitFor(async () => (await getWorkflowRun("remind", run.id)).status === "completed")
+    await expect(unwrap(getWorkflowRun("remind", run.id))).resolves.toMatchObject({ status: "queued" })
+    await waitFor(async () => (await unwrap(getWorkflowRun("remind", run.id))).status === "completed")
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(140)
     expect(seen).toEqual([{ to: "ada" }])
   })
@@ -65,55 +66,67 @@ describe("inline runs", () => {
   it("accepts a duration string and a future Date", async () => {
     const seen = inlineWorkflow()
 
-    const byString = await startWorkflow("remind", { to: "a" }, { delay: "100ms", id: "by-string" })
-    const byDate = await startWorkflow("remind", { to: "b" }, { delay: new Date(Date.now() + 100), id: "by-date" })
+    const byString = await unwrap(startWorkflow("remind", { to: "a" }, { delay: "100ms", id: "by-string" }))
+    const byDate = await unwrap(startWorkflow("remind", { to: "b" }, { delay: new Date(Date.now() + 100), id: "by-date" }))
 
-    await expect(getWorkflowRun("remind", byString.id)).resolves.toMatchObject({ status: "queued" })
-    await expect(getWorkflowRun("remind", byDate.id)).resolves.toMatchObject({ status: "queued" })
+    await expect(unwrap(getWorkflowRun("remind", byString.id))).resolves.toMatchObject({ status: "queued" })
+    await expect(unwrap(getWorkflowRun("remind", byDate.id))).resolves.toMatchObject({ status: "queued" })
     await waitFor(async () => seen.length === 2)
   })
 
   it("starts now for a Date in the past", async () => {
     const seen = inlineWorkflow()
 
-    const run = await startWorkflow("remind", { to: "ada" }, { delay: new Date(Date.now() - 60_000) })
+    const run = await unwrap(startWorkflow("remind", { to: "ada" }, { delay: new Date(Date.now() - 60_000) }))
 
-    await waitFor(async () => (await getWorkflowRun("remind", run.id)).status === "completed", 500)
+    await waitFor(async () => (await unwrap(getWorkflowRun("remind", run.id))).status === "completed", 500)
     expect(seen).toHaveLength(1)
   })
 
   it.each([
     -1,
+    150,
     Number.NaN,
-    Number.POSITIVE_INFINITY,
     "-1 hour",
     "soon",
     "10",
     "1 month",
-    new Date(Number.NaN),
-  ])("rejects the delay %s with a coded error", async (delay) => {
+  ])("rejects the delay %s with RUNTIME_DURATION_INVALID", async (delay) => {
     const seen = inlineWorkflow()
 
-    await expect(startWorkflow("remind", { to: "ada" }, { delay })).rejects.toMatchObject({ code: "WORKFLOW_START_DELAY_INVALID" })
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: delay as never })).resolves.toMatchObject([{ code: "RUNTIME_DURATION_INVALID" }, undefined])
+    expect(seen).toEqual([])
+  })
+
+  it("shows the string form when the delay is a number", async () => {
+    inlineWorkflow()
+
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: 300_000 as never })).resolves.toMatchObject([{ fix: expect.stringContaining("\"5m\"") }, undefined])
+  })
+
+  it.each([new Date(Number.NaN), "300000000000 weeks"])("rejects the delay %s, which a Date cannot hold, with WORKFLOW_START_DELAY_INVALID", async (delay) => {
+    const seen = inlineWorkflow()
+
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: delay as never })).resolves.toMatchObject([{ code: "WORKFLOW_START_DELAY_INVALID" }, undefined])
     expect(seen).toEqual([])
   })
 })
 
 describe("OpenWorkflow", () => {
-  const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } as const
+  const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } as const
 
   it("keeps a delayed run queued until its start time", async () => {
     const seen: unknown[] = []
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({
-      remind: async () => ({ default: defineWorkflow("remind", async (payload: { to: string }) => {
+      remind: async () => ({ default: defineWorkflow<{ to: string }>({ handler: async ({ payload }) => {
         seen.push(payload)
         return "sent"
-      }) }),
+      } }) }),
     })
     const before = Date.now()
 
-    const run = await startWorkflow("remind", { to: "ada" }, { delay: "1 hour", id: "remind-ada" })
+    const run = await unwrap(startWorkflow("remind", { to: "ada" }, { delay: "1 hour", id: "remind-ada" }))
 
     expect(run).toMatchObject({ id: "remind-ada", status: "queued" })
     const runtime = await getOpenWorkflowRuntime(config)
@@ -123,13 +136,13 @@ describe("OpenWorkflow", () => {
     const worker = await createOpenWorkflowWorker()
     await worker.tick()
     expect(seen).toEqual([])
-    await expect(getWorkflowRun("remind", "remind-ada")).resolves.toMatchObject({ status: "queued" })
+    await expect(unwrap(getWorkflowRun("remind", "remind-ada"))).resolves.toMatchObject({ status: "queued" })
 
     // Move the start time to the past, as if the hour had passed.
     const db: { prepare(sql: string): { run(...values: unknown[]): unknown } } = Reflect.get(runtime.backend, "db")
     db.prepare(`UPDATE "workflow_runs" SET "available_at" = ?`).run(new Date(Date.now() - 1_000).toISOString())
     await worker.tick()
-    await waitFor(async () => (await getWorkflowRun("remind", "remind-ada")).status === "completed")
+    await waitFor(async () => (await unwrap(getWorkflowRun("remind", "remind-ada"))).status === "completed")
     await worker.stop()
     expect(seen).toEqual([{ to: "ada" }])
   })
@@ -141,7 +154,7 @@ describe("Cloudflare", () => {
       createBatch: vi.fn(async (batch: { id: string, params: unknown }[]) => batch.map(({ id }) => ({ id, status: async () => ({ status: "queued" }) }))),
       get: vi.fn(async (id: string) => ({ id, status: async () => ({ status: "waiting" }) })),
     }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "sent" } }) })
     enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName("remind")]: binding } } } } })
     return binding
@@ -151,7 +164,7 @@ describe("Cloudflare", () => {
     const binding = cloudflareBinding()
     const startAt = new Date(Date.now() + 3_600_000)
 
-    const run = await startWorkflow("remind", { to: "ada" }, { delay: startAt, id: "remind-ada" })
+    const run = await unwrap(startWorkflow("remind", { to: "ada" }, { delay: startAt, id: "remind-ada" }))
 
     expect(run).toMatchObject({ id: "remind-ada", payload: { to: "ada" }, status: "queued" })
     expect(binding.createBatch).toHaveBeenCalledWith([{ id: "remind-ada", params: { "~vitehubStartAt": startAt.getTime(), payload: { to: "ada" } } }])
@@ -160,7 +173,7 @@ describe("Cloudflare", () => {
   it("sends the payload alone without a delay", async () => {
     const binding = cloudflareBinding()
 
-    await startWorkflow("remind", { to: "ada" }, { id: "remind-now" })
+    await unwrap(startWorkflow("remind", { to: "ada" }, { id: "remind-now" }))
 
     expect(binding.createBatch).toHaveBeenCalledWith([{ id: "remind-now", params: { to: "ada" } }])
   })
@@ -182,12 +195,12 @@ describe("Cloudflare", () => {
     const startAt = Date.now() + 3_600_000
 
     const result = await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "remind-ada", payload: { "~vitehubStartAt": startAt, payload: { to: "ada" } } },
       name: "remind",
       registry: {
-        remind: async () => ({ default: { handler: async (payload: unknown) => {
+        remind: async () => ({ default: { handler: async ({ payload }) => {
           calls.push(["handler"])
           seen.push(payload)
           return "sent"
@@ -206,11 +219,11 @@ describe("Cloudflare", () => {
     const seen: unknown[] = []
 
     await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "remind-now", payload: { to: "ada" } },
       name: "remind",
-      registry: { remind: async () => ({ default: { handler: async (payload: unknown) => { seen.push(payload) } } }) },
+      registry: { remind: async () => ({ default: { handler: async ({ payload }) => { seen.push(payload) } } }) },
       step,
     })
 
@@ -228,17 +241,17 @@ describe("Vercel native", () => {
       resumeHook: vi.fn(),
       start,
     }))
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     return start
   }
 
   it("passes the start time to a native entry that ViteHub generated", async () => {
     const start = vercelRuntime()
     const native = Object.assign(async () => "native", { workflowId: "workflow//./.vitehub/workflow/vercel-native//RemindNative", "~vitehubGenerated": true })
-    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", options: { native, rootStep: false } } }) })
+    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", native, rootStep: false } }) })
     const startAt = new Date(Date.now() + 3_600_000)
 
-    await expect(startWorkflow("remind", { to: "ada" }, { delay: startAt })).resolves.toMatchObject({ id: "wrun_1", status: "queued" })
+    await expect(unwrap(startWorkflow("remind", { to: "ada" }, { delay: startAt }))).resolves.toMatchObject({ id: "wrun_1", status: "queued" })
 
     expect(start).toHaveBeenCalledWith(native, [{ "name": "remind", "payload": { to: "ada" }, "provider": "vercel", "~vitehubStartAt": startAt.getTime() }])
   })
@@ -246,12 +259,12 @@ describe("Vercel native", () => {
   it("rejects a delay for a native entry that the developer wrote", async () => {
     const start = vercelRuntime()
     const native = Object.assign(async () => "native", { workflowId: "workflow//./server/workflows/durable.ts//durable" })
-    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", options: { native } } }) })
+    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", native } }) })
 
-    await expect(startWorkflow("remind", { to: "ada" }, { delay: "1 hour" })).rejects.toMatchObject({
+    expect(await startWorkflow("remind", { to: "ada" }, { delay: "1 hour" })).toMatchObject([{
       code: "WORKFLOW_OPERATION_UNSUPPORTED",
-      details: { operation: "delay", provider: "vercel" },
-    })
+      data: { operation: "delay", provider: "vercel" },
+    }, undefined])
     expect(start).not.toHaveBeenCalled()
   })
 })

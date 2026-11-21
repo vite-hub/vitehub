@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createDropField, type DropField } from "@vite-hub/ui/motion";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
@@ -26,6 +27,7 @@ import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 import ConsoleConfirm from "./console-confirm.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Browses one folder of the media library: breadcrumbs, folders, and files in a grid or a list, search by file name
@@ -289,7 +291,8 @@ const uploads = useConsoleMediaUploads(() => props.client, (result) => {
   }
 });
 const fileInput = ref<HTMLInputElement>();
-const dragDepth = ref(0);
+const browser = ref<HTMLElement>();
+const dropSurface = ref<HTMLElement>();
 
 async function upload(files: readonly File[]): Promise<ConsoleMediaUploadResult[]> {
   if (!files.length) return [];
@@ -317,29 +320,18 @@ function hasFiles(event: DragEvent): boolean {
   return [...event.dataTransfer?.types ?? []].includes("Files");
 }
 
-function dragenter(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  dragDepth.value++;
-}
-
-function dragover(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-}
-
-function dragleave(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  dragDepth.value = Math.max(0, dragDepth.value - 1);
-}
-
-function drop(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  dragDepth.value = 0;
-  void upload([...event.dataTransfer?.files ?? []]);
-}
+// The whole browser takes a drop. The drop field of @vite-hub/ui marks it with `data-over`, which shows the drop
+// target, and the dots of the target lean toward the file.
+let dropField: DropField | undefined;
+onMounted(() => {
+  if (!browser.value || !dropSurface.value) return;
+  dropField = createDropField(browser.value, {
+    accepts: event => hasFiles(event) && canWrite.value,
+    onFiles: files => void upload(files),
+    surface: dropSurface.value,
+  });
+});
+onBeforeUnmount(() => dropField?.destroy());
 
 // Folders
 
@@ -526,18 +518,15 @@ defineExpose({
 
 <template>
   <div
+    ref="browser"
     class="vitehub-media-browser relative flex min-h-0 flex-1 flex-col"
-    @dragenter="dragenter"
-    @dragover="dragover"
-    @dragleave="dragleave"
-    @drop="drop"
     @keydown="keydown"
   >
     <ConsolePageToolbar>
       <!-- On the Media page the header shows the folder trail; the picker shows it here. -->
       <nav v-if="mode === 'picker'" class="flex min-w-0 basis-full items-center gap-0.5 text-[13px] sm:basis-auto sm:flex-1" aria-label="Folders">
         <template v-for="(path, index) in trail" :key="path || '/'">
-          <UIcon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+          <Icon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
           <UButton
             variant="ghost"
             size="xs"
@@ -638,7 +627,7 @@ defineExpose({
               <span class="vitehub-media-tile__thumb" :style="{ background: file.color }">
                 <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded" @error="thumbnailFailed(file)">
                 <span v-else class="flex size-full flex-col items-center justify-center gap-1 text-dimmed">
-                  <UIcon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
+                  <Icon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
                   <span class="text-xs font-medium">{{ consoleMediaFormat(file) }}</span>
                 </span>
               </span>
@@ -684,7 +673,7 @@ defineExpose({
                 <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
                     <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @error="thumbnailFailed(file)">
-                    <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
+                    <Icon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
                   </span>
                   <span class="grid min-w-0">
                     <span class="truncate text-highlighted">{{ file.name }}</span>
@@ -716,9 +705,9 @@ defineExpose({
       </UTooltip>
     </div>
 
-    <div v-if="dragDepth > 0" class="vitehub-media-drop" aria-hidden="true">
+    <div ref="dropSurface" class="vitehub-media-drop" aria-hidden="true">
       <div class="flex flex-col items-center gap-2 text-center">
-        <UIcon name="i-lucide-upload" class="size-6 text-highlighted" />
+        <Icon name="i-lucide-upload" class="size-6 text-highlighted" />
         <p class="text-sm font-medium text-highlighted">Drop to upload to {{ folderLabel(folder) }}</p>
       </div>
     </div>
@@ -748,7 +737,7 @@ defineExpose({
         <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
         <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
         <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
-          <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <Icon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span>{{ removeState.warning }}</span>
         </p>
       </template>
@@ -939,8 +928,13 @@ defineExpose({
   z-index: 15;
 }
 
-/* The drop target covers the whole browser, so a file can land anywhere on it. */
+/* The drop target covers the whole browser, so a file can land anywhere on it. It shows while a file is over it. */
+.vitehub-media-browser:not([data-over]) > .vitehub-media-drop {
+  display: none;
+}
+
 .vitehub-media-drop {
+  --vh-drop-dot: var(--ui-text-highlighted);
   align-items: center;
   background: color-mix(in oklab, var(--background) 85%, transparent);
   border: 1px dashed var(--foreground);

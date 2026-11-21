@@ -8,17 +8,18 @@ icon: i-lucide-circle-alert
 
 ## Protocol
 
-The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/docs/development/mcp) of the Console uses the same server.
+The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/docs/console/mcp) of the Console uses the same server.
 
-- It speaks the stateless JSON subset of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`.
+- It speaks Streamable HTTP, revisions `2025-11-25` and `2025-06-18`. It answers with JSON, except a tool call that [elicits](/docs/mcp/server-api#ask-the-person-for-values), which gets an event stream.
 - It answers `initialize`, `ping`, `tools/list`, and `tools/call`. With prompts, it also answers `prompts/list` and `prompts/get`. With resources, it also answers `resources/list`, `resources/templates/list`, and `resources/read`. Other methods get JSON-RPC `-32601`.
-- It keeps no session between requests and has no event stream. A request that is not `POST` gets `405`.
+- It keeps no session state between requests. `initialize` gives a signed `Mcp-Session-Id` only to a client that declares form elicitation. The client must use that session on the same endpoint and as the same caller for the tool call, its answers, and its cancellation. There is no `GET` event stream: a request that is not `POST` gets `405`.
+- A tool call that elicits waits in the memory of one server process. It does not work on hosts that can send the answer of the client to another instance, such as Cloudflare Workers or Vercel.
 - It has no resource subscriptions, no list change notifications, and no pagination. A list returns all its entries.
 - An unknown resource URI, or a resource handler that returns `undefined`, gets JSON-RPC `-32002`. Invalid prompt arguments get `-32602`.
 
 ## Errors
 
-A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `public` without a `publicRoute` fails the server. A second hooks module also fails the build.
+A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `access` without a `publicRoute` or `auth: 'optional'` fails the server. A second hooks module also fails the build.
 
 ### MCP_B0001
 
@@ -30,11 +31,11 @@ A file in `server/mcp/tools/` has a name that MCP does not allow as a tool name.
 
 ### MCP_B0003
 
-`mcp.publicRoute` is set with `mcp: { auth: false }`. Then every tool on `mcp.route` is public already. Remove `publicRoute`, or remove `auth: false` and add `mcpOAuth()` from `vite-hub/auth/mcp` to `server/auth.ts`.
+`mcp.publicRoute` is set with `mcp: { auth: false }` or `mcp: { auth: 'optional' }`. Then `mcp.route` serves the public tools already. Remove `publicRoute`, or set `auth: true` and add `mcpOAuth()` from `vite-hub/auth/mcp` to `server/auth.ts`.
 
 ### MCP_R0001
 
-A tool sets `public`, but the MCP server has no `mcp.publicRoute`. The error names the tools. Set `mcp: { route: '/mcp/account', publicRoute: '/mcp' }` to serve them without sign-in, or remove `public` from the tools.
+A tool sets `access`, but the MCP server has no `mcp.publicRoute` and its `auth` is not `'optional'`. The error names the tools. Set `mcp: { auth: 'optional' }` to serve them without sign-in on the same route, set `mcp: { route: '/mcp/account', publicRoute: '/mcp' }` to serve them on a second route, or remove `access` from the tools.
 
 ### SOURCE_B0010
 

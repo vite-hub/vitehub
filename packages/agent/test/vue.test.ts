@@ -48,7 +48,7 @@ describe("Agent Vue clients", () => {
 
     expect(fetch).toHaveBeenCalledOnce()
     const [api, request] = fetch.mock.calls[0]!
-    expect(api).toBe("/api/_vitehub/agents/team%2Freview/chat")
+    expect(api).toBe("/_vitehub/agents/team%2Freview/chat")
     expect(JSON.parse(String(request?.body))).toMatchObject({
       id: "chat-1",
       messages: [{ parts: [{ text: "Hello", type: "text" }], role: "user" }],
@@ -271,18 +271,18 @@ describe("Agent Vue clients", () => {
       resume: true,
     })))!
 
-    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-a")).toBe(true))
+    await vi.waitFor(() => expect(responses.has("/_vitehub/agents/support/chat?id=chat-a")).toBe(true))
     id.value = "chat-b"
     await nextTick()
-    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
-    responses.get("/api/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, {
+    await vi.waitFor(() => expect(responses.has("/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
+    responses.get("/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, {
       headers: {
         "x-vitehub-invocation-id": "invocation-b",
         "x-vitehub-message-id": "message-b",
       },
       status: 204,
     }))
-    responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(createUIMessageStreamResponse({
+    responses.get("/_vitehub/agents/support/chat?id=chat-a")!(createUIMessageStreamResponse({
       headers: {
         "x-vitehub-invocation-id": "invocation-a",
         "x-vitehub-message-id": "message-a",
@@ -300,7 +300,7 @@ describe("Agent Vue clients", () => {
     expect(chat.invocationId.value).toBe("invocation-b")
     await chat.stop()
 
-    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-b&messageId=message-b", {
+    expect(fetch).toHaveBeenLastCalledWith("/_vitehub/agents/support/chat?id=chat-b&messageId=message-b", {
       credentials: "same-origin",
       method: "DELETE",
     })
@@ -323,16 +323,16 @@ describe("Agent Vue clients", () => {
       resume: true,
     })))!
 
-    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-a")).toBe(true))
+    await vi.waitFor(() => expect(responses.has("/_vitehub/agents/support/chat?id=chat-a")).toBe(true))
     id.value = "chat-b"
     await nextTick()
-    await vi.waitFor(() => expect(responses.has("/api/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
+    await vi.waitFor(() => expect(responses.has("/_vitehub/agents/support/chat?id=chat-b")).toBe(true))
 
-    responses.get("/api/_vitehub/agents/support/chat?id=chat-a")!(new Response(null, { status: 204 }))
+    responses.get("/_vitehub/agents/support/chat?id=chat-a")!(new Response(null, { status: 204 }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(chat.status.value).toBe("submitted")
 
-    responses.get("/api/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, { status: 204 }))
+    responses.get("/_vitehub/agents/support/chat?id=chat-b")!(new Response(null, { status: 204 }))
     await vi.waitFor(() => expect(chat.status.value).toBe("ready"))
     scope.stop()
   })
@@ -443,7 +443,7 @@ describe("Agent Vue clients", () => {
     }))!
 
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/_vitehub/agents/support/chat?id=chat-1",
+      "/_vitehub/agents/support/chat?id=chat-1",
       expect.objectContaining({ method: "GET" }),
     ))
     await chat.sendMessage({ text: "New question" })
@@ -469,7 +469,7 @@ describe("Agent Vue clients", () => {
     expect(chat.invocationId.value).toBe("invocation-fresh")
     expect(chat.messages.value).not.toContainEqual(expect.objectContaining({ id: "stale" }))
     await chat.stop()
-    expect(fetch).toHaveBeenLastCalledWith(`/api/_vitehub/agents/support/chat?id=chat-1&messageId=${submittedMessageId}`, {
+    expect(fetch).toHaveBeenLastCalledWith(`/_vitehub/agents/support/chat?id=chat-1&messageId=${submittedMessageId}`, {
       credentials: "same-origin",
       method: "DELETE",
     })
@@ -510,7 +510,7 @@ describe("Agent Vue clients", () => {
     }))
     expect(chat.messages.value).toHaveLength(2)
     await chat.stop()
-    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/agents/support/chat?id=chat-1&messageId=user-1", {
+    expect(fetch).toHaveBeenLastCalledWith("/_vitehub/agents/support/chat?id=chat-1&messageId=user-1", {
       credentials: "same-origin",
       method: "DELETE",
     })
@@ -654,7 +654,7 @@ describe("Agent Vue clients", () => {
 
     await chat.sendMessage({ text: "Hello" })
 
-    expect(fetch).toHaveBeenCalledWith("/portal/api/_vitehub/agents/support/chat", expect.anything())
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/agents/support/chat", expect.anything())
     scope.stop()
   })
 

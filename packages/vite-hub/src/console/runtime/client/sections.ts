@@ -1,5 +1,6 @@
 import type { ConsoleContributedSection } from "../definitions"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw, Router } from "vue-router"
 
 import { parseConsoleContributedSection } from "../definitions"
 import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
@@ -91,14 +92,31 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
 
 /**
  * Keep the navigation that `project.get` sent with the project, so the rail and the Overview show it without a
- * `sections.list` call. A load that already started keeps its own answer.
+ * `sections.list` call. A newer answer, such as the answer of this visit after a stored one, replaces it, and the
+ * subscribers get it when it changed.
  */
 export function seedConsoleNavigation(base: string, navigation: ConsoleNavigation): void {
-  if (navigationRequests.has(base)) return
+  const known = navigationValues.get(base)
   navigationErrors.delete(base)
   navigationRequests.set(base, Promise.resolve(navigation))
   navigationValues.set(base, navigation)
+  if (known && JSON.stringify(known) === JSON.stringify(navigation)) return
   for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
+}
+
+/**
+ * Drop the navigation of `base` that a `project.get` answer gave, such as a stored one, when a newer answer has none.
+ * The sections come from `sections.list` again, and the subscribers get them.
+ */
+export function reloadConsoleNavigation(base: string): void {
+  if (!navigationValues.has(base)) return
+  navigationRequests.delete(base)
+  void loadConsoleNavigation(base)
+}
+
+/** Whether a route shows a section that the navigation does not have, such as one that the access lost. */
+export function isConsoleSectionRevoked(section: unknown, navigation: Pick<ConsoleNavigation, "sections">): boolean {
+  return isConsoleSectionId(section) && !navigation.sections.includes(section)
 }
 
 /** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
@@ -123,4 +141,29 @@ export function subscribeConsoleNavigation(
 
 export function createConsoleSectionLoader(base: string): () => Promise<ConsoleSectionId[] | undefined> {
   return async () => (await loadConsoleNavigation(base))?.sections
+}
+
+/**
+ * Matches every path until the navigation response adds the routes of the contributed sections, so a deep link such
+ * as `/queues` does not log a Vue Router "No match found" warning. It never renders: the guard of
+ * `resolveConsoleSectionDeepLink` always sends the navigation on.
+ */
+export const consolePendingSectionRoute: RouteRecordRaw & { name: string } = {
+  component: { render: () => null },
+  name: "vitehub-console-pending-section",
+  path: "/:pathMatch(.*)*",
+}
+
+/**
+ * Router guard step for a path that only `consolePendingSectionRoute` matches. It waits for `addSectionRoutes`, then
+ * sends the navigation to the real route, or to the Overview when the path is still unknown.
+ */
+export async function resolveConsoleSectionDeepLink(
+  router: Router,
+  to: RouteLocationNormalized,
+  addSectionRoutes: () => Promise<void>,
+): Promise<RouteLocationRaw | undefined> {
+  if (to.name !== consolePendingSectionRoute.name) return undefined
+  await addSectionRoutes()
+  return router.resolve(to.fullPath).name === consolePendingSectionRoute.name ? { name: "vitehub-console" } : to.fullPath
 }

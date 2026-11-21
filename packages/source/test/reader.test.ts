@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { clearSources, createSource, defineSource, registerSource, useSource, file } from "../src/index.ts"
+import { defineSource, file, useSource } from "../src/index.ts"
+import { clearSources, registerSource } from "../src/internal/registry.ts"
 import type { SourceContext } from "../src/index.ts"
 
 afterEach(clearSources)
 
 describe("direct Source readers", () => {
   it("reads a file definition without registration", async () => {
-    const reader = createSource(file({ workspacePath: "guide/start.md", content: "# Start" }))
+    const reader = useSource(file({ workspacePath: "guide/start.md", content: "# Start" }))
 
     await expect(reader.keys()).resolves.toEqual(["guide/start.md"])
     await expect(reader.read("guide/start.md")).resolves.toBe("# Start")
@@ -19,7 +20,7 @@ describe("direct Source readers", () => {
   it("uses typed records and bulk loading directly", async () => {
     const getItem = vi.fn(async (key: "article_1") => ({ key, data: { title: "One" } }))
     const getItems = vi.fn(async () => [{ key: "article_1" as const, data: { title: "One" } }])
-    const reader = createSource(defineSource({
+    const reader = useSource(defineSource({
       name: "articles",
       async getKeys() { return ["article_1"] },
       getItem,
@@ -35,7 +36,7 @@ describe("direct Source readers", () => {
   })
 
   it("lists only immediate children and lets files replace matching directories", async () => {
-    const reader = createSource(defineSource({
+    const reader = useSource(defineSource({
       name: "docs",
       async getKeys() {
         return [
@@ -72,7 +73,7 @@ describe("direct Source readers", () => {
   })
 
   it("reconciles normalized file keys with directory entries", async () => {
-    const reader = createSource(defineSource({
+    const reader = useSource(defineSource({
       name: "docs",
       async getKeys() { return ["guide\\api", "guide/api/deep/example.md"] },
       async getItem(key: string) { return { key, content: key } },
@@ -84,7 +85,7 @@ describe("direct Source readers", () => {
   })
 
   it("normalizes separators when deriving directories from Source keys", async () => {
-    const reader = createSource(defineSource({
+    const reader = useSource(defineSource({
       name: "docs",
       async getKeys() { return ["guide\\windows\\example.md", "guide//nested///example.md"] },
       async getItem(key: string) { return { key, content: key } },
@@ -121,7 +122,7 @@ describe("direct Source readers", () => {
         return { key, content: `Revision ${context.revision?.id}` }
       },
     })
-    const reader = createSource(source)
+    const reader = useSource(source)
     await expect(Promise.all([reader.keys(), reader.read("index.md"), reader.items()])).resolves.toEqual([
       ["index.md"], "Revision 1", [{ key: "index.md", content: "Revision 1" }],
     ])
@@ -130,7 +131,7 @@ describe("direct Source readers", () => {
 
     originRevision = 2
     await expect(reader.read("index.md")).resolves.toBe("Revision 1")
-    await expect(createSource(source).read("index.md")).resolves.toBe("Revision 2")
+    await expect(useSource(source).read("index.md")).resolves.toBe("Revision 2")
     expect(resolveRevision).toHaveBeenCalledTimes(2)
     expect(prepare).toHaveBeenCalledTimes(2)
   })
@@ -150,13 +151,13 @@ describe("direct Source readers", () => {
       async getKeys() { return ["index.md"] },
       getItem,
     })
-    const reader = createSource(source)
+    const reader = useSource(source)
     await expect(reader.read("index.md")).rejects.toBe(failure)
     fail = false
     await expect(reader.read("index.md")).rejects.toBe(failure)
     expect(attempt).toHaveBeenCalledOnce()
     expect(getItem).not.toHaveBeenCalled()
-    await expect(createSource(source).read("index.md")).resolves.toBe("ready")
+    await expect(useSource(source).read("index.md")).resolves.toBe("ready")
   })
 
   it("keeps reader contexts and cancellation separate when definitions are reused", async () => {
@@ -172,8 +173,8 @@ describe("direct Source readers", () => {
       },
       async getItem(key: string) { return { key, content: "ready" } },
     })
-    const first = createSource(source, { rootDir: "/first", abortSignal: canceled.signal })
-    const second = createSource(source, { rootDir: "/second", abortSignal: active.signal })
+    const first = useSource(source, { rootDir: "/first", abortSignal: canceled.signal })
+    const second = useSource(source, { rootDir: "/second", abortSignal: active.signal })
     canceled.abort()
 
     await expect(first.keys()).rejects.toMatchObject({ name: "AbortError" })
@@ -193,7 +194,7 @@ describe("direct Source readers", () => {
     })
     registerSource("readme", source)
     const context = { rootDir: "/docs", revision: { id: "pinned", immutable: true } }
-    await expect(createSource(source, context).read("README.md")).resolves.toBe("pinned")
+    await expect(useSource(source, context).read("README.md")).resolves.toBe("pinned")
     await expect(useSource("readme", context).read("README.md")).resolves.toBe("pinned")
     expect(contexts.map(value => value.source)).toEqual(["provider", "readme"])
     expect(contexts.every(value => value !== context)).toBe(true)

@@ -1,7 +1,8 @@
-// Internal invariant: caught in this module, which then leaves the value out.
-class UnsupportedValueError extends Error {}
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
-function isUint8Array(value: unknown): value is Uint8Array {
+const unsupported = () => kvErrorDiagnostics.KV_VALUE_UNSUPPORTED()
+
+export function isUint8Array(value: unknown): value is Uint8Array {
   try {
     if (!ArrayBuffer.isView(value)) return false
     const tagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
@@ -22,11 +23,11 @@ export function kvValueType(value: unknown): string {
 function encodeBase64(bytes: Uint8Array): string {
   try {
     const lengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")?.get
-    if (!lengthGetter) throw new UnsupportedValueError()
+    if (!lengthGetter) throw unsupported()
     const length = Reflect.apply(lengthGetter, bytes, [])
     for (const key of ["byteLength", "length"]) {
       const descriptor = Object.getOwnPropertyDescriptor(bytes, key)
-      if (descriptor && (!("value" in descriptor) || descriptor.value !== length)) throw new UnsupportedValueError()
+      if (descriptor && (!("value" in descriptor) || descriptor.value !== length)) throw unsupported()
     }
     const encoded: string[] = []
     let chunk: number[] = []
@@ -43,7 +44,7 @@ function encodeBase64(bytes: Uint8Array): string {
     return encoded.join("")
   }
   catch {
-    throw new UnsupportedValueError()
+    throw unsupported()
   }
 }
 
@@ -53,7 +54,7 @@ function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
   if ((typeof value !== "object" && typeof value !== "function") || seen.has(value)) {
-    throw new UnsupportedValueError()
+    throw unsupported()
   }
   seen.add(value)
   try {
@@ -61,17 +62,17 @@ function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
     const dataKeys = Array.isArray(value) ? ownKeys.filter(key => key !== "length") : ownKeys
     const descriptors = dataKeys.map(key => Object.getOwnPropertyDescriptor(value, key))
     if (descriptors.some(descriptor => !descriptor?.enumerable || !("value" in descriptor))) {
-      throw new UnsupportedValueError()
+      throw unsupported()
     }
     if (Array.isArray(value)) {
       if (dataKeys.length !== value.length || dataKeys.some(key => typeof key !== "string" || String(Number(key)) !== key || !Number.isInteger(Number(key)) || Number(key) < 0 || Number(key) >= value.length)) {
-        throw new UnsupportedValueError()
+        throw unsupported()
       }
       return Array.from({ length: value.length }, (_, index) => inspectValue(Object.getOwnPropertyDescriptor(value, String(index))?.value, seen))
     }
     const prototype: unknown = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null || Object.getOwnPropertySymbols(value).length) {
-      throw new UnsupportedValueError()
+      throw unsupported()
     }
     return Object.fromEntries(dataKeys.map(key => [key, inspectValue(Object.getOwnPropertyDescriptor(value, key)?.value, seen)]))
   }
@@ -85,7 +86,7 @@ export function inspectKVValue(value: unknown): { encoding?: "base64", type: str
     return { type: kvValueType(value), value: inspectValue(value) }
   }
   catch (error) {
-    if (error instanceof UnsupportedValueError) return
+    if (Reflect.get(Object(error), "code") === "KV_VALUE_UNSUPPORTED") return
     throw error
   }
 }

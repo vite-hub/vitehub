@@ -101,7 +101,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup) for who owns the lifetime.
+This streaming route needs a host lifetime API that stays active until the stream is read or cancelled. `flushWaitUntil()` before you return the stream does not cover later work. See [Runtime Context](/docs/runtime/context#background-work-and-cleanup) for who owns the lifetime.
 
 `run` contains origin and trace metadata; it is not chat context. Authenticate before passing Invoker identity, session selection, or trusted metadata into the Trigger input.
 
@@ -115,8 +115,9 @@ A route that calls a Trigger directly must, in order: authenticate the caller, r
 Put a trigger in the `on` map of a Channel when your own system sends events. The Agent that lists the Channel runs the input that the trigger returns.
 
 ```ts [server/channels/ticketing.ts]
-import { defineChannelTrigger } from 'vite-hub/agent/channels'
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannelTrigger } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 import * as v from 'valibot'
 
 const ticketOpened = v.object({
@@ -127,7 +128,7 @@ const ticketOpened = v.object({
 })
 
 export default defineChannel({
-  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: () => process.env.TICKETING_WEBHOOK_SECRET }),
+  adapter: webhook({ kind: 'ticketing', signature: 'bearer', secret: 'TICKETING_WEBHOOK_SECRET' }),
   on: {
     webhook: defineChannelTrigger({
       input: ticketOpened,
@@ -165,10 +166,10 @@ When the Channel declares message methods, also return `message`: JSON that iden
 
 ### Ignore a webhook
 
-Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts.
+Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts. The `completed` or `rejected` event of the Channel delivery record keeps the `reason`.
 
 ```ts fragment
-import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, ignored } from 'vite-hub/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
@@ -179,6 +180,8 @@ defineChannelTrigger({
 })
 ```
 
+The GitHub Channel uses the same answer for code that runs on pull request comments and reviews. See [Run code on pull request comments and reviews](/docs/agents/channels#run-code-on-pull-request-comments-and-reviews).
+
 Two other helpers answer `{ accepted: false, ok: false, reason }` and start no Invocation.
 
 | Helper | Status | Use it when | Retry |
@@ -188,7 +191,7 @@ Two other helpers answer `{ accepted: false, ok: false, reason }` and start no I
 | `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
 
 ```ts fragment
-import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
@@ -273,7 +276,7 @@ It is sent after admission for an accepted, queued, steered, or duplicate delive
 Keep `invoke` fast: it only accepts a delivery and returns JSON input. Put slow or side-effect work in `prepare`. Name units of work in `tasks`, and select one from `invoke` with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
 
 ```ts fragment
-import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+import { defineChannelTrigger, ignored } from 'vite-hub/channels'
 import triage from '../agents/triage'
 
 defineChannelTrigger({

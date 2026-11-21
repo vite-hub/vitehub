@@ -3,11 +3,12 @@ import { computed, inject, ref, watch } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { createConsoleTeam, signOutConsoleAccount, switchConsoleTeam } from "../client/account";
-import { reloadConsoleAccount, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { createConsoleTeam, switchConsoleTeam } from "../client/account";
+import { reloadConsoleAccount, showConsoleAccountPage, signOutConsole, useConsoleProjects } from "../client/project-session";
 import { consoleDocsItem } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The user menu of an `account` Console, the last row of the sidebar: the account, the teams, the pages of the team,
@@ -61,7 +62,7 @@ const teamItems = computed<DropdownMenuItem[]>(() => [
   })),
   { icon: "i-lucide-plus", label: "Create team", onSelect: () => { creating.value = true; } },
 ]);
-const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleAccount().then(reloadConsoleAccount) }];
+const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsole().catch(error => toast.show({ title: error instanceof Error ? error.message : "Try again." })) }];
 
 const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [[...appearanceItems.value, consoleDocsItem]];
@@ -100,7 +101,7 @@ async function create(): Promise<void> {
     <ConsoleSidebarItem :label="label">
       <template #icon><UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="2xs" /></template>
       <template #trailing>
-        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+        <Icon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
       </template>
     </ConsoleSidebarItem>
   </UDropdownMenu>

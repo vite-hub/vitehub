@@ -1,4 +1,4 @@
-import { browserErrorDiagnostics } from "./error-diagnostics.ts"
+import { browserRunErrors } from "./run-errors.ts"
 import { runtimeBinding } from "./internal/runtime-binding.ts"
 import { withBrowserTimeout } from "./internal/timeout.ts"
 import runtimeConfig from "#vitehub/browser/runtime"
@@ -10,6 +10,7 @@ import {
   toBrowserError,
 } from "./errors.ts"
 
+import type { Result } from "@vite-hub/runtime"
 import type {
   BrowserAction,
   BrowserActionInput,
@@ -57,7 +58,7 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
   const bindingOption = runtimeConfig.binding
-  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare" || !bindingOption) throw browserUnavailableError()
+  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare" || !bindingOption) throw browserUnavailableError()
   const binding = await runtimeBinding(bindingOption)
   if (!binding || typeof (binding as BrowserRunBinding).quickAction !== "function") {
     throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
@@ -144,18 +145,19 @@ export async function runBrowserAction(
   }
 }
 
+/** Read a page as HTML text with the Browser Run `content` action. A failed request returns `BROWSER_CONTENT_FAILED`. */
 export async function runBrowserContent(
   input: BrowserActionInput,
-): Promise<string> {
+): Promise<Result<string, "BROWSER_CONTENT_FAILED">> {
   const response = await runBrowserAction("content", input)
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
-    throw browserErrorDiagnostics.BROWSER_CONTENT_FAILED({ status: response.status })
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ status: response.status }), undefined]
   }
   try {
-    return await readQuickActionText(response, "content", normalizeInput(input))
+    return [undefined, await readQuickActionText(response, "content", normalizeInput(input))]
   }
   catch (error) {
-    throw toBrowserError(error)
+    return [browserRunErrors.BROWSER_CONTENT_FAILED({ cause: toBrowserError(error) }), undefined]
   }
 }

@@ -1,0 +1,105 @@
+/*
+ * The Tailwind bridge: the semantic utilities of Nuxt UI 4.12, such as `text-muted`, `bg-elevated`, `border-default`,
+ * `ring-accented`, and `bg-error/10`, on the tokens of `tokens.css`. An app that stops importing Nuxt UI keeps its
+ * classes when it imports Tailwind, then the kit's `styles/tokens.css`, then this file (the kit README shows the lines).
+ *
+ * Each name reads a shadcn token where `@vite-hub/ui/theme.css` gives it the same value, and the Nuxt UI name of the step
+ * otherwise. theme.css sets the same variables, so the bridge changes nothing in an app that still loads Nuxt UI and
+ * theme.css.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+@custom-variant light (&:where(.light, .light *, [data-theme="light"], [data-theme="light"] *));
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-error: var(--ui-error);
+  --color-warning: var(--ui-warning);
+  --color-success: var(--ui-success);
+  --color-info: var(--ui-info);
+
+  --text-color-dimmed: var(--ui-text-dimmed);
+  --text-color-muted: var(--muted-foreground);
+  --text-color-toned: var(--ui-text-toned);
+  --text-color-default: var(--ui-text);
+  --text-color-highlighted: var(--foreground);
+  --text-color-inverted: var(--background);
+
+  --background-color-default: var(--background);
+  --background-color-muted: var(--ui-bg-muted);
+  --background-color-elevated: var(--muted);
+  --background-color-accented: var(--ui-bg-accented);
+  --background-color-inverted: var(--foreground);
+  --background-color-border: var(--border);
+
+  --border-color-default: var(--border);
+  --border-color-muted: var(--ui-border-muted);
+  --border-color-accented: var(--ui-border-accented);
+  --border-color-inverted: var(--foreground);
+  --border-color-bg: var(--background);
+
+  --ring-color-default: var(--border);
+  --ring-color-muted: var(--ui-border-muted);
+  --ring-color-accented: var(--ui-border-accented);
+  --ring-color-inverted: var(--foreground);
+  --ring-color-bg: var(--background);
+
+  --ring-offset-color-default: var(--border);
+  --ring-offset-color-muted: var(--ui-border-muted);
+  --ring-offset-color-accented: var(--ui-border-accented);
+  --ring-offset-color-inverted: var(--foreground);
+  --ring-offset-color-bg: var(--background);
+
+  --divide-color-default: var(--border);
+  --divide-color-muted: var(--ui-border-muted);
+  --divide-color-accented: var(--ui-border-accented);
+  --divide-color-inverted: var(--foreground);
+  --divide-color-bg: var(--background);
+
+  --outline-color-default: var(--border);
+  --outline-color-inverted: var(--foreground);
+
+  --stroke-bg: var(--background);
+  --stroke-default: var(--border);
+  --stroke-inverted: var(--foreground);
+  --fill-bg: var(--background);
+  --fill-default: var(--border);
+  --fill-inverted: var(--foreground);
+
+  /* `--radius` is the base step, as in Nuxt UI: rounded-sm 1x, rounded-md 1.5x, rounded-lg 2x, rounded-xl 3x. */
+  --radius-xs: calc(var(--radius) * 0.5);
+  --radius-sm: var(--radius);
+  --radius-md: calc(var(--radius) * 1.5);
+  --radius-lg: calc(var(--radius) * 2);
+  --radius-xl: calc(var(--radius) * 3);
+  --radius-2xl: calc(var(--radius) * 4);
+  --radius-3xl: calc(var(--radius) * 6);
+}
+
+/* The page text and background of Nuxt UI. */
+@layer base {
+  body {
+    @apply antialiased text-default bg-default scheme-light dark:scheme-dark;
+  }
+}
+
+/*
+ * Status text uses the darker `--vh-text-*` shades, and dots, bars, and fills keep the brighter `--ui-*` shade. As in
+ * theme.css, the rules are unlayered and only for the plain class: `text-error/80` and `hover:text-error` use the fill
+ * shade, as with Nuxt UI.
+ */
+.text-error {
+  color: var(--vh-text-error);
+}
+
+.text-info {
+  color: var(--vh-text-info);
+}
+
+.text-success {
+  color: var(--vh-text-success);
+}
+
+.text-warning {
+  color: var(--vh-text-warning);
+}

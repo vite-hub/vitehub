@@ -2,11 +2,10 @@ import { createServer, request } from "node:http"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  defaultViteHubDevServerUrl,
   discoverViteHubDevServer,
   fetchViteHubDevEndpoint,
   readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
+  requireViteHubDevServerUrl,
   viteHubDevEndpointUrl,
 } from "../src/cli.ts"
 import { assertViteHubDevRequestGrant, isViteHubDevHostAllowed, registerViteHubDevEndpoint, validateViteHubDevRequest } from "../src/dev-endpoint.ts"
@@ -28,10 +27,11 @@ const errors = {
   invalidInlineTimeout: (message: string) => new TestError("inline", message),
   invalidTimeout: (message: string) => new TestError("separate", message),
   missingValue: (message: string) => new TestError("missing", message),
+  unknownOption: (message: string) => new TestError("unknown", message),
 }
 
 function parseTarget(args: string[]): ViteHubDevTargetArgs & { rest: string[] } {
-  const target: ViteHubDevTargetArgs & { rest: string[] } = { rest: [], url: defaultViteHubDevServerUrl }
+  const target: ViteHubDevTargetArgs & { rest: string[] } = { rest: [] }
   for (let index = 0; index < args.length; index++) {
     const used = readViteHubDevTargetOption(args, index, target, errors)
     if (used === undefined) target.rest.push(args[index]!)
@@ -46,21 +46,23 @@ function captureStderr() {
 }
 
 describe("dev target options", () => {
-  it("reads the default URL from the environment", () => {
-    expect(resolveViteHubDevServerUrl({})).toBe("http://localhost:5173")
-    expect(resolveViteHubDevServerUrl({ VITEHUB_DEV_SERVER_URL: "http://127.0.0.1:4000" })).toBe("http://127.0.0.1:4000")
+  it("reads the dev server from the environment, and never guesses a port", () => {
+    expect(requireViteHubDevServerUrl([], { VITEHUB_DEV_SERVER_URL: "http://127.0.0.1:4000" }, "agent dev")).toBe("http://127.0.0.1:4000")
+    expect(() => requireViteHubDevServerUrl([], {}, "agent dev")).toThrow(expect.objectContaining({ code: "INTERNAL_DEV_SERVER_NOT_FOUND" }))
   })
 
-  it("reads --url, --server, --url=, --timeout and --timeout= and leaves other arguments", () => {
+  it("reads --url, --url=, --timeout and --timeout= and leaves other arguments", () => {
     expect(parseTarget(["--url", "http://a", "x", "--timeout", "10"])).toEqual({ rest: ["x"], timeout: 10, url: "http://a" })
-    expect(parseTarget(["--server", "http://b", "--timeout=20", "--other"])).toEqual({ rest: ["--other"], timeout: 20, url: "http://b" })
-    expect(parseTarget(["--url=http://c"])).toEqual({ rest: [], url: "http://c" })
+    expect(parseTarget(["--url=http://c", "--timeout=20", "--other"])).toEqual({ rest: ["--other"], timeout: 20, url: "http://c" })
+  })
+
+  it("fails for the removed --server and names --url", () => {
+    expect(() => parseTarget(["--server", "http://b"])).toThrow(expect.objectContaining({ code: "unknown", message: expect.stringContaining("--server is now --url") }))
   })
 
   it("uses the owner error factories", () => {
     expect(() => parseTarget(["--url="])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url=." }))
     expect(() => parseTarget(["--url"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url." }))
-    expect(() => parseTarget(["--server", "--timeout"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --server." }))
     expect(() => parseTarget(["--timeout", "0"])).toThrow(expect.objectContaining({ code: "separate", message: "--timeout must be an integer from 1 to 2147483647 milliseconds." }))
     expect(() => parseTarget(["--timeout=abc"])).toThrow(expect.objectContaining({ code: "inline", message: "--timeout must be an integer from 1 to 2147483647 milliseconds." }))
   })
@@ -114,6 +116,9 @@ describe("dev server discovery", () => {
       { fetch: async () => new Response(), message: "Invalid Vite Development Server URL: not a url\n", serverUrl: "not a url" },
       { fetch: async () => { throw new TypeError("fetch failed") }, message: "No Compatible Vite Development Server found at http://localhost:1.\n", serverUrl: "http://localhost:1" },
       { fetch: async () => new Response("no", { status: 404 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
+      { fetch: async () => new Response("Cannot find package 'missing-sdk'\n", { status: 500 }), message: "The Vite Development Server at http://localhost:2 failed with HTTP 500: Cannot find package 'missing-sdk'\n", serverUrl: "http://localhost:2" },
+      { fetch: async () => new Response("", { status: 500 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
+      { fetch: async () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("terminated")) } }), { status: 502 }), message: "No Compatible Vite Development Server found at http://localhost:2.\n", serverUrl: "http://localhost:2" },
       { fetch: async () => Response.json({ root: 123 }), message: "Invalid Vite Development Server discovery root.\n", serverUrl: "http://localhost:4" },
       { fetch: async () => Response.json({ root: "/other" }), message: "Compatible Vite Development Server root mismatch: /other\n", serverUrl: "http://localhost:3" },
       { fetch: async () => Response.json({ root: "https://host/project?token=hidden" }), message: "Compatible Vite Development Server root mismatch: https://host/project?token=[redacted]\n", serverUrl: "http://localhost:4" },
@@ -269,6 +274,17 @@ describe("guarded dev endpoint", () => {
     const allowed = await fetch(route, { headers: { [endpoint.header]: "1", "x-test-token": "secret" } })
     expect(await allowed.text()).toBe("handled")
     expect(handled).toEqual(["GET"])
+  })
+
+  it("sends every Set-Cookie value of an owner response", async () => {
+    const cookies = ["session=; Max-Age=0; Path=/", "csrf=; Max-Age=0; Path=/"]
+    const { url } = await listen({
+      authorize: () => new Response("Sign in again.", { headers: [["set-cookie", cookies[0]!], ["set-cookie", cookies[1]!], ["x-test", "kept"]], status: 401 }),
+    })
+    const response = await fetch(`${url}${endpoint.route}`, { headers: { [endpoint.header]: "1" } })
+    expect([response.status, await response.text()]).toEqual([401, "Sign in again."])
+    expect(response.headers.getSetCookie()).toEqual(cookies)
+    expect(response.headers.get("x-test")).toBe("kept")
   })
 
   it("returns a redacted 500 when owner authorization fails", async () => {

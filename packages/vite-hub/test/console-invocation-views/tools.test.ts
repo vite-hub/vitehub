@@ -2,14 +2,17 @@
 
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, nextTick } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentInvocation, AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import { activityTitles, clipboard, delta, event, input, invocation, openDetails, openWork, tool } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const show = (value: AgentInvocationView, props: Record<string, unknown> = {}) => mount(AgentInvocation, { props: { invocation: value, ...props } });
 const commandRun = (id: string, command: Record<string, unknown>, fields: Record<string, unknown> = {}) => tool("finish", id, "Ran command", { "tool.input": command, ...fields });
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation tool steps", () => {
   describe("commands", () => {
@@ -37,7 +40,7 @@ describe("Agent Invocation tool steps", () => {
         tool("start", "cat", "command_execution", { "tool.input": { command: "/bin/sh -lc 'cat AGENTS.md; echo '\\''done'\\'''", toolName: "command_execution" }, "tool.title": "cat AGENTS.md; echo 'done'" }),
         usage(),
         delta("assistant", "I’ll check the earlier conversation.", { "message.id": "progress", "message.phase": "final" }),
-        tool("start", "threads", "t3-code.mcp_productlane_threads_get"),
+        tool("start", "threads", "vitehub-invocation.mcp_productlane_threads_get"),
         tool("start", "resources", "codex.list_mcp_resources"),
         usage(),
         usage(181),

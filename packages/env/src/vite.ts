@@ -6,6 +6,7 @@ import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import {
   createNoExternalAddition,
@@ -62,11 +63,12 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
+// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment.
+const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 // Rolldown and Vite skip the resolveId and load hooks for every other id.
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
-const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
+const RESOLVED_ID_PATTERN = /^\0(?:#vitehub\/env\/(?:description|server)|virtual:vitehub\/env\/public)$/
 const defaultRuntimeImports = {
   secret: "@vite-hub/env",
   server: "@vite-hub/env/internal/server",
@@ -115,7 +117,7 @@ function resolveDeclarations(options: EnvDeclarations, config: object): EnvDecla
 
 export type EnvVitePlugin = Plugin & {
   api: EnvVitePluginAPI
-  /** Contributes `vitehub env inspect`, `vitehub env check`, and the `env.inspect` operation. */
+  /** Contributes `vitehub env list`, `vitehub env check`, and the `env.inspect` operation. */
   vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
 
@@ -212,7 +214,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       }
     }
 
-    const loadedEnv = loadEnv(mode, projectRoot, "")
+    const loadedEnv = loadAllEnv(loadEnv, mode, projectRoot)
     const context = createSourceContext({
       env: { ...loadedEnv, ...process.env },
       mode: "build",
@@ -267,7 +269,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     },
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
-      // The Console, `vitehub env status`, and agents run these on the signed RPC endpoint of the app.
+      // The Console, `vitehub env list --url <app>`, and agents run these on the signed RPC endpoint of the app.
       operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
     // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
@@ -281,7 +283,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       let developmentSecretEnvKey: string | undefined
       if (env.command === "serve") {
         const projectRoot = resolveProjectRoot(config.root || process.cwd())
-        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadEnv(env.mode, projectRoot, ""))
+        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadAllEnv(loadEnv, env.mode, projectRoot))
         developmentSecret = resolvedSecret.secret
         developmentSecretGenerated = resolvedSecret.generated
         developmentSecretEnvKey = resolvedSecret.envKey

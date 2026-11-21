@@ -180,7 +180,7 @@ describe("direct uploads on Vercel Blob", () => {
   const token = "vercel_blob_rw_store123_secretpart"
 
   function vercelStorage() {
-    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob", token }), "default")
+    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel", token }), "default")
   }
 
   it("signs a client token that binds the pathname, the type, and the size", async () => {
@@ -222,9 +222,14 @@ describe("direct uploads on Vercel Blob", () => {
     const [getError] = await vercelStorage().sign("a.txt", { expiresIn: 60, method: "GET" })
     expect(getError).toMatchObject({ cause: { code: "BLOB_R0025" } })
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
-    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob" }), "default")
+    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel" }), "default")
     const [putError] = await oidc.sign("a.txt", { expiresIn: 60, method: "PUT" })
     expect(putError).toMatchObject({ cause: { code: "BLOB_R0025" } })
+  })
+
+  it("refuses an exact contentLength, which a client token cannot bind", async () => {
+    const [error] = await vercelStorage().sign("a.txt", { contentLength: 4, expiresIn: 60, method: "PUT" })
+    expect(error).toMatchObject({ cause: { code: "BLOB_R0025", message: expect.stringContaining("Bind the largest size with `maxSize`") } })
   })
 })
 
@@ -232,7 +237,7 @@ describe("uploadFiles({ direct: true })", () => {
   it("runs sign, PUT, and complete against a real fs route", async () => {
     const fetch = vi.fn(async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
       const request = new Request(input, init)
-      if (new URL(request.url).pathname.startsWith("/_vitehub/blob/signed/")) return handleSignedBlobRequest(request)
+      if (new URL(request.url).pathname.startsWith("/_vitehub/blob-signed/")) return handleSignedBlobRequest(request)
       expect(request.headers.get("authorization")).toBe("Bearer app")
       const [error, result] = await blob.handleUpload(request, { direct: true, ensure: { maxSize: "1KB" } })
       if (error) throw error

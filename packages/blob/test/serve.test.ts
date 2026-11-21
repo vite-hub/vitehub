@@ -458,7 +458,8 @@ describe("Blob response transforms", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it.each(["_vitehub", "_vitehub/derived"])("serves fresh derivatives when legacy file %s blocks caching", async (pathname) => {
+  // A file can also be the pathname of a folder, so a legacy file no longer blocks the derivative cache.
+  it.each(["_vitehub", "_vitehub/derived"])("caches derivatives next to a legacy file at %s", async (pathname) => {
     await driver.put(pathname, "legacy data")
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     for (let count = 0; count < 2; count++) {
@@ -466,8 +467,8 @@ describe("Blob response transforms", () => {
       expect(response.status).toBe(200)
       expect(await response.text()).toBe("public")
     }
-    expect(run).toHaveBeenCalledTimes(2)
-    expect(warning).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(warning).not.toHaveBeenCalled()
     expect(await (await driver.get(pathname))?.text()).toBe("legacy data")
     expect(await driver.head(`${pathname}/missing`)).toBeNull()
     expect(await driver.get(`${pathname}/missing`)).toBeNull()
@@ -998,7 +999,7 @@ describe("Blob streams on an R2 binding", () => {
   })
 
   async function serve(headers?: Record<string, string>) {
-    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }))
     const response = await storage.serve(new Request("https://example.test/video", { headers }), "media/video.mp4")
     return { response, text: await response.text() }
   }

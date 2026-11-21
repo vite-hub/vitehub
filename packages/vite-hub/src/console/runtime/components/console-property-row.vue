@@ -5,6 +5,7 @@ import { AvatarStack } from "@vite-hub/ui";
 
 import type { ComputedRef } from "vue";
 import type { ConsoleLivePerson } from "../client/live";
+import Icon from "./console-icon.vue";
 
 /**
  * One property row of a document, as in Notion: a compact label column with an icon, then the value. On a phone the
@@ -42,7 +43,7 @@ const people = computed(() => (props.control ? fieldPeople?.value[props.control]
       :class="error ? 'text-error' : ''"
       :title="description"
     >
-      <UIcon :name="icon" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
+      <Icon :name="icon" class="size-4 shrink-0 opacity-70" aria-hidden="true" />
       <span class="truncate">{{ label }}</span>
       <span v-if="missing" class="size-1.5 shrink-0 rounded-full bg-error" aria-hidden="true" />
       <span v-if="missing" class="sr-only">(required)</span>

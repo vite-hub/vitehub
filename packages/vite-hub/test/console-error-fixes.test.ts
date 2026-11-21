@@ -64,6 +64,11 @@ describe("Console error fixes", () => {
     expect(error.docs).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
   })
 
+  it("tells the CLI caller to pass the Agent name as an argument", () => {
+    const error = viteHubErrorDiagnostics.VITE_HUB_R0113({ message: "Invalid Agent name." })
+    expect(error.fix).toContain("`vitehub agent get <name>`")
+  })
+
   it("tells an Agent handler what invocationUrl() needs", () => {
     const links = agentConsole.resolve(runtime)
     expect(() => links.invocationUrl({ id: "ainv_1" })).toThrow(expect.objectContaining({
@@ -94,10 +99,10 @@ describe("Console error fixes", () => {
   })
 
   it("answers every malformed invocations.list cursor with VITE_HUB_R0058 and its fix", async () => {
-    for (const cursor of ["[]", "{}", "{\"done\":1}", "not json"]) {
+    for (const cursor of ["[]", "{}", "{\"done\":1}", "not json", '{"done":{"toString":null}}']) {
       await expect(listConsoleInvocations({ cursor })).rejects.toMatchObject({
         code: "VITE_HUB_R0058",
-        fix: expect.stringContaining("vitehub invocations list"),
+        fix: expect.stringContaining("`invocations.list` Console RPC result"),
         status: 400,
       })
     }

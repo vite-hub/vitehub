@@ -1,7 +1,9 @@
 import type { LanguageInput } from "shiki/core";
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, shallowRef, useId, type VNode } from "vue";
 import { useCopy } from "../components/copy-button.ts";
-import { icon } from "../workspace/icons.ts";
+import { MorphText, SwapIcon } from "../components/motion.ts";
+import { ring } from "../motion/helpers/ring.ts";
+import { icon, type WorkspaceIconName } from "../workspace/icons.ts";
 import {
   decodePlaygroundLink,
   encodePlaygroundLink,
@@ -48,6 +50,12 @@ export interface PlaygroundPaneSlotProps {
   files: PlaygroundFiles;
   /** Writes a file. The preview and the link follow 200 ms later. */
   setFile: (path: string, contents: string) => void;
+}
+
+/** The payload of `load` and `preset-change`: the open preset's id, or none for a link without one, and the open files. */
+export interface PlaygroundOpenEvent {
+  preset: string | undefined;
+  files: PlaygroundFiles;
 }
 
 /** Renders the files to the HTML of the preview, in the browser. */
@@ -112,7 +120,13 @@ export const PlaygroundRender = defineComponent({
     /** Wraps the rendered HTML in the document of the preview, with its stylesheets and theme. Defaults to a plain page. */
     previewDocument: { default: plainPreviewDocument, type: Function as PropType<(html: string, files: PlaygroundFiles) => string> },
   },
-  setup(props, { expose, slots }) {
+  emits: {
+    /** The files opened from the URL hash, or from the opening preset when the URL has no link. */
+    "load": (_event: PlaygroundOpenEvent) => true,
+    /** Another preset opened: the reader picked it, or a link names it. */
+    "preset-change": (_event: PlaygroundOpenEvent) => true,
+  },
+  setup(props, { emit, expose, slots }) {
     const presetById = (id: string | undefined) => props.presets.find(preset => preset.id === id);
     const opening = () => presetById(props.preset) ?? props.presets[0];
 
@@ -187,8 +201,10 @@ export const PlaygroundRender = defineComponent({
 
     function open(preset: PlaygroundPreset | undefined, nextFiles: PlaygroundFiles) {
       invalidate();
+      const changed = template.value !== preset?.id;
       template.value = preset?.id;
       files.value = nextFiles;
+      if (changed) emit("preset-change", { files: nextFiles, preset: preset?.id });
     }
 
     async function load() {
@@ -201,6 +217,7 @@ export const PlaygroundRender = defineComponent({
       if (state) open(presetById(state.template), state.files);
       else open(opening(), { ...opening()?.files });
       notice.value = code && !state ? invalidLink : undefined;
+      emit("load", { files: files.value, preset: template.value });
       await run();
     }
 
@@ -211,13 +228,15 @@ export const PlaygroundRender = defineComponent({
       await Promise.all([writeHash(), run()]);
     }
 
-    async function copyLink() {
+    async function copyLink(event: MouseEvent) {
+      const button = event.currentTarget;
       if (!await writeHash()) return;
       if (location.href.length > playgroundLinkLimit) {
         notice.value = tooLong;
         return;
       }
       if (!await copy(location.href)) notice.value = blockedClipboard;
+      else if (button instanceof HTMLElement) ring(button);
     }
 
     onMounted(() => {
@@ -277,7 +296,7 @@ export const PlaygroundRender = defineComponent({
     return () => h("div", { class: "vh-pg" }, [
       props.presets.length > 1
         ? h("nav", { "aria-label": "Examples", class: "vh-pg-presets" }, groupPresets(props.presets).map(([group, presets]) => h("div", { class: "vh-pg-group" }, [
-            group ? h("p", { class: "vh-pg-group-title" }, group) : undefined,
+            group ? h("p", { class: "vh-pg-group-title" }, slots.group?.({ group, presets }) ?? group) : undefined,
             h("ul", presets.map(preset => h("li", { key: preset.id }, [
               h("button", {
                 "aria-current": template.value === preset.id && !edited.value ? "true" : undefined,
@@ -307,7 +326,10 @@ export const PlaygroundRender = defineComponent({
               ? h("button", { "aria-label": "Reset to the example", "class": "vh-ws-icon-button vh-pg-icon-button", "data-action": "reset", "title": "Reset to the example", "type": "button", "onClick": () => confirm.value?.showModal() }, [icon("rotate-ccw")])
               : undefined,
             h("button", { "aria-label": "Download as a zip", "class": "vh-ws-icon-button vh-pg-icon-button", "data-action": "download", "title": "Download as a zip", "type": "button", "onClick": () => downloadZip(files.value, template.value ?? "playground") }, [icon("download")]),
-            h("button", { "class": "vh-ws-button", "data-action": "copy-link", "type": "button", "onClick": copyLink }, [icon(copied.value ? "check" : "link"), copied.value ? "Copied" : "Copy link"]),
+            h("button", { "class": "vh-ws-button", "data-action": "copy-link", "type": "button", "onClick": copyLink }, [
+              h(SwapIcon, { name: copied.value ? "check" : "link", enter: copied.value ? "draw" : "blur" }, { default: ({ name }: { name: WorkspaceIconName }) => icon(name) }),
+              h(MorphText, { text: copied.value ? "Copied" : "Copy link" }),
+            ]),
           ]),
         ]),
         ...props.panes.map((pane, index) => h("div", { key: pane.file, "class": "vh-pg-pane", "data-file": pane.file, "hidden": active.value !== index }, editor(pane))),

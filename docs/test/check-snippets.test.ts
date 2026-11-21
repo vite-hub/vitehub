@@ -374,7 +374,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
-      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
+      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>({ handler: async () => {} })"),
       snippet("server/api/signup.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { email: 'ada@example.com' })"),
       snippet("server/api/typo.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcom-email', { email: 'ada@example.com' })"),
       snippet("server/api/payload.ts", "import { sendQueue } from 'vite-hub/queue'\nexport const sent = sendQueue('welcome-email', { address: 'ada@example.com' })"),
@@ -451,7 +451,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/channel-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
-      snippet("server/channels/inbox.ts", "import { webChat } from 'vite-hub/agent/channels'\nimport { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
+      snippet("server/channels/inbox.ts", "import { webChat } from 'vite-hub/channels/adapters'\nimport { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
       snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
       snippet("agent.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
@@ -657,13 +657,13 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     ])
   }, 60_000)
 
-  it("types auth.api with the plugins of the page's Auth Definition", async () => {
+  it("types useAuth().api with the plugins of the page's Auth Definition", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/auth-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "auth-page.md", pageRoot })
     const snippets = [
       snippet("server/auth.ts", "import { admin } from 'better-auth/plugins'\nimport { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ plugins: [admin()] })"),
-      snippet("server/roles.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRole"),
-      snippet("server/typo.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRoles"),
+      snippet("server/roles.ts", "import { useAuth } from 'vite-hub/auth/server'\nexport const setRole = useAuth().api.setRole"),
+      snippet("server/typo.ts", "import { useAuth } from 'vite-hub/auth/server'\nexport const setRole = useAuth().api.setRoles"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
@@ -681,5 +681,17 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     const misspelled = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace("steps.sendWelcome(user)", "steps.sendWelcomeEmail(user)") }))
     const failures = checkSnippets(misspelled, declarations).failures
     expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2551]])
+  }, 60_000)
+
+  it("checks the Email README template send against the template of the page", async () => {
+    const root = join(repoRoot, "packages/email")
+    const snippets = collectSnippets([{ file: join(root, "README.md"), root }])
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations.map(declaration => declaration.file.split(".vitehub/")[1])).toEqual(expect.arrayContaining(["types/email-templates.d.ts", "types/email.d.ts"]))
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+
+    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Ada" } },\n  from', 'data: { user: { name: { first: "Ada" } } },\n  from') }))
+    const failures = checkSnippets(wrong, declarations).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322]])
   }, 60_000)
 })

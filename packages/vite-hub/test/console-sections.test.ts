@@ -32,7 +32,7 @@ function memoryStorage(initial?: string) {
 }
 
 describe("Console section preferences", () => {
-  it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
+  it("derives enabled primitive sections, and Workflow only from `workflow`", () => {
     expect(resolveConsoleSectionIds({ agent: true, blob: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "agents",
       "skills",
@@ -48,16 +48,14 @@ describe("Console section preferences", () => {
       "queues",
       "schedules",
     ])
-    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, host: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, host: "netlify", workflow: { provider: "vercel" } })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: { driver: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
       "channels",
       "workflows",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ comments: true, database: true })).toEqual(["comments", "databases"])
@@ -117,7 +115,8 @@ describe("Console section routes", () => {
     }
     expect(client).toContain("subscribeConsoleNavigation(sectionsBase, addContributedRoutes)")
     expect(client).toContain("const name = consoleSectionRouteName(section)")
-    expect(client).toContain('return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" }')
+    expect(client).toContain("consolePendingSectionRoute,")
+    expect(client).toContain("return resolveConsoleSectionDeepLink(router, to, async () => {")
   })
 })
 

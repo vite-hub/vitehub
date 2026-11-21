@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
 import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
-import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
+import { directMergeBranchSafety, foldMethod, foldParent, runsOnPush, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
 function snapshot(): Snapshot {
@@ -298,14 +298,50 @@ describe("Babysitter stacked PR preservation", () => {
     expect(children[0]!.base.ref).toBe("fix");
   });
 
-  it("retargets only after the parent has landed on the default branch", () => {
+  it("retargets only after the parent has landed on another branch", () => {
     const s = snapshot();
     s.pr!.base!.ref = "parent";
     s.pr!.base!.repo!.owner = { login: "acme" };
     const parent = { head: { ref: "parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" }, state: "closed", merged_at: "2026-10-01" };
     expect(stackRetargetBase(s.pr!, [parent])).toBe("main");
     expect(stackRetargetBase(s.pr!, [{ ...parent, state: "open" }])).toBeUndefined();
-    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBeUndefined();
+    // A parent that folded into another branch moves its child to that branch, not to main.
+    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBe("feature");
+  });
+
+  it("folds only into the one open pull request whose same-repository branch is the base", () => {
+    const s = snapshot();
+    s.pr!.base!.ref = "parent";
+    const parent = { number: 7, state: "open", head: { ref: "parent", repo: { full_name: "acme/app" } }, base: { ref: "main" } };
+    expect(foldParent(s.pr, [parent])).toEqual({ number: 7, branch: "parent" });
+    // A long-lived branch with no open pull request keeps the old refusal.
+    expect(foldParent(s.pr, [])).toBeUndefined();
+    expect(foldParent(s.pr, [{ ...parent, state: "closed" }])).toBeUndefined();
+    expect(foldParent(s.pr, [parent, { ...parent, number: 8 }])).toBeUndefined();
+    // Forks keep today's behavior: the parent branch and the child must both be in the repository.
+    expect(foldParent(s.pr, [{ ...parent, head: { ref: "parent", repo: { full_name: "someone/app" } } }])).toBeUndefined();
+    expect(foldParent({ ...s.pr, head: { ...s.pr!.head, repo: { full_name: "someone/app" } } }, [parent])).toBeUndefined();
+    expect(foldParent({ ...s.pr, base: { ...s.pr!.base, ref: "main" } }, [{ ...parent, head: { ref: "main", repo: { full_name: "acme/app" } } }])).toBeUndefined();
+  });
+
+  it("folds with a merge commit unless the repository disallows it", () => {
+    expect(foldMethod("squash", { allow_merge_commit: true })).toBe("merge");
+    expect(foldMethod("rebase", {})).toBe("merge");
+    expect(foldMethod("squash", { allow_merge_commit: false })).toBe("squash");
+  });
+
+  it("accepts the verified parent branch as a fold target only", () => {
+    const s = snapshot();
+    const live = { ...s.pr, base: { ...s.pr!.base, ref: "parent" }, mergeable: true, mergeable_state: "clean" };
+    expect(liveMergeReadiness(live, head)).toEqual({ ready: false, reason: "base parent is not the default branch" });
+    expect(liveMergeReadiness(live, head, { foldInto: "parent" })).toEqual({ ready: true, head });
+    expect(liveMergeReadiness(live, head, { foldInto: "other" }).ready).toBe(false);
+  });
+
+  it("validates merge.foldStacks and turns it on by default", () => {
+    expect(resolveBabysitterMerge("direct")).toMatchObject({ foldStacks: true });
+    expect(resolveBabysitterMerge({ strategy: "direct", foldStacks: false })).toMatchObject({ foldStacks: false });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", foldStacks: "yes" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
   });
 });
 
@@ -409,12 +445,37 @@ describe("Babysitter approved-if-outside merge gate", () => {
     expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [" "] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
     expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: "renovate[bot]" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
     expect(() => resolveBabysitterMerge({ strategy: "direct", ready: () => true, trustedAuthors: ["renovate[bot]"] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
-    expect(resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
+    expect(resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true });
   });
 
   it("keeps the callback form and rejects other ready values", () => {
     const callback = () => true as const;
-    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback });
+    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback, foldStacks: true });
     expect(() => resolveBabysitterMerge({ strategy: "direct", ready: "approved" })).toThrow('Babysitter merge.ready must be a function or "approved-if-outside".');
+  });
+});
+
+describe("runsOnPush", () => {
+  it.each([
+    ["on: push", true],
+    ["on: [pull_request, create]", true],
+    ["on: workflow_call", true],
+    ["on:\n  workflow_call:\n  push:\n    branches: [main]", true],
+    ["on: pull_request", false],
+    ["on:\n  schedule:\n    - cron: '0 0 * * *'", false],
+    ["on:\n  push:\n", true],
+    ["on:\n  push:\n    branches: [main]", false],
+    ["on:\n  push:\n    branches: ['**']\n    tags: ['!**']", true],
+    ["on:\n  push:\n    branches: ['preview/*']", true],
+    ["on:\n  push:\n    branches: ['*']", false],
+    ["on:\n  push:\n    branches: ['**', '!preview/**']", false],
+    ["on:\n  push:\n    branches-ignore: [main]", true],
+    ["on:\n  push:\n    branches-ignore: ['preview/**']", false],
+    ["on:\n  push:\n    tags: ['v*']", false],
+    ["on:\n  push:\n    branches: ['pre[v]iew/**']", true],
+    ["on:\n  pull_request:\n  create:", true],
+    ["on: [", true],
+  ] as const)("%j starts on a push of preview/pr-12: %s", (workflow, expected) => {
+    expect(runsOnPush(workflow, "preview/pr-12")).toBe(expected);
   });
 });

@@ -2,18 +2,12 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { APIError } from "better-auth"
 import { createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, sensitiveSessionMiddleware } from "better-auth/api"
 import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from "better-auth"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
 import { authRequestEvent } from "./request.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
-
-// Better Auth gets only the Request. `handleAuthRequest()` runs it in this store, so endpoints get the event of the route.
-const authHandlerEvent = new AsyncLocalStorage<ViteHubContext>()
-
-/** Run a Better Auth handler with the request event that `events.authorize` gets. */
-export function runWithAuthEvent<T>(event: ViteHubContext, run: () => T): T {
-  return authHandlerEvent.run(event, run)
-}
-import type { AuthDevice, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
+import { authRequestLog, currentAuthEvent } from "./request-log.ts"
+import type { AuthDevice, AuthEvent, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {}
@@ -59,16 +53,47 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
   async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string): Promise<boolean> {
+    const event: AuthEvent = { id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata }
     try {
-      await options.store.append({ id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata })
-      return true
+      await options.store.append(event)
     }
     catch {
       // Auth mutations may already be committed. Do not turn a completed sign-in into a retry.
       // The message has no provider error, body, URL, headers, or credentials.
-      console.warn("[vitehub] AUTH_EVENT_WRITE_FAILED: Could not record an auth event.")
+      const message = "AUTH_EVENT_WRITE_FAILED: Could not record an auth event."
+      const log = authRequestLog(ctx)
+      if (log) log.warn(`[vitehub] ${message}`, { authEvent: { type } })
+      else console.warn(`[vitehub] ${message}`)
       return false
     }
+    if (options.onEvent) await notify(options.onEvent, event, ctx)
+    return true
+  }
+  /** Hand the callback to the host `waitUntil()` when it has one, so it does not delay the response. Else wait for it. */
+  async function notify(onEvent: NonNullable<AuthEventsConfiguration["onEvent"]>, event: AuthEvent, ctx: GenericEndpointContext | null): Promise<void> {
+    const request = currentAuthEvent() ?? (ctx?.request ? authRequestEvent(ctx.request) : undefined)
+    const waitUntil = request ? getStandardContext(request).waitUntil : undefined
+    // A task after the response can end after the request's wide event, so only a task before it writes there.
+    const log = waitUntil ? undefined : authRequestLog(ctx)
+    const task = (async () => {
+      try {
+        await onEvent(event)
+      }
+      catch (error) {
+        if (log) log.error("AUTH_EVENT_CALLBACK_FAILED: Auth event callback failed.", { authEvent: { type: event.type } })
+        else console.error(authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: event.type, cause: error }))
+      }
+    })()
+    if (waitUntil) {
+      try {
+        waitUntil(task)
+        return
+      }
+      catch {
+        // A host that refuses the task still gets the callback, before the response.
+      }
+    }
+    await task
   }
   async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
     const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"
@@ -236,7 +261,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     endpoints: options.authorize ? {
       vitehubAuthEvents: createAuthEndpoint("/vitehub/events", { method: "GET", use: [sensitiveSessionMiddleware] }, async (ctx) => {
         if (!ctx.request) throw new APIError("FORBIDDEN")
-        const authorization = await options.authorize!({ event: authHandlerEvent.getStore() ?? authRequestEvent(ctx.request), request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
+        const authorization = await options.authorize!({ event: currentAuthEvent() ?? authRequestEvent(ctx.request), request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
         if (authorization instanceof Response) return authorization
         if (authorization !== true) throw new APIError("FORBIDDEN")
         ctx.setHeader("cache-control", "no-store")

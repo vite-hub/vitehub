@@ -1,4 +1,8 @@
 import { markdownTemplateErrorDiagnostics } from "../error-diagnostics.ts"
+
+export { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "./data-type.ts"
+export type { MarkdownTemplateDataType } from "./data-type.ts"
+
 export const markdownTemplateFileSuffix = ".template.md"
 export const markdownTemplateModuleQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"

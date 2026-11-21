@@ -27,9 +27,13 @@ describe("Rate Limit runtime error fixes", () => {
   })
 
   it("names the policy option of an invalid window", () => {
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow(expect.objectContaining({
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: 60_000 as never })).toThrow(expect.objectContaining({
       code: "RATE_LIMIT_R0031",
       fix: expect.stringContaining("`window`"),
+    }))
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow(expect.objectContaining({
+      code: "RUNTIME_DURATION_INVALID",
+      why: expect.stringContaining("`window`"),
     }))
   })
 
@@ -50,7 +54,7 @@ describe("Rate Limit runtime error fixes", () => {
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(limiter.consume({ key: "user" })).rejects.toMatchObject({
       code: "RATE_LIMIT_R0044",
-      fix: expect.stringContaining("`[null, result]`"),
+      fix: expect.stringContaining("`[undefined, result]`"),
     })
   })
 })

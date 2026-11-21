@@ -59,15 +59,15 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
       ),
       "server/realtime/slow.ts": lines(
         "import { defineRealtime } from \"@vite-hub/realtime\"",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
       ),
       "server/realtime/text.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
       ),
     })).toEqual(["VHUB0025", "VHUB0025", "VHUB0025"])
   })
@@ -76,16 +76,16 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
       ),
       "server/realtime/dynamic.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
         "const debounce = Number(\"9000\")",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
       ),
       "server/realtime/off.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: false })",
+        "export default defineRealtime({ authorize: true, document: { workspace: \"docs\" }, persistence: false })",
       ),
     })).toEqual([])
   })
@@ -192,12 +192,29 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
 })
 
 describe("vitehub/valid-vitehub-options", () => {
+  it.each(["", "vitehub: { observability: { logs: false } },"])("reports obsolete Logs keys under Nuxt overrides (%s)", async (base) => {
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${base} $development: { vitehub: { observability: { logs: true }, logs: { evlog: { enabled: false } } } } })`,
+    }, "nuxt")).toEqual(Array(base ? 3 : 2).fill("VHUB0031"))
+  })
+
+  it("accepts Worker vars and reports the removed secrets file", async () => {
+    for (const [option, expected] of [["vars: true", []], ["vars: true, secretsFile: \".env\"", ["VHUB0031"]]] as const) {
+      expect(await codes(validViteHubOptions, {
+        "vite.config.ts": lines(
+          'import { vitehub } from "vite-hub"',
+          `export default { plugins: [vitehub({ cloudflare: { ${option} } })] }`,
+        ),
+      })).toEqual(expected)
+    }
+  })
+
   it("reports options that do nothing in the Vite plugin", async () => {
     expect(await codes(validViteHubOptions, {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
+        "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, observability: { logs: true }, contentImportBase: \"vite-hub/content\" })] })",
       ),
     })).toEqual(Array(7).fill("VHUB0031"))
   })
@@ -218,9 +235,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, observability: { logs: true }, env: { prefix: \"APP_\", server: {} } })] })",
+        "export default defineConfig({ plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: { cache: true }, connections: true, logs: true, observability: { service: \"shop\" }, env: { prefix: \"APP_\", server: {} } })] })",
       ),
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", env: { server: {} }, connections: false, queue: { provider: \"postgres\" } } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", env: { server: {} }, connections: false, queue: { driver: \"postgres\" } } })\n",
     }, "nuxt")).toEqual([])
   })
 })

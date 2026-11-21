@@ -12,19 +12,15 @@ icon: i-lucide-mail
 ::
 
 ::code-tree{feature="email"}
-```ts [server/api/welcome.post.ts] fragment
-import renderWelcome from '#vitehub/emails/welcome'
+```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
-import { renderEmailMarkdown } from 'vite-hub/email/markdown'
 import { email } from 'vite-hub/email'
 
 export default defineEventHandler(async () => {
-  // Fill the template, then make HTML and text
-  const markdown = await renderWelcome({ user: { name: 'Ada' } })
-  const body = await renderEmailMarkdown(markdown)
-
+  // Render server/emails/welcome.md. TypeScript checks `data` against the template.
   const [error, sent] = await email.send({
-    ...body,
+    template: 'welcome',
+    data: { user: { name: 'Ada' } },
     from: 'verified-sender@example.com',
     to: 'ada@example.com',
     subject: 'Your workspace is ready',
@@ -133,15 +129,15 @@ it('sends the welcome email', async () => {
 
 ::product-features
   :::product-feature-item{title="Pick a provider in one place" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-vite"}
-  Pick Resend or Cloudflare Email in your Vite config. Your routes stay the same.
+  Choose Resend or Cloudflare Email in your Vite config. Your routes stay the same.
   :::
 
   :::product-feature-item{title="Keys stay out of your code" icon="i-lucide-shield-check" to="/docs/email/get-started#provide-the-resend-secret"}
-  The server reads the API key from an environment variable when it sends.
+  The server reads your API key from an environment variable when it sends.
   :::
 
-  :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#compose-dynamic-markdown"}
-  Files in `server/emails` become typed imports. Fill them with data for HTML and text.
+  :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#send-a-template"}
+  Files in `server/emails` become typed templates. `email.send({ template, data })` renders HTML and text.
   :::
 
   :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}

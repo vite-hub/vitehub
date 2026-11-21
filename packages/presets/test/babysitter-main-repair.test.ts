@@ -3,7 +3,6 @@ import { codexDriver, defineAgent } from "@vite-hub/agent";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { babysitter } from "../src/babysitter.ts";
 import { isFailedBaseRun, mainRepairWorkerContext, repairBaseBranch, type BabysitterMainRepair, type MainRepairGitHub } from "../src/babysitter/main-repair.ts";
 import { createBabysitterRuntime } from "../src/babysitter/server.ts";
@@ -129,7 +128,6 @@ describe("Babysitter main repair", () => {
   it("authorizes inherited failures for verified repair branches even with an unchanged initial tree", () => {
     const input = { enabled: true, repository, sourceRepository: repository, branch: `${prefix}aaaaaaaa`, prefix, base: "main", defaultBranch: "main" };
     expect(mainRepairWorkerContext(input)).toContain("initial tree equals the base tree");
-    expect(babysitterInstructions).toContain("the prohibition on pushing fixes for failures shared with the base does not apply");
     for (const changed of [{ enabled: false }, { sourceRepository: "fork/app" }, { base: "release" }, { branch: "feature" }, { defaultBranch: undefined }]) {
       expect(mainRepairWorkerContext({ ...input, ...changed })).toBe("");
     }

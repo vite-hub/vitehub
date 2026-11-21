@@ -59,6 +59,8 @@ export interface ConsoleAccess {
   readonly surface?: "mcp"
   /** The person agreed to this destructive MCP call. The signature covers it. */
   readonly confirmed?: boolean
+  /** The signed caller limits this request to operations that only read. The RPC refuses a write or destructive call. */
+  readonly readOnly?: boolean
   /**
    * The signed request: the name of its key, and the SHA-256 of the body that the signature covers. The reader of the
    * body compares the digest before it acts on the body.
@@ -143,6 +145,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   let team: ConsoleAccess["team"]
   let surface: ConsoleAccess["surface"]
   let confirmed: ConsoleAccess["confirmed"]
+  let readOnly: ConsoleAccess["readOnly"]
   let signature: ConsoleAccess["signature"]
   if (mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
@@ -158,6 +161,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       team = signed.caller.team
       surface = signed.caller.surface
       confirmed = signed.caller.confirmed
+      readOnly = signed.caller.readOnly
     }
   }
   let sections: ConsoleAccess["sections"] = "all"
@@ -183,7 +187,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       grants = roles
     }
   }
-  return consoleAccessGrant.issue(mode, { mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(mode, { mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(readOnly ? { readOnly } : {}), ...(signature ? { signature } : {}) })
 }
 
 /** The page tool roles of a checked access, from `grants` of `console.authorize`, or `undefined` for every role. */
@@ -268,8 +272,8 @@ export interface ConsoleRealtimeUser {
 export interface ConsoleRealtimeAccess {
   /** The Console user, or a guest of an open Console. Null without Console access. */
   identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
-  /** Whether the request includes the section; writes require its full grant instead of a read-only grant. */
-  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
+  /** Whether the request includes the section. `mode: "write"` requires its full grant instead of a read-only grant. */
+  authorize(context: { event: unknown, mode: "read" | "write" }): Promise<boolean>
   /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
   user(context: { event: unknown }): Promise<ConsoleUser | null>
 }
@@ -313,9 +317,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
       // An open Console has no accounts: each connection is a guest.
       return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
     },
-    async authorize({ event, kind }) {
+    async authorize({ event, mode }) {
       const allowed = await access(event)
-      return Boolean(allowed && (kind !== "write" || consoleAccessWrites(allowed, section)))
+      return Boolean(allowed && (mode === "read" || consoleAccessWrites(allowed, section)))
     },
     async user({ event }) {
       const allowed = await access(event)

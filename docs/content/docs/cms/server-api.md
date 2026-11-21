@@ -44,20 +44,20 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 
 - import `cms` from `vite-hub/cms` or `@vite-hub/cms`, as a named or default import;
 - pass that import directly to `extends`, not a value built at runtime;
-- write each option as a string literal.
+- use literal options. Use the boolean literal `true` for `roles`.
 
-The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
+The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_PRESET_INVALID`, `CONTENT_PRESET_OPTION_UNKNOWN`, or `CONTENT_CMS_OPTION_INVALID`.
 
 The preset fills `workspace` in `defineContent()`, so you cannot use `extends` with `workspace`. It also:
 
-- fills `authorize` with the CMS role policy when you set `access: 'roles'` and no `authorize`. Without either, every action is denied.
+- fills `authorize` with the CMS role policy when you set `roles: true` and no `authorize`. Without either, every action is denied.
 - uses pull request publishing for `content.publish()` with the GitHub store and `publish: 'pr'`.
 
 ## Option values
 
 | Option | Accepts |
 | --- | --- |
-| `access` | `'roles'` to turn on the CMS role policy. |
+| `roles` | `true` to turn on the CMS role policy. |
 | `database`, `blob`, `workspace` | Letters, numbers, dots, underscores, and dashes, starting with a letter or number. Slashes separate parts, such as `content/main`. |
 | `store` | `'blob-database'` or `'github'`. |
 | `repo` | A repository as `owner/name`. The owner has letters, numbers, and dashes. The name has letters, numbers, dots, underscores, and dashes, and is not `.` or `..`. |

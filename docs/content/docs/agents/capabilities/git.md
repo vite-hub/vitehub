@@ -100,7 +100,7 @@ A policy cannot enable a blocked command. In a pull request run, `fetch` can use
 
 ## Verify Git access
 
-1. `vitehub agent info --agent <name> --json` has a `git` entry in `tools` (keyed by Capability id; the Agent sees `shell`).
+1. `vitehub agent get <name> --json` has a `git` entry in `tools` (keyed by Capability id; the Agent sees `shell`).
 2. `git status --short` through `shell` returns `exitCode` zero.
 3. `git push` fails with `git push is not available through git()`.
 

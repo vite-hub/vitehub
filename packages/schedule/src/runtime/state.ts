@@ -9,6 +9,11 @@ import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDe
 /** The cron and time zone of a Schedule that the Process Runtime runs. */
 type ProcessScheduleTimingRecord = Pick<ScheduleDefinition, "cron" | "timeZone">
 
+interface HostScheduleInventory {
+  timings: Readonly<Record<string, { cron: string, timeZone?: string }>>
+  registry?: ScheduleDefinitionRegistry
+}
+
 /** What `startSchedule()` and the started-Schedule tick use. The generated Nitro plugin installs it. */
 export interface StartedScheduleRuntime {
   /** How far back the first tick after a start runs cron minutes that no tick checked. */
@@ -17,12 +22,15 @@ export interface StartedScheduleRuntime {
   checkedThrough?: number
   /** Occurrences that another process held at a tick, by run id. The next tick tries them again. */
   held?: Map<string, { scheduledAt: Date, scheduleId: string }>
+  /** The cause that each failing started Schedule last logged, by id. A held occurrence fails again each tick. */
+  failing?: Map<string, string>
   /** Schedule Definitions without `cron`, by name. */
   registry: ScheduleDefinitionRegistry
   store: StartedScheduleStore
 }
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
+let hostInventory: HostScheduleInventory | undefined
 const processDefinitions = new Set<ReadonlyMap<string, ProcessScheduleTimingRecord>>()
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
@@ -60,6 +68,14 @@ export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<stri
 
 export function getProcessScheduleDefinitions(): ReadonlyMap<string, ProcessScheduleTimingRecord> | undefined {
   return [...processDefinitions].at(-1)
+}
+
+export function setHostScheduleInventory(inventory: HostScheduleInventory): void {
+  hostInventory = inventory
+}
+
+export function getHostScheduleInventory(): HostScheduleInventory | undefined {
+  return hostInventory
 }
 
 export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
@@ -137,6 +153,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  hostInventory = undefined
   processDefinitions.clear()
   runtimeRegistryVersion++
   runStore = undefined

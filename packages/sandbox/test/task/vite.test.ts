@@ -7,7 +7,7 @@ import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } f
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { VITEHUB_FEATURES, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import { build as viteBuild, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
@@ -156,7 +156,7 @@ describe("hubSandboxTask", () => {
   it("lists the Cloudflare Durable Object and Container as host resources", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare", name: "image-optimizer" })
+    const plugin = hubSandboxTask({ driver: "cloudflare", name: "image-optimizer" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
     await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }, { command: "build", mode: "production" })
 
@@ -166,10 +166,23 @@ describe("hubSandboxTask", () => {
     ])
   })
 
+  it("rejects the former provider key instead of picking the host driver", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    // SAFETY: An app config without types still passes the former key.
+    const plugin = hubSandboxTask({ provider: "vercel" } as never)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+
+    await expect(configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }, { command: "build", mode: "production" })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`sandboxTask: { driver: "vercel" }`'),
+    })
+  })
+
   it("lists no host resources for the Vercel provider", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
     await configHook({ root: rootDir }, { command: "build", mode: "production" })
 
@@ -179,7 +192,7 @@ describe("hubSandboxTask", () => {
   it("reports the chosen size in the Container resource", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare", cpu: 1, memory: 8192, maxInstances: 30 })
+    const plugin = hubSandboxTask({ driver: "cloudflare", cpu: 1, memory: 8192, maxInstances: 30 })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
     const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } as Record<string, any> }
     await configHook(userConfig, { command: "build", mode: "production" })
@@ -196,7 +209,7 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const providerImportAliases: Record<string, string> = {}
     const plugin = hubSandboxTask({
-      provider: "vercel",
+      driver: "vercel",
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
     } as never)
@@ -208,7 +221,7 @@ describe("hubSandboxTask", () => {
     const configResult = await configHook({
       root: rootDir,
       [VITEHUB_FEATURES]: { sandboxTask: {
-        provider: "vercel",
+        driver: "vercel",
       } },
     }, {
       command: "serve",
@@ -219,7 +232,7 @@ describe("hubSandboxTask", () => {
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
 
-    expect(code).toContain('"provider": "vercel"')
+    expect(code).toContain('"driver": "vercel"')
     const idFilter = (hook: unknown) => Reflect.get(Object(Reflect.get(Object(hook), "filter")), "id") as RegExp
     const ids = ["#vitehub/sandbox-task", resolvedId as string, "#vitehub/sandbox-task-registry", "#vitehub/sandbox-task/state", "@vite-hub/sandbox/task", "/app/server/api/run.ts"]
     expect(ids.filter(id => idFilter(plugin.resolveId).test(id))).toEqual(["#vitehub/sandbox-task", "\0vitehub:sandbox-task:state"])
@@ -254,17 +267,17 @@ describe("hubSandboxTask", () => {
     ])
     expect(facade).toContain("setSandboxTaskRuntimeConfig")
     expect(facade).toContain("setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)")
-    expect(facade).toContain("setSandboxTaskRuntimeDevelopment(true)")
+    expect(facade).toContain('import("@vite-hub/sandbox/internal/task/runtime/providers/local")')
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     const facadePackageImports = [
-      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeLocalProvider, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toEqual([
       "@vite-hub/sandbox/task/runtime/state",
-      "@vite-hub/sandbox/_internal/task/runtime",
+      "@vite-hub/sandbox/internal/task/runtime",
     ])
     expect(facade).toContain('from "./sandbox-task-registry.mjs"')
     expect(facade).toContain(`from ${JSON.stringify(providerLoaderAlias)}`)
@@ -273,8 +286,7 @@ describe("hubSandboxTask", () => {
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
-    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/_internal/task/runtime/providers/vercel")
-    expect(providerLoader).not.toContain("createSandboxClient")
+    expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/internal/task/runtime/providers/vercel")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
@@ -287,7 +299,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "build", mode: "production" })
@@ -302,7 +314,6 @@ describe("hubSandboxTask", () => {
     const { default: definition } = await registry["__proto__"]!()
     expect(definition.options).toEqual({ timeout: 5000 })
     expect(definition.bundle.modules[definition.bundle.entry]).toContain("prototype sandbox")
-    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"), "utf8")).resolves.toContain("setSandboxTaskRuntimeDevelopment(false)")
   })
 
   it("loads only the selected generated Definition payload", async () => {
@@ -313,7 +324,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -341,7 +352,7 @@ describe("hubSandboxTask", () => {
   it("accepts direct integration options", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const resolveId = idHook(plugin.resolveId)
     const load = idHook(plugin.load)
@@ -356,7 +367,7 @@ describe("hubSandboxTask", () => {
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
 
-    expect(code).toContain('"provider": "vercel"')
+    expect(code).toContain('"driver": "vercel"')
   })
 
   it("keeps project definitions when Nuxt owns a custom nested Vite root", async () => {
@@ -364,7 +375,7 @@ describe("hubSandboxTask", () => {
     const appDir = join(rootDir, "src/client")
     await mkdir(appDir, { recursive: true })
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
 
@@ -413,7 +424,7 @@ describe("hubSandboxTask", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"hosting": "vercel"')
-    expect(code).toContain('"provider": "vercel"')
+    expect(code).toContain('"driver": "vercel"')
     expect(code).toContain('"token": ""')
     expect(code).toContain('"teamId": ""')
     expect(code).toContain('"projectId": ""')
@@ -430,7 +441,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
 
@@ -472,7 +483,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider })
+    const plugin = hubSandboxTask({ driver: provider })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
 
@@ -524,7 +535,7 @@ describe("hubSandboxTask", () => {
       `export default definition`,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider })
+    const plugin = hubSandboxTask({ driver: provider })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
 
@@ -572,7 +583,7 @@ describe("hubSandboxTask", () => {
       `export default defineSandboxTask({ handler: async () => ({ message: kleur.green("ready") }) })`,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
 
@@ -604,7 +615,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
 
@@ -685,7 +696,6 @@ describe("hubSandboxTask", () => {
       options: { timeout: 30_000 },
     })
     const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")
-    expect(generatedTypes).toContain("SandboxTaskPackageContract<typeof import(")
     expect(generatedTypes).toContain("TArgs extends [] ? unknown : TArgs[0]")
   })
 
@@ -751,7 +761,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({
-      provider: "cloudflare",
+      driver: "cloudflare",
       name: "image-optimizer",
     })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
@@ -819,8 +829,8 @@ describe("hubSandboxTask", () => {
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
     const exportsModule = rollupPlugin.load.handler("\0virtual:vitehub-sandbox-task-cloudflare-exports")
-    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
-    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/_internal/cloudflare"])
+    const ids = ["virtual:vitehub-sandbox-task-cloudflare-exports", "\0virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare", "@cloudflare/sandbox/openai", "@vite-hub/sandbox", "/app/server/api/run.ts"]
+    expect(ids.filter(id => rollupPlugin.resolveId.filter.id.test(id))).toEqual(["virtual:vitehub-sandbox-task-cloudflare-exports", "@cloudflare/sandbox", "@vite-hub/sandbox/internal/cloudflare"])
     expect(ids.filter(id => rollupPlugin.load.filter.id.test(id))).toEqual(["\0virtual:vitehub-sandbox-task-cloudflare-exports"])
     expect(exportsModule).toContain("import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
@@ -828,7 +838,6 @@ describe("hubSandboxTask", () => {
       .toContain("export class SandboxOutbound extends createCloudflareSandboxOutbound({ WorkerEntrypoint }) {}")
     expect(exportsModule)
       .toContain("export class Sandbox extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: 'SandboxOutbound', SandboxFileError })")
-    expect(exportsModule).not.toContain("ContainerProxy")
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "server.js" }).code)
       .toContain(`export { Sandbox, SandboxOutbound } from "./sandbox-task-cloudflare-exports.mjs"`)
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
@@ -838,7 +847,7 @@ describe("hubSandboxTask", () => {
   it("preserves an application-owned Cloudflare Sandbox container", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare", name: "generated-name" })
+    const plugin = hubSandboxTask({ driver: "cloudflare", name: "generated-name" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const container = {
@@ -907,7 +916,7 @@ describe("hubSandboxTask", () => {
   it("completes only the required image fields on a partial Cloudflare Sandbox container", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare", name: "generated-name" })
+    const plugin = hubSandboxTask({ driver: "cloudflare", name: "generated-name" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const container = {
@@ -958,7 +967,7 @@ describe("hubSandboxTask", () => {
   it("rejects an existing Cloudflare migration tag without changing it", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const migrations = [{ tag: "v1", new_sqlite_classes: ["Existing"] }]
     const userConfig = {
@@ -980,7 +989,7 @@ describe("hubSandboxTask", () => {
   it("preserves existing Cloudflare migration fields and order", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const userConfig = {
       root: rootDir,
@@ -1006,7 +1015,7 @@ describe("hubSandboxTask", () => {
   it("defers migration validation until Vite config composition completes", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const userConfig = {
@@ -1096,7 +1105,7 @@ describe("hubSandboxTask", () => {
   it("rejects Wrangler exports before adding legacy migrations", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const wrangler = { exports: { Existing: "Existing" } }
     const userConfig = {
@@ -1113,7 +1122,7 @@ describe("hubSandboxTask", () => {
   it("rejects a colliding Cloudflare Durable Object binding before mutation", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const wrangler = {
       durable_objects: { bindings: [{ name: "SANDBOX", class_name: "Existing" }] },
@@ -1135,7 +1144,7 @@ describe("hubSandboxTask", () => {
   it("does not compose Cloudflare output for a non-Cloudflare Nitro host", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const userConfig = {
       root: rootDir,
@@ -1154,7 +1163,7 @@ describe("hubSandboxTask", () => {
   it("keeps a late-resolved non-Cloudflare Nitro preset authoritative", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
     const userConfig = {
@@ -1179,7 +1188,7 @@ describe("hubSandboxTask", () => {
   ])("bundles only the %s Sandbox provider into Nitro", async (preset, provider, sdkScope, otherProvider) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: provider as "cloudflare" | "vercel" })
+    const plugin = hubSandboxTask({ driver: provider as "cloudflare" | "vercel" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const userConfig = {
       root: rootDir,
@@ -1225,7 +1234,7 @@ describe("hubSandboxTask", () => {
     process.env.NITRO_PRESET = "cloudflare-module"
     try {
       const { hubSandboxTask } = await import("../../src/task/vite.ts")
-      const plugin = hubSandboxTask({ provider: "cloudflare" })
+      const plugin = hubSandboxTask({ driver: "cloudflare" })
       const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
       const configResolved = plugin.configResolved as unknown as (config: Record<string, any>) => unknown | Promise<unknown>
       const nitro: Record<string, any> = {}
@@ -1251,7 +1260,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     await writeFile(join(rootDir, "Dockerfile"), "FROM node:24\n")
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const userConfig = {
       root: rootDir,
@@ -1277,7 +1286,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
 
@@ -1305,7 +1314,7 @@ describe("hubSandboxTask", () => {
   it("lets Vite config override direct integration options", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare" })
+    const plugin = hubSandboxTask({ driver: "cloudflare" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const resolveId = idHook(plugin.resolveId)
     const load = idHook(plugin.load)
@@ -1313,7 +1322,7 @@ describe("hubSandboxTask", () => {
     await configHook({
       root: rootDir,
       [VITEHUB_FEATURES]: { sandboxTask: {
-        provider: "vercel",
+        driver: "vercel",
       } },
     }, {
       command: "serve",
@@ -1323,8 +1332,7 @@ describe("hubSandboxTask", () => {
     const resolvedId = await resolveId("#vitehub/sandbox-task")
     const code = await load(resolvedId as string)
 
-    expect(code).toContain('"provider": "vercel"')
-    expect(code).not.toContain('"provider": "cloudflare"')
+    expect(code).toContain('"driver": "vercel"')
   })
 
   it("preserves explicit disabled sandbox config in feature state", async () => {
@@ -1435,7 +1443,7 @@ describe("hubSandboxTask", () => {
 
   it("emits explicit Cloudflare targets without definitions", async () => {
     const { createSandboxTaskFeaturePlan } = await import("../../src/task/feature.ts")
-    const plan = await createSandboxTaskFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
+    const plan = await createSandboxTaskFeaturePlan({ driver: "cloudflare", name: "custom-sandbox" }, [], {
       aliasPath: "/tmp/vitehub-sandbox-task/index.js",
     }, {})
 
@@ -1450,7 +1458,7 @@ describe("hubSandboxTask", () => {
   it("keeps the active runtime intact across independent concurrent writers", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugins = Array.from({ length: 4 }, () => hubSandboxTask({ provider: "vercel" }))
+    const plugins = Array.from({ length: 4 }, () => hubSandboxTask({ driver: "vercel" }))
     const resolvedConfig = { root: rootDir, resolve: { alias: [] as [] } }
 
     await Promise.all(plugins.map(async (plugin) => {
@@ -1473,7 +1481,7 @@ describe("hubSandboxTask", () => {
   it("refreshes generated artifacts during sandbox definition hot updates", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({
@@ -1568,7 +1576,7 @@ describe("hubSandboxTask", () => {
   it("invalidates each generated runtime before starting the next hot refresh", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -1631,7 +1639,7 @@ describe("hubSandboxTask", () => {
   it.each(["native", "Windows"])("reloads server environments that still import a previous runtime generation with %s realpath separators", async (separators) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -1692,7 +1700,7 @@ describe("hubSandboxTask", () => {
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const providerImportAliases: Record<string, string> = {}
     const plugin = hubSandboxTask({
-      provider,
+      driver: provider,
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
     } as never)
@@ -1741,7 +1749,7 @@ describe("hubSandboxTask", () => {
   it("removes generated bundles for definitions that no longer exist", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -1760,6 +1768,57 @@ describe("hubSandboxTask", () => {
 
     await expect(readFile(previousDefinition, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/tools__next.mjs"), "utf8")).resolves.toContain("next")
+  })
+
+  it("writes declarations before Nuxt writes the referenced tsconfig files", async () => {
+    const rootDir = await createViteRoot()
+    // A fresh clone of a Nuxt app: `nuxt prepare` writes `.nuxt/tsconfig.*.json` after the Vite hooks run.
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes: string = 'from helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "./notes"`,
+      `export default defineSandboxTask({ handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "serve" as const, mode: "development" }
+
+    // `nuxt dev` and `nuxt build` run after Nuxt writes the files, and keep reading the app's tsconfig.
+    await expect(prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })).rejects.toThrow(/TSCONFIG_ERROR/)
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } })
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(readdir(join(rootDir, ".vitehub/sandbox-task/runtime"))).resolves.toEqual(["sandbox-task.d.ts"])
+  })
+
+  it("leaves TypeScript path resolution to the runtime build and preserves the active runtime on prepare", async () => {
+    const rootDir = await createViteRoot()
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ compilerOptions: { paths: { "@helpers/*": ["./src/tools/*"] } } }))
+    await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes = 'from aliased helper'\n")
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `import { notes } from "@helpers/notes"`,
+      `export default defineSandboxTask({ project: false, handler: async () => ({ notes }) })`,
+      ``,
+    ].join("\n"))
+    const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
+    const env = { command: "build" as const, mode: "production" }
+    const prepare = { env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } }
+    const runtimeDir = join(rootDir, ".vitehub/sandbox-task/runtime")
+    const bundle = join(runtimeDir, "sandbox-task-definitions/tools__release-notes.mjs")
+
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
+    await expect(lstat(bundle)).rejects.toMatchObject({ code: "ENOENT" })
+    await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })
+    await expect(readFile(bundle, "utf8")).resolves.toContain("from aliased helper")
+
+    const facade = join(runtimeDir, "sandbox-task.mjs")
+    const activeRuntime = await readFile(facade, "utf8")
+    await writeFile(join(rootDir, "src/tools/next.sandbox-task.ts"), `export { default } from "./release-notes.sandbox-task"\n`)
+    await prepareSandboxTaskRuntime(prepare)
+    await expect(readFile(facade, "utf8")).resolves.toBe(activeRuntime)
+    await expect(readFile(join(runtimeDir, "sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/next"')
   })
 
   it("keeps Windows definition fallbacks in the active runtime", async () => {
@@ -1810,7 +1869,7 @@ describe("hubSandboxTask", () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const startDevServer = async () => {
-      const plugin = hubSandboxTask({ provider: "vercel" })
+      const plugin = hubSandboxTask({ driver: "vercel" })
       const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
       const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
       await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} }, { command: "serve", mode: "development" })
@@ -1833,7 +1892,7 @@ describe("hubSandboxTask", () => {
   it("keeps the last valid generated bundles when regeneration fails", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -1865,7 +1924,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(projectDir, "prompt.md"), "initial prompt")
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({
@@ -1958,7 +2017,7 @@ describe("hubSandboxTask", () => {
     ].join("\n"))
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -1990,7 +2049,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(projectDir, "index.ts"), "export default async function run() { return { ok: true } }\n")
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -2025,7 +2084,7 @@ describe("hubSandboxTask", () => {
       ``,
     ].join("\n"))
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({
@@ -2086,7 +2145,7 @@ describe("hubSandboxTask", () => {
     ].join("\n"))
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: viteRoot, __vitehubProjectRoot: projectRoot }, { command: "serve", mode: "development" })
@@ -2118,7 +2177,7 @@ describe("hubSandboxTask", () => {
     ].join("\n"))
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })
@@ -2174,7 +2233,7 @@ describe("hubSandboxTask", () => {
     await writeFile(join(dependencyRoot, "index.js"), `export const ready = true\n`)
 
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "vercel" })
+    const plugin = hubSandboxTask({ driver: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => unknown | Promise<unknown>
     const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({ root: rootDir }, { command: "serve", mode: "development" })

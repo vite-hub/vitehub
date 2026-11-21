@@ -1,4 +1,5 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
+import type { FormSource, FormSubmitError } from "@vite-hub/forms"
 import type { McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
@@ -43,6 +44,29 @@ export interface McpToolContext {
   caller: McpCaller
 }
 
+/**
+ * The answer of the person to `elicit()`: `[undefined, { action: "accept", data }]` with the checked values,
+ * `[undefined, { action: "decline" }]` or `"cancel"` when the person did not answer, or `[error]` with the issue of each
+ * field, the same issues as the form route.
+ */
+export type McpElicitResult<TSchema extends StandardSchemaV1>
+  = | [FormSubmitError, undefined]
+    | [undefined, { action: "accept", data: StandardSchemaV1.InferOutput<TSchema> } | { action: "decline" | "cancel" }]
+
+/** The second argument of a tool handler. */
+export interface McpToolHandlerContext extends McpToolContext {
+  /**
+   * Asks the person for the fields of a form in the middle of the call, through the MCP client (MCP elicitation). The
+   * form is a `defineForm()` form or a Standard Schema of a flat object. The answer to the `tools/call` becomes an SSE
+   * stream until the call ends. The person has 10 minutes to answer, then the answer is `cancel`.
+   *
+   * It throws `MCP_ELICITATION_CLIENT_UNSUPPORTED` when the client did not declare the elicitation capability, and
+   * `MCP_ELICITATION_HOST_UNSUPPORTED` in a build for a host where the answer can reach another server instance, such as
+   * Cloudflare Workers or Vercel. Do not ask for passwords, API keys, or payment details.
+   */
+  elicit: <TSchema extends StandardSchemaV1>(form: FormSource<TSchema>, options: { message: string }) => Promise<McpElicitResult<TSchema>>
+}
+
 /** One tool of the app MCP server, the default export of a file in `server/mcp/tools/`. The file name is the tool name. */
 export interface McpToolDefinition<TInput extends McpToolInput | undefined = McpToolInput | undefined> {
   /** A short name for people, such as "List drops". */
@@ -58,10 +82,18 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    */
   _meta?: McpMeta
   /**
-   * Also serve the tool at `mcp.publicRoute`, where anyone may call it without sign-in. There, `caller` is `undefined`.
-   * Set it only with `mcp.publicRoute`. Without one, the server fails with `MCP_R0001`.
+   * `"public"` lets anyone call the tool without sign-in: on `mcp.route` with `mcp.auth: "optional"`, else on
+   * `mcp.publicRoute`. Without a token, `caller` is `undefined`. Set it only with one of them; else the server fails
+   * with `MCP_R0001`.
    */
-  public?: boolean
+  access?: "public"
+  public?: never
+  /**
+   * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. `tools/list` shows them in
+   * `securitySchemes`. With `auth: true`, a caller without them does not see the tool and a call answers `403` with an
+   * `insufficient_scope` challenge. With `auth: "optional"`, a call returns a tool error with that challenge.
+   */
+  scopes?: readonly string[]
   /**
    * Runs the call. A string becomes one text block. Another value becomes JSON text, and an object is also the
    * `structuredContent`. An object with a `content` array of blocks, such as `{ content: [{ type: "image", ... }] }`, is
@@ -69,7 +101,7 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    */
   handler: (
     input: TInput extends McpToolInput ? StandardSchemaV1.InferOutput<TInput> : Record<string, never>,
-    context: McpToolContext,
+    context: McpToolHandlerContext,
   ) => unknown
 }
 
@@ -164,8 +196,9 @@ export interface McpPromptDefinition<TInput extends McpPromptInput | undefined =
    * description, and the server checks the arguments with the schema before the handler runs.
    */
   input?: TInput
-  /** Also serve the prompt at `mcp.publicRoute`, where `caller` is `undefined`. */
-  public?: boolean
+  /** `"public"` lets anyone get the prompt without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
+  access?: "public"
+  public?: never
   /**
    * Makes the messages. A string becomes one user message. An array is the messages. An object with `messages` is the
    * MCP prompt result.
@@ -225,8 +258,9 @@ interface McpResourceFields {
    * such as `{ ui: { csp, prefersBorder } }` of MCP Apps.
    */
   _meta?: McpMeta
-  /** Also serve the resource at `mcp.publicRoute`, where `caller` is `undefined`. */
-  public?: boolean
+  /** `"public"` lets anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
+  access?: "public"
+  public?: never
   /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
   handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
 }
@@ -282,12 +316,14 @@ export interface McpOptions {
   route?: string
   /**
    * Require an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`. Defaults to `true`, and then the app needs
-   * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler.
+   * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler. Set `"optional"` to serve
+   * one route to everyone: anyone may list the tools and call those with `access: "public"`, and a call to another tool
+   * without a token returns a tool error with an `mcp/www_authenticate` challenge, so ChatGPT asks the person to sign in.
    */
-  auth?: boolean
+  auth?: boolean | "optional"
   /**
-   * A second route, such as `/mcp`, that serves only the tools with `public: true`, with no sign-in. MCP clients do not
-   * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth`.
+   * A second route, such as `/mcp`, that serves only the tools with `access: "public"`, with no sign-in. MCP clients do not
+   * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth: true`.
    */
   publicRoute?: string
   /** What `initialize` tells the Agent about the server, such as which tool to call first. Defaults to a short generic text. */

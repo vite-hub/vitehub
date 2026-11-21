@@ -1,8 +1,8 @@
-import { BlobNotFoundError, completeMultipartUpload, copy, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
+import { BlobError, BlobNotFoundError, BlobPreconditionFailedError, completeMultipartUpload, copy, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobDriverSignOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 import { blobSizeToBytes } from "../internal/size.ts"
@@ -101,7 +101,7 @@ function base64(bytes: Uint8Array): string {
 async function vercelClientToken(readWriteToken: string, payload: Record<string, unknown>): Promise<string> {
   const storeId = readWriteToken.split("_")[3]
   if (!storeId) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign: the read-write token has no store ID. Use the BLOB_READ_WRITE_TOKEN of the store." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot sign: the read-write token has no store ID. Use the BLOB_READ_WRITE_TOKEN of the store." })
   }
   const encoder = new TextEncoder()
   const body = base64(encoder.encode(JSON.stringify(payload)))
@@ -114,13 +114,16 @@ async function vercelClientToken(readWriteToken: string, payload: Record<string,
  * Signs a `PUT` the way `@vercel/blob/client` uploads a file: a client token from the read-write token, which Vercel
  * checks for the pathname, the content type, the size, and the expiry. The browser sends it to the Vercel Blob API.
  */
-async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "GET") {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign a GET request. Serve the object through `blob.serve()`." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot sign a GET request. Serve the object through `blob.serve()`." })
   }
   const token = options.token || globalThis.process?.env?.BLOB_READ_WRITE_TOKEN
   if (!token) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
+  }
+  if (signOptions.contentLength !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot bind an exact `contentLength` to a signed upload. Bind the largest size with `maxSize`." })
   }
   const allowOverwrite = !signOptions.createOnly && (options.allowOverwrite ?? true)
   const clientToken = await vercelClientToken(token, {
@@ -184,6 +187,50 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
         const part = await uploadPart(pathname, body as Parameters<typeof uploadPart>[1], { ...partOptions, partNumber })
         return { etag: part.etag, partNumber: part.partNumber }
       },
+    }
+  }
+
+  async function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition?: BlobDriverPutCondition): Promise<BlobObject> {
+    if (putOptions.customMetadata && Object.keys(putOptions.customMetadata).length > 0) {
+      throw blobErrorDiagnostics.BLOB_R0011({ message: "The Vercel Blob driver does not support custom metadata" })
+    }
+    const result = await put(pathname, body as Parameters<typeof put>[1], {
+      ...auth,
+      access: options.access,
+      addRandomSuffix: false,
+      contentType: putOptions.contentType,
+      // A call condition decides over the `allowOverwrite` of the store.
+      ...(condition?.type === "create"
+        ? { allowOverwrite: false }
+        : condition ? { allowOverwrite: true, ifMatch: condition.etag } : { allowOverwrite: options.allowOverwrite ?? true }),
+    })
+    let size = typeof body === "string"
+      ? new TextEncoder().encode(body).byteLength
+      : isBlob(body)
+        ? body.size
+        : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
+          ? body.byteLength
+          : Number(putOptions.contentLength) || 0
+    let uploadedAt = new Date()
+    let httpEtag = (result as typeof result & { etag?: string }).etag
+    if (!size) {
+      const metadata = await head(result.url, auth)
+      size = metadata.size
+      uploadedAt = metadata.uploadedAt
+      httpEtag ||= metadata.etag
+    }
+    const contentType = result.contentType || putOptions.contentType
+    const httpMetadata: Record<string, string> = {}
+    if (contentType) httpMetadata.contentType = contentType
+    return {
+      contentType,
+      customMetadata: {},
+      httpEtag,
+      httpMetadata,
+      pathname: result.pathname,
+      size,
+      uploadedAt,
+      url: result.url,
     }
   }
 
@@ -258,44 +305,15 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
         hasMore: result.hasMore,
       }
     },
-    async put(pathname, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      if (putOptions.customMetadata && Object.keys(putOptions.customMetadata).length > 0) {
-        throw blobErrorDiagnostics.BLOB_R0011({ message: "The Vercel Blob driver does not support custom metadata" })
+    put: (pathname, body, putOptions = {}) => write(pathname, body, putOptions),
+    async putIf(pathname, body, putOptions, condition) {
+      try {
+        return await write(pathname, body, putOptions, condition)
       }
-      const result = await put(pathname, body as Parameters<typeof put>[1], {
-        ...auth,
-        access: options.access,
-        addRandomSuffix: false,
-        allowOverwrite: options.allowOverwrite ?? true,
-        contentType: putOptions.contentType,
-      })
-      let size = typeof body === "string"
-        ? new TextEncoder().encode(body).byteLength
-        : isBlob(body)
-          ? body.size
-          : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
-            ? body.byteLength
-            : Number(putOptions.contentLength) || 0
-      let uploadedAt = new Date()
-      let httpEtag = (result as typeof result & { etag?: string }).etag
-      if (!size) {
-        const metadata = await head(result.url, auth)
-        size = metadata.size
-        uploadedAt = metadata.uploadedAt
-        httpEtag ||= metadata.etag
-      }
-      const contentType = result.contentType || putOptions.contentType
-      const httpMetadata: Record<string, string> = {}
-      if (contentType) httpMetadata.contentType = contentType
-      return {
-        contentType,
-        customMetadata: {},
-        httpEtag,
-        httpMetadata,
-        pathname: result.pathname,
-        size,
-        uploadedAt,
-        url: result.url,
+      catch (error) {
+        // provider-message-match: Vercel Blob reports a refused overwrite as a plain BlobError with only a message.
+        if (error instanceof BlobPreconditionFailedError || (condition.type === "create" && error instanceof BlobError && /already exists/i.test(error.message))) return null
+        throw error
       }
     },
     sign: (pathname, signOptions) => signVercelUpload(options, pathname, signOptions),

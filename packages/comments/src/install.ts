@@ -4,9 +4,10 @@ import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
-import { createForgeSync } from "./forge/sync.ts"
+import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
 import { pendingKey, runtimes } from "./installed.ts"
 
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
 import type { Comments } from "./index.ts"
 import type { CommentsPeople } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
@@ -23,6 +24,8 @@ export interface InstallCommentsOptions {
   users?: CommentsPeople
   /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
   attachments?: CommentsAttachmentStore
+  /** `checkRateLimit` of ViteHub Rate Limit, when it counts in a shared KV store. See `CommentsRuntime.rateLimit`. */
+  rateLimit?: SharedRateLimit
   /** Only the Vite dev server enables it, for the default guest policy. Without it, the operation context decides, else `false`. */
   development?: boolean
   /**
@@ -82,15 +85,18 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     store,
     ...(install.users ? { users: install.users } : {}),
     ...(install.attachments ? { attachments: install.attachments } : {}),
+    ...(install.rateLimit ? { rateLimit: install.rateLimit } : {}),
   }
   let sync: Installed["sync"]
   if (comments.options.forge) {
-    const forge = createForgeSync(comments.options.forge, { database: install.database, store, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
+    const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
     sync = forge.sync
     runtime.forge = {
       attach: forge.attach,
       changed(threadId) {
-        track(forge.sync(threadId).catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error)))
+        track(forge.sync(threadId).catch((error: unknown) => {
+          logSyncFailure("sync", "Comments could not sync a thread to its pull request", error, () => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error), { thread: threadId, waitUntil: track })
+        }))
       },
     }
   }

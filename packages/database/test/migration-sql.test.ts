@@ -1,6 +1,17 @@
+import { DatabaseSync } from "node:sqlite"
+
 import { describe, expect, it } from "vitest"
 
-import { findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+import { addStatementBreakpoints, findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+
+it("preserves same-line statements in a whole script with existing breakpoints", () => {
+  const sql = "CREATE TABLE notes (id INTEGER);\n--> statement-breakpoint\nINSERT INTO notes VALUES (1); INSERT INTO notes VALUES (2);"
+  const rewritten = addStatementBreakpoints(sql)
+  expect(rewritten.split("--> statement-breakpoint")).toHaveLength(3)
+  using database = new DatabaseSync(":memory:")
+  database.exec(rewritten)
+  expect(database.prepare("SELECT id FROM notes ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
+})
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
   return findDataLoss(Array.isArray(sql) ? sql : [sql], before).map(loss => loss.reason)
@@ -57,6 +68,40 @@ describe("migration data loss", () => {
     expect(reasons(rebuild, new Map([["notes", ["id", "title", "body"]]]))).toEqual([
       "rebuilds table \"notes\" without column \"body\"",
     ])
+  })
+
+  // D1 enforces foreign keys during the run, and SQLite ignores `PRAGMA foreign_keys=OFF` in the migration transaction,
+  // so dropping the old table deletes the rows that reference it. An Auth migration lost every `member` row this way.
+  it("flags a SQLite table rebuild that runs the ON DELETE action of a referencing table", () => {
+    const references = new Map([["notes", [
+      { table: "comments", columns: ["note_id"], onDelete: "CASCADE" },
+      { table: "pins", columns: ["note_id"], onDelete: "SET NULL" },
+    ]]])
+    const [loss] = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(loss).toMatchObject({
+      reason: "rebuilds table \"notes\", and dropping the old table deletes the rows of \"comments\".\"note_id\" (ON DELETE CASCADE), clears \"pins\".\"note_id\" (ON DELETE SET NULL)",
+      statement: "DROP TABLE `notes`;",
+      tables: ["comments", "pins"],
+    })
+  })
+
+  it("retains losses through a new cascading intermediate table, including cycles", () => {
+    const references = new Map([
+      ["notes", [{ table: "membership", columns: ["note_id"], onDelete: "CASCADE" }]],
+      ["membership", [{ table: "document", columns: ["membership_id"], onDelete: "CASCADE" }]],
+      ["document", [{ table: "membership", columns: ["document_id"], onDelete: "CASCADE" }]],
+    ])
+    const dataLoss = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(dataLoss[0]?.tables).toEqual(["membership", "document"])
+    const filtered = withoutNewTableDataLoss([
+      { statements: ["CREATE TABLE membership (id integer PRIMARY KEY);"], dataLoss: [] },
+      { statements: rebuild, dataLoss },
+    ])
+    expect(filtered[1]?.dataLoss).toHaveLength(1)
+  })
+
+  it("accepts a SQLite table rebuild that only the table itself references", () => {
+    expect(findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), new Map([["notes", [{ table: "notes", columns: ["parent_id"], onDelete: "CASCADE" }]]]))).toEqual([])
   })
 
   it("flags a SQLite table rebuild when the previous columns are unknown", () => {

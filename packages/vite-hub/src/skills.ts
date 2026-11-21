@@ -1,6 +1,5 @@
 import { defineErrors } from "@vite-hub/runtime"
 import { parseYAML } from "confbox/yaml"
-import { createTar } from "nanotar"
 
 import type { Result } from "@vite-hub/runtime"
 
@@ -27,8 +26,8 @@ const skillErrors = /*#__PURE__*/ defineErrors({
       fix: "Start `SKILL.md` with `---`, a `name` of lowercase letters, digits, and single hyphens (at most 64 characters) that matches the folder, a `description`, and `---`.",
     },
     SKILL_INVALID_PATH: {
-      why: ({ path }: { path: string }) => `The skill file path ${JSON.stringify(path)} is not a relative path inside the skill.`,
-      fix: "Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\\`.",
+      why: ({ path }: { path: string }) => `The skill file path ${JSON.stringify(path)} is not a relative path inside the skill, or is too long for a skill archive.`,
+      fix: "Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\\`. Keep the part after the last `/` at most 100 bytes, and split a longer path at a `/` with at most 155 bytes before it.",
     },
     SKILL_DUPLICATE_NAME: {
       why: ({ name }: { name: string }) => `Two skills are named ${JSON.stringify(name)}.`,
@@ -47,7 +46,7 @@ const skillErrors = /*#__PURE__*/ defineErrors({
   },
 })
 
-/** The codes of `vite-hub/skills`. Each has a heading on https://vitehub.dev/docs/development/skills. */
+/** The codes of `vite-hub/skills`. Each has a row in the Errors table of https://vitehub.dev/docs/console/skills. */
 export type SkillErrorCode = "SKILL_DUPLICATE_NAME" | "SKILL_FILE_MISSING" | "SKILL_INVALID_FRONTMATTER" | "SKILL_INVALID_PATH" | "SKILL_NOT_FOUND" | "SKILL_SETTINGS_UNAVAILABLE"
 
 /** One file of a skill. */
@@ -111,8 +110,19 @@ function isSafePath(path: string): boolean {
   return path !== "" && !path.includes("\\") && !path.includes("\0") && path.split("/").every(segment => segment !== "" && segment !== "." && segment !== "..")
 }
 
+/** The ustar `prefix` (155 bytes) and `name` (100 bytes) of a path. The `skills` CLI reads both, but no PAX or GNU long names. */
+function ustarPath(path: string): { prefix: Uint8Array, name: Uint8Array } | undefined {
+  const bytes = encoder.encode(path)
+  if (bytes.length <= 100) return { name: bytes, prefix: new Uint8Array() }
+  // UTF-8 never uses the byte of `/` inside another character.
+  for (let slash = bytes.indexOf(0x2F); slash !== -1 && slash <= 155; slash = bytes.indexOf(0x2F, slash + 1)) {
+    if (bytes.length - slash - 1 <= 100) return { name: bytes.subarray(slash + 1), prefix: bytes.subarray(0, slash) }
+  }
+  return undefined
+}
+
 function toFile(path: string, content: string | Uint8Array): SkillFile {
-  if (!isSafePath(path)) throw skillErrors.SKILL_INVALID_PATH({ path })
+  if (!isSafePath(path) || !ustarPath(path)) throw skillErrors.SKILL_INVALID_PATH({ path })
   let text = typeof content === "string" ? content : undefined
   // Copied into a plain ArrayBuffer, which Response and crypto.subtle take.
   const bytes = typeof content === "string" ? encoder.encode(content) : new Uint8Array(content)
@@ -240,12 +250,42 @@ function fileDigest(file: SkillFile): Promise<string> {
   return digest
 }
 
+const blockSize = 512
+
+function octal(value: number, length: number): Uint8Array {
+  return encoder.encode(value.toString(8).padStart(length - 1, "0"))
+}
+
+/** A ustar archive of regular files, with mode `644`, owner `0`, and modification time `0`. */
+function tar(files: readonly SkillFile[]): Uint8Array<ArrayBuffer> {
+  const blocks = (size: number) => Math.ceil(size / blockSize) * blockSize
+  // Two zero blocks end the archive.
+  const archive = new Uint8Array(files.reduce((total, file) => total + blockSize + blocks(file.bytes.byteLength), 2 * blockSize))
+  let offset = 0
+  for (const file of files) {
+    const path = ustarPath(file.path)
+    // A skill object built without `defineSkill()` can still have such a path.
+    if (!isSafePath(file.path) || !path) throw skillErrors.SKILL_INVALID_PATH({ path: file.path })
+    const header = archive.subarray(offset, offset + blockSize)
+    header.set(path.name, 0)
+    header.set(octal(0o644, 8), 100)
+    header.set(octal(0, 8), 108)
+    header.set(octal(0, 8), 116)
+    header.set(octal(file.bytes.byteLength, 12), 124)
+    header.set(octal(0, 12), 136)
+    // The checksum counts its own field as spaces. Type `0` is a regular file.
+    header.set(encoder.encode("        0"), 148)
+    header.set(encoder.encode("ustar\u000000"), 257)
+    header.set(path.prefix, 345)
+    header.set(encoder.encode(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, "0")}\u0000 `), 148)
+    archive.set(file.bytes, offset + blockSize)
+    offset += blockSize + blocks(file.bytes.byteLength)
+  }
+  return archive
+}
+
 async function tarGzip(skill: Skill): Promise<Uint8Array<ArrayBuffer>> {
-  const tar = createTar(skill.files.map(file => ({ attrs: { mode: "644", mtime: 0 }, data: file.bytes, name: file.path })))
-  // nanotar 0.3 sizes its buffer without the two zero blocks that end a tar archive, so add them.
-  const archive = new Uint8Array(tar.byteLength + 1024)
-  archive.set(tar)
-  return new Uint8Array(await new Response(new Response(archive).body!.pipeThrough(new CompressionStream("gzip"))).arrayBuffer())
+  return new Uint8Array(await new Response(new Response(tar(skill.files)).body!.pipeThrough(new CompressionStream("gzip"))).arrayBuffer())
 }
 
 /**
@@ -308,7 +348,8 @@ export async function serveSkills(request: Request, skills: SkillList, options: 
   const v2 = pathname.startsWith(`${base}${discoveryV2}`)
   if (!v2 && !pathname.startsWith(`${base}${discoveryV1}`)) return undefined
 
-  const headers = { "cache-control": options.cacheControl ?? "public, max-age=60", "x-content-type-options": "nosniff" }
+  // Skill files can come from people other than the app's authors. Never let a browser run one as a page on this origin.
+  const headers = { "cache-control": options.cacheControl ?? "public, max-age=60", "content-security-policy": "default-src 'none'; sandbox", "x-content-type-options": "nosniff" }
   const head = request.method === "HEAD"
   const respond = (body: string | Uint8Array<ArrayBuffer>, type: string) => new Response(head ? null : body, { headers: { ...headers, "content-type": type } })
   if (request.method !== "GET" && !head) return new Response(null, { headers: { ...headers, allow: "GET, HEAD" }, status: 405 })
@@ -355,7 +396,8 @@ export async function serveSkills(request: Request, skills: SkillList, options: 
   const name = path.slice(0, slash)
   const file = slash > 0 ? list.find(skill => skill.name === name)?.files.find(entry => entry.path === path.slice(slash + 1)) : undefined
   if (!file) return new Response(null, { headers, status: 404 })
-  return respond(file.bytes, file.text === undefined ? file.mimeType : `${file.mimeType}; charset=utf-8`)
+  // Installers write the bytes as they are, so the type only tells a browser to show text, not to run HTML or SVG.
+  return respond(file.bytes, file.mimeType === "text/markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8")
 }
 
 /** A skill in `skills/list` and `skills/get` of the MCP Skills extension. */

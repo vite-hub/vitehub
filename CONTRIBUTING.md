@@ -23,13 +23,15 @@ Use these names consistently: Server Primitives, Agent Definitions, Drivers, Inv
 
 Use the Node version required by `package.json`. For the full verification gate, install the Deno version in `.deno-version` with the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/). CI reads the same pin.
 
-The checkout requires Node.js 22.22+ on 22.x, or 24.11 or newer, to support its development tools and Nitro. Most standalone packages retain their Node.js 22.18 minimum; Queue requires Node.js 22.19. The compatibility CI job installs dependencies on Node.js 24 before switching to 22.18 for its tests.
+The checkout and every package require Node.js 24.15 or newer. The `node 24.15` CI job runs the tests for Node built-ins on exactly that version.
 
 From a clean checkout, let Corepack select pnpm from `package.json` and install the workspace dependencies. This also installs Vite+.
 
 ```sh
 corepack pnpm install --frozen-lockfile
 ```
+
+The install then builds the packages that the docs site uses and runs `nuxi prepare`. When one of these steps fails on your machine, the install still finishes and prints the failed command. Fix the package, then run `corepack pnpm --dir docs run postinstall`. That retry exits nonzero if preparation fails again. In CI (`CI` is set), the failure stops the install.
 
 Check the contributor tools without running tests:
 
@@ -93,7 +95,8 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
-| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md), not in CI) |
+| The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
@@ -252,6 +255,8 @@ The fix is complete when the consumer works without the patch. Retire combined p
 ## Releases
 
 ViteHub publishes all public packages at one version. The checked-in root and public package versions are the release baseline. A push to `main` uses conventional commits since the latest `v*` tag to open or update a draft `release/vX.Y.Z` PR. The required checks run on that release branch even though GitHub creates the PR with `GITHUB_TOKEN`.
+
+A release PR is always open. We release every Friday when we merge it. Never push commits to a `release/v*` branch. uppt owns these branches and rebuilds them from `main` on each push. It does not rebuild a branch that has other commits, so the PR stops updating. For the same reason, a workspace package names another ViteHub package with a `workspace:` range, or with `*` when a `workspace:` range makes a build cycle. Never use a version range. The release workflow writes the exact version when it packs, and `.github/scripts/check-release-candidate.mjs` fails on a version range.
 
 Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
 

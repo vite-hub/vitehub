@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { format, inspect } from "node:util"
 
 import { defineDiagnostics } from "nostics"
 import { build } from "vite"
@@ -8,7 +9,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import type { Plugin, PluginOption } from "vite"
 
-import { withPrintedDiagnostics } from "../src/hook-errors.ts"
+import { withPrintedDiagnostics, withShortInspect } from "../src/hook-errors.ts"
 import { withCmsPresetPlugins } from "../src/internal/cms-preset-features.ts"
 
 const diagnostics = defineDiagnostics({
@@ -24,6 +25,11 @@ afterEach(() => {
   vi.restoreAllMocks()
   for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true })
 })
+
+/** What the console prints for the calls, with the cause after the message. */
+function printedOutput(calls: unknown[][]) {
+  return calls.map(args => format(...args)).join("\n")
+}
 
 function buildWith(plugin: Plugin) {
   return buildRoot(appRoot(), withPrintedDiagnostics([plugin]))
@@ -41,39 +47,50 @@ function buildRoot(root: string, plugins: PluginOption[]) {
 }
 
 it("prints the fix and docs link of an error that a build hook throws", async () => {
-  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
   const error = diagnostics.VITE_HUB_TEST()
 
   await expect(buildWith({ name: "throws", buildStart() { throw error } })).rejects.toThrow("Blob is disabled")
 
-  const output = stderr.mock.calls.map(([chunk]) => String(chunk)).join("")
+  const output = printedOutput(stderr.mock.calls)
   expect(output).toContain("[VITE_HUB_TEST] Blob is disabled but the app imports vite-hub/blob.")
   expect(output).toContain("fix: Set `blob: true` in `vitehub()`.")
   expect(output).toContain("see: https://vitehub.dev/docs/development/diagnostics/vite_hub_test")
 })
 
+it("prints the cause of a diagnostic after its fix", async () => {
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
+  const cause = new Error("YAML does not parse at line 3")
+  const error = diagnostics.VITE_HUB_TEST({ cause })
+
+  await expect(buildWith({ name: "throws", buildStart() { throw error } })).rejects.toThrow("Blob is disabled")
+
+  expect(stderr).toHaveBeenCalledWith("%s", expect.stringContaining("fix: Set `blob: true` in `vitehub()`."), cause)
+  expect(printedOutput(stderr.mock.calls)).toContain("YAML does not parse at line 3")
+})
+
 it("prints the fix of a rejected async hook with a filter, once", async () => {
-  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
   const error = diagnostics.VITE_HUB_TEST()
   const plugin: Plugin = { name: "throws", transform: { filter: { id: /main\.js$/ }, async handler() { throw error } } }
 
   await expect(buildWith(plugin)).rejects.toThrow("Blob is disabled")
 
-  const output = stderr.mock.calls.map(([chunk]) => String(chunk)).join("")
+  const output = printedOutput(stderr.mock.calls)
   expect(output.match(/fix: Set `blob: true`/g)).toHaveLength(1)
 })
 
 it("leaves plain errors and the plugin objects as they are", async () => {
-  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
   const plugin: Plugin = { name: "plain", buildStart() { throw new Error("plain failure") } }
 
   expect(withPrintedDiagnostics([plugin])[0]).toBe(plugin)
   await expect(buildWith(plugin)).rejects.toThrow("plain failure")
-  expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join("")).not.toContain("plain failure")
+  expect(printedOutput(stderr.mock.calls)).not.toContain("plain failure")
 })
 
 it("prints the fix from the plugins of the CMS preset variant that Vite selects", async () => {
-  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
   const error = diagnostics.VITE_HUB_TEST()
   const root = appRoot()
   mkdirSync(join(root, "server"))
@@ -85,5 +102,36 @@ export default defineContent({ extends: [cms, { store: 'blob-database' }] })`)
 
   await expect(buildRoot(root, plugins)).rejects.toThrow("Blob is disabled")
 
-  expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("fix: Set `blob: true` in `vitehub()`.")
+  expect(printedOutput(stderr.mock.calls)).toContain("fix: Set `blob: true` in `vitehub()`.")
+})
+
+it("ends the printed diagnostic with its fix", async () => {
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
+
+  await expect(buildWith({ name: "throws", buildStart() { throw diagnostics.VITE_HUB_TEST() } })).rejects.toThrow("Blob is disabled")
+
+  expect(printedOutput(stderr.mock.calls).split("\n").at(-1)).toBe("╰▶ fix: Set `blob: true` in `vitehub()`.")
+})
+
+it("shows an error that vitehub() throws as a short message, as Vite prints a config file error", () => {
+  const error = withShortInspect(diagnostics.VITE_HUB_TEST({ cause: new Error("@vite-hub/kv is not installed") }))
+
+  expect(inspect(error).split("\n")).toEqual([
+    "[VITE_HUB_TEST] Blob is disabled but the app imports vite-hub/blob.",
+    "├▶ cause: @vite-hub/kv is not installed",
+    "├▶ see: https://vitehub.dev/docs/development/diagnostics/vite_hub_test",
+    "╰▶ fix: Set `blob: true` in `vitehub()`.",
+  ])
+  expect(error).toBeInstanceOf(Error)
+  const plain = new Error("plain failure")
+  expect(inspect(withShortInspect(plain))).toContain("plain failure\n    at ")
+})
+
+it("shows an error of a config hook short, without printing it twice", async () => {
+  const stderr = vi.spyOn(console, "error").mockImplementation(() => {})
+  const error = await buildWith({ name: "throws", config() { throw diagnostics.VITE_HUB_TEST() } }).catch((caught: unknown) => caught)
+
+  expect(inspect(error).split("\n").at(-1)).toBe("╰▶ fix: Set `blob: true` in `vitehub()`.")
+  expect(inspect(error)).not.toContain("    at ")
+  expect(stderr).not.toHaveBeenCalled()
 })

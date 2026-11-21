@@ -1,3 +1,7 @@
+import { invariantError } from "@vite-hub/internal/invariant"
+
+import { isUint8Array, kvValueType } from "./inspect-value.ts"
+
 const maximumValueBytes = 256 * 1_024
 
 export interface KVPreview {
@@ -7,13 +11,6 @@ export interface KVPreview {
   truncated?: true
   type: string
   value: string
-}
-
-function valueType(value: unknown): string {
-  if (value === null) return "null"
-  if (Array.isArray(value)) return "array"
-  if (value instanceof Uint8Array) return "bytes"
-  return typeof value
 }
 
 function truncateValue(value: string): { truncated: boolean; value: string } {
@@ -78,8 +75,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      // Internal invariant: caught in previewKVValue(), which shows the value as text.
-      throw new TypeError("Cannot serialize bigint as JSON.")
+      // previewKVValue() catches it and shows the value as text, so no reader sees this error.
+      throw invariantError("JSON has no bigint without `toJSON()`")
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
@@ -102,8 +99,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       return serialize(boxed, depth, arrayValue, key)
     }
-    // Internal invariant: caught in previewKVValue(), which shows the value as text.
-    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    // previewKVValue() catches it and shows the value as text, so no reader sees this error.
+    if (ancestors.has(object)) throw invariantError("JSON has no circular value")
     if (seen.has(object)) editable = false
     seen.add(object)
     ancestors.add(object)
@@ -150,7 +147,7 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
 
 /** A stored value as text of at most 256 KiB, for a page that shows it. Bytes become hex. */
 export function previewKVValue(value: unknown): KVPreview {
-  const type = valueType(value)
+  const type = kvValueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
   let truncated = false
@@ -160,7 +157,7 @@ export function previewKVValue(value: unknown): KVPreview {
     format = "text"
     rendered = value
   }
-  else if (value instanceof Uint8Array) {
+  else if (isUint8Array(value)) {
     format = "text"
     const maximumBytes = maximumValueBytes / 2
     truncated = value.byteLength > maximumBytes

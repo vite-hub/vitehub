@@ -1,10 +1,10 @@
 # @vite-hub/blob
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
-  <img alt="Storage" src="https://comark-ui.onmax.me/badge.svg?label=Blob&amp;value=stores">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=config&amp;color=blue">
+  <img alt="Storage" src="https://img.shields.io/static/v1?label=Blob&amp;message=stores&amp;color=blue">
 </p>
 
 `@vite-hub/blob` gives server code one object-storage API across local files and hosted blob providers.
@@ -52,6 +52,8 @@ export default defineConfig({
 })
 ```
 
+`blob.put(pathname, body, { ifMatch })` writes only when the stored file still has the `httpEtag` that you read, and `{ overwrite: false }` writes only when no file exists. Otherwise it writes nothing and returns `BLOB_CONFLICT`. R2 with its binding, Vercel Blob, Netlify Blobs, and S3 on AWS check the condition in the provider, and `fs` checks it in the process. Other drivers throw `BLOB_PUT_CONDITION_UNSUPPORTED`.
+
 `blob.copy(from, to, { overwrite? })` copies a file in the same store with its content type and custom metadata, and returns the new `BlobObject`. A missing source returns `BLOB_NOT_FOUND`, and a file at `to` returns `BLOB_CONFLICT` unless `overwrite` is `true`. S3-compatible stores and Vercel Blob copy on the server, `fs` copies the file, R2 streams the object from the binding, and Netlify Blobs reads and writes it.
 
 ## Vite Integration
@@ -60,10 +62,14 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 
 `hubBlob()` writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Include that file in your TypeScript project. `vite-hub` includes it through `.vitehub/types.d.ts`. With that file, a store name that is not configured is a type error in `blob.store()`, `file()`, and `image()`. Without it, any name type checks. At runtime, an unknown name throws `BLOB_R0027`, or `BLOB_R0028` in a generated host runtime, and the message lists the configured names.
 
-For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare-r2` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
+For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
-Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
-At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
+Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
+At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`. A named `fs` store without `base` uses a sibling folder such as `.vitehub/data/blob-avatars`. The Node development fallback of a `cloudflare` store uses the same rule. Names used to generate folders can use letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
+
+The `fs` driver keeps each object as the file at its pathname, so `docs/a.txt` is the file `<base>/docs/a.txt`. A pathname that is also a folder, such as `docs` next to `docs/a.txt`, keeps its bytes in `<base>/.vitehub/blob-folder-objects`, the same way S3 and R2 keep both keys. Files that older versions stored stay where they are.
 
 Filesystem writes stage bytes under `<base>/.vitehub/blob-writes` and rename complete files into place. Each new payload inode has an immutable metadata sidecar prepared before the payload rename. Readers select that inode’s metadata and retry if the payload changes during the read, so replacements expose matching bytes, MIME types, size, and custom metadata. Each sidecar also records the SHA-256 hash and size of its bytes. When you copy, restore, or move the data folder, the payloads get new inodes; a reader then accepts an older sidecar of the same pathname only if its recorded hash matches the current bytes, and saves it under the new inode. A sidecar that records a hash applies only while the bytes still match it, so a file you edit in place loses its metadata. Sidecars written before this hash was recorded do not survive a copy. Legacy files and sidecars remain readable. Deletion removes metadata for the payload generation observed before deletion, preserving concurrent replacements that are still being prepared. Older generation sidecars and interrupted publications can leave small sidecars; deletion does not sweep these because a sweep could remove a concurrent writer’s metadata. These are internal metadata, not additional payload copies. Workspace history stores keep file MIME types in their immutable manifests.
 
@@ -76,12 +82,12 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
-On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+On Vercel, the `vercel` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
 `vitehub inspect resources` reports other configured tokens with source `config`, without printing a token value or an environment store id.
 
 ## Remote stores in development
 
-`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as S3 from the `S3_*` variables, or as Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, uses the local `fs` driver in `.vitehub/data/blob`. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the dev runner's emulated R2 binding. Without a binding, only the Node runner falls back to `fs`. With Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the store.
 
 ```ts
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -93,9 +99,9 @@ export default defineConfig({
 })
 ```
 
-With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. Another explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
-Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route uses `/api/_vitehub/blob` as a safe namespaced API route by default. Use `serve.route` for product-facing paths such as `/assets`.
+Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route is `/_vitehub/blob` by default. Use `serve.route` for product-facing paths such as `/assets`.
 `put()` has no `access` option. One object cannot be private in a public store, so `put()` with `access` throws `BLOB_R0045`. Keep private files in a store that the route does not serve, or serve that store with `authorize: true`. On Vercel Blob, `access` on the store sets the provider access. It defaults to `"private"`, or to `"public"` when `serve: { access: "public" }` serves the store, and `access: "public"` on a store that `authorize: true` serves fails with `BLOB_C0022`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 `servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
@@ -140,7 +146,11 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
+`blob.delete({ prefix })` deletes every object under a non-empty prefix, page by page, and returns `[error, { deleted }]`. Use it instead of a `list()` and `delete()` loop. It keeps the reserved `.vitehub/`, `_vitehub/derived/`, and `_vitehub/media/` objects unless the prefix starts with one of these folders. See [Delete a folder](https://vitehub.dev/docs/blob/server-api#delete-a-folder).
+
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
+
+A Netlify Blobs listing makes one request for each page and returns the pathname, ETag, size, and upload time of each file, without its content type or custom metadata. Call `blob.head()` for those.
 
 With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.
 
@@ -165,13 +175,13 @@ The mode limits this API, not the host. The R2 binding or provider token keeps f
 
 ## Uploads
 
-`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. `event` is a Nitro, H3, or `nuxt/server` event, or a web `Request`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does. With `multiple: false` and `ensure.maxSize`, a `Content-Length` above `maxSize` plus 64 KB of form framing gets an H3 413 error before the body is read.
+`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. `event` is a Nitro, H3, or `nuxt/server` event, or a web `Request`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `maxFiles` (the most files that `formKey` accepts; a request with more gets an H3 400 error before the extra files are read), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does. With `maxFiles` (or `multiple: false`) and `ensure.maxSize`, a `Content-Length` above `maxFiles` times `maxSize` plus 64 KB of form framing per file gets an H3 413 error before the body is read.
 
 `onBeforeUpload({ pathname, contentType, size, request })` runs for each file before anything is stored: throw to reject it, or return `{ pathname }` to change it. `onCompleted(object, request)` runs after each file is stored. With `direct: true`, the route also answers direct uploads: the client sends JSON `{ action: "sign", name, contentType, size }`, gets a signed `PUT` and a `ticket`, sends the file straight to storage, and then sends `{ action: "complete", ticket }`. `complete` reads the object with `head()`, deletes it and throws 400 when its size or type fails `ensure`, and runs `onCompleted`. The client reports the completion, so a closed tab skips `onCompleted`. The ticket is signed with `VITEHUB_SECRET` and binds the pathname and the route path. A store that cannot sign a `PUT`, such as Netlify Blobs, answers `{ action: "form" }`, and the client sends a form. R2, S3, GCS, and Azure buckets need a CORS rule that allows `PUT` from the app origin. `useUpload(url, { direct: true })` and `uploadFiles(url, files, { direct: true })` run the three steps.
 
-`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`. Pass `ensure` (`types`, `maxSize`) to limit an upload: `create` checks the content type and the size the client declares, `upload` rejects a larger part, and `complete` deletes an object whose size or stored content type fails the policy.
+`blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare` (binding), and `vercel` drivers support multipart uploads. Other drivers throw `BLOB_R0030`. Pass `ensure` (`types`, `maxSize`) to limit an upload: `create` checks the content type and the size the client declares, `upload` rejects a larger part, and `complete` deletes an object whose size or stored content type fails the policy.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, `%` followed by two hex digits, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). So each pathname that `put()` or `list()` returns targets the same object when you pass it back. `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names without URL-decoding, and replaces the `%` of each `%XX` sequence with `_`, adding a UUID suffix before the extension to avoid overwriting a different file.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, `%` followed by two hex digits, and `.` or `..` segments with `BLOB_R0034`, an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. So each pathname that `put()` or `list()` returns targets the same object when you pass it back. `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names without URL-decoding, and replaces the `%` of each `%XX` sequence with `_`, adding a UUID suffix before the extension to avoid overwriting a different file.
 
 Browser clients:
 
@@ -234,13 +244,15 @@ export async function shareAudio(file: Blob) {
   const [downloadError, download] = await blob.sign("private/audio.mp3", {
     method: "GET",
     expiresIn: 60 * 60,
+    download: "Interview.mp3",
   })
   if (downloadError) throw downloadError
 
   const [uploadError, upload] = await blob.sign("private/audio.mp3", {
     method: "PUT",
-    expiresIn: 15 * 60,
+    expiresIn: "15m",
     contentType: "audio/mpeg",
+    contentLength: file.size,
     createOnly: true,
   })
   if (uploadError) throw uploadError
@@ -258,13 +270,13 @@ Blob operations return a `Result` from `@vite-hub/runtime`: `[error, undefined]`
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
-`maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel-blob` drivers bind it.
+`maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel` drivers bind it.
 
-The `fs` driver, the `cloudflare-r2` driver, the files-sdk drivers, and the `vercel-blob` driver sign requests. The `vercel-blob` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob/signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob-signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link, or a body that is not `contentLength` bytes (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. `download` sets `Content-Disposition: attachment` on the signed `GET`, as on `serve()`. `contentLength` binds the exact body size of a `PUT`: the `fs` and `cloudflare` drivers bind it, and the other drivers fail. `maxSize` binds the largest size on the `fs` and `vercel` drivers only. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 
-Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
+Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare"` for Cloudflare R2.
 
 ```sh
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
@@ -342,9 +354,15 @@ blob: {
 }
 ```
 
+## Failures in logs
+
+A failed cache read or write, derived file cleanup, media record write, or `fs` hash or metadata write does not fail the operation. With the evlog Nitro module registered, Blob logs it with `blob: { op, store, driver, code }`: on the wide event of a `serve()` request, else as its own evlog event, once per process for each `fs` op. Events never hold the error message or a pathname. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/blob/limits-and-errors#see-cache-failures-in-logs).
+
 ## CLI
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `delete <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
+
+`vitehub seed` uploads each file in `server/seed/blob/` to the default store, at its path in the folder.
 
 Each command runs a `blob.*` operation of the app through the Console RPC, on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
 

@@ -13,7 +13,7 @@ icon: i-lucide-cloud-cog
 ```bash [Terminal]
 pnpm vitehub queue list
 pnpm vitehub queue jobs list
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
@@ -41,7 +41,7 @@ pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 ```
 
-The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the queues that ViteHub found. Then check the Nitro output of your provider.
+The build writes `.vitehub/queue/registry.mjs`. `vitehub inspect definitions` lists the queues that ViteHub found. Then check the Nitro output of your driver.
 
 | Provider | Output to inspect |
 | --- | --- |

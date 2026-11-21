@@ -1,12 +1,15 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, open, opendir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
-import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 import { signFsRequest } from "../internal/fs-sign.ts"
 
@@ -14,6 +17,19 @@ interface FsMultipartState {
   contentType?: string
   customMetadata?: Record<string, string>
   pathname: string
+}
+
+// The ops that already logged a failure. `list()` reads every file, so a broken cache folder would log once per file.
+const loggedFsFailures = new Set<string>()
+
+/**
+ * Logs a failed cache or metadata write that the operation survives, once per process for each `op`. The driver does
+ * not know the request or a `waitUntil()`, so the failure is an event of its own.
+ */
+function logFsFailure(op: string, message: string, error: unknown, fallback: () => void): void {
+  if (loggedFsFailures.has(op)) return
+  loggedFsFailures.add(op)
+  logFailure({ field: "blob", fields: { op, driver: "fs" }, message, error }, fallback)
 }
 
 const uploadIdPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
@@ -69,12 +85,10 @@ function encodeCursor(after: string) {
 
 function decodeCursor(cursor: string | undefined) {
   if (cursor === undefined) return ""
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   const decodedBytes = Buffer.from(cursor, "base64url")
   const decoded = decodedBytes.toString("utf8")
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (decodedBytes.toString("base64url") !== cursor || !Buffer.from(decoded).equals(decodedBytes) || !decoded.startsWith(cursorPrefix)) throw new TypeError("Invalid Blob cursor.")
+  if (decodedBytes.toString("base64url") !== cursor || !Buffer.from(decoded).equals(decodedBytes) || !decoded.startsWith(cursorPrefix)) throw blobErrors.BLOB_INVALID_CURSOR()
   return decoded.slice(cursorPrefix.length)
 }
 
@@ -128,15 +142,67 @@ async function assertNoSymlinkPath(root: string, path: string) {
       }
     }
     catch (error) {
-      if (isNotFound(error)) return
+      // Nothing exists below a missing path or below a file, such as `docs/a.txt` while `docs` is still a file.
+      if (isNotFound(error) || isDirectoryError(error)) return
       throw error
     }
   }
 }
 
 function resolveMetaPath(root: string, pathname: string, directory = "blob-meta") {
-  const normalized = relative(root, resolveBlobPath(root, pathname)).split(sep).join("/")
-  return resolve(root, ".vitehub", directory, `${encodeMetaKey(normalized)}.json`)
+  return resolve(root, ".vitehub", directory, `${encodeMetaKey(normalizedPathname(root, pathname))}.json`)
+}
+
+function normalizedPathname(root: string, pathname: string) {
+  return relative(root, resolveBlobPath(root, pathname)).split(sep).join("/")
+}
+
+// A pathname that is also a folder, such as `docs` next to `docs/a.txt`, cannot be the file at its path. Its bytes
+// live here instead. Older versions never wrote this folder, so every file that they stored stays at its path.
+function folderObjectPath(root: string, pathname: string) {
+  return resolve(root, ".vitehub", "blob-folder-objects", encodeMetaKey(normalizedPathname(root, pathname)))
+}
+
+/** The file that holds the bytes of `pathname`, or null when the store has no such object. */
+async function resolvePayload(root: string, pathname: string): Promise<{ path: string, stats: BigIntStats } | null> {
+  const path = resolveBlobPath(root, pathname)
+  let stats: BigIntStats | undefined
+  try {
+    await assertNoSymlinkPath(root, path)
+    stats = await stat(path, { bigint: true })
+  }
+  catch (error) {
+    // A file at a parent path means no folder, so no object can live below it.
+    if (isDirectoryError(error)) return null
+    if (!isNotFound(error)) throw error
+  }
+  if (stats?.isFile()) return { path, stats }
+  // A folder, or a path that a writer moves into a folder right now.
+  const folderObject = folderObjectPath(root, pathname)
+  await assertNoSymlinkPath(root, folderObject)
+  try {
+    const folderStats = await stat(folderObject, { bigint: true })
+    return folderStats.isFile() ? { path: folderObject, stats: folderStats } : null
+  }
+  catch (error) {
+    if (isNotFound(error)) return null
+    throw error
+  }
+}
+
+function ignoreNotFound(error: unknown): undefined {
+  if (isNotFound(error)) return
+  throw error
+}
+
+/** The version of the file at `path`, or undefined when no file is there any more. */
+async function currentVersion(path: string): Promise<string | undefined> {
+  const stats = await stat(path, { bigint: true }).catch(ignoreNotFound)
+  return stats && fileVersion(stats)
+}
+
+function hasCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code
 }
 
 function isNotFound(error: unknown): boolean {
@@ -156,9 +222,8 @@ function fileVersion(stats: BigIntStats) {
 }
 
 function generationMetaPrefix(root: string, pathname: string) {
-  const normalized = relative(root, resolveBlobPath(root, pathname)).split(sep).join("/")
   // Keep sidecar filenames bounded even for deeply nested Blob keys.
-  return `generation-${createHash("sha256").update(normalized).digest("hex")}-`
+  return `generation-${createHash("sha256").update(normalizedPathname(root, pathname)).digest("hex")}-`
 }
 
 function generationMetaPath(root: string, pathname: string, stats: BigIntStats) {
@@ -221,7 +286,7 @@ function sidecarIndex(root: string): SidecarIndex {
 // of the same pathname only when it recorded these exact bytes. When several
 // generations recorded these bytes with different metadata, the modification
 // time must also match, or no metadata is applied.
-async function readCopiedMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars: SidecarIndex): Promise<FsBlobMetadata | undefined> {
+async function readCopiedMetadata(root: string, pathname: string, path: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars: SidecarIndex): Promise<FsBlobMetadata | undefined> {
   const directory = resolve(root, ".vitehub", "blob-meta")
   const names = (await sidecars()).get(generationMetaPrefix(root, pathname)) ?? []
   const candidates = (await Promise.all(names.map(async (name) => {
@@ -245,16 +310,15 @@ async function readCopiedMetadata(root: string, pathname: string, stats: BigIntS
   if (!metadata) return
   // Skip the re-key when the payload already changed. A write can still land
   // before the sidecar is published, so readers also check its recorded hash.
-  const path = resolveBlobPath(root, pathname)
   if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
     await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
-      console.error("[vitehub/blob] Filesystem metadata re-key failed", error)
+      logFsFailure("fs-metadata-rekey", "Blob filesystem metadata re-key failed", error, () => console.error("[vitehub/blob] Filesystem metadata re-key failed", error))
     })
   }
   return metadata
 }
 
-async function readMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars = sidecarIndex(root)): Promise<FsBlobMetadata> {
+async function readMetadata(root: string, pathname: string, path: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars = sidecarIndex(root)): Promise<FsBlobMetadata> {
   const generation = generationMetaPath(root, pathname, stats)
   await assertNoSymlinkPath(root, generation)
   try {
@@ -268,13 +332,13 @@ async function readMetadata(root: string, pathname: string, stats: BigIntStats, 
   catch (error) {
     if (!isNotFound(error)) throw error
   }
-  const copied = await readCopiedMetadata(root, pathname, stats, contentHash, sidecars)
+  const copied = await readCopiedMetadata(root, pathname, path, stats, contentHash, sidecars)
   if (copied) return copied
   // Existing plain files and legacy sidecars remain readable.
   try {
-    const path = resolveMetaPath(root, pathname)
-    await assertNoSymlinkPath(root, path)
-    const metadata: unknown = JSON.parse(await readFile(path, "utf8"))
+    const metaPath = resolveMetaPath(root, pathname)
+    await assertNoSymlinkPath(root, metaPath)
+    const metadata: unknown = JSON.parse(await readFile(metaPath, "utf8"))
     return parse(fsBlobMetadataSchema, metadata)
   }
   catch (error) {
@@ -286,7 +350,11 @@ async function readMetadata(root: string, pathname: string, stats: BigIntStats, 
 /** Writes `content` to a new file. A function writes the new file itself, for example with `copyFile()`. */
 type AtomicContent = Uint8Array | string | ((temporary: string) => Promise<void>)
 
-async function writeAtomic(root: string, path: string, content: AtomicContent, beforePublish?: (temporary: string) => Promise<void>) {
+/**
+ * Publishes `content` at `path` and returns the path. A function `path` picks the file again when another writer
+ * turned it into a folder, so the bytes go to the folder object of the pathname.
+ */
+async function writeAtomic(root: string, path: string | (() => Promise<string>), content: AtomicContent, beforePublish?: (temporary: string) => Promise<void>): Promise<string> {
   // Keep incomplete bytes outside user listings, then publish one complete file.
   const temporary = resolve(root, ".vitehub", "blob-writes", randomUUID())
   await assertNoSymlinkPath(root, temporary)
@@ -295,11 +363,56 @@ async function writeAtomic(root: string, path: string, content: AtomicContent, b
     if (typeof content === "function") await content(temporary)
     else await writeFile(temporary, content, { flag: "wx" })
     await beforePublish?.(temporary)
-    await assertNoSymlinkPath(root, path)
-    await rename(temporary, path)
+    for (let attempt = 0; ; attempt++) {
+      const target = typeof path === "string" ? path : await path()
+      await assertNoSymlinkPath(root, target)
+      try {
+        await rename(temporary, target)
+        return target
+      }
+      catch (error) {
+        if (typeof path === "string" || attempt >= 2 || !hasCode(error, "EISDIR")) throw error
+      }
+    }
   }
   finally {
     await rm(temporary, { force: true })
+  }
+}
+
+/** Moves the file at `path` to the folder object of its pathname, so `path` can become a folder. */
+async function moveToFolderObject(root: string, path: string) {
+  const folderObject = folderObjectPath(root, relative(root, path).split(sep).join("/"))
+  await assertNoSymlinkPath(root, folderObject)
+  await mkdir(dirname(folderObject), { recursive: true })
+  // rename() replaces an older folder object, and readers find the bytes there while `path` is missing.
+  await rename(path, folderObject).catch(async (error: unknown) => {
+    if (isNotFound(error)) return
+    // Another writer can promote the observed file and create its directory first.
+    if (hasCode(error, "ENOTDIR") && (await lstat(path).catch(ignoreNotFound))?.isDirectory()) return
+    throw error
+  })
+}
+
+/** Creates the folders of `dir`. A file in the way is a pathname such as `docs` next to `docs/a.txt`, so it moves. */
+async function ensureFolders(root: string, dir: string) {
+  await mkdir(root, { recursive: true })
+  let current = root
+  for (const part of relative(root, dir).split(sep).filter(Boolean)) {
+    current = resolve(current, part)
+    for (let attempt = 0; ; attempt++) {
+      const stats = await lstat(current).catch(ignoreNotFound)
+      if (stats?.isDirectory()) break
+      if (stats?.isFile()) await moveToFolderObject(root, current)
+      try {
+        await mkdir(current)
+        break
+      }
+      catch (error) {
+        // Another writer created the folder, or wrote the pathname again before mkdir().
+        if (!hasCode(error, "EEXIST") || attempt >= 2) throw error
+      }
+    }
   }
 }
 
@@ -353,34 +466,25 @@ function toBlobObject(entry: FsBlobEntry): BlobObject {
 
 async function readEntry(root: string, pathname: string, sidecars = sidecarIndex(root)): Promise<FsBlobEntry | null> {
   try {
-    const path = resolveBlobPath(root, pathname)
     for (let attempt = 0; attempt < 3; attempt++) {
-      // Legacy content files may block descendant paths, but internal sidecar errors must propagate.
-      const stats = await (async () => {
-        try {
-          await assertNoSymlinkPath(root, path)
-          return await stat(path, { bigint: true })
-        }
-        catch (error) {
-          if (isDirectoryError(error)) return null
-          throw error
-        }
-      })()
-      if (!stats?.isFile()) return null
+      const payload = await resolvePayload(root, pathname)
+      if (!payload) return null
+      const { path, stats } = payload
       const version = fileVersion(stats)
       const cached = await readHash(root, pathname)
       let contentHash = cached?.fileVersion === version ? cached.contentHash : undefined
       if (!contentHash) {
-        contentHash = sha256(await readFile(path))
-        const after = await stat(path, { bigint: true })
-        if (version !== fileVersion(after)) continue
+        const bytes = await readFile(path).catch(ignoreNotFound)
+        // A writer moved the file into the folder objects, or deleted it. Resolve the pathname again.
+        if (!bytes || version !== await currentVersion(path)) continue
+        contentHash = sha256(bytes)
         await writeHash(root, pathname, { contentHash, fileVersion: version }).catch((error) => {
-          console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+          logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
         })
       }
       const hash = contentHash
-      const meta = await readMetadata(root, pathname, stats, async () => hash, sidecars)
-      if (version !== fileVersion(await stat(path, { bigint: true }))) continue
+      const meta = await readMetadata(root, pathname, path, stats, async () => hash, sidecars)
+      if (version !== await currentVersion(path)) continue
       return {
         contentHash,
         meta,
@@ -389,8 +493,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         uploadedAt: stats.mtime,
       }
     }
-    // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-    throw new Error("Blob changed while reading its filesystem metadata.")
+    throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "metadata" })
   }
   catch (error) {
     if (isNotFound(error)) return null
@@ -418,7 +521,24 @@ async function readDirectory(root: string, dir: string): Promise<Dirent[]> {
 interface ListScope {
   after: string
   folded: boolean
+  /** True when the pathname of a folder also has an object of its own. */
+  hasFolderObject: (key: string) => Promise<boolean>
   prefix: string
+}
+
+function folderObjectIndex(root: string): (key: string) => Promise<boolean> {
+  let names: Promise<Set<string>> | undefined
+  return async (key) => {
+    names ??= (async () => {
+      const directory = resolve(root, ".vitehub", "blob-folder-objects")
+      await assertNoSymlinkPath(root, directory)
+      return new Set(await readdir(directory).catch((error: unknown) => {
+        if (isNotFound(error) || isDirectoryError(error)) return []
+        throw error
+      }))
+    })()
+    return (await names).has(encodeMetaKey(key))
+  }
 }
 
 interface ListItem {
@@ -431,13 +551,20 @@ interface ListItem {
 // and before the page ends are read.
 async function* walkKeys(root: string, scope: ListScope, dir = root, dirKey = ""): AsyncGenerator<ListItem> {
   const children = (await readDirectory(root, dir)).flatMap((entry) => {
-    if (entry.isDirectory()) return [{ directory: true, key: `${dirKey}${entry.name}/`, name: entry.name }]
-    return entry.isFile() ? [{ directory: false, key: `${dirKey}${entry.name}`, name: entry.name }] : []
+    if (dirKey === "" && entry.name === ".vitehub") return []
+    // A folder can also be the pathname of an object. That key sorts as a file, before the keys inside the folder.
+    if (entry.isDirectory()) {
+      return [
+        { directory: false, folderObject: true, key: `${dirKey}${entry.name}`, name: entry.name },
+        { directory: true, folderObject: false, key: `${dirKey}${entry.name}/`, name: entry.name },
+      ]
+    }
+    return entry.isFile() ? [{ directory: false, folderObject: false, key: `${dirKey}${entry.name}`, name: entry.name }] : []
   }).sort((left, right) => compareKeys(left.key, right.key))
   for (const child of children) {
-    if (child.key === ".vitehub/") continue
     if (!child.directory) {
-      if (child.key.startsWith(scope.prefix) && child.key > scope.after) yield { folder: false, key: child.key }
+      if (!child.key.startsWith(scope.prefix) || child.key <= scope.after) continue
+      if (!child.folderObject || await scope.hasFolderObject(child.key)) yield { folder: false, key: child.key }
       continue
     }
     const belowPrefix = child.key.length > scope.prefix.length && child.key.startsWith(scope.prefix)
@@ -446,18 +573,20 @@ async function* walkKeys(root: string, scope: ListScope, dir = root, dirKey = ""
     if (child.key < scope.after && !scope.after.startsWith(child.key)) continue
     const path = resolve(dir, child.name)
     if (scope.folded && belowPrefix) {
-      if (await containsFile(root, path)) yield { folder: true, key: child.key }
+      if (await containsFile(root, path, child.key, scope.hasFolderObject)) yield { folder: true, key: child.key }
       continue
     }
     yield* walkKeys(root, scope, path, child.key)
   }
 }
 
-async function containsFile(root: string, dir: string): Promise<boolean> {
+async function containsFile(root: string, dir: string, dirKey: string, hasFolderObject: ListScope["hasFolderObject"]): Promise<boolean> {
   const entries = await readDirectory(root, dir)
   if (entries.some(entry => entry.isFile())) return true
   for (const entry of entries) {
-    if (entry.isDirectory() && await containsFile(root, resolve(dir, entry.name))) return true
+    if (!entry.isDirectory()) continue
+    const key = `${dirKey}${entry.name}`
+    if (await hasFolderObject(key) || await containsFile(root, resolve(dir, entry.name), `${key}/`, hasFolderObject)) return true
   }
   return false
 }
@@ -473,7 +602,7 @@ async function listKeys(root: string, options: BlobListOptions, after: string): 
   const folded = Boolean(options.folded)
   const folders: string[] = []
   const selected: string[] = []
-  const items = walkKeys(root, { after, folded, prefix: options.prefix || "" })
+  const items = walkKeys(root, { after, folded, hasFolderObject: folderObjectIndex(root), prefix: options.prefix || "" })
   let hasMore = false
 
   for await (const item of items) {
@@ -498,6 +627,10 @@ async function listKeys(root: string, options: BlobListOptions, after: string): 
   }
 }
 
+// Writes of one file run one at a time in this process, across drivers of the same folder, so `putIf()` checks the
+// object that its write replaces.
+const writes = new Map<string, Promise<unknown>>()
+
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
   const root = resolveRoot(options)
 
@@ -507,16 +640,19 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     const path = resolveBlobPath(root, pathname)
     await assertNoSymlinkPath(root, path)
     await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-    await mkdir(dirname(path), { recursive: true })
+    await ensureFolders(root, dirname(path))
     let contentHash = ""
     let written: BigIntStats | undefined
-    await writeAtomic(root, path, async (temporary) => {
+    // A pathname that is a folder keeps its bytes in its folder object.
+    const target = async () => (await lstat(path).catch(ignoreNotFound))?.isDirectory() ? folderObjectPath(root, pathname) : path
+    const publishedPath = await writeAtomic(root, target, async (temporary) => {
       contentHash = await write(temporary)
     }, async (temporary) => {
       const stats = written = await stat(temporary, { bigint: true })
       const metadataPath = generationMetaPath(root, pathname, stats)
       await assertNoSymlinkPath(root, metadataPath)
       await mkdir(dirname(metadataPath), { recursive: true })
+      await mkdir(dirname(folderObjectPath(root, pathname)), { recursive: true })
       // Prepare immutable metadata before the only visible publication step:
       // renaming the payload. Readers select metadata by that payload's inode.
       await writeAtomic(root, metadataPath, JSON.stringify({
@@ -529,10 +665,10 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     })
     // Seed the hash cache so the read below does not hash the file again.
     // Only when the published file is still the one written here.
-    const published = await stat(path, { bigint: true })
+    const published = await stat(publishedPath, { bigint: true })
     if (written && published.dev === written.dev && published.ino === written.ino && published.size === written.size && published.mtimeNs === written.mtimeNs) {
       await writeHash(root, pathname, { contentHash, fileVersion: fileVersion(published) }).catch((error) => {
-        console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+        logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
       })
     }
     const entry = await readEntry(root, pathname)
@@ -548,7 +684,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await assertNoSymlinkPath(root, dir)
         await rm(dir, { force: true, recursive: true })
       },
-      async complete(parts) {
+      complete: parts => oneWriteAtATime(state.pathname, async () => {
         await assertNoSymlinkPath(root, dir)
         const ordered = [...parts].sort((left, right) => left.partNumber - right.partNumber)
         // Copy each part into the final file in turn, so only one read buffer is in memory.
@@ -571,8 +707,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
                   contentHash.update(bytes)
                   for (let offset = 0; offset < bytes.length;) {
                     const { bytesWritten } = await output.write(bytes, offset, bytes.length - offset)
-                    // Internal invariant: blobResult() returns a stalled filesystem write as the cause of BLOB_OPERATION_FAILED.
-                    if (bytesWritten === 0) throw new Error("Multipart output write made no progress.")
+                    if (bytesWritten === 0) throw blobErrorDiagnostics.BLOB_FS_WRITE_STALLED()
                     offset += bytesWritten
                   }
                 }
@@ -592,7 +727,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         }, { contentType: state.contentType, customMetadata: state.customMetadata })
         await rm(dir, { force: true, recursive: true })
         return object
-      },
+      }),
       async uploadPart(partNumber, body) {
         const bytes = await bodyToBytes(body)
         const partPath = resolve(dir, String(partNumber))
@@ -604,8 +739,32 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     }
   }
 
+  async function put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions) {
+    await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
+    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
+    const bytes = await bodyToBytes(body)
+    return await publish(pathname, async (temporary) => {
+      await writeFile(temporary, bytes, { flag: "wx" })
+      return sha256(bytes)
+    }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
+  }
+
+  async function oneWriteAtATime<T>(pathname: string, write: () => Promise<T>): Promise<T> {
+    const key = resolveBlobPath(root, pathname)
+    const run = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(write)
+    writes.set(key, run)
+    return await run.finally(() => {
+      if (writes.get(key) === run) writes.delete(key)
+    })
+  }
+
   const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
     name: "fs",
+    async checkHealth() {
+      await assertNoSymlinkPath(root, root)
+      const directory = await opendir(root).catch(ignoreNotFound)
+      await directory?.close()
+    },
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
     // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.
@@ -646,22 +805,15 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       return multipartUpload(uploadId, state)
     },
     async delete(pathnames) {
-      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
-        const path = resolveBlobPath(root, pathname)
+      // Returns false when `path` holds no object.
+      async function unpublish(pathname: string, path: string): Promise<boolean> {
         await assertNoSymlinkPath(root, path)
         const generation = await stat(path, { bigint: true }).catch((error) => {
-          if (isNotFound(error)) return undefined
+          if (isNotFound(error) || isDirectoryError(error)) return undefined
           throw error
         })
-        if (!generation) {
-          await removeMetadata(root, pathname)
-          return
-        }
-        if (!generation.isFile()) {
-          const error: NodeJS.ErrnoException = new Error(`Blob pathname is not a file: ${pathname}`)
-          error.code = "EISDIR"
-          throw error
-        }
+        // A folder without its own object holds no bytes for this pathname.
+        if (!generation?.isFile()) return false
         // Move the payload out of the public namespace before cleaning its
         // generation metadata. This preserves the inode for cleanup while
         // avoiding Windows delete-on-close handles that keep the pathname
@@ -676,39 +828,37 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           catch (error) {
             // Another delete already moved the payload. It owns metadata
             // cleanup; touching the pathname now could affect a replacement.
-            if (isNotFound(error)) return
+            if (isNotFound(error)) return true
             throw error
           }
           await removeMetadata(root, pathname, generation)
+          return true
         }
         finally {
           await rm(staging, { force: true })
         }
-      }))
+      }
+
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => oneWriteAtATime(pathname, async () => {
+        // A writer that moves `docs` into its folder object holds the bytes in both places for a moment. Delete both.
+        const removed = await Promise.all([resolveBlobPath(root, pathname), folderObjectPath(root, pathname)].map(path => unpublish(pathname, path)))
+        if (!removed.some(Boolean)) await removeMetadata(root, pathname)
+      })))
     },
     async get(pathname) {
       try {
-        const path = resolveBlobPath(root, pathname)
         for (let attempt = 0; attempt < 3; attempt++) {
-          const before = await (async () => {
-            try {
-              await assertNoSymlinkPath(root, path)
-              return await stat(path, { bigint: true })
-            }
-            catch (error) {
-              if (isDirectoryError(error)) return null
-              throw error
-            }
-          })()
-          if (!before?.isFile()) return null
-          const bytes = await readFile(path)
+          const payload = await resolvePayload(root, pathname)
+          if (!payload) return null
+          const { path, stats: before } = payload
+          const bytes = await readFile(path).catch(ignoreNotFound)
+          if (!bytes) continue
           let hash: string | undefined
-          const meta = await readMetadata(root, pathname, before, async () => hash ??= sha256(bytes))
-          if (fileVersion(before) !== fileVersion(await stat(path, { bigint: true }))) continue
+          const meta = await readMetadata(root, pathname, path, before, async () => hash ??= sha256(bytes))
+          if (fileVersion(before) !== await currentVersion(path)) continue
           return new Blob([bytes], { type: meta.contentType || "" })
         }
-        // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-        throw new Error("Blob changed while reading its filesystem contents.")
+        throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "contents" })
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -717,10 +867,9 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     },
     async getArrayBuffer(pathname) {
       try {
-        const path = resolveBlobPath(root, pathname)
-        await assertNoSymlinkPath(root, path)
-        if (!(await stat(path)).isFile()) return null
-        const bytes = await readFile(path)
+        const payload = await resolvePayload(root, pathname)
+        if (!payload) return null
+        const bytes = await readFile(payload.path)
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       }
       catch (error) {
@@ -747,26 +896,25 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         throw error
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
-      await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-      const bytes = await bodyToBytes(body)
-      return await publish(pathname, async (temporary) => {
-        await writeFile(temporary, bytes, { flag: "wx" })
-        return sha256(bytes)
-      }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
-    },
+    put: (pathname, body, putOptions = {}) => oneWriteAtATime(pathname, () => put(pathname, body, putOptions)),
+    // The check and the write run in this process only. Another process that writes the same folder can write between them.
+    putIf: (pathname, body, putOptions, condition) => oneWriteAtATime(pathname, async () => {
+      const current = await readEntry(root, pathname)
+      const holds = condition.type === "create" ? !current : current?.contentHash === bareETag(condition.etag)
+      return holds ? await put(pathname, body, putOptions) : null
+    }),
     // Copies the file, then writes the metadata of the source for the new file.
-    async copy(from, to) {
+    copy: (from, to) => oneWriteAtATime(to, async () => {
       const source = await readEntry(root, from)
-      if (!source) return null
-      const sourcePath = resolveBlobPath(root, from)
-      await assertNoSymlinkPath(root, sourcePath)
+      const sourcePath = source && (await resolvePayload(root, from))?.path
+      if (!source || !sourcePath) return null
       return publish(to, async (temporary) => {
-        await copyFile(sourcePath, temporary, constants.COPYFILE_EXCL)
+        // Preparing destination folders can move an ancestor source into its folder object.
+        const payload = await resolvePayload(root, from)
+        await copyFile(payload?.path ?? sourcePath, temporary, constants.COPYFILE_EXCL)
         return sha256File(temporary)
       }, source.meta)
-    },
+    }),
   }
 
   return driver

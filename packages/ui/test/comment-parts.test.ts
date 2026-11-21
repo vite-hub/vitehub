@@ -33,8 +33,8 @@ const sofia: CommentUser = { id: "sofia", name: "Sofía Benítez" };
 const pricing = { id: "/pricing", kind: "page" };
 
 const UButton = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, type: "button" }, typeof attrs.label === "string" ? attrs.label : undefined);
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? (typeof attrs.label === "string" ? attrs.label : undefined));
   },
 });
 const UModal = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() });
@@ -1227,11 +1227,54 @@ describe("composer layout", () => {
     expect(box("row")).toBe("row");
   });
 
-  it("opens a new comment on the layer as a one-line bubble", async () => {
+  it("opens a new comment on the layer as a one-line bubble of the layer's size, framed by the bubble", async () => {
     const { state, wrapper } = await draftLayer();
     state.startDraft("page");
     await flushPromises();
-    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes())
+      .toMatchObject({ "data-frame": "none", "data-layout": "row", "data-size": "sm" });
+  });
+
+  it("frames a box itself unless told that its parent does", () => {
+    const frame = (value?: "none") =>
+      keep(mount(CommentComposer, { global, props: { autofocus: false, frame: value } })).get("[data-slot=comment-composer]").attributes("data-frame");
+    expect(frame()).toBe("field");
+    expect(frame("none")).toBe("none");
+  });
+
+  it("moves attach and send under the text of a row box once it wraps, and back once it fits beside them", async () => {
+    // happy-dom has no layout. The field is 288px wide alone and 224px beside attach and send, a line is 21px, and a
+    // character is 10px wide.
+    const composerOf = (element: Element) => element.closest("[data-slot=comment-composer]");
+    const wide = (element: Element) => composerOf(element)?.getAttribute("data-multiline") === "true";
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "prompt-input-group" ? 288 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute("data-slot") !== "prompt-input-textarea") return 0;
+      return wide(this) ? 288 : 224;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!(this instanceof HTMLTextAreaElement)) return 0;
+      const width = this.style.maxWidth ? Number.parseFloat(this.style.maxWidth) : wide(this) ? 288 : 224;
+      return Math.max(1, Math.ceil((this.value.length * 10) / width)) * 21 + 7;
+    });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, layout: "row", size: "sm" } }));
+    Object.assign(wrapper.get("textarea").element.style, { lineHeight: "21px", paddingBottom: "3.5px", paddingTop: "3.5px" });
+    const multiline = async (length: number) => {
+      await wrapper.setProps({ modelValue: "a".repeat(length) });
+      return wrapper.get("[data-slot=comment-composer]").attributes("data-multiline") === "true";
+    };
+
+    expect(await multiline(20)).toBe(false);
+    expect(await multiline(25)).toBe(true);
+    // 240px fits the full width, but not beside the buttons, so the box keeps the text on its own row.
+    expect(await multiline(24)).toBe(true);
+    expect(await multiline(22)).toBe(false);
+    expect(await multiline(0)).toBe(false);
+    // A bordered box keeps its layout whatever the text.
+    await wrapper.setProps({ layout: "box", modelValue: "a".repeat(80) });
+    expect(wrapper.get("[data-slot=comment-composer]").attributes("data-multiline")).toBeUndefined();
   });
 
   it.each([

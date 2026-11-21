@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { collectDeploymentEnv, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "../src/build/deployment-plan-output.ts"
 import {
   assertDeploymentService,
+  findProviderHostConflict,
   hostFromNitroPreset,
   resolveDeploymentPlan,
 } from "../src/deployment.ts"
@@ -40,16 +41,16 @@ describe("built-in deployment plans", () => {
   )
   it("keeps service guarantees explicit", () => {
     expect(resolveDeploymentPlan("cloudflare").services.queue).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.queue).toEqual({
-      adapter: "local",
+      driver: "local",
       guarantee: "single-host",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       supported: true,
     })
@@ -79,6 +80,18 @@ describe("built-in deployment plans", () => {
     expect(hostFromNitroPreset("node-server")).toBe("node")
     expect(hostFromNitroPreset("bun")).toBeUndefined()
   })
+  it("finds a provider variable that names another host", () => {
+    expect(findProviderHostConflict("node", { VERCEL: "1" })).toEqual({ host: "vercel", variable: "VERCEL" })
+    expect(findProviderHostConflict("node", { WORKERS_CI: "1" })).toEqual({ host: "cloudflare", variable: "WORKERS_CI" })
+    expect(findProviderHostConflict("vercel", { NETLIFY: "true" })).toEqual({ host: "netlify", variable: "NETLIFY" })
+    expect(findProviderHostConflict("node", { DENO_DEPLOYMENT_ID: "abc" })).toEqual({ host: "deno", variable: "DENO_DEPLOYMENT_ID" })
+    expect(findProviderHostConflict("vercel", { VERCEL: "1" })).toBeUndefined()
+    expect(findProviderHostConflict("node", {})).toBeUndefined()
+    expect(findProviderHostConflict("node", { VERCEL: " " })).toBeUndefined()
+    // A host variable selects the host on purpose.
+    expect(findProviderHostConflict("node", { VERCEL: "1", VITEHUB_HOST: "node" })).toBeUndefined()
+    expect(findProviderHostConflict("node", { NETLIFY: "true", NITRO_PRESET: "node-server" })).toBeUndefined()
+  })
   it("validates and records the whole output contract", async () => {
     for (const preset of ["cloudflare", "netlify", "vercel", "deno", "node"] as const) {
       const rootDir = await temporaryDirectory("vitehub-plan-output-")
@@ -89,7 +102,6 @@ describe("built-in deployment plans", () => {
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: preset, output: plan.output, runtime: plan.runtime, services: plan.services })
-      expect(manifest).not.toHaveProperty("preset")
       if (preset === "netlify") {
         const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
         expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
@@ -145,6 +157,21 @@ describe("built-in deployment plans", () => {
     const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
     expect(JSON.parse(text).env).toEqual(env)
     expect(text).not.toContain("canary-value-91b0")
+  })
+  it("records the resolved envDir relative to the manifest, so the CLI reads the env files that the app reads", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-dir-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    const manifest = async () => JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
+
+    await finalizeDeploymentPlanOutput({ envDir: resolve(rootDir, "config"), plan, rootDir })
+    expect((await manifest()).envDir).toBe("../config")
+    await finalizeDeploymentPlanOutput({ envDir: false, plan, rootDir })
+    expect((await manifest()).envDir).toBe(false)
+    await finalizeDeploymentPlanOutput({ plan, rootDir })
+    expect(await manifest()).not.toHaveProperty("envDir")
   })
   it("omits env when the app has no Env plugin", async () => {
     const rootDir = await temporaryDirectory("vitehub-plan-no-env-")

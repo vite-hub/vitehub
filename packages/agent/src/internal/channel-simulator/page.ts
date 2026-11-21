@@ -1,5 +1,5 @@
 import { simulatedChatUserId } from "../channel-simulation.ts"
-import { channelSimulatorClient } from "./client.ts"
+import { channelSimulatorClient } from "./client.injected.ts"
 import { discordSkin } from "./discord.ts"
 import { escapeHtml } from "./html.ts"
 import { slackSkin } from "./slack.ts"
@@ -41,6 +41,8 @@ body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; 
 .sim-error button { flex: none; margin-left: auto; min-height: 32px; padding: 0 12px; border: 1px solid currentColor; border-radius: 6px; background: none; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
 .sim-error button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 form[aria-busy="true"] .send { opacity: .4; cursor: progress; }
+/* The message box grows with its text up to the cap of its skin. A browser without field-sizing scrolls it instead. */
+#input { field-sizing: content; min-width: 0; }
 @media (pointer: coarse) { .sim-error button { min-height: 44px; } }
 .sim-switch { display: flex; align-items: center; min-width: 0; margin-left: auto; overflow-x: auto; }
 .sim-switch .sim-links { display: flex; }

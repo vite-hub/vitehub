@@ -37,17 +37,13 @@ pnpm add @vite-hub/schedule
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
-
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'netlify',
     agent: { invocations: false },
     blob: true,
-  },
-  vite: {
-    plugins: [hubSchedule({ providerOutput: 'standalone' })],
+    schedule: { providerOutput: 'standalone' },
   },
 })
 ```
@@ -55,7 +51,6 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
@@ -66,9 +61,9 @@ export default defineConfig({
       host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
     nitro(),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
@@ -76,7 +71,6 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -86,8 +80,8 @@ export default defineConfig({
       host: 'netlify',
       agent: { invocations: false },
       blob: true,
+      schedule: { providerOutput: 'standalone' },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
@@ -119,7 +113,7 @@ In Nuxt, inspect the wrapper with `find .nuxt/vitehub/agent -maxdepth 2 -type f 
 
 ## Features without a Netlify provider
 
-- **Queue, Rate Limit, Sandbox, Workflow:** ViteHub picks no Netlify provider. `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. `sandboxTask: { provider: 'vercel' }` uses Vercel Sandbox with Vercel credentials. Workflow stays off when only `agent` turns it on. An explicit `workflow` option needs `workflow.provider`. Pick an external provider only when it works from the Netlify runtime.
+- **Queue, Rate Limit, Sandbox, Workflow:** ViteHub picks no Netlify driver. `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. Workflow stays off when only `agent` turns it on. An explicit `workflow` option needs `workflow.driver`. Pick an external driver only when it works from the Netlify runtime.
 - **Provisioning:** The ViteHub Provision CLI does not create Netlify resources. It accepts only Cloudflare and Vercel plans. Netlify Blobs stores need no provisioning; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 - **KV:** There is no Netlify KV output. Set a remote KV driver for deployed state. Do not rely on the local `fs-lite` fallback in a serverless deployment.
 - **Workspace:** There is no Netlify hosted store. Set a durable remote Workspace store. The local filesystem fallback does not persist safely across serverless instances.

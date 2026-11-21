@@ -10,7 +10,7 @@ Both stores follow the [Content limits](/docs/content/limits-and-errors#collecti
 
 ## Limits
 
-- The build reads the preset from `server/content.ts` without running it, so options must be string literals ([Select the preset](/docs/cms/server-api#select-the-preset)).
+- The build reads the preset from `server/content.ts` without running it. Use literal options, including the boolean literal `true` for `roles` ([Select the preset](/docs/cms/server-api#select-the-preset)).
 - The preset's Workspace name must not match a Workspace in `server/workspaces/`.
 
 On the GitHub store:
@@ -49,8 +49,7 @@ With `publish: 'pr'`, each instance reserves the selected documents on GitHub be
 
 | Code | Cause | What to do |
 | --- | --- | --- |
-| `CONTENT_B0001` | The build cannot read the preset: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a valid string literal, or a GitHub option is used without `repo` or `store: 'github'`, or with `store: 'blob-database'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts ([Option values](/docs/cms/server-api#option-values)). |
-| `CONTENT_R0006` | The same checks fail when `defineContent()` runs. | Fix the option that the message names. |
+| `CONTENT_B0001` | The build cannot read the preset: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a valid literal for its option, or a GitHub option is used without `repo` or `store: 'github'`, or with `store: 'blob-database'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts ([Option values](/docs/cms/server-api#option-values)). |
 | `CONTENT_B0002` | The app lacks something the preset needs: Workspace, Database, or Blob (not with `store: 'github'`) is `false`, several Databases match and none is `default`, or the named Database or Blob store does not exist. | The message names the `vitehub()` setting or preset option to set. |
 | `CONTENT_R0016` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
 | `CONTENT_R0017` | `publish()` with `publish: 'pr'` named a document that an open publish pull request already covers. | Merge or close the pull request in the message, then publish again. |

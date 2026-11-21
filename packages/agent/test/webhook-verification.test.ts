@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto"
+import type { Duration } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineChatCapability as chat } from "../src/chat-trigger.ts"
@@ -36,16 +37,16 @@ function stripeRequest(header: string, body = "{\"id\":\"evt_1\"}") {
   return new Request("https://example.com", { body, headers: { "x-signature": header }, method: "POST" })
 }
 
-function stripeRegistration(signature: "stripe-sha256" | { preset: "stripe-sha256", toleranceSeconds?: number } = "stripe-sha256") {
-  return [{ id: "productlane", provider: "productlane", secretHeader: "x-signature", secretToken: "secret-token", signature }]
+function stripeRegistration(signature: "stripe" | { type: "stripe", tolerance?: Duration } = "stripe") {
+  return [{ id: "productlane", provider: "productlane", secretHeader: "x-signature", secret: () => "secret-token", signature }]
 }
 
 function signedRequest(header: string, body: string) {
   return new Request("https://example.com", { body, headers: { "x-signature": header }, method: "POST" })
 }
 
-function hmacRegistration(signature: { encoding?: "base64" | "hex", preset: "hmac-sha256", prefix?: string, secretEncoding?: "base64" | "utf8" }, secretToken = "secret-token") {
-  return [{ id: "airtable", provider: "airtable", secretHeader: "x-signature", secretToken, signature }]
+function hmacRegistration(signature: { encoding?: "base64" | "hex", type: "hmac-sha256", prefix?: string, secretEncoding?: "base64" | "utf8" }, secretToken = "secret-token") {
+  return [{ id: "airtable", provider: "airtable", secretHeader: "x-signature", secret: () => secretToken, signature }]
 }
 
 describe("agent webhook verification", () => {
@@ -54,7 +55,7 @@ describe("agent webhook verification", () => {
     const agent = defineAgent({
       capabilities: [chat({
         webhooks: {
-          telegram: { secretToken: "secret-token" },
+          telegram: { secret: () => "secret-token" },
         },
       })],
       driver: { run: invoked, },
@@ -71,7 +72,7 @@ describe("agent webhook verification", () => {
     const agent = defineAgent({
       capabilities: [chat({
         webhooks: {
-          telegram: { secretToken: "secret-token" },
+          telegram: { secret: () => "secret-token" },
         },
       })],
       driver: { run: invoked, },
@@ -90,7 +91,7 @@ describe("agent webhook verification", () => {
     const agent = defineAgent({
       capabilities: [chat({
         webhooks: {
-          telegram: { secretToken: "secret-token" },
+          telegram: { secret: () => "secret-token" },
         },
       })],
       driver: { run: invoked, },
@@ -111,7 +112,7 @@ describe("agent webhook verification", () => {
     const agent = defineAgent({
       capabilities: [chat({
         webhooks: {
-          telegram: { secretToken },
+          telegram: { secret: secretToken },
         },
       })],
       driver: { run: invoked, },
@@ -155,7 +156,7 @@ describe("agent webhook verification", () => {
     })), "chat.message", chatInput()))
       .rejects
       .toMatchObject({
-        message: "[vitehub] Webhook registration \"telegram\" declares secretHeader \"x-telegram-bot-api-secret-token\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.",
+        message: "[vitehub] Webhook registration \"telegram\" declares secretHeader \"x-telegram-bot-api-secret-token\" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.",
         statusCode: 401,
       })
     expect(invoked).not.toHaveBeenCalled()
@@ -165,11 +166,11 @@ describe("agent webhook verification", () => {
     await expect(verifyAgentWebhookRequest([{
       id: "custom",
       provider: "custom",
-      secretToken: "secret-token",
+      secret: () => "secret-token",
     }], new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
       .rejects
       .toMatchObject({
-        message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.",
+        message: "[vitehub] Webhook registration \"custom\" declares secret but no secretHeader is configured. Verification requires secretHeader; secret: false explicitly disables verification.",
         statusCode: 401,
       })
   })
@@ -180,7 +181,7 @@ describe("agent webhook verification", () => {
       id: "custom",
       provider: "custom",
       secretHeader: "x-webhook-secret",
-      secretToken,
+      secret: secretToken,
     }], new Request("https://example.com", {
       headers: { "x-webhook-secret": "provided-token" },
       method: "POST",
@@ -197,7 +198,7 @@ describe("agent webhook verification", () => {
       id: "custom",
       provider: "custom",
       secretHeader: "x-signature",
-      secretToken: "secret-token",
+      secret: () => "secret-token",
       signature: { verify },
     }], new Request("https://example.com", {
       method: "POST",
@@ -228,14 +229,14 @@ describe("agent webhook verification", () => {
         id: "first",
         provider: "custom",
         secretHeader: "x-first-signature",
-        secretToken: "secret-token",
+        secret: () => "secret-token",
         signature: { verify },
       },
       {
         id: "second",
         provider: "custom",
         secretHeader: "x-second-signature",
-        secretToken: "secret-token",
+        secret: () => "secret-token",
         signature: { verify },
       },
     ], request)).rejects.toMatchObject({ statusCode: 401 })
@@ -249,7 +250,7 @@ describe("agent webhook verification", () => {
     const agent = defineAgent({
       capabilities: [chat({
         webhooks: {
-          telegram: { secretToken: false },
+          telegram: { secret: false },
         },
       })],
       driver: { run: invoked, },
@@ -304,7 +305,7 @@ describe("agent webhook verification", () => {
               invoke: () => ({ input: { prompt: "github" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: { run: invoked, },
@@ -330,7 +331,7 @@ describe("agent webhook verification", () => {
               invoke: () => ({ input: { prompt: "github" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: { run: invoked, },
@@ -349,7 +350,7 @@ describe("agent webhook verification", () => {
   it("verifies hmac-sha256 signatures with a prefix and hex digest", async () => {
     const body = "{\"id\":\"evt_1\"}"
     const digest = createHmac("sha256", "secret-token").update(body).digest("hex")
-    const registration = hmacRegistration({ preset: "hmac-sha256", prefix: "v1=" })
+    const registration = hmacRegistration({ type: "hmac-sha256", prefix: "v1=" })
     await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest}`, body))).resolves.toMatchObject({ verified: true })
     await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest.toUpperCase()}`, body))).resolves.toMatchObject({ verified: true })
     await expect(verifyAgentWebhookRequest(registration, signedRequest(digest, body))).rejects.toMatchObject({ statusCode: 401 })
@@ -360,7 +361,7 @@ describe("agent webhook verification", () => {
     const body = "{\"base\":{\"id\":\"app1\"}}"
     const key = Buffer.from("airtable-mac-secret")
     const secretToken = key.toString("base64")
-    const registration = hmacRegistration({ encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" }, secretToken)
+    const registration = hmacRegistration({ encoding: "base64", type: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" }, secretToken)
     const header = `hmac-sha256=${createHmac("sha256", key).update(body).digest("base64")}`
     await expect(verifyAgentWebhookRequest(registration, signedRequest(header, body))).resolves.toMatchObject({ verified: true })
     const utf8Key = `hmac-sha256=${createHmac("sha256", secretToken).update(body).digest("base64")}`
@@ -370,7 +371,7 @@ describe("agent webhook verification", () => {
   it.each(["not base64!", "====", "abcde"])("fails closed for the malformed base64 key %j", async secretToken => {
     const body = "{}"
     const header = createHmac("sha256", secretToken).update(body).digest("hex")
-    await expect(verifyAgentWebhookRequest(hmacRegistration({ preset: "hmac-sha256", secretEncoding: "base64" }, secretToken), signedRequest(header, body)))
+    await expect(verifyAgentWebhookRequest(hmacRegistration({ type: "hmac-sha256", secretEncoding: "base64" }, secretToken), signedRequest(header, body)))
       .rejects.toMatchObject({ statusCode: 401 })
   })
 
@@ -403,29 +404,33 @@ describe("agent webhook verification", () => {
       .rejects.toMatchObject({ message: "[vitehub] Webhook secret verification failed.", statusCode: 401 })
   })
 
-  it("applies a configured stripe-sha256 tolerance", async () => {
+  it("applies a configured stripe tolerance", async () => {
     const body = "{\"id\":\"evt_1\"}"
     const older = stripeSignature("secret-token", body, Math.floor(Date.now() / 1000) - 500)
-    await expect(verifyAgentWebhookRequest(stripeRegistration({ preset: "stripe-sha256", toleranceSeconds: 600 }), stripeRequest(older, body)))
+    await expect(verifyAgentWebhookRequest(stripeRegistration({ type: "stripe", tolerance: "600s" }), stripeRequest(older, body)))
       .resolves.toMatchObject({ verified: true })
-    await expect(verifyAgentWebhookRequest(stripeRegistration({ preset: "stripe-sha256", toleranceSeconds: 60 }), stripeRequest(older, body)))
+    await expect(verifyAgentWebhookRequest(stripeRegistration({ type: "stripe", tolerance: "60s" }), stripeRequest(older, body)))
       .rejects.toMatchObject({ statusCode: 401 })
   })
 
   it("uses integer-second maximum-age semantics", async () => {
     const body = "{\"id\":\"evt_1\"}"
     const now = Math.floor(Date.now() / 1000)
-    await expect(verifyAgentWebhookRequest(stripeRegistration({ preset: "stripe-sha256", toleranceSeconds: 0 }), stripeRequest(stripeSignature("secret-token", body, now), body)))
+    await expect(verifyAgentWebhookRequest(stripeRegistration({ type: "stripe", tolerance: "0s" }), stripeRequest(stripeSignature("secret-token", body, now), body)))
       .resolves.toMatchObject({ verified: true })
-    await expect(verifyAgentWebhookRequest(stripeRegistration({ preset: "stripe-sha256", toleranceSeconds: 0 }), stripeRequest(stripeSignature("secret-token", body, now + 60), body)))
+    await expect(verifyAgentWebhookRequest(stripeRegistration({ type: "stripe", tolerance: "0s" }), stripeRequest(stripeSignature("secret-token", body, now + 60), body)))
       .resolves.toMatchObject({ verified: true })
   })
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])("rejects invalid signature tolerance %s", async toleranceSeconds => {
+  it.each(["soon", "-1s", "300"])("rejects the signature tolerance %j when the Channel is defined and when it verifies", async (tolerance) => {
+    const { channelAdapter } = await import("../src/channels.ts")
+    // SAFETY: A tolerance that is not a duration is what this test checks.
+    const signature = { type: "stripe", tolerance } as never
+    expect(() => channelAdapter("payments", { messages: false, webhooks: { path: "/hooks", secret: "STRIPE_WEBHOOK_SECRET", signature } }))
+      .toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
     const body = "{\"id\":\"evt_1\"}"
-    const header = stripeSignature("secret-token", body)
-    await expect(verifyAgentWebhookRequest(stripeRegistration({ preset: "stripe-sha256", toleranceSeconds }), stripeRequest(header, body)))
-      .rejects.toMatchObject({ statusCode: 401 })
+    await expect(verifyAgentWebhookRequest(stripeRegistration(signature), stripeRequest(stripeSignature("secret-token", body), body)))
+      .rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
   })
 
   it("rejects wrong stripe-sha256 signatures", async () => {
@@ -454,12 +459,30 @@ describe("bearer webhook signature", () => {
     return new Request("https://example.com", { body: "{}", headers, method: "POST" })
   }
 
+  /** A plain string is a secret value here, so it goes in a function: a `secret` string names a server variable. */
   function bearerRegistration(secretToken: unknown, secretHeader?: string) {
+    const secret = typeof secretToken === "string" ? () => secretToken : secretToken
     // SAFETY: Invalid and sealed secret values are part of these tests.
-    return [{ channelId: "prefect", id: "prefect", provider: "prefect", signature: "bearer", secretToken: secretToken as never, ...(secretHeader ? { secretHeader } : {}) }]
+    return [{ channelId: "prefect", id: "prefect", provider: "prefect", signature: "bearer", secret: secret as never, ...(secretHeader ? { secretHeader } : {}) }]
   }
 
-  it("accepts Authorization: Bearer <secretToken> and compares the scheme case-insensitively", async () => {
+  it("reads a string secret from the server variable that it names", async () => {
+    vi.stubEnv("PREFECT_WEBHOOK_SECRET", "secret-token")
+    try {
+      const registration = [{ channelId: "prefect", id: "prefect", provider: "prefect", signature: "bearer" as const, secret: "PREFECT_WEBHOOK_SECRET" }]
+      await expect(verifyAgentWebhookRequest(registration, bearerRequest({ authorization: "Bearer secret-token" }))).resolves.toMatchObject({ verified: true })
+      await expect(verifyAgentWebhookRequest(registration, bearerRequest({ authorization: "Bearer PREFECT_WEBHOOK_SECRET" })))
+        .rejects.toMatchObject({ statusCode: 401 })
+      vi.stubEnv("PREFECT_WEBHOOK_SECRET", "")
+      await expect(verifyAgentWebhookRequest(registration, bearerRequest({ authorization: "Bearer secret-token" })))
+        .rejects.toMatchObject({ message: expect.stringContaining("Channel \"prefect\" uses signature \"bearer\""), statusCode: 500 })
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("accepts Authorization: Bearer <secret> and compares the scheme case-insensitively", async () => {
     await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "Bearer secret-token" })))
       .resolves.toMatchObject({ verified: true })
     await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "bearer  secret-token" })))
@@ -517,13 +540,13 @@ describe("bearer webhook signature", () => {
   })
 
   it("unseals a sealed secret for other signatures", async () => {
-    const registration = [{ id: "telegram", provider: "telegram", secretHeader: "x-token", secretToken: { unseal: () => "secret-token" } }]
+    const registration = [{ id: "telegram", provider: "telegram", secretHeader: "x-token", secret: { unseal: () => "secret-token" } }]
     await expect(verifyAgentWebhookRequest(registration, bearerRequest({ "x-token": "secret-token" }))).resolves.toMatchObject({ verified: true })
   })
 
   it.each([
-    ["no secretToken", undefined],
-    ["a secretToken that resolves to no secret", () => undefined],
+    ["no secret", undefined],
+    ["a secret that resolves to no secret", () => undefined],
   ])("answers 500 naming the Channel for %s", async (_label, secretToken) => {
     const error = { message: expect.stringContaining("Channel \"prefect\" uses signature \"bearer\""), statusCode: 500 }
     await expect(verifyAgentWebhookRequest(bearerRegistration(secretToken), bearerRequest({ authorization: "Bearer secret-token" })))
@@ -532,7 +555,7 @@ describe("bearer webhook signature", () => {
       .rejects.toMatchObject(error)
   })
 
-  it("skips verification when secretToken is false", async () => {
+  it("skips verification when secret is false", async () => {
     await expect(verifyAgentWebhookRequest(bearerRegistration(false), bearerRequest(), undefined, { requireSecretHeader: true }))
       .resolves.toMatchObject({ verified: true })
   })
@@ -548,7 +571,7 @@ describe("bearer webhook signature", () => {
             messages: false,
             triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
             // SAFETY: Missing secret values are part of this test.
-            webhooks: { path: "/api/prefect/webhook", secretToken: secretToken as never, signature: "bearer" },
+            webhooks: { path: "/api/prefect/webhook", secret: (typeof secretToken === "string" ? () => secretToken : secretToken) as never, signature: "bearer" },
           }),
         },
         driver: { run },
@@ -577,21 +600,21 @@ describe("bearer webhook signature", () => {
     expect(missing.run).not.toHaveBeenCalled()
   })
 
-  it("rejects a registration whose secretToken resolves to no secret and that has no header", async () => {
-    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined }]
+  it("rejects a registration whose secret resolves to no secret and that has no header", async () => {
+    const registration = [{ id: "custom", provider: "custom", secret: () => undefined }]
     await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
-      .rejects.toMatchObject({ message: expect.stringContaining("Webhook registration \"custom\" declares secretToken but it resolved to no secret"), statusCode: 401 })
+      .rejects.toMatchObject({ message: expect.stringContaining("Webhook registration \"custom\" declares secret but it resolved to no secret"), statusCode: 401 })
   })
 
-  it("does not call verify with an empty key when secretToken resolves to no secret", async () => {
+  it("does not call verify with an empty key when secret resolves to no secret", async () => {
     const verify = vi.fn(() => true)
-    const registration = [{ id: "custom", provider: "custom", secretToken: () => undefined, signature: { verify } }]
+    const registration = [{ id: "custom", provider: "custom", secret: () => undefined, signature: { verify } }]
     await expect(verifyAgentWebhookRequest(registration, new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
       .rejects.toMatchObject({ statusCode: 401 })
     expect(verify).not.toHaveBeenCalled()
   })
 
-  it("rejects an unsigned request on a Channel route whose secretToken resolves to no secret", async () => {
+  it("rejects an unsigned request on a Channel route whose secret resolves to no secret", async () => {
     const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "ok")
@@ -600,7 +623,7 @@ describe("bearer webhook signature", () => {
         intake: channelAdapter("intake", {
           messages: false,
           triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
-          webhooks: { path: "/api/intake/webhook", secretToken: () => undefined },
+          webhooks: { path: "/api/intake/webhook", secret: () => undefined },
         }),
       },
       driver: { run },
@@ -629,7 +652,7 @@ describe("channelAdapter() webhook registrations without verification", () => {
     const agent = defineAgent({ channels: { intake: channel as never }, driver: { run: () => "ok" } })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    return await handler(new Request("https://example.com/api/_vitehub/channels/intake", {
+    return await handler(new Request("https://example.com/_vitehub/channels/intake", {
       body: "{}",
       headers: { "content-type": "application/json" },
       method: "POST",
@@ -640,7 +663,7 @@ describe("channelAdapter() webhook registrations without verification", () => {
     const { channelAdapter, triggers } = await intake()
     expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: {} })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
     expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: true })).toThrow(expect.objectContaining({ code: "AGENT_R1044" }))
-    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: [{ secretToken: false }, { id: "second" }] })).toThrow(/"second"/)
+    expect(() => channelAdapter("intake", { messages: false, triggers, webhooks: [{ secret: false }, { id: "second" }] })).toThrow(/"second"/)
     expect(() => channelAdapter("intake", {
       messages: false,
       triggers: { hook: { ...triggers.hook, webhooks: [{ provider: "intake" }] } },
@@ -665,9 +688,9 @@ describe("channelAdapter() webhook registrations without verification", () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it("accepts an unsigned POST when the registration opts out with secretToken: false", async () => {
+  it("accepts an unsigned POST when the registration opts out with secret: false", async () => {
     const { channelAdapter, invoke, triggers } = await intake()
-    const response = await post(channelAdapter("intake", { messages: false, triggers, webhooks: { secretToken: false } }))
+    const response = await post(channelAdapter("intake", { messages: false, triggers, webhooks: { secret: false } }))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ran: true })
     expect(invoke).toHaveBeenCalledOnce()
@@ -680,10 +703,10 @@ it.each(["gitlab", "forgejo"] as const)("verifies the %s Channel through the cli
   const channel = kind === "gitlab" ? gitlab({ webhookSecret: "secret", pullRequest: true }) : forgejo({ webhookSecret: "secret", pullRequest: true })
   const factory = (options: ForgejoChannelOptions) => kind === "gitlab" ? gitlab(options) : forgejo(options)
   expect(factory({ webhooks: false }).webhooks).toBe(false)
-  const configured = factory({ webhookSecret: "secret", webhooks: [{ id: "first", secretToken: false, signature: { verify: () => true } }, { id: "second" }] }).webhooks
+  const configured = factory({ webhookSecret: "secret", webhooks: [{ id: "first", secret: false, signature: { verify: () => true } }, { id: "second" }] }).webhooks
   expect(configured).toEqual([
-    expect.objectContaining({ id: "first", secretToken: expect.any(Function), signature: { verify: expect.any(Function) } }),
-    expect.objectContaining({ id: "second", secretToken: expect.any(Function), signature: { verify: expect.any(Function) } }),
+    expect.objectContaining({ id: "first", secret: expect.any(Function), signature: { verify: expect.any(Function) } }),
+    expect.objectContaining({ id: "second", secret: expect.any(Function), signature: { verify: expect.any(Function) } }),
   ])
   const agent = defineAgent({ channels: { host: channel }, driver: { run: () => "ok" } })
   const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
@@ -695,4 +718,29 @@ it.each(["gitlab", "forgejo"] as const)("verifies the %s Channel through the cli
   await expect(verifyAgentWebhookRequest(registrations, new Request("https://agent.test", { method: "POST", body, headers: signed }), runtime())).resolves.toMatchObject({ verified: true })
   const wrong = await signDelivery(kind, body, "wrong", headers)
   await expect(verifyAgentWebhookRequest(registrations, new Request("https://agent.test", { method: "POST", body, headers: wrong }), runtime())).rejects.toMatchObject({ statusCode: 401 })
+})
+
+describe("webhook registration names", () => {
+  it.each([
+    [{ secretToken: "token" }, "sets `secretToken`, which is now `secret`"],
+    [{ secret: "HOOK_SECRET", signature: "github-sha256" }, "which is now `signature: \"github\"`"],
+    [{ secret: "HOOK_SECRET", signature: "stripe-sha256" }, "which is now `signature: \"stripe\"`"],
+    [{ secret: "HOOK_SECRET", signature: { preset: "hmac-sha256" } }, "which is now `signature: { type }`"],
+    [{ secret: "HOOK_SECRET", signature: { type: "stripe", toleranceSeconds: 60 } }, "which is now `tolerance`"],
+  ])("rejects the old name in %j when the Channel and the trigger are defined", async (registration, message) => {
+    const { channelAdapter, defineChannelTrigger } = await import("../src/channels.ts")
+    const error = { code: "AGENT_WEBHOOK_OPTION_RENAMED", message: expect.stringContaining(message) }
+    // SAFETY: Old option names are what this test checks.
+    expect(() => channelAdapter("portal", { messages: false, webhooks: { path: "/hooks", ...registration } as never })).toThrow(expect.objectContaining(error))
+    // SAFETY: Old option names are what this test checks.
+    expect(() => defineChannelTrigger({ webhooks: [{ provider: "portal", ...registration }] as never, invoke: () => new Response(null) })).toThrow(expect.objectContaining(error))
+  })
+
+  it("rejects a secret string that is not a server variable name, without printing it", async () => {
+    const { channelAdapter } = await import("../src/channels.ts")
+    const create = () => channelAdapter("portal", { messages: false, webhooks: { path: "/hooks", secret: "whsec-abc123", signature: "bearer" } })
+    expect(create).toThrow(expect.objectContaining({ code: "AGENT_WEBHOOK_SECRET_NAME_INVALID" }))
+    expect(create).toThrow(expect.not.objectContaining({ message: expect.stringContaining("whsec-abc123") }))
+    expect(() => channelAdapter("portal", { messages: false, webhooks: { path: "/hooks", secret: "PORTAL_WEBHOOK_SECRET", signature: "github" } })).not.toThrow()
+  })
 })

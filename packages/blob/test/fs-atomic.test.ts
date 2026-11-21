@@ -12,6 +12,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
 const roots: string[] = []
 
+// A separate module has its own queue, like a writer in another process.
+async function externalDriver(root: string) {
+  vi.resetModules()
+  const { createDriver } = await import("../src/drivers/fs.ts")
+  return createDriver({ driver: "fs", base: root })
+}
+
 afterEach(async () => {
   vi.mocked(rm).mockReset().mockImplementation(actual.rm)
   vi.mocked(readFile).mockReset().mockImplementation(actual.readFile)
@@ -119,7 +126,7 @@ it("preserves a replacement prepared before concurrent deletion", async () => {
   const root = await mkdtemp(join(tmpdir(), "blob-atomic-"))
   roots.push(root)
   const driver = createDriver({ driver: "fs", base: root })
-  const writer = createDriver({ driver: "fs", base: root })
+  const writer = await externalDriver(root)
   await driver.put("file.txt", "old", { contentType: "text/plain" })
   let release!: () => void
   let reached!: () => void
@@ -171,7 +178,7 @@ it("moves the deleted payload aside before a post-removal writer publishes", asy
   const root = await mkdtemp(join(tmpdir(), "blob-atomic-"))
   roots.push(root)
   const driver = createDriver({ driver: "fs", base: root })
-  const writer = createDriver({ driver: "fs", base: root })
+  const writer = await externalDriver(root)
   await driver.put("file.txt", "old", { contentType: "text/plain" })
   vi.mocked(rm).mockImplementation(async (path, options) => {
     if (path === join(root, "file.txt")) {
@@ -204,7 +211,7 @@ it.each([false, true])("keeps concurrent deletion idempotent with replacement=%s
   const root = await mkdtemp(join(tmpdir(), "blob-atomic-"))
   roots.push(root)
   const driver = createDriver({ driver: "fs", base: root })
-  const other = createDriver({ driver: "fs", base: root })
+  const other = await externalDriver(root)
   await driver.put("file.txt", "old", { contentType: "text/plain" })
   let reached!: () => void
   let release!: () => void

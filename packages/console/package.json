@@ -19,6 +19,7 @@
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "vite-hub": "workspace:*",
     "zod": "catalog:runtime"
   },
@@ -33,6 +34,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }

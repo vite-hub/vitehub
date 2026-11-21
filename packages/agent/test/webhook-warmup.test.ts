@@ -25,13 +25,13 @@ function deferred() {
   return { promise, resolve }
 }
 
-function hookAgent(secretToken: () => string) {
+function hookAgent(secret: () => string) {
   return defineAgent({
     channels: {
       hook: channelAdapter("hook", {
         messages: false,
         triggers: { webhook: defineChannelTrigger({ invoke: () => ignored("unused") }) },
-        webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secretToken, signature: "github-sha256" },
+        webhooks: { path: "/hook", provider: "hook", secretHeader: "x-hub-signature-256", secret, signature: "github" },
       }),
     },
     driver: { run: () => "unused" },
@@ -186,16 +186,16 @@ describe("generated readiness route", () => {
     await expect(read("ready-route.ts")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("registers /api/_vitehub/ready with Nitro unless preparation or the application owns it", async () => {
-    expect(await nitroHandlers({})).toContainEqual({ handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/api/_vitehub/ready" })
+  it("registers /_vitehub/ready with Nitro unless preparation or the application owns it", async () => {
+    expect(await nitroHandlers({})).toContainEqual({ handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/_vitehub/ready" })
 
     const withPreparation = await nitroHandlers({ preparation: { workspace: "docs" } })
-    expect(withPreparation.filter(handler => handler.route === "/api/_vitehub/ready")).toEqual([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/preparation-route.ts"), lazy: true, route: "/api/_vitehub/ready" },
+    expect(withPreparation.filter(handler => handler.route === "/_vitehub/ready")).toEqual([
+      { handler: join(hostedAgentRoot, ".vitehub/agent/preparation-route.ts"), lazy: true, route: "/_vitehub/ready" },
     ])
 
-    const own = { handler: "/app/ready.ts", route: "/api/_vitehub/ready" }
+    const own = { handler: "/app/ready.ts", route: "/_vitehub/ready" }
     const withOwn = await nitroHandlers({}, [own])
-    expect(withOwn.filter(handler => handler.route === "/api/_vitehub/ready")).toEqual([own])
+    expect(withOwn.filter(handler => handler.route === "/_vitehub/ready")).toEqual([own])
   })
 })

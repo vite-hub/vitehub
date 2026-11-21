@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on a Node server, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -32,8 +32,10 @@ The handler gets one job in the same shape on every provider. The examples on th
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload, id }) => {
-  console.log(`Processing welcome job ${id} for ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id }) => {
+    console.log(`Processing welcome job ${id} for ${payload.email}`)
+  },
 })
 ```
 
@@ -52,7 +54,7 @@ Providers can retry a failed delivery, so a handler must be safe to run again af
 
 | Provider | Default | Override |
 | --- | --- | --- |
-| Cloudflare | Success acknowledges the message. Failure retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`, or `void` for the default. |
+| Cloudflare | Success acknowledges the message. Failure retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delay: '30s' } }` from `onError`, or `void` for the default. |
 | Local and postgres | Success removes the job. Failure runs it again after 1, 2, and 4 seconds. After 4 attempts, or a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), it becomes a dead job. | None. No `onError` or `callbackOptions.retry`. |
 | Vercel | Vercel decides. When the callback returns `undefined`, ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), and Vercel retries the rest. | Return a directive from `callbackOptions.retry`, or `void` for the default. |
 
@@ -65,23 +67,24 @@ import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 import { defineQueue } from 'vite-hub/queue'
 import { deleteImage } from '../utils/images'
 
-export default defineQueue<{ key?: string }>(async ({ payload }) => {
-  if (!payload.key) {
-    throw new ViteHubError('EXPIRY_INVALID_PAYLOAD', 'Image expiry payload requires a key.', {
-      details: { field: 'key' },
-    })
-  }
+export default defineQueue<{ key?: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.key) {
+      throw new ViteHubError('EXPIRY_INVALID_PAYLOAD', 'Image expiry payload requires a key.', {
+        details: { field: 'key' },
+      })
+    }
 
-  try {
-    await deleteImage(payload.key)
-  }
-  catch (cause) {
-    throw new ViteHubError('EXPIRY_FAILED', 'Image expiry failed.', {
-      cause,
-      details: { key: payload.key },
-    })
-  }
-}, {
+    try {
+      await deleteImage(payload.key)
+    }
+    catch (cause) {
+      throw new ViteHubError('EXPIRY_FAILED', 'Image expiry failed.', {
+        cause,
+        details: { key: payload.key },
+      })
+    }
+  },
   onError: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD' ? 'ack' : undefined,
   callbackOptions: {
     retry: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD'
@@ -100,17 +103,17 @@ Error codes and details are public. Keep credentials, provider responses, and pr
 Call `sendQueue()` in server code, with the payload and the options as separate arguments. This example delays delivery by 60 seconds on any provider.
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
-    delaySeconds: 60,
+    delay: '1m',
   })
   if (error) throw error
   return result
@@ -121,13 +124,13 @@ The result confirms that the provider accepted the job, not that it ran. ViteHub
 
 ## Queue enqueue options
 
-An option that the provider does not support returns `QUEUE_UNSUPPORTED_OPTION`, and the job is not sent.
+An option that the provider does not support returns `QUEUE_UNSUPPORTED_OPTION`, and the job is not sent. A `delay` or `retention` that is not a [duration](/docs/runtime/helpers#write-a-time-as-a-duration) returns [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid), and the job is not sent either.
 
 ### Shared options
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `delaySeconds` | `number` | Delay before delivery, in seconds. |
+| `delay` | `Duration` | Time before delivery, such as `'30s'`, `'5m'`, or `'1 day'`. A number fails with `RUNTIME_DURATION_INVALID`. Cloudflare and Vercel round up to whole seconds. |
 
 ### Cloudflare options
 
@@ -145,7 +148,7 @@ Vercel only. The app needs `host: 'vercel'`, Queue on, `@vercel/queue`, and a de
 | --- | --- | --- |
 | `idempotencyKey` | `string` | A send with the same key does not add a second job. |
 | `region` | `string` | Send region for this job. |
-| `retentionSeconds` | `number` | Message retention, in seconds. |
+| `retention` | `Duration \| number` | How long Vercel keeps the job, such as `'1h'`, or a number of seconds. |
 
 To make repeated sends share a key, pass a stable key of your own:
 
@@ -161,9 +164,9 @@ export async function enqueueWelcome(email: string) {
 }
 ```
 
-The local provider also accepts `idempotencyKey`. While a pending or running job has the same key, `sendQueue()` returns that job's message ID and stores nothing. A dead job frees its key. It rejects `region` and `retentionSeconds`.
+The local provider also accepts `idempotencyKey`. While a pending or running job has the same key, `sendQueue()` returns that job's message ID and stores nothing. A dead job frees its key. It rejects `region` and `retention`.
 
-Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel deduplication still does not make a handler run exactly once, so keep handlers safe to retry.
+Cloudflare rejects `idempotencyKey`, `region`, and `retention`. Vercel deduplication still does not make a handler run exactly once, so keep handlers safe to retry.
 
 ## Runtime helpers
 
@@ -174,7 +177,7 @@ Sends one job and returns `[error, result]`.
 ```ts [examples/send-queue.ts]
 import { sendQueue } from 'vite-hub/queue'
 
-const [error, result] = await sendQueue('welcome-email', { email: 'ava@example.com' }, { delaySeconds: 60 })
+const [error, result] = await sendQueue('welcome-email', { email: 'ava@example.com' }, { delay: '1m' })
 if (error) {
   error.code // 'QUEUE_PROVIDER_FAILED' | 'QUEUE_PROVIDER_INVALID_RESPONSE' | 'QUEUE_UNSUPPORTED_OPTION'
 }
@@ -240,7 +243,7 @@ A Cloudflare direct client needs a binding object, here `binding` from the Worke
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'cloudflare',
+  driver: 'cloudflare',
   binding,
 })
 ```
@@ -251,7 +254,7 @@ A Vercel direct client needs an existing topic. Use your own topic and region.
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'vercel',
+  driver: 'vercel',
   topic: 'topic--77656c636f6d65',
   region: 'iad1',
 })
@@ -264,7 +267,7 @@ The Vite plugin writes `.vitehub/queue.d.ts`. The `vite-hub/tsconfig` setup in [
 ```ts [examples/typed-dispatch.ts]
 import { sendQueue, useQueue } from 'vite-hub/queue'
 
-const [error] = await sendQueue('welcome-email', { email: 'ada@example.com' }, { delaySeconds: 60 })
+const [error] = await sendQueue('welcome-email', { email: 'ada@example.com' }, { delay: '1m' })
 if (error) throw error
 const queue = await useQueue('welcome-email')
 const [sendError] = await queue.send({ email: 'ada@example.com' })
@@ -274,5 +277,5 @@ if (sendError) throw sendError
 `QueueRegistry` is the generated map of queues. `QueuePayload<'welcome-email'>` gets a payload type. A missing name or wrong payload is a type error. Run Vite or Nuxt prepare after you add a queue. For a standalone TypeScript host, extend `QueueRegistry` with `typeof import('./welcome.queue').default`.
 
 ::note
-Earlier versions took an envelope: `sendQueue(name, { payload, ...options })` and `client.send({ payload, ...options })`. Change them to `sendQueue(name, payload, options)` and `client.send(payload, options)`. ViteHub does not detect envelopes, so an old envelope is sent whole as the payload.
+The payload and the options are separate arguments: `sendQueue(name, payload, options)` and `client.send(payload, options)`. An object such as `{ payload, delay }` in the payload argument is sent whole as the payload.
 ::

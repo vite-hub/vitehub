@@ -8,6 +8,8 @@
   { "page": "frameworks-hosts/cloudflare.md", "label": "src/database.ts", "fixture": "cloudflare/src/database.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/vite.config.ts", "verification": "build", "framework": "Vite" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "server/routes/videos/[file].ts", "fixture": "cloudflare/server/routes/videos/[file].ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "wrangler.json", "fixture": "cloudflare/wrangler.json", "verification": "json" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "wrangler.json", "fixture": "cloudflare/worker-classes/wrangler.json", "verification": "json" },
   { "page": "frameworks-hosts/vercel.md", "label": "server/databases/default/index.ts", "fixture": "vercel/server/databases/default/index.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/vercel.md", "label": "vite.config.ts", "fixture": "vercel/vite.config.ts", "verification": "build", "framework": "Vite" },
   { "page": "frameworks-hosts/netlify.md", "label": "vite.config.ts", "fixture": "netlify/vite.config.ts", "verification": "build", "framework": "Vite" },

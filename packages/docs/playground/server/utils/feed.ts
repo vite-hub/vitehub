@@ -1,7 +1,4 @@
-import { setResponseHeader } from "nitro/h3"
 import { publicUrl } from "../../site"
-
-import type { H3Event } from "h3"
 
 export interface FeedItem {
   title: string
@@ -12,8 +9,8 @@ export interface FeedItem {
 
 const escape = (value: string) => value.replace(/[&<>"']/g, character => `&#${character.charCodeAt(0)};`)
 
-/** An RSS 2.0 feed of published documents. It returns text, because the `swr` route rule caches text and not a Response. */
-export function rss(event: H3Event, feed: { title: string, path: string, description: string, items: FeedItem[] }): string {
+/** An RSS 2.0 feed of published documents. */
+export function rss(feed: { title: string, path: string, description: string, items: FeedItem[] }): Response {
   const items = feed.items.map(item => [
     "<item>",
     `<title>${escape(item.title)}</title>`,
@@ -31,6 +28,5 @@ export function rss(event: H3Event, feed: { title: string, path: string, descrip
 <description>${escape(feed.description)}</description>
 ${items}
 </channel></rss>`
-  setResponseHeader(event, "content-type", "application/rss+xml; charset=utf-8")
-  return xml
+  return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8" } })
 }

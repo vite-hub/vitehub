@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant";
 import { createHash } from "node:crypto";
 import type { PullRequestInbox, Snapshot } from "./inbox/store.ts";
 import { isStatusDeliveryCurrent, type StatusDelivery } from "./inbox/status-delivery.ts";
@@ -14,7 +15,7 @@ export function isWorkerBlocker(snapshot: Pick<Snapshot, "wait" | "lastResult">)
 
 export interface BabysitterStatusRecovery {
   flush(): Promise<void>;
-  recover(): Promise<void>;
+  recover(signal?: AbortSignal): Promise<void>;
   recordWorkerBlocker(snapshot: Snapshot, reason: string): Promise<void>;
 }
 
@@ -30,9 +31,9 @@ export function createBabysitterStatusRecovery(options: {
 }): BabysitterStatusRecovery {
   const { inbox, revision, publish } = options;
   const publishTimeoutMs = options.publishTimeoutMs ?? 20_000;
-  if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error("Status publication timeout must be positive.");
+  invariant(Number.isFinite(publishTimeoutMs) && publishTimeoutMs > 0, "createBabysitterRuntime() passes a positive status publication timeout");
   const deliveryLeaseMs = options.deliveryLeaseMs ?? 300_000;
-  if (!Number.isFinite(deliveryLeaseMs) || deliveryLeaseMs < 3 || deliveryLeaseMs > 2_147_483_647) throw new Error("Status delivery lease must be between 3 and 2,147,483,647 milliseconds.");
+  invariant(Number.isFinite(deliveryLeaseMs) && deliveryLeaseMs >= 3 && deliveryLeaseMs <= 2_147_483_647, "createBabysitterRuntime() passes a status delivery lease from 3 to 2,147,483,647 milliseconds");
   let selecting = Promise.resolve();
   const active = new Set<Promise<void>>();
 
@@ -106,11 +107,13 @@ export function createBabysitterStatusRecovery(options: {
         await inbox.recordWorkerBlocker(snapshot, revision);
       }
     },
-    async recover(): Promise<void> {
+    async recover(signal?: AbortSignal): Promise<void> {
       // A legacy host can finish its claim after this host's first scan.
       // The durable acknowledgement prevents repeat publication.
-      await inbox.backfillStatusDeliveries();
+      await inbox.backfillStatusDeliveries(signal);
+      signal?.throwIfAborted();
       for (const snapshot of await inbox.waitsToEvaluate(true, true)) {
+        signal?.throwIfAborted();
         if (!isWorkerBlocker(snapshot)) continue;
         const head = snapshot.pr?.head?.sha;
         const evidence = createHash("sha256").update(JSON.stringify(["worker-release", revision, head])).digest("hex");

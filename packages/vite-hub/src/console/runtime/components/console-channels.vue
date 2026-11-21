@@ -9,11 +9,12 @@ import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
 import { queryText, useConsoleQuery } from "../client/route-query";
-import { consoleMountBase, consoleMountPath } from "../console-route";
+import { consoleMountBase, consoleMountPath, encodeAgentRouteParam } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
@@ -49,6 +50,17 @@ interface AttachmentRow {
   url?: string;
 }
 
+/** One message the Channel received, with its outcome. */
+interface DeliveryRow {
+  error?: string;
+  id: string;
+  invocationId?: string;
+  reason?: string;
+  receivedAt: string;
+  sourceId: string;
+  status: string;
+}
+
 interface MessageRow {
   attachments: AttachmentRow[];
   at?: string;
@@ -76,6 +88,8 @@ const threads = ref<ThreadRow[]>([]);
 const threadsCursor = ref<string>();
 const messages = ref<MessageRow[]>([]);
 const messagesCursor = ref<string>();
+const deliveries = ref<DeliveryRow[]>([]);
+const deliveriesLoading = ref(false);
 const retention = ref<Retention>();
 const channelsLoading = ref(true);
 const threadsLoading = ref(false);
@@ -86,6 +100,8 @@ const simulatorFrame = ref<HTMLIFrameElement>();
 let channelsRequest: AbortController | undefined;
 let threadsRequest: AbortController | undefined;
 let messagesRequest: AbortController | undefined;
+let deliveriesRequest: AbortController | undefined;
+let deliveriesSelection: Pick<ChannelRow, "agent" | "channel"> | undefined;
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
@@ -247,6 +263,64 @@ async function loadMessages(append = false): Promise<void> {
   }
 }
 
+/** The newest messages of the Channel with their outcome, shown while no thread is open. */
+async function loadDeliveries(): Promise<void> {
+  deliveriesRequest?.abort();
+  const entry = selected.value;
+  if (!entry || selectedThread.value || entry.simulator) {
+    deliveriesRequest = undefined;
+    deliveriesSelection = undefined;
+    deliveries.value = [];
+    deliveriesLoading.value = false;
+    return;
+  }
+  if (deliveriesSelection?.agent !== entry.agent || deliveriesSelection.channel !== entry.channel) deliveries.value = [];
+  deliveriesSelection = entry;
+  const controller = new AbortController();
+  deliveriesRequest = controller;
+  deliveriesLoading.value = true;
+  try {
+    const value = record(await requestConsole(`${props.channelsBase}/deliveries`, {
+      query: { agent: entry.agent, channel: entry.channel },
+      signal: controller.signal,
+    }));
+    if (controller.signal.aborted) return;
+    deliveries.value = list(value.deliveries).map((delivery): DeliveryRow => ({
+      ...(text(delivery.error) ? { error: text(delivery.error)! } : {}),
+      id: text(delivery.id) ?? "",
+      ...(text(delivery.invocationId) ? { invocationId: text(delivery.invocationId)! } : {}),
+      ...(text(delivery.reason) ? { reason: text(delivery.reason)! } : {}),
+      receivedAt: text(delivery.receivedAt) ?? "",
+      sourceId: text(delivery.sourceId) ?? "",
+      status: text(delivery.status) ?? "received",
+    }));
+    error.value = undefined;
+  } catch (failure) {
+    if (!controller.signal.aborted && !isAbort(failure)) error.value = failure;
+  } finally {
+    if (deliveriesRequest === controller) deliveriesLoading.value = false;
+  }
+}
+
+const deliveryTones: Record<string, "error" | "neutral" | "success" | "warning"> = {
+  completed: "success",
+  failed: "error",
+  rejected: "neutral",
+  running: "success",
+};
+
+function deliveryOutcome(delivery: DeliveryRow): string {
+  const detail = delivery.reason ?? delivery.error;
+  return detail ? `${delivery.status}: ${detail}` : delivery.status;
+}
+
+function deliveryRoute(delivery: DeliveryRow): string | undefined {
+  const agent = selectedAgent.value;
+  return agent && delivery.invocationId
+    ? router.resolve({ name: "vitehub-console-invocation", params: { agent: encodeAgentRouteParam(agent), invocation: delivery.invocationId } }).href
+    : undefined;
+}
+
 function select(query: { agent?: string; channel?: string; thread?: string }): void {
   // A thread of the same Channel keeps the thread search. Another Channel starts without it.
   const search = query.thread && query.agent === selectedAgent.value && query.channel === selectedChannel.value ? threadSearch.value.trim() : "";
@@ -307,10 +381,14 @@ function onSimulatorMessage(event: MessageEvent): void {
 }
 
 watch(() => [selectedAgent.value, selectedChannel.value], () => void loadThreads());
-watch(() => [selectedAgent.value, selectedChannel.value, selectedThread.value], () => void loadMessages());
+watch(() => [selectedAgent.value, selectedChannel.value, selectedThread.value], () => {
+  void loadMessages();
+  void loadDeliveries();
+});
 watch(channels, () => {
   void loadThreads();
   void loadMessages();
+  void loadDeliveries();
 });
 
 onMounted(() => {
@@ -324,6 +402,7 @@ onBeforeUnmount(() => {
   channelsRequest?.abort();
   threadsRequest?.abort();
   messagesRequest?.abort();
+  deliveriesRequest?.abort();
 });
 </script>
 
@@ -345,7 +424,7 @@ onBeforeUnmount(() => {
             <UButton label="JSON" icon="i-lucide-download" variant="outline" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
           </template>
           <UTooltip text="Refresh">
-            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading" @click="loadChannels" />
+            <UButton aria-label="Refresh" icon="i-lucide-refresh-cw" variant="ghost" :loading="channelsLoading || threadsLoading || messagesLoading || deliveriesLoading" @click="loadChannels" />
           </UTooltip>
         </template>
       </ConsolePageHeader>
@@ -449,6 +528,20 @@ onBeforeUnmount(() => {
           <div v-if="messagesLoading && !messages.length" class="grid gap-3 p-4" aria-busy="true">
             <USkeleton v-for="index in 5" :key="index" class="h-12" :class="index % 2 ? 'w-2/3' : 'ms-auto w-1/2'" />
           </div>
+          <div v-else-if="selected && !selectedThread && !selected.simulator && deliveriesLoading && !deliveries.length" class="grid gap-2 p-4" aria-busy="true">
+            <USkeleton v-for="index in 5" :key="index" class="h-10" />
+          </div>
+          <section v-else-if="selected && !selectedThread && !selected.simulator && deliveries.length" class="flex min-h-0 flex-1 flex-col overflow-y-auto p-4" aria-label="Received messages">
+            <h2 class="mb-2 text-sm font-medium">Received messages</h2>
+            <p class="mb-3 text-xs text-muted">What happened to each message the Channel received, newest first. Choose a thread to read a conversation.</p>
+            <ol class="flex flex-col divide-y divide-default text-sm">
+              <li v-for="delivery in deliveries" :key="delivery.id" class="vitehub-console__delivery flex flex-wrap items-center gap-x-3 gap-y-1 py-2" :data-status="delivery.status">
+                <Status :tone="deliveryTones[delivery.status] ?? 'warning'" :label="deliveryOutcome(delivery)" />
+                <span class="text-xs text-muted">{{ when(delivery.receivedAt) }} · {{ delivery.sourceId }}</span>
+                <a v-if="deliveryRoute(delivery)" :href="deliveryRoute(delivery)" class="ms-auto text-xs text-muted underline">Open run</a>
+              </li>
+            </ol>
+          </section>
           <UEmpty
             v-else-if="!selectedThread && !selected?.simulator"
             variant="naked"
@@ -468,7 +561,7 @@ onBeforeUnmount(() => {
                 <template #actions>
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">
                     <li v-for="(attachment, index) in message.attachments" :key="index" class="flex items-center gap-1 text-muted">
-                      <UIcon name="i-lucide-paperclip" class="size-3" />
+                      <Icon name="i-lucide-paperclip" class="size-3" />
                       <a v-if="attachment.url && isSafeExternalUrl(attachment.url)" :href="attachment.url" target="_blank" rel="noreferrer noopener" class="underline">{{ attachment.name || attachment.type || "attachment" }}</a>
                       <span v-else>{{ attachment.name || attachment.type || "attachment" }}</span>
                     </li>

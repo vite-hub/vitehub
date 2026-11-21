@@ -55,7 +55,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0009: { ...dynamicError, fix: "Keep one entrypoint in the Sandbox package that the message names: `index.ts`, `index.mts`, `index.js`, or `index.mjs`. Remove the others." },
     SANDBOX_TASK_R0010: { ...dynamicError, fix: "Add one ESM entrypoint to the Sandbox package that the message names: `index.ts`, `index.mts`, `index.js`, or `index.mjs`." },
     SANDBOX_TASK_R0011: { ...dynamicError, fix: "Make the options of the Sandbox Task Definition that the message names JSON-serializable. Remove functions, class instances, and cycles; `error.cause` shows the failure." },
-    SANDBOX_TASK_R0012: { ...dynamicError, fix: "Set `provider` to `\"cloudflare\"` or `\"vercel\"` in `vitehub({ sandboxTask: { provider } })` or `hubSandboxTask()`, because this host has no built-in Sandbox provider." },
+    SANDBOX_TASK_R0012: { ...dynamicError, fix: "Set `driver` to `\"cloudflare\"` or `\"vercel\"` in `vitehub({ sandboxTask: { driver } })` or `hubSandboxTask()`, because this host has no built-in Sandbox driver." },
     SANDBOX_TASK_R0013: { ...dynamicError, fix: "Rename one of the two Sandbox Task Definitions that the message names, so that their names do not map to the same file." },
     SANDBOX_TASK_R0015: { ...dynamicError, fix: "Check that the file that the message names exists in the Sandbox package, and that no ignore file removes it from the project." },
     SANDBOX_TASK_R0016: { ...dynamicError, fix: "Make the `package.json` that the message names valid JSON. `error.cause` shows the parse error." },
@@ -83,7 +83,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0038: { ...dynamicError, fix: "Another build or dev server changed the Sandbox runtime lock in the directory that the message names. Run one build or dev server at a time for that directory, then build again." },
     SANDBOX_TASK_R0039: { ...dynamicError, fix: "Another build or dev server changed the Sandbox runtime lock in the directory that the message names. Run one build or dev server at a time for that directory, then build again." },
     SANDBOX_TASK_R0041: { ...dynamicError, fix: "Another build or dev server changed the Sandbox runtime during activation. Run one build or dev server at a time for the project, then build again." },
-    SANDBOX_TASK_R0042: { ...dynamicError, fix: "Set `sandboxTask` in `vitehub()`, or the options of `hubSandboxTask()`, to an object such as `{ provider: \"vercel\" }`, or to `false`." },
+    SANDBOX_TASK_R0042: { ...dynamicError, fix: "Set `sandboxTask` in `vitehub()`, or the options of `hubSandboxTask()`, to an object such as `{ driver: \"vercel\" }`, or to `false`." },
     SANDBOX_TASK_R0045: { ...dynamicError, fix: "Remove the duplicate Cloudflare entry that the message names from the Wrangler config, or give both entries the same values." },
     SANDBOX_TASK_R0046: { ...dynamicError, fix: "Add a Wrangler migration with `new_sqlite_classes` for each Durable Object class that the message names." },
     SANDBOX_TASK_C0010: {
@@ -122,7 +122,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0065: { ...dynamicError, fix: "Move the pnpm patch file that the message names inside the install root, and update `patchedDependencies` in `pnpm-workspace.yaml`." },
     SANDBOX_TASK_R0066: { ...dynamicError, fix: "Write the file before you read it, or check it with `exists()` first." },
     SANDBOX_TASK_R0067: { ...dynamicError, fix: "Keep each file of the Sandbox project inside the project directory. Remove the absolute path or the `..` segments from the path that the message names." },
-    SANDBOX_TASK_R0068: { ...dynamicError, fix: "Set the Sandbox provider to `\"cloudflare\"` or `\"vercel\"`, in `vitehub({ sandboxTask: { provider } })`, `hubSandboxTask({ provider })`, or the `SANDBOX_PROVIDER` env variable." },
+    SANDBOX_TASK_R0068: { ...dynamicError, fix: "Set the Sandbox driver to `\"cloudflare\"` or `\"vercel\"`, in `vitehub({ sandboxTask: { driver } })`, `hubSandboxTask({ driver })`, or the `SANDBOX_PROVIDER` env variable." },
     SANDBOX_TASK_R0069: { ...dynamicError, fix: "Remove the options that the message names from `defineSandboxTask()`. A Definition supports only `handler`, `timeout`, `env`, and `project`." },
     SANDBOX_TASK_R0070: { ...dynamicError, fix: "Set `timeout` of `defineSandboxTask()` to a whole number of milliseconds from 1 to 2147483647." },
     SANDBOX_TASK_R0071: { ...dynamicError, fix: "Add the Sandbox Durable Object binding to the Worker, or set `binding` in `vitehub({ sandboxTask: { binding } })` or `hubSandboxTask()` to its name. To run locally, build, then run `npx wrangler dev --config .output/server/wrangler.json`." },
@@ -130,7 +130,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0073: { ...dynamicError, fix: "Set `project` of `defineSandboxTask()` to `true` or `false`, or remove it." },
     SANDBOX_TASK_R0074: { ...dynamicError, fix: "Restart the dev server or build again, so that ViteHub generates the Sandbox Task Definition again. Check that its file still exists." },
     SANDBOX_TASK_R0075: { ...dynamicError, fix: "Restart the dev server or build again, so that ViteHub generates the Sandbox Task Definition again. Check that its file still exists." },
-    SANDBOX_TASK_R0076: { ...dynamicError, fix: "Use the Sandbox provider that the build selected, or build again with `provider` in `vitehub({ sandboxTask: { provider } })` or `hubSandboxTask()` set to the provider that you need." },
+    SANDBOX_TASK_R0076: { ...dynamicError, fix: "Use the Sandbox driver that the build selected, or build again with `driver` in `vitehub({ sandboxTask: { driver } })` or `hubSandboxTask()` set to the driver that you need." },
     // Named errors. Keep these codes in alphabetical order.
     SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL: {
       why: ({ className, instanceType, size }: { className: string, instanceType: string, size: string }) => `[vitehub] The Cloudflare containers entry of class ${className} sets the instance type ${instanceType}, which is smaller than the Sandbox Task size (${size}).`,
@@ -140,6 +140,22 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ className, configured, requested }: { className: string, configured: number, requested: number }) => `[vitehub] The Cloudflare containers entry of class ${className} sets max_instances ${configured}, but the Sandbox Task option maxInstances is ${requested}.`,
       fix: "Set the instance limit in one place: remove `maxInstances` from the Sandbox Task options, or remove `max_instances` from your `containers` entry.",
     },
+    SANDBOX_TASK_LOCAL_NETWORK_POLICY: {
+      why: "Local Sandbox Tasks cannot enforce the configured `networkPolicy`. Use `remote: true` on Vercel or run the Cloudflare build with Wrangler.",
+      fix: "Set `remote: true` to keep the policy on Vercel. On Cloudflare, build and run `npx wrangler dev --config .output/server/wrangler.json` with Docker to use the Container.",
+    },
+    SANDBOX_TASK_LOCAL_NITRO_RUNNER: {
+      why: "Local Sandbox Tasks cannot start Node processes in Nitro's `miniflare` dev runner.",
+      fix: "Set `nitro.devServer.runner` to `node-worker`. To test Cloudflare Containers instead, build and run `npx wrangler dev --config .output/server/wrangler.json` with Docker.",
+    },
+    SANDBOX_TASK_LOCAL_WINDOWS: {
+      why: "Local Sandbox Tasks require a POSIX shell and do not run on native Windows.",
+      fix: "Run the dev server in WSL, or set `remote: true` to use Vercel Sandbox. On Cloudflare, build and run `npx wrangler dev --config .output/server/wrangler.json` with Docker to use the Container.",
+    },
+    SANDBOX_TASK_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`sandboxTask.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so the Sandbox Task would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`sandboxTask: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
     SANDBOX_TASK_SIZE_INVALID: {
       why: ({ key, value }: { key: string, value: string }) => `[vitehub] Sandbox Task option ${key} must be a positive number${key === 'maxInstances' ? ' and a whole number' : ''}. Received ${value}.`,
       fix: "Set `cpu` to a number of vCPUs, such as `2` or `0.5`, `memory` to a number of MiB, such as `4096`, and `maxInstances` to a whole number, such as `20`.",
@@ -147,6 +163,10 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_SIZE_TOO_LARGE: {
       why: ({ max, provider, size }: { max: string, provider: string, size: string }) => `[vitehub] ${provider} has no Sandbox size for ${size}. The largest size is ${max}.`,
       fix: "Lower `cpu` or `memory` in the Sandbox Task options. On Cloudflare the largest Container has 4 vCPU and 12288 MiB memory. On Vercel the largest Sandbox has 32 vCPU and 65536 MiB memory, and your plan can allow fewer.",
+    },
+    SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT: {
+      why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,
+      fix: "Set a lower Sandbox Task `timeout`. Vercel allows up to 45 minutes on Hobby and 24 hours on Pro. The Vercel session gets the task timeout plus 30 seconds.",
     },
   },
 })

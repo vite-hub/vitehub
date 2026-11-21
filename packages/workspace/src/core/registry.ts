@@ -1,8 +1,7 @@
-import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { Diagnostic } from "nostics"
+import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { workspaceNotFoundError } from "./errors.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
+import type { ValidatedWorkspaceName, Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
 import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -76,7 +75,7 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
  * Workspace catalog, so its own failures and the errors of the Definition module get a code here. A coded error passes.
  */
 export function workspaceRegistryLoadError(workspace: string, error: unknown): unknown {
-  if (error instanceof Diagnostic || getViteHubErrorShape(error)) return error
+  if (isRuntimeDiagnostic(error) || getViteHubErrorShape(error)) return error
   const reason = error instanceof Error ? error.message : String(error)
   return workspaceErrorDiagnostics.WORKSPACE_REGISTRY_LOAD_FAILED({ reason, workspace, cause: error })
 }
@@ -207,6 +206,14 @@ async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSigna
       }
     }
   }
+}
+
+/** Whether a Workspace Definition has this name. Use it to check a name that comes from a request or a database. */
+export function isWorkspaceName(name: string): name is ValidatedWorkspaceName {
+  const state = workspaceRegistryState()
+  return state.registeredDefinitions.has(name)
+    || [...state.scopedDefinitions.values()].some(definitions => definitions.has(name))
+    || Object.hasOwn(workspaceRuntimeRegistryState().loaders, name)
 }
 
 export async function resolveRegisteredWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {

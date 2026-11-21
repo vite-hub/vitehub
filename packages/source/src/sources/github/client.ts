@@ -1,11 +1,21 @@
-import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider, readForgeEnv } from "@vite-hub/forge"
+import type { GitHubProvider } from "@vite-hub/forge"
+import { forgeEnv, forgeErrorStatus, forgeImportError, readForgeEnv } from "@vite-hub/internal/forge"
 
 import { sourceError } from "../../core/errors.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { GitHubFileCommit, GitHubHistoryOptions, GitHubPullRequest } from "./types.ts"
 
-type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>
+/** `@vite-hub/forge`, an optional peer. A GitHub Source loads it on its first request. */
+export async function loadForge(): Promise<typeof import("@vite-hub/forge")> {
+  // The import stays in the try, so esbuild leaves it for run time when the app did not install Forge.
+  try {
+    return await import("@vite-hub/forge")
+  }
+  catch (error) {
+    throw forgeImportError(error, "A GitHub Source")
+  }
+}
 
 export interface GitHubClient {
   /** The head commit of a branch, or undefined when the repository has no branch with this full name. */
@@ -111,7 +121,7 @@ export function createGitHubClient(repo: string): GitHubClient {
 
   function provider(token: string | undefined) {
     if (!cached || cached.token !== token) {
-      cached = { provider: forgeProvider({ forge: "github", readOnly: true, token, userAgent: "vitehub-source" }), token }
+      cached = { provider: loadForge().then(async ({ forgeProvider }) => await forgeProvider({ forge: "github", readOnly: true, token, userAgent: "vitehub-source" })), token }
     }
     return cached.provider
   }
@@ -230,6 +240,7 @@ export function createGitHubClient(repo: string): GitHubClient {
     },
     async archive(ref, token, signal) {
       const download = (archiveToken: string | undefined) => request(ref, "archive", archiveToken, signal, async (client, repoRef) => {
+        const { forgeArchive } = await loadForge()
         const stream = await forgeArchive(client, repoRef, { ref, signal })
         return new Uint8Array(await new Response(stream).arrayBuffer())
       })
@@ -255,7 +266,8 @@ export function createGitHubClient(repo: string): GitHubClient {
         return { content: file.content, sha: file.sha }
       }
       catch (error) {
-        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422.
+        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422
+        // (https://github.com/danielroe/forges/issues/292).
         if (githubErrorStatus(error) !== 422) throw error
         throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) expected ${JSON.stringify(path)} to be a file, but GitHub returned a directory or another entry type.`, { cause: error })
       }

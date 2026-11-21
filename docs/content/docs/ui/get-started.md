@@ -1,6 +1,6 @@
 ---
 title: Get started with ViteHub UI
-description: "Install the ui-sdk parts and the ViteHub modules in Nuxt or Vue, load the kit styles, render one part, and let an Agent work the page."
+description: "Install ui-sdk parts and ViteHub modules in Nuxt or Vue, load the kit styles, render a field, and let an Agent work the page."
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
@@ -8,9 +8,9 @@ navigation.group: Start
 icon: i-lucide-rocket
 ---
 
-In this guide, you render a project name field with ui-sdk parts and the kit styles. Then an Agent renames the project on the open page.
+In this tutorial, you render a project name field with ui-sdk parts and kit styles, then let an Agent rename the project on the open page.
 
-You need Node.js 22.22 or newer and pnpm. For Nuxt, you need Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
+You need Node.js 24.15 or newer and pnpm. For Nuxt, use Node.js 24.15 or newer on 24.x, or 26 or newer, and Nuxt 5, which is only in the nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without installing anything, open the [Playground](/playground?template=ui).
 
 ::tutorial-step{title="Install"}
 ## Install
@@ -28,7 +28,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The modules import the parts for you, such as `<Dialog>` and `<TagsInput>`.
+The modules auto-import parts like `<Dialog>` and `<TagsInput>`.
 ::::
 
 ::::tabs-item{label="Vue"}
@@ -62,7 +62,7 @@ createApp(App).mount("#app")
 ::tutorial-step{title="Add the styles"}
 ## Add the styles
 
-The parts have no styles until you load a style family. Load the tokens, then the `default` family. Put the lines above `@import "tailwindcss"` if your app uses Tailwind CSS.
+Parts have no styles until you load a style family. Load the tokens, then the `default` family. Place these lines above `@import "tailwindcss"` if your app uses Tailwind CSS.
 
 :::tabs{sync="vue-app"}
 ::::tabs-item{label="Nuxt"}
@@ -82,7 +82,7 @@ The parts have no styles until you load a style family. Load the tokens, then th
 ::::
 :::
 
-Do not load a style family in an app that uses Nuxt UI yet. See [From Nuxt UI](/docs/ui/from-nuxt-ui).
+Do not load a style family in an app that still uses Nuxt UI. See [From Nuxt UI](/docs/ui/from-nuxt-ui).
 
 ::
 
@@ -125,20 +125,20 @@ const name = ref("Apollo")
 ::::
 :::
 
-Start the dev server with `pnpm dev` and open the page. Select **Project name**: the label focuses the input.
+Start the dev server with `pnpm dev` and open the page. Click **Project name** and check that the label focuses the input.
 
 ::
 
 ::tutorial-step{title="Let an Agent work the page"}
 ## Let an Agent work the page
 
-Install the Agent, Realtime, and Workflow packages, and `ai` for the model. An Agent runs on Workflow on Node:
+Install the Agent and Realtime packages, plus `ai` for the model:
 
 ```bash [commands/install-agent]
-pnpm add @vite-hub/agent @vite-hub/realtime @vite-hub/workflow ai
+pnpm add @vite-hub/agent @vite-hub/realtime ai
 ```
 
-Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:
+Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node setup keeps rooms in memory in one process:
 
 :::tabs{sync="vue-app"}
 ::::tabs-item{label="Nuxt"}
@@ -146,7 +146,7 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
  export default defineNuxtConfig({
    modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt", "vite-hub/nuxt"],
    css: ["~/assets/css/main.css"],
-+  vitehub: { host: "node", agent: true, realtime: { authority: "memory" } },
++  vitehub: { agent: true, realtime: { driver: "memory" } },
  })
 ```
 ::::
@@ -155,18 +155,18 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
 ```diff
  export default defineConfig({
 -  plugins: [vue(), vitehub()],
-+  plugins: [vue(), vitehub({ host: "node", agent: true, realtime: { authority: "memory" } })],
++  plugins: [vue(), vitehub({ agent: true, realtime: { driver: "memory" } })],
  })
 ```
 ::::
 :::
 
-Give an Agent the page Capability. A model string goes through Vercel AI Gateway, so set `AI_GATEWAY_API_KEY` in the server environment. Each request can cost money.
+Give an Agent the `page()` Capability. A model string goes through Vercel AI Gateway, so set `AI_GATEWAY_API_KEY` in the server environment. Each request can cost money.
 
 ```ts [server/agents/settings.ts]
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels/adapters"
 
 export default defineAgent({
   capabilities: [page()],
@@ -175,7 +175,7 @@ export default defineAgent({
 })
 ```
 
-Connect the page and send a message. Add the component next to the field: in `app/components/` for Nuxt, or `src/components/` for Vue.
+Connect the page and send a message. Add this component next to the field in `app/components/` for Nuxt or `src/components/` for Vue:
 
 ```vue [AskAgent.vue]
 <script setup lang="ts">
@@ -195,12 +195,12 @@ const ask = () => sendMessage({ text: "Rename the project to Atlas." })
 </template>
 ```
 
-Select **Ask the Agent**. The Agent reads the page, finds **Project name**, and sets it to Atlas. The change reaches the field with `source: "agent"`. Read [Page](/docs/agents/capabilities/page) to deny parts, ask for approval, and undo a change.
+Click **Ask the Agent**. The Agent reads the page, finds **Project name**, and sets it to `Atlas`. The change arrives on the field with `source: "agent"`. Read [Page](/docs/agents/capabilities/page) to block parts, require approval, or undo a change.
 
 ::
 
 ## Next
 
-- [Where does it belong?](/docs/ui/where-does-it-belong): find the owner of a bug or a feature.
-- [From Reka UI](/docs/ui/from-reka-ui): the ui-sdk part for each Reka UI part.
-- The ui-sdk docs for your installed version are in `node_modules/@ui-sdk/vue/docs`.
+- [Where does it belong?](/docs/ui/where-does-it-belong) shows which package owns a bug or feature.
+- [From Reka UI](/docs/ui/from-reka-ui) lists the ui-sdk counterpart for each Reka UI part.
+- The ui-sdk docs for your installed version live in `node_modules/@ui-sdk/vue/docs`.

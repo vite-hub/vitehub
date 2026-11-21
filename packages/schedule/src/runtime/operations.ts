@@ -1,7 +1,9 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
-import { runScheduleFrom } from "./execute.ts"
-import { getScheduleRunStore } from "./state.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
+import { loadStaticScheduleDefinition, runScheduleFrom } from "./execute.ts"
+import { startedSchedulesTickName } from "./started-name.ts"
+import { getHostScheduleInventory, getProcessScheduleDefinitions, getScheduleRunStore, getStartedScheduleRuntime } from "./state.ts"
 import { cancelSchedule, listSchedules, startSchedule } from "../started.ts"
 
 import type { ResultError } from "@vite-hub/runtime"
@@ -135,19 +137,13 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
 }
 
 
-/** Raised for the failures of a Schedule operation. `status` and `code` reach every surface. */
-// Internal invariant: this class already carries a code, a fix, and a status for every surface.
-class ScheduleOperationError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
-
-  constructor(status: number, code: string, message: string, fix?: string) {
-    super(message)
-    this.code = code
-    this.status = status
-    if (fix) this.fix = fix
-  }
+/** Gives an operation error its HTTP status and the redacted message that the CLI and the Console report. */
+function withStatus<TError extends Error>(error: TError, status: number, fix?: string): TError {
+  return Object.defineProperties(error, {
+    ...(fix && !Reflect.get(error, "fix") ? { fix: { configurable: true, enumerable: false, value: fix, writable: true } } : {}),
+    status: { configurable: true, enumerable: false, value: status, writable: true },
+    statusMessage: { configurable: true, enumerable: false, value: redactInspectionText(error.message), writable: true },
+  })
 }
 
 const errorFix: Readonly<Record<string, string>> = {
@@ -159,6 +155,7 @@ const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_HISTORY_INCOMPLETE: 503,
   SCHEDULE_INVALID_SCHEDULED_AT: 400,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
+  SCHEDULE_OPERATION_FAILED: 500,
   SCHEDULE_RUN_NOT_FOUND: 404,
 }
 
@@ -168,11 +165,10 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
     return await work()
   }
   catch (error) {
-    if (error instanceof ScheduleOperationError) throw error
     const code: unknown = Reflect.get(Object(error), "code")
     const status = String(code) === code ? errorStatus[code] : undefined
-    if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message), errorFix[String(code)])
-    throw new ScheduleOperationError(500, "OPERATION_FAILED", "Schedule operation failed.")
+    if (status && error instanceof Error) throw withStatus(error, status, errorFix[String(code)])
+    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_OPERATION_FAILED({ cause: error }), 500)
   }
 }
 
@@ -199,7 +195,7 @@ export async function runScheduleRuns(input: { id: string, limit?: number }): Pr
 export async function runScheduleAttempts(input: { id: string }): Promise<ScheduleAttemptsResult> {
   return await attempt(async () => {
     const run = await getScheduleRunStore().getRun(input.id)
-    if (!run) throw new ScheduleOperationError(404, "SCHEDULE_RUN_NOT_FOUND", "Schedule Run was not found.", "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.")
+    if (!run) throw scheduleErrorDiagnostics.SCHEDULE_RUN_NOT_FOUND()
     return { attempts: await listScheduleRunAttempts(input.id), run: summarizeScheduleRun(run) }
   })
 }
@@ -213,7 +209,7 @@ const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
  */
 export async function runScheduleNow(input: { at?: string, name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
   if (!Object.hasOwn(registry, input.name)) {
-    throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
+    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(), 404)
   }
   return await attempt(async () => ({ run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }))
 }
@@ -249,12 +245,22 @@ const startedErrorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_STORE_MISSING: 503,
 }
 
-function operationError(error: ResultError): ScheduleOperationError {
-  return new ScheduleOperationError(startedErrorStatus[error.code] ?? 500, error.code, redactInspectionText(error.why), error.fix)
+function operationError(error: ResultError): ResultError {
+  return withStatus(error, startedErrorStatus[error.code] ?? 500)
+}
+
+/** Serializable view of one Static Schedule Definition, which runs on its own `cron`. */
+export interface ScheduleDefinitionSummary {
+  cron: string
+  name: string
+  timeZone?: string
 }
 
 /** Result of `schedule.list`. */
 export interface ScheduleListResult {
+  /** The Static Schedule Definitions of this server, by name. */
+  definitions: ScheduleDefinitionSummary[]
+  /** The Schedules that code started with `startSchedule()`, oldest first. Empty when no Definition can be started. */
   schedules: StartedScheduleSummary[]
 }
 
@@ -263,10 +269,29 @@ export interface StartedScheduleResult {
   schedule: StartedScheduleSummary
 }
 
+async function listStaticSchedules(filter?: string): Promise<ScheduleDefinitionSummary[]> {
+  const inventory = getHostScheduleInventory()
+  const registry = inventory?.registry ?? {}
+  const timings = new Map([...Object.entries(inventory?.timings ?? {}), ...(getProcessScheduleDefinitions() ?? [])])
+  const names = [...new Set([...timings.keys(), ...Object.keys(registry)])]
+    .filter(name => name !== startedSchedulesTickName && (filter === undefined || name === filter))
+    .sort((left, right) => left.localeCompare(right))
+  const definitions = await Promise.all(names.map(async name => [name, timings.get(name) ?? await loadStaticScheduleDefinition(name, registry)] as const))
+  return definitions.flatMap(([name, definition]) => definition?.cron === undefined
+    ? []
+    : [{ cron: definition.cron, name, ...(definition.timeZone === undefined ? {} : { timeZone: definition.timeZone }) }])
+}
+
+/**
+ * Lists the Static Schedule Definitions and the Schedules that code started. An app with only cron Schedules has no store
+ * for started Schedules, so it lists only its Definitions.
+ */
 export async function runScheduleList(input: { name?: string }): Promise<ScheduleListResult> {
+  const definitions = await listStaticSchedules(input.name)
+  if (!getStartedScheduleRuntime()) return { definitions, schedules: [] }
   const [error, schedules] = await listSchedules(input.name === undefined ? {} : { name: input.name })
   if (error) throw operationError(error)
-  return { schedules: schedules.map(summarizeStartedSchedule) }
+  return { definitions, schedules: schedules.map(summarizeStartedSchedule) }
 }
 
 export async function runScheduleStart(input: { at?: string, cron?: string, name: string, payload?: unknown, timeZone?: string }): Promise<StartedScheduleResult> {

@@ -50,14 +50,14 @@ describe("queue operations", () => {
       { command: "list", namespace: "queue" },
       { command: "send", namespace: "queue" },
       { command: "jobs list", namespace: "queue" },
-      { command: "jobs show", namespace: "queue" },
+      { command: "jobs get", namespace: "queue" },
       { command: "jobs retry", namespace: "queue" },
       { command: "jobs clear", namespace: "queue" },
     ])
   })
 
   it("lists the Queue Definitions and the provider", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
     await expect(run("queue.list", {})).resolves.toEqual({ provider: "vercel", queues: [{ name: "digest" }, { name: "welcome" }] })
@@ -72,12 +72,12 @@ describe("queue operations", () => {
   it("sends one job through the provider client", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     setQueueRuntimeConfig(
-      { provider: "vercel", region: "iad1" } as never,
-      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, provider: "vercel", topic: "welcome" }),
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
     )
     setQueueRuntimeRegistry(registry)
 
-    await expect(run("queue.send", { delaySeconds: 5, payload: { userId: 7 }, queue: "welcome" })).resolves.toEqual({
+    await expect(run("queue.send", { delay: "5s", payload: { userId: 7 }, queue: "welcome" })).resolves.toEqual({
       messageId: "message-1",
       provider: "vercel",
       queue: "welcome",
@@ -86,8 +86,20 @@ describe("queue operations", () => {
     expect(send).toHaveBeenCalledWith("welcome", { userId: 7 }, expect.objectContaining({ delaySeconds: 5 }))
   })
 
+  it("fails with status 400 for a delay that is not a duration", async () => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    setQueueRuntimeConfig(
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
+    )
+    setQueueRuntimeRegistry(registry)
+
+    await expect(run("queue.send", { delay: "soon", payload: {}, queue: "welcome" })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID", status: 400 })
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("fails for a Queue Definition that does not exist", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
     await expect(run("queue.send", { payload: {}, queue: "missing" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND", status: 404 })
@@ -96,8 +108,8 @@ describe("queue operations", () => {
   it("reports a provider failure with its code", async () => {
     const send = vi.fn(async () => { throw new Error("provider down") })
     setQueueRuntimeConfig(
-      { provider: "vercel", region: "iad1" } as never,
-      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, provider: "vercel", topic: "welcome" }),
+      { driver: "vercel", region: "iad1" } as never,
+      async () => await createVercelQueueClient({ client: { handleCallback: () => async () => new Response(), send }, driver: "vercel", topic: "welcome" }),
     )
     setQueueRuntimeRegistry(registry)
 
@@ -105,10 +117,10 @@ describe("queue operations", () => {
   })
 
   it("rejects a name that is not a safe identifier", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
-    await expect(run("queue.send", { payload: {}, queue: "../welcome" })).rejects.toMatchObject({ code: "QUEUE_INVALID_NAME", status: 400 })
+    await expect(run("queue.send", { payload: {}, queue: "../welcome" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NAME_INVALID", status: 400 })
   })
 })
 
@@ -127,7 +139,7 @@ describe("queue job operations", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     // The config that the generated plugin installs in `vite dev` for a Cloudflare app.
-    const config = { base, ...(development ? { development } : {}), provider: "local", rules: "cloudflare" } as const
+    const config = { base, ...(development ? { development } : {}), driver: "local", rules: "cloudflare" } as const
     setQueueRuntimeConfig(config, createLocalQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ handler }) })
     startLocalQueue(config)
@@ -163,7 +175,7 @@ describe("queue job operations", () => {
     expect(handler).toHaveBeenCalledTimes(5)
     expect(handler).toHaveBeenLastCalledWith({ attempts: 1, id, payload: { email: "ada@example.com" } })
 
-    const { messageId: later } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    const { messageId: later } = await run("queue.send", { delay: "1h", payload: {}, queue: "welcome" }) as { messageId: string }
     await expect(run("queue.jobs-list", {})).resolves.toMatchObject({ jobs: [{ id: later, state: "pending" }] })
     await expect(run("queue.jobs-clear", { state: "dead" })).resolves.toEqual({ cleared: 0 })
     await expect(run("queue.jobs-clear", {})).resolves.toEqual({ cleared: 1 })
@@ -180,7 +192,7 @@ describe("queue job operations", () => {
     const shown = await run("queue.jobs-show", { id }) as { job: { error?: { message: string, stack?: string } } }
     expect(shown.job.error).toMatchObject({ message: "SMTP down", name: "Error" })
     expect(shown.job.error?.stack).toContain("operations.test.ts")
-    const format = operation("queue.jobs-show").cli?.format as (result: unknown) => string
+    const format = (operation("queue.jobs-show").cli || undefined)?.format as (result: unknown) => string
     expect(format(shown)).toContain("Error: SMTP down\nStack:\nError: SMTP down\n    at ")
   })
 
@@ -199,13 +211,13 @@ describe("queue job operations", () => {
     const handler = vi.fn(async () => {})
     await installDev(handler)
 
-    const { messageId: id } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    const { messageId: id } = await run("queue.send", { delay: "1h", payload: {}, queue: "welcome" }) as { messageId: string }
     await run("queue.jobs-retry", { id })
     await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
   })
 
   it("fails with a reason on a hosted provider, which does not let the app read its jobs", async () => {
-    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+    setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
 
     await expect(run("queue.jobs-list", {})).rejects.toMatchObject({ code: "QUEUE_JOBS_UNAVAILABLE", status: 409 })
     await expect(run("queue.jobs-retry", { id: "job-1" })).rejects.toMatchObject({ code: "QUEUE_JOBS_UNAVAILABLE", status: 409 })

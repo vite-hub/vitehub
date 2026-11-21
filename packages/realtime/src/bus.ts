@@ -2,13 +2,14 @@ import { createHash } from "node:crypto"
 
 import { decodeRealtimeBusMessage, encodeRealtimeBusMessage } from "./bus-protocol.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { logRealtime, realtimeRoomFields } from "./log.ts"
 
 import type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
 
 export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
 
-/** The authority that a Node build asks for: `auto` reads the environment when the server starts. */
-export type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
+/** The driver that a Node build asks for: `auto` reads the environment when the server starts. */
+export type RealtimeNodeDriver = "auto" | "postgres" | "redis"
 
 /** The variable that points the Postgres bus at its own database, instead of the connection of the Default Database. */
 export const realtimePostgresUrlVariable = "REALTIME_POSTGRES_URL"
@@ -39,8 +40,8 @@ export interface RealtimeNodeBusOptions {
 }
 
 /** Where the rooms of this process live: alone in memory, or shared with other instances over a bus. */
-export interface RealtimeNodeAuthorityChoice {
-  authority: "memory" | "postgres" | "redis"
+export interface RealtimeNodeDriverChoice {
+  driver: "memory" | "postgres" | "redis"
   /** What the bus connects with: a variable, or the connection of the Default Database. */
   source?: "REDIS_URL" | typeof realtimePostgresUrlVariable | "Default Database"
   url?: string
@@ -54,34 +55,34 @@ function readVariable(env: Record<string, string | undefined>, name: string): st
 }
 
 /**
- * Picks the room authority of a Node server: `REDIS_URL` selects Redis. Else `REALTIME_POSTGRES_URL`, or the Default
+ * Picks the room driver of a Node server: `REDIS_URL` selects Redis. Else `REALTIME_POSTGRES_URL`, or the Default
  * Database when it is on Postgres, selects Postgres. Else the rooms stay in this process. An explicit `postgres` or
  * `redis` requires its connection. `database` is true when the build found the Default Database on Postgres.
  */
-export function resolveRealtimeNodeAuthority(
-  authority: RealtimeNodeAuthority,
+export function resolveRealtimeNodeDriver(
+  driver: RealtimeNodeDriver,
   options: { database?: boolean, env?: Record<string, string | undefined> } = {},
-): RealtimeNodeAuthorityChoice {
+): RealtimeNodeDriverChoice {
   const env = options.env ?? globalThis.process?.env ?? {}
   const redis = readVariable(env, "REDIS_URL")
   const override = readVariable(env, realtimePostgresUrlVariable)
-  if (authority === "redis" || (authority === "auto" && redis)) {
-    if (!redis) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "redis" })
-    return { authority: "redis", source: "REDIS_URL", url: redis }
+  if (driver === "redis" || (driver === "auto" && redis)) {
+    if (!redis) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "redis" })
+    return { driver: "redis", source: "REDIS_URL", url: redis }
   }
   if (override) {
     if (!postgresUrl.test(override)) throw realtimeErrorDiagnostics.REALTIME_INVALID_POSTGRES_URL()
-    return { authority: "postgres", source: realtimePostgresUrlVariable, url: override }
+    return { driver: "postgres", source: realtimePostgresUrlVariable, url: override }
   }
-  if (options.database) return { authority: "postgres", source: "Default Database" }
-  if (authority === "postgres") throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
-  return { authority: "memory" }
+  if (options.database) return { driver: "postgres", source: "Default Database" }
+  if (driver === "postgres") throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "postgres" })
+  return { driver: "memory" }
 }
 
-function describeChoice(choice: RealtimeNodeAuthorityChoice): string {
-  return choice.authority === "memory"
+function describeChoice(choice: RealtimeNodeDriverChoice): string {
+  return choice.driver === "memory"
     ? "[vitehub] Realtime keeps rooms in this process. Set REDIS_URL, or use a Postgres Default Database, to share rooms across instances."
-    : `[vitehub] Realtime shares rooms across instances through ${choice.authority === "redis" ? "Redis" : "Postgres"} (${choice.source}).`
+    : `[vitehub] Realtime shares rooms across instances through ${choice.driver === "redis" ? "Redis" : "Postgres"} (${choice.source}).`
 }
 
 /** The postgres.js client of the Default Database, or undefined when it is not one. */
@@ -92,53 +93,53 @@ async function defaultDatabaseClient(databases: (() => Promise<RealtimeDatabases
 }
 
 /**
- * Creates the bus for `authority`, or `undefined` when the rooms stay in this process. `useRealtimeBus()` keeps one per
+ * Creates the bus for `driver`, or `undefined` when the rooms stay in this process. `useRealtimeBus()` keeps one per
  * process. A bus on the Default Database borrows its client and never closes it.
  */
-export async function createRealtimeNodeBus(authority: RealtimeNodeAuthority, options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
-  const choice = resolveRealtimeNodeAuthority(authority, { database: !!options.databases, env: options.env })
+export async function createRealtimeNodeBus(driver: RealtimeNodeDriver, options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
+  const choice = resolveRealtimeNodeDriver(driver, { database: !!options.databases, env: options.env })
   const namespace = resolveRealtimeNamespace(options.namespace, options.env)
-  if (choice.authority === "redis") return await createRedisRealtimeBus(choice.url!, { namespace })
-  if (choice.authority === "memory") return undefined
+  if (choice.driver === "redis") return await createRedisRealtimeBus(choice.url!, { namespace })
+  if (choice.driver === "memory") return undefined
   if (choice.url) return await createPostgresRealtimeBus({ namespace, url: choice.url })
   const client = await defaultDatabaseClient(options.databases)
-  if (!client) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
+  if (!client) throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "postgres" })
   return await createPostgresRealtimeBus({ client, namespace })
 }
 
 const busesKey: unique symbol = Symbol.for("vitehub.realtime.buses")
 // SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
-const busScope = globalThis as typeof globalThis & { [busesKey]?: Map<RealtimeNodeAuthority, Promise<RealtimeBus | undefined>> }
+const busScope = globalThis as typeof globalThis & { [busesKey]?: Map<RealtimeNodeDriver, Promise<RealtimeBus | undefined>> }
 
-function buses(): Map<RealtimeNodeAuthority, Promise<RealtimeBus | undefined>> {
+function buses(): Map<RealtimeNodeDriver, Promise<RealtimeBus | undefined>> {
   busScope[busesKey] ??= new Map()
   return busScope[busesKey]
 }
 
 /**
- * The bus of this process for `authority`, created on first use, or `undefined` when the rooms stay in this process.
+ * The bus of this process for `driver`, created on first use, or `undefined` when the rooms stay in this process.
  * The generated Realtime handler of a Node build calls it.
  */
-export function useRealtimeBus(authority: RealtimeNodeAuthority = "auto", options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
-  const existing = buses().get(authority)
+export function useRealtimeBus(driver: RealtimeNodeDriver = "auto", options: RealtimeNodeBusOptions = {}): Promise<RealtimeBus | undefined> {
+  const existing = buses().get(driver)
   if (existing) return existing
-  const pending = createRealtimeNodeBus(authority, options)
-  buses().set(authority, pending)
+  const pending = createRealtimeNodeBus(driver, options)
+  buses().set(driver, pending)
   // A failed connection is tried again by the next room that opens.
   pending.catch(() => {
-    if (buses().get(authority) === pending) buses().delete(authority)
+    if (buses().get(driver) === pending) buses().delete(driver)
   })
   return pending
 }
 
 /**
- * Prints the room authority that this server uses. The generated Nitro plugin calls it when the server starts.
+ * Prints the Realtime driver that this server uses. The generated Nitro plugin calls it when the server starts.
  * `database` is true when the build found the Default Database on Postgres.
  */
-export function logRealtimeNodeAuthority(authority: RealtimeNodeAuthority = "auto", options: { database?: boolean, namespace?: string } = {}): void {
+export function logRealtimeNodeDriver(driver: RealtimeNodeDriver = "auto", options: { database?: boolean, namespace?: string } = {}): void {
   try {
-    const choice = resolveRealtimeNodeAuthority(authority, options)
-    console.info(choice.authority === "memory" ? describeChoice(choice) : `${describeChoice(choice).slice(0, -1)}, namespace "${resolveRealtimeNamespace(options.namespace)}".`)
+    const choice = resolveRealtimeNodeDriver(driver, options)
+    console.info(choice.driver === "memory" ? describeChoice(choice) : `${describeChoice(choice).slice(0, -1)}, namespace "${resolveRealtimeNamespace(options.namespace)}".`)
   }
   catch (error) {
     console.error(error)
@@ -200,7 +201,7 @@ function createDelivery(instance: string, read: (raw: string | Uint8Array) => Pr
         if (!message || message.instance === instance) return
         for (const listener of listeners) await listener(message)
       }).catch((error: unknown) => {
-        console.error("[vitehub] Realtime could not apply a message from another instance.", error)
+        logRealtime("error", "Realtime could not apply a message from another instance.", { failed: "bus-receive" }, error)
       })
     },
   }
@@ -286,7 +287,7 @@ export async function createPostgresRealtimeBus(connection: ({ client: unknown }
     sql = postgres(connection.url, { max: postgresConnections, onnotice: () => {} }) as unknown as PostgresClient
   }
   else if (isPostgresClient(connection.client)) sql = connection.client
-  else throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ authority: "postgres" })
+  else throw realtimeErrorDiagnostics.REALTIME_MISSING_BUS_CONNECTION({ driver: "postgres" })
   const { default: postgres } = await import("postgres")
   // The callback may use the borrowed Database, including a max=1 pool. Reserve locks on an independent pool with
   // the same resolved connection settings; never occupy the connection that the adapter needs to finish its save.
@@ -474,7 +475,10 @@ export async function createRedisRealtimeBus(url: string, options: { namespace?:
         await new Promise(resolve => setTimeout(resolve, 25 + Math.random() * 50))
       }
       const renew = setInterval(() => {
-        client.eval(redisRenewLockScript, 1, key, token, redisLockMs).catch(() => {})
+        // The lock ends 30 seconds after the last renewal. Then another instance can save the room at the same time.
+        client.eval(redisRenewLockScript, 1, key, token, redisLockMs).catch((error: unknown) => {
+          logRealtime("warn", "Realtime could not renew a room lock.", { ...realtimeRoomFields(room, false), failed: "bus-lock" }, error)
+        })
       }, redisLockRenewMs)
       try {
         return await task()

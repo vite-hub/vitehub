@@ -17,6 +17,8 @@ export type {
 } from "./reference.ts"
 export type {
   BlobCopyOptions,
+  BlobDeletePrefixOptions,
+  BlobDeletePrefixResult,
   BlobDriver,
   BlobErrorCode,
   BlobEnsureOptions,
@@ -35,6 +37,7 @@ export type {
   BlobMultipartPart,
   BlobMultipartUpload,
   BlobObject,
+  BlobPutCondition,
   BlobPutOptions,
   BlobSignedRequest,
   BlobSignOptions,

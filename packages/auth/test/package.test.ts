@@ -28,6 +28,7 @@ describe("@vite-hub/auth package contract", () => {
       "./runtime/server",
       "./schema",
       "./server",
+      "./test",
       "./vite",
       "./vue",
     ])
@@ -37,11 +38,10 @@ describe("@vite-hub/auth package contract", () => {
     expect(Object.keys(await import("../src/server.ts")).sort()).toEqual([
       "AbilityError",
       "aggregateAuthEvents",
-      "auth",
       "can",
+      "checkAuthMember",
       "createAuthHandler",
       "default",
-      "getAuth",
       "getAuthConsoleForRequest",
       "getAuthEvents",
       "handleAuth",
@@ -49,6 +49,8 @@ describe("@vite-hub/auth package contract", () => {
       "requireAbility",
       "requireAuth",
       "requireAuthorization",
+      "requireCaller",
+      "signOut",
       "useAuth",
       "withAnonymousAuthorization",
       "withAuth",
@@ -73,6 +75,7 @@ describe("@vite-hub/auth package contract", () => {
     "./runtime/server",
     "./schema",
     "./server",
+    "./test",
     "./vue",
     "./vite",
   ])("loads documented export %s from the built package", async (entry) => {

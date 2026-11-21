@@ -1,5 +1,7 @@
 import { commentsApiRoute, commentsRoute } from "../page.ts"
-import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
+import { Diagnostic } from "nostics"
+
+import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 
 import type { RestTransport } from "../rest-transport.ts"
 import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
@@ -14,6 +16,8 @@ export interface CommentsSession {
   /** Signs out of the GitHub sign-in of Comments. */
   signOut?: string
   realtime: boolean
+  /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
+  presence?: false
   content: boolean
   /** The subject of the page, which `page` of `defineComments()` decides on the server. */
   subject?: CommentSubject
@@ -64,7 +68,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
     return [undefined, (await send<T>(path, init)).data]
   }
   catch (error) {
-    if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
+    // createCommentsRestRequest() throws only diagnostics for a failed request.
+    if (error instanceof Diagnostic) return [{ code: error.code, why: error.message, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
     throw error
   }
 }
@@ -119,12 +124,4 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
     resolve: changed(rest.resolve),
     reopen: changed(rest.reopen),
   }
-}
-
-/** The file as Base64, the form that `comments.upload` takes. */
-export async function base64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ""
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  return btoa(binary)
 }

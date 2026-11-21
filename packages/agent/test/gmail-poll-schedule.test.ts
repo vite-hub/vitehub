@@ -67,7 +67,8 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
       "console.log(JSON.stringify(globalThis.gmailPollCalls))",
     ].join("\n"), pathToFileURL(output).href])
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual([
-      { path: "profile" }, { path: "history", cursor: "300" }, { path: "history", cursor: "305" },
+      // A custom client can change mailboxes, so each poll reads the mailbox address. The first read also starts the cursor.
+      { path: "profile" }, { path: "profile" }, { path: "history", cursor: "300" }, { path: "profile" }, { path: "history", cursor: "305" },
     ])
   }
   finally {
@@ -156,7 +157,7 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
     await expect(readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")).resolves.not.toHaveLength(0)
     const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", [
       "const { default: handler } = await import(process.argv[1])",
-      "const response = await handler(new Request('https://example.com/api/_vitehub/agents/poller/inspection'), { params: { agent: 'poller' } })",
+      "const response = await handler(new Request('https://example.com/_vitehub/agents/poller/inspection'), { params: { agent: 'poller' } })",
       "console.log(response.status)",
       "console.log(await response.text())",
     ].join("\n"), pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href])

@@ -15,7 +15,7 @@ portable. Deno code stays in generated output and driver configuration.
 | Concern | ViteHub boundary |
 | --- | --- |
 | Agent chat and webhook routes | The Nitro server mounts the standard chat dispatcher and webhook route. Route-enabled Channels pick which Agents answer chat requests. |
-| Static cron schedules | The Schedule integration writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` wake output. `vitehub({ schedule })` fails on this host, so add `hubSchedule()` directly. |
+| Static cron schedules | `schedule: true` writes `.output/schedule/deno-cron.mjs`, which registers each Schedule with `Deno.cron`. The generated `.output/main.ts` loads it before the server. |
 | Lightweight state | KV defaults to `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Not available | Blob without an explicit store, Queue, Rate Limit, and Sandbox fail the build. |
 | Deployment | Deno Deploy owns environment variables, permissions, logs, and rollout. |
@@ -26,8 +26,8 @@ server is outside the deployed Nitro entry.
 
 ## Configure the host
 
-Select the `deno` host. This example also adds static Schedule output, so
-install the Schedule package first.
+Select the `deno` host. This example also turns on Schedule, so install the
+Schedule package first.
 
 ```bash [Terminal]
 pnpm add @vite-hub/schedule
@@ -42,21 +42,17 @@ export default defineNuxtConfig({
     host: 'deno',
     agent: true,
     console: false,
-    workflow: false,
+    schedule: true,
     kv: {
       driver: 'deno-kv',
     },
   },
 })
 ```
-
-> [!WARNING]
-> In Nuxt, ViteHub does not write the `Deno.cron` output yet, so static Schedules do not run on Deno. Use the Nitro or Vite setup when you need them.
 :::
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
@@ -67,13 +63,12 @@ export default defineConfig({
       host: 'deno',
       agent: true,
       console: false,
-      workflow: false,
+      schedule: true,
       kv: {
         driver: 'deno-kv',
       },
     }),
     nitro(),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
@@ -81,7 +76,6 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -91,20 +85,19 @@ export default defineConfig({
       host: 'deno',
       agent: true,
       console: false,
-      workflow: false,
+      schedule: true,
       kv: {
         driver: 'deno-kv',
       },
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
   ],
 })
 ```
 :::
 ::
 
-The generated Nitro server imports your Agent Definitions and mounts the webhook route pattern and the standard `/api/_vitehub/agents/[agent]/chat` dispatcher.
-Schedule output needs a `main.ts` in the project root that registers the cron output before it starts the server. The build bundles it into `.output/main.ts` and fails without it.
+The generated Nitro server imports your Agent Definitions and mounts the webhook route pattern and the standard `/_vitehub/agents/[agent]/chat` dispatcher.
+With Schedules, the build writes `.output/main.ts`. It registers the cron output, then starts the server. To run your own code first, add a `main.ts` to the project root. The build bundles it into `.output/main.ts` in place of the generated file. It must import both files:
 
 ```ts [main.ts]
 await import(new URL('./schedule/deno-cron.mjs', import.meta.url).href)
@@ -113,7 +106,7 @@ await import(new URL('./server/index.mjs', import.meta.url).href)
 
 ## Generated output
 
-A production build puts the Deno server, the `main.ts` entrypoint, and Schedule output under `.output`. Without `main.ts`, the entrypoint is `.output/server/index.mjs`.
+A production build puts the Deno server, the `main.ts` entrypoint, and Schedule output under `.output`. Without Schedules, the entrypoint is `.output/server/index.mjs`.
 
 ```bash [Terminal]
 pnpm build
@@ -137,7 +130,7 @@ HOST=0.0.0.0 PORT=8000 NITRO_HOST=0.0.0.0 NITRO_PORT=8000 deno run --unstable-cr
 For one `support` Agent with the default chat route, the generated route accepts this request. The Agent must attach a route-enabled `webChat()` Channel. The dispatcher cannot reach Agents without one.
 
 ```bash [Terminal]
-curl -X POST http://127.0.0.1:8000/api/_vitehub/agents/support/chat \
+curl -X POST http://127.0.0.1:8000/_vitehub/agents/support/chat \
   -H 'content-type: application/json' \
   -d '{"id":"local","messages":[{"id":"user-1","role":"user","parts":[{"type":"text","text":"ping"}]}]}'
 ```

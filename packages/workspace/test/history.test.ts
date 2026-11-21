@@ -66,7 +66,7 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     cleanup.push(() => worker.dispose())
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
-    blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
+    blob = createBlobStorage(createR2Driver({ driver: "cloudflare", binding: "HISTORY_R2" }))
     database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB")) : createCloudflareD1HttpResolver({
       name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
     }, defineRelations(workspaceHistorySchema), async (url, options) => {
@@ -89,6 +89,25 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
 function rawFiles(files: Record<string, string | Uint8Array>) {
   return Object.fromEntries(Object.entries(files).map(([path, content]) => [path, { path, content }]))
 }
+
+it.each(["published", "draft"])("observes its own head rejection but not a post-write conflict on %s", async (ref) => {
+  const { store } = await setup("libsql")
+  const base = createWorkspace({ name: "history", store })
+  await base.history.commit({ ref: "published", ifHead: null, files: { "a.txt": "published" } })
+  const workspace = createWorkspace({ name: "history", store, hooks: {
+    "write:after": async () => { await base.history.commit({ ref, ifHead: null, files: { "a.txt": "hook" } }) },
+  } })
+  const onHeadConflict = vi.fn()
+  const commit = { ref: "draft", ifHead: null, files: { "a.txt": "draft" }, onHeadConflict }
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref } })
+  expect(onHeadConflict).not.toHaveBeenCalled()
+  const head = await workspace.history.head({ ref: "draft" })
+  expect(await (await workspace.history.open(head!.id)).readFile("a.txt")).toBe("draft")
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "draft" } })
+  expect(onHeadConflict).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "WORKSPACE_CONFLICT" }))
+})
 
 describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { timeout: 30_000 }, (driver) => {
   it("commits, lists, opens, and reads immutable text and binary files after a reopen", async () => {
@@ -220,7 +239,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     const otherRevision = await other.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "same" }), metadata: { source: ["raw-store"] } })
     expect(otherRevision.metadata).toEqual({ source: ["raw-store"] })
     expect(uploads).toHaveBeenCalledTimes(3)
-    expect(uploads.mock.calls.map(([key]) => key)).toEqual(expect.arrayContaining([expect.stringMatching(/\/sha256\/[a-f0-9]{64}$/)]))
+    for (const [key] of uploads.mock.calls) expect(key).toMatch(/\/sha256\/[a-f0-9]{64}-[a-f0-9-]{36}$/)
     expect(uploads.mock.calls.every(([key]) => String(key).startsWith("_vitehub/workspace-history/"))).toBe(true)
     await store.delete()
     expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
@@ -380,6 +399,13 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await store.snapshot()
     const revision = await store.history.head()
     expect(await (await store.history.open(revision!.id)).readFile("keep.txt")).toBe("accepted")
+  })
+
+  it("keeps the author of a snapshot in the revision metadata", async () => {
+    const { store } = await setup(driver)
+    await store.writeFile("posts/a.md", { path: "posts/a.md", content: "a" })
+    await store.snapshot({ name: "docs: add a", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(await store.history.head()).toMatchObject({ message: "docs: add a", metadata: { author: { name: "Ada Lovelace", email: "ada@example.com" } } })
   })
 
   it("accepts cross-realm binary content through both history entry points", async () => {
@@ -822,7 +848,7 @@ describe("retained history Blob prefix", () => {
     await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "handbook" }) })
     const keys = uploads.mock.calls.map(([key]) => String(key))
     expect(keys).toHaveLength(1)
-    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
+    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}-[a-f0-9-]{36}$/)
     const [error, listed] = await blob.list()
     expect(error).toBeUndefined()
     expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)

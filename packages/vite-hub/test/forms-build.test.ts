@@ -95,7 +95,7 @@ describe("Forms in a built Nitro 3 app", () => {
       // The handler installs the inbox when the server starts, so server code reads it before any submission.
       expect(await (await server.fetch("/inbox")).json()).toEqual([])
       expect(await call("forms.list", {})).toEqual([])
-      const send = (body: unknown, headers: Record<string, string> = {}) => server.fetch("/api/_vitehub/forms/contact", {
+      const send = (body: unknown, headers: Record<string, string> = {}) => server.fetch("/_vitehub/forms/contact", {
         body: JSON.stringify(body),
         headers: { "content-type": "application/json", referer: "http://localhost/pricing", ...headers },
         method: "POST",
@@ -113,7 +113,7 @@ describe("Forms in a built Nitro 3 app", () => {
 
       expect((await send({ email: "bot@example.com", message: "Buy", website: "x" })).status).toBe(202)
       expect((await send({ email: "ada@example.com", message: "Again" })).status).toBe(429)
-      expect((await server.fetch("/api/_vitehub/forms/missing", { method: "POST", body: "{}", headers: { "content-type": "application/json" } })).status).toBe(404)
+      expect((await server.fetch("/_vitehub/forms/missing", { method: "POST", body: "{}", headers: { "content-type": "application/json" } })).status).toBe(404)
 
       const inbox = await (await server.fetch("/inbox")).json() as Array<{ id: string, data: unknown, page: string | null, status: string }>
       expect(inbox).toEqual([expect.objectContaining({ id, data: { email: "ada@example.com", message: "Hello" }, status: "open" })])

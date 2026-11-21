@@ -1,3 +1,4 @@
+import { checkoutPoolReplacedMessage, cleanCheckoutPoolScript } from "./checkout-pool-cleanup.injected.ts";
 import { execFile } from "node:child_process";
 import { lstat, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
 import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
+import { pullRequestThreadId } from "../github/pull-requests.ts";
 import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
@@ -21,6 +23,7 @@ import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { babysitterRepositories } from "./repositories.ts";
+import { createWebhookRedelivery } from "./webhook-redelivery.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 import { createPullRequestWorkspaces, type BabysitterWarmWorkspaces, type PullRequestWorkspaceStatus } from "./pr-workspaces.ts";
 
@@ -53,29 +56,28 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   });
   if (!info) return 0;
   if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`[vitehub] Refusing to clean unsafe Babysitter checkout pool: ${root}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_UNSAFE({ root });
   }
   const quarantine = await mkdtemp(join(dataDir, ".checkouts-cleanup-"));
   const claimed = join(quarantine, "checkouts");
   await rename(root, claimed);
   const claimedInfo = await lstat(claimed, { bigint: true });
   if (!claimedInfo.isDirectory() || claimedInfo.dev !== info.dev || claimedInfo.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   const entries = await readdir(claimed, { withFileTypes: true });
-  await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
-    import { lstat, readdir, rm } from "node:fs/promises";
-    const info = await lstat(".", { bigint: true });
-    if (String(info.dev) !== process.argv[1] || String(info.ino) !== process.argv[2]) {
-      throw new Error("Refusing to clean replaced Babysitter checkout pool");
+  try {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", cleanCheckoutPoolScript, String(info.dev), String(info.ino)], { cwd: claimed });
+  } catch (error) {
+    // A failed execFile() call carries the child's stderr.
+    if (isRuntimeRecord(error) && String(error.stderr ?? "").includes(checkoutPoolReplacedMessage)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed, cause: error });
     }
-    for (const entry of await readdir(".")) {
-      await rm(entry, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
-    }
-  `, String(info.dev), String(info.ino)], { cwd: claimed });
+    throw error;
+  }
   const remaining = await lstat(claimed, { bigint: true });
   if (remaining.dev !== info.dev || remaining.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   return entries.length;
 }
@@ -147,7 +149,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   // Report every missing secret at startup, not the webhook secret on the first delivery.
   const app = await readGitHubAppEnvironment({}, { webhookSecret: true });
   const credentials = createGitHubAppCredentials(app);
-  const repositories = babysitterRepositories(agent.options.filter, () => credentials.repositories());
+  const repositories = babysitterRepositories(agent.options.filter, signal => credentials.repositories(signal));
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
@@ -187,16 +189,21 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),
     check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
-  let admissionPrerequisiteSample: string | undefined;
+  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
+  const warmWorkspaces = agent.options.warmWorkspaces;
+  // Each pass runs in its own provider thread, and only `resumeThreads` continues one. Without it, no pass reads a stored session.
+  const resumeThreads = typeof warmWorkspaces === "object" && warmWorkspaces.resumeThreads === true;
+  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({
+    root: join(context.dataDir, "pr-workspaces"),
+    ...(warmWorkspaces === true ? {} : warmWorkspaces),
+    ...(resumeThreads ? { deleteSession: (repository: string, number: number, session: string) => host.deleteProviderSession(`${pullRequestThreadId(repository, number)}:${session}`) } : {}),
+  }) : undefined;
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
     extends: agent,
     invocations: host.invocations,
-    driver: { capacity: host.capacity, sessionStorePath: host.providerSessionStorePath },
+    driver: { capacity: host.capacity, ...(resumeThreads ? { sessionStorePath: host.providerSessionStorePath } : {}) },
   });
-  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
-  const warmWorkspaces = agent.options.warmWorkspaces;
-  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({ root: join(context.dataDir, "pr-workspaces"), ...(warmWorkspaces === true ? {} : warmWorkspaces) }) : undefined;
   runtime = createBabysitterRuntime({
     workspaces,
     agent: worker,
@@ -210,7 +217,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     event: host.event,
     error: host.error,
     wake: () => host.wake(),
-    admission,
+    admission: signal => admission(undefined, signal),
     // A sample that times out while the disk is busy keeps the worker queue's fallback slots instead of none.
     hostCapacity: async ({ active, signal }) => {
       try {
@@ -223,6 +230,20 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
   });
   const inbox = runtime.inbox;
+  const schedulerHealth = runtime.scheduler;
+  const processHealth = boundedHealthRead(() => host.health());
+  const queueHealth = boundedHealthRead(() => inbox.summary());
+  const prerequisiteHealth = boundedHealthRead(preflight);
+  const skipHealth = boundedHealthRead(async () => ({ lastSkip: await inbox.meta("admission-skipped") }));
+  let admissionPrerequisiteSample: string | undefined;
+  const admissionHealth = boundedHealthRead(async () => {
+    const prerequisites = await preflight();
+    if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
+      admissionPrerequisiteSample = prerequisites.checkedAt;
+      admission.invalidate();
+    }
+    return await admission.health();
+  });
   // No pass runs yet, so workspaces from an earlier process are garbage.
   const swept = await sweepBabysitterWorkspaces();
   const workspaceStatus = async (repository: string, number: number): Promise<PullRequestWorkspaceStatus> => {
@@ -235,6 +256,9 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error => host.error("babysitter.workspaces.prune_failed", error, { reason }),
   );
   let workspaceSweep: ReturnType<typeof setInterval> | undefined;
+  // GitHub does not retry failed webhook deliveries. Lost check results leave green PRs waiting.
+  const redelivery = createWebhookRedelivery({ source: credentials, event: host.event, error: host.error });
+  let redeliverySweep: ReturnType<typeof setInterval> | undefined;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -259,6 +283,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
         .finally(() => {
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
+          redeliverySweep = setInterval(() => void redelivery.sweep().catch(error => host.error("babysitter.webhook.redelivery_failed", error)), 5 * 60_000);
+          redeliverySweep.unref();
           if (workspaces) {
             void sweepWorkspaces("startup");
             if (workspaces.sweepMs > 0) {
@@ -274,6 +300,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
     async close() {
       clearInterval(workspaceSweep);
+      clearInterval(redeliverySweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
       await inbox.close();
@@ -281,34 +308,69 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     wake: reason => host.wake(reason),
     status: () => host.status(),
     async health() {
-      const health = await host.health();
-      const queue = await inbox.summary();
-      // Refresh prerequisites before admission so both health surfaces describe one sample.
-      const prerequisites = await preflight();
-      if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
-        admissionPrerequisiteSample = prerequisites.checkedAt;
-        admission.invalidate();
-      }
-      const guard = await admission.health();
-      const lastSkip = await inbox.meta("admission-skipped");
-      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories: repositories.known(), repositorySource: repositories.source, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
-        accepting: guard.accepting,
-        hostOnly: guard.hostOnly,
-        reason: guard.reason,
-        retryAt: guard.retryAt,
-        detail: guard.detail,
-        // Retained for existing clients. lastSkip is historical; accepting is current.
-        lastSkip,
-        history: { lastSkip },
-      }, budget: {
-        accounting: guard.accounting,
-        observedAt: new Date(guard.observedAt).toISOString(),
-        hourly: { inputTokens: guard.state.hourlyInputTokens, limit: guard.limits.hourlyInputTokens, resetsAt: guard.state.windows.hourEnd },
-        daily: { inputTokens: guard.state.dailyInputTokens, limit: guard.limits.dailyInputTokens, resetsAt: guard.state.windows.dayEnd },
-        tmp: { dir: guard.state.tmpDir, freeBytes: guard.state.freeTmpBytes, minFreeBytes: guard.limits.minFreeTmpBytes },
-        pause: guard.state.pause,
-        errors: guard.state.errors,
-      } };
+      const [health, queue, prerequisites, guard, skip] = await Promise.all([
+        processHealth(), queueHealth(), prerequisiteHealth(), admissionHealth(), skipHealth(),
+      ]);
+      // A drained host runs no reconcile, so only a running or starting host can be silent.
+      const hostStatus = host.status();
+      const scheduler = schedulerHealth(hostStatus === "accepting" || hostStatus === "starting");
+      const stall = scheduler.status === "stalled" ? scheduler.lastStall : undefined;
+      const schedulerDiagnostics = scheduler.status === "ok" ? [] : [{
+        label: "Scheduler",
+        status: "warning" as const,
+        value: stall ? `Stalled at ${stall.step}` : "No reconcile finished",
+        detail: stall
+          ? `${stall.count} reconcile(s) in a row waited too long and were stopped${stall.subject ? `, the last on ${stall.subject}` : ""}.`
+          : `The last reconcile finished at ${scheduler.lastFinishedAt ?? "never"}.`,
+      }];
+      const unavailable = [!health && "invocation state", !queue && "queue", !prerequisites && "prerequisites", !guard && "admission", !skip && "admission history"].filter(Boolean);
+      const readDiagnostics = unavailable.length ? [{ label: "Health data", status: "warning" as const, value: "Unavailable", detail: unavailable.join(", ") }] : [];
+      const lastSkip = skip?.lastSkip;
+      return {
+        ...health,
+        status: health?.status === "healthy" && !prerequisites?.pause && !schedulerDiagnostics.length && !unavailable.length ? "healthy" : "degraded",
+        diagnostics: [...health?.diagnostics ?? [], ...prerequisites?.diagnostics ?? [], ...schedulerDiagnostics, ...readDiagnostics],
+        scheduler,
+        release: agent.version,
+        framework: { buildRevision },
+        concurrency: agent.options.concurrency,
+        repositories: repositories.known(),
+        repositorySource: repositories.source,
+        ...(queue ? { queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) } } : {}),
+        ...(guard ? {
+          admission: {
+            accepting: guard.accepting,
+            hostOnly: guard.hostOnly,
+            reason: guard.reason,
+            retryAt: guard.retryAt,
+            detail: guard.detail,
+            // Retained for existing clients. lastSkip is historical; accepting is current.
+            lastSkip,
+            history: { lastSkip },
+          },
+          budget: {
+            accounting: guard.accounting,
+            observedAt: new Date(guard.observedAt).toISOString(),
+            hourly: { inputTokens: guard.state.hourlyInputTokens, limit: guard.limits.hourlyInputTokens, resetsAt: guard.state.windows.hourEnd },
+            daily: { inputTokens: guard.state.dailyInputTokens, limit: guard.limits.dailyInputTokens, resetsAt: guard.state.windows.dayEnd },
+            tmp: { dir: guard.state.tmpDir, freeBytes: guard.state.freeTmpBytes, minFreeBytes: guard.limits.minFreeTmpBytes },
+            pause: guard.state.pause,
+            errors: guard.state.errors,
+          },
+        } : {}),
+      };
     },
   };
+}
+
+/** Bound the wait without starting more reads while a dependency is still busy. */
+function boundedHealthRead<T>(read: () => Promise<T>): () => Promise<T | undefined> {
+  let pending: Promise<T | undefined> | undefined;
+  return () => pending ??= new Promise(resolve => {
+    const timer = setTimeout(() => resolve(undefined), 1000);
+    void Promise.resolve().then(read).then(resolve, () => resolve(undefined)).finally(() => {
+      clearTimeout(timer);
+      pending = undefined;
+    });
+  });
 }

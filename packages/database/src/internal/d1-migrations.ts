@@ -4,34 +4,19 @@ import { copyFile, mkdir } from "node:fs/promises"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+import { applyD1MigrationFiles, createD1QueryAt, d1MigrationNamesFile, defaultD1MigrationsTable, readD1LedgerOf } from "./d1-ledger.ts"
 
+import type { AdoptedMigration, D1Ledger, D1Query } from "./d1-ledger.ts"
 import type { MigrationEntry } from "./migration-journal.ts"
 
-/** Wrangler's default ledger. `wrangler d1 migrations apply` and `vitehub database migrate` share it. */
-export const defaultD1MigrationsTable = "d1_migrations"
-
-// Drizzle Kit's ledger. ViteHub used it for D1 HTTP before it used Wrangler's ledger.
-const drizzleMigrationsTable = "__drizzle_migrations"
+export { d1MigrationNamesFile, defaultD1MigrationsTable }
+export type { AdoptedMigration, D1Ledger, D1Query }
 
 export interface D1HttpTarget {
   accountId?: string
   databaseId?: string
   token?: string
   proxy?: { url?: string, token?: string }
-}
-
-export type D1Query = (sql: string, params?: unknown[]) => Promise<unknown[]>
-
-export interface D1Ledger {
-  /** Migration file names in the ledger. */
-  applied: ReadonlySet<string>
-  /**
-   * Set when the ledger table does not exist yet. Names of the migrations that Drizzle Kit applied before, which the
-   * first `vitehub database migrate` writes into the new ledger.
-   */
-  missing?: { adopted: readonly string[] }
-  table: string
 }
 
 /**
@@ -52,18 +37,7 @@ export function createD1Query(target: D1HttpTarget, fail: (problem: string) => E
     ? target.proxy.url!
     : `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
   if (!["http:", "https:"].includes(new URL(url).protocol)) throw fail("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
-  const token = target.proxy ? target.proxy.token : target.token
-  return async (sql, params = []) => {
-    const response = await request(url, {
-      body: JSON.stringify({ params, sql }),
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      method: "POST",
-    })
-    const payload: unknown = await response.json().catch(() => undefined)
-    const rows = readD1Rows(payload)
-    if (!response.ok || !rows) throw fail(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
-    return rows
-  }
+  return createD1QueryAt(url, target.proxy ? target.proxy.token : target.token, fail, request)
 }
 
 /** A migration as Wrangler applies it: its `.sql` file name in the ledger, and the SQL file it comes from. */
@@ -76,14 +50,7 @@ export interface D1MigrationFile {
 
 const folderTag = /^\d{14}_(.+)$/
 
-/**
- * The file next to the migrations that keeps the Wrangler name of each migration folder, such as
- * `{ "20261109120000_init": "0000_init.sql" }`. Commit it: a listed folder keeps its name, so a folder that sorts
- * before applied ones, for example after a merge, cannot renumber them.
- */
-export const d1MigrationNamesFile = "d1-migrations.json"
-
-function readD1MigrationNames(migrationsDir: string): Record<string, string> {
+export function readD1MigrationNames(migrationsDir: string): Record<string, string> {
   const file = join(migrationsDir, d1MigrationNamesFile)
   if (!existsSync(file)) return {}
   const shape = `${file} must map each migration folder to its Wrangler file name, such as { "20261109120000_init": "0000_init.sql" }.`
@@ -107,6 +74,10 @@ function migrationNumber(name: string): number {
 
 /**
  * Lists the migrations of a directory with the `.sql` file names that Wrangler applies, in Wrangler's order.
+ *
+ * `d1-migrations.json` next to the migrations keeps the Wrangler name of each migration folder, such as
+ * `{ "20261109120000_init": "0000_init.sql" }`. Commit it: a listed folder keeps its name, so a folder that sorts
+ * before applied ones, for example after a merge, cannot renumber them.
  *
  * A Drizzle Kit folder takes its name from `d1-migrations.json`. A folder that the file does not list gets the next
  * number, `NNNN_<name>.sql`. Without the file, the numbers follow the folder order, which gives each folder the name
@@ -152,6 +123,68 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
   })
 }
 
+/** A flat Wrangler migration file and the Drizzle Kit 1.0 folder that `vitehub database up` moves it to. */
+export interface FlatMigrationMove {
+  /** The flat file name, such as `0000_init.sql`. Wrangler keeps it in its ledger, so `d1-migrations.json` keeps it too. */
+  file: string
+  /** The folder, such as `20261029101500_0000_init`. It keeps the file name, which other ledgers match too. */
+  folder: string
+}
+
+function folderTimestamp(millis: number): string {
+  return new Date(millis).toISOString().replace(/\D/g, "").slice(0, 14)
+}
+
+function readLegacyJournal(migrationsDir: string) {
+  const file = join(migrationsDir, "meta", "_journal.json")
+  if (!existsSync(file)) return []
+  const journal: unknown = JSON.parse(readFileSync(file, "utf8"))
+  if (!isRecord(journal) || !Array.isArray(journal.entries)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal: ${file}.` })
+  return journal.entries.map((entry: unknown) => {
+    if (!isRecord(entry) || typeof entry.tag !== "string" || typeof entry.when !== "number" || !Number.isSafeInteger(entry.when) || entry.when < 0 || entry.when >= Date.UTC(10000, 0, 1)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `Invalid migration journal entry: ${file}.` })
+    }
+    return { tag: entry.tag, when: entry.when }
+  })
+}
+
+/** Kit can convert a journal only when it lists every file and each entry has a snapshot. */
+export function canDrizzleKitConvert(migrationsDir: string): boolean {
+  const tags = readLegacyJournal(migrationsDir).map(entry => entry.tag)
+  const flat = readdirSync(migrationsDir).filter(name => name.endsWith(".sql"))
+  return flat.every(name => tags.includes(name.slice(0, -".sql".length)))
+    && tags.every(tag => flat.includes(`${tag}.sql`) && existsSync(join(migrationsDir, "meta", `${tag.split("_")[0]}_snapshot.json`)))
+}
+
+/**
+ * Plans one migration folder per flat `.sql` file, in Wrangler's order. A file that a Drizzle Kit 0.x journal lists
+ * keeps the second of its journal entry, as `drizzle-kit up` does, so a 0.x ledger row still matches it. The other
+ * files take the seconds around them, one second apart, or the seconds before `now` when the journal lists none.
+ */
+export function planFlatMigrationFolders(migrationsDir: string, now = Date.now()): FlatMigrationMove[] {
+  const files = listD1Migrations(migrationsDir).filter(file => file.source === join(migrationsDir, file.name)).map(file => file.name)
+  const anchors = new Map<string, number>()
+  for (const { tag, when } of readLegacyJournal(migrationsDir)) {
+    const file = `${tag}.sql`
+    if (!files.includes(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file}, but that file is missing.` })
+    if (anchors.has(file)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `The migration journal lists ${file} more than once.` })
+    anchors.set(file, Math.floor(when / 1000) * 1000)
+  }
+  const listed = files.map(file => anchors.get(file))
+  const first = listed.findIndex(second => second !== undefined)
+  // Files before the first listed one count back from it. Without a listed file, the last one takes the second of `now`.
+  const start = first < 0 ? Math.floor(now / 1000) * 1000 - (files.length - 1) * 1000 : listed[first]! - first * 1000
+  const seconds: number[] = []
+  for (const [index, second] of listed.entries()) {
+    const next = index === 0 ? start : seconds[index - 1]! + 1000
+    if (second !== undefined && second < next) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: `There is not enough time between journal entries to keep ${files[index]} in order without changing its recorded timestamp.` })
+    }
+    seconds.push(second ?? next)
+  }
+  return files.map((file, index) => ({ file, folder: `${folderTimestamp(seconds[index]!)}_${file.slice(0, -".sql".length)}` }))
+}
+
 /** Writes `d1-migrations.json` when it does not list every migration folder yet. Returns the migrations. */
 export function recordD1MigrationNames(migrationsDir: string): D1MigrationFile[] {
   const files = listD1Migrations(migrationsDir)
@@ -171,156 +204,25 @@ export async function copyD1MigrationFiles(migrationsDir: string, outputDir: str
   await Promise.all(files.map(file => copyFile(file.source, join(outputDir, file.name))))
 }
 
-/**
- * Fails when a ledger row has the name part of a migration under another number, for example when `d1-migrations.json`
- * is missing and a folder sorts before applied ones. Wrangler would apply them again.
- */
-function assertNumbering(applied: ReadonlySet<string>, files: readonly D1MigrationFile[]) {
-  const names = new Set(files.map(file => file.name))
-  for (const name of applied) {
-    if (names.has(name)) continue
-    const suffix = /^\d+_(.+)$/.exec(name)?.[1]
-    const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
-    if (moved) {
-      throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name}" in it.` })
-    }
-  }
-}
-
-/**
- * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the migrations that
- * Drizzle Kit applied count as applied, so a database that `vitehub database migrate` migrated before keeps its state.
- */
+/** Reads the applied migrations of `migrationsDir` from the ledgers on the database. See `readD1LedgerOf()`. */
 export async function readD1Ledger(
   query: D1Query,
   { cloudflare, migrationsDir }: { cloudflare?: { migrationsTable?: string }, migrationsDir: string },
   migrations: readonly MigrationEntry[],
 ): Promise<D1Ledger> {
-  const migrationsTable = cloudflare?.migrationsTable ?? defaultD1MigrationsTable
-  const tables = new Set((await query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)", [migrationsTable, drizzleMigrationsTable]))
-    .map(row => readRowValue(row, "name", 0)))
-  if (tables.has(migrationsTable)) {
-    const rows = await query(`SELECT name FROM ${quoteIdentifier(migrationsTable)}`)
-    const applied = new Set(rows.map(row => String(readRowValue(row, "name", 0))))
-    assertNumbering(applied, listD1Migrations(migrationsDir))
-    return { applied, table: migrationsTable }
-  }
-  let adopted: string[] = []
-  if (tables.has(drizzleMigrationsTable)) {
-    // ViteHub wrote this ledger as Drizzle Kit 0.x did, without `name`, so rows match by time and hash.
-    const rows = await query(`SELECT id, hash, created_at FROM ${drizzleMigrationsTable}`)
-    const { applied } = matchLedger(rows.map(row => toLedgerRow({
-      created_at: readRowValue(row, "created_at", 2),
-      hash: readRowValue(row, "hash", 1),
-      id: readRowValue(row, "id", 0),
-    })), migrations)
-    adopted = listD1Migrations(migrationsDir).filter(file => applied.has(file.tag)).map(file => file.name)
-  }
-  return { applied: new Set(adopted), missing: { adopted }, table: migrationsTable }
+  return await readD1LedgerOf(query, cloudflare?.migrationsTable ?? defaultD1MigrationsTable, listD1Migrations(migrationsDir), migrations)
 }
 
-/**
- * Applies the pending migrations like `wrangler d1 migrations apply --remote`. Each file and its ledger row go in one
- * request, so D1 rolls back both when the file fails.
- */
+/** Applies the pending migrations of `migrationsDir` like `wrangler d1 migrations apply --remote`. */
 export async function applyD1Migrations(
   query: D1Query,
   ledger: D1Ledger,
   migrationsDir: string,
   onApplied: (name: string) => void,
+  onAdopted: (migration: AdoptedMigration) => void,
 ): Promise<void> {
-  const table = quoteIdentifier(ledger.table)
-  const insert = (name: string) => `INSERT INTO ${table} (name) VALUES ('${name.replaceAll("'", "''")}');`
-  if (ledger.missing) {
-    // Wrangler creates the same table.
-    await query([
-      `CREATE TABLE IF NOT EXISTS ${table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);`,
-      ...ledger.missing.adopted.map(insert),
-    ].join("\n"))
-  }
-  for (const file of recordD1MigrationNames(migrationsDir)) {
-    if (ledger.applied.has(file.name)) continue
-    const sql = normalizeSqlLineEndings(readFileSync(file.source, "utf8"))
-    await query(`${sql}\n;\n${insert(file.name)}`)
-    onApplied(file.name)
-  }
-}
-
-/** D1's statement splitter needs LF in compound SQL; quoted values and identifiers must retain their bytes. */
-function normalizeSqlLineEndings(sql: string): string {
-  let normalized = ""
-  let quote: "'" | '"' | "`" | "]" | undefined
-  let comment: "line" | "block" | undefined
-  for (let index = 0; index < sql.length; index++) {
-    const char = sql[index]!
-    const next = sql[index + 1]
-    if (quote) {
-      normalized += char
-      if (char === quote) {
-        if (next === quote) {
-          normalized += next
-          index++
-        }
-        else quote = undefined
-      }
-      continue
-    }
-    if (char === "\r" && next === "\n") {
-      normalized += "\n"
-      index++
-      if (comment === "line") comment = undefined
-      continue
-    }
-    normalized += char
-    if (comment === "line") {
-      if (char === "\n") comment = undefined
-    }
-    else if (comment === "block") {
-      if (char === "*" && next === "/") {
-        normalized += next
-        index++
-        comment = undefined
-      }
-    }
-    else if ((char === "-" && next === "-") || (char === "/" && next === "*")) {
-      normalized += next
-      index++
-      comment = char === "-" ? "line" : "block"
-    }
-    else if (char === "'" || char === '"' || char === "`") quote = char
-    else if (char === "[") quote = "]"
-  }
-  return normalized
-}
-
-function quoteIdentifier(name: string): string {
-  return `"${name.replaceAll("\"", "\"\"")}"`
-}
-
-function readD1Rows(payload: unknown): unknown[] | undefined {
-  if (!isRecord(payload) || payload.success !== true || !Array.isArray(payload.result)) return
-  if (payload.result.some(result => !isRecord(result) || result.success === false)) return
-  const last: unknown = payload.result.at(-1)
-  if (!isRecord(last)) return
-  const rows = Array.isArray(last.results)
-    ? last.results
-    : isRecord(last.results) && Array.isArray(last.results.rows) ? last.results.rows : undefined
-  if (!rows) return
-  return rows.every(row => Array.isArray(row) || isRecord(row)) ? rows : undefined
-}
-
-function readRowValue(row: unknown, key: string, index: number): unknown {
-  if (Array.isArray(row)) return row[index]
-  return isRecord(row) ? row[key] : undefined
-}
-
-function describeD1Errors(payload: unknown): string {
-  if (!isRecord(payload)) return ""
-  const results = Array.isArray(payload.result) ? payload.result : []
-  const messages = [...Array.isArray(payload.errors) ? payload.errors : [], ...results]
-    .map(error => isRecord(error) ? (typeof error.message === "string" ? error.message : typeof error.error === "string" ? error.error : "") : "")
-    .filter(Boolean)
-  return messages.length ? `: ${messages.join("; ")}` : ""
+  const files = recordD1MigrationNames(migrationsDir).map(file => ({ name: file.name, sql: () => readFileSync(file.source, "utf8") }))
+  await applyD1MigrationFiles(query, ledger, files, onApplied, onAdopted)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

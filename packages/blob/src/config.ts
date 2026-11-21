@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { basename, normalize } from "pathe"
 
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -69,7 +70,7 @@ const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> 
     options: ["accountName", "container", "endpoint", "publicBaseUrl"],
     secrets: { accountKey: "AZURE_STORAGE_KEY", connectionString: "AZURE_STORAGE_CONNECTION_STRING", sasToken: "AZURE_STORAGE_SAS_TOKEN" },
   },
-  "cloudflare-r2": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
+  "cloudflare": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
   fs: { options: ["base", "urlBaseUrl"], secrets: {} },
   gcs: {
     options: ["bucket", "credentials.client_email", "keyFilename", "projectId", "publicBaseUrl"],
@@ -81,7 +82,7 @@ const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> 
     options: ["bucket", "endpoint", "publicBaseUrl", "region"],
     secrets: { "credentials.accessKeyId": "AWS_ACCESS_KEY_ID", "credentials.secretAccessKey": "AWS_SECRET_ACCESS_KEY", "credentials.sessionToken": "AWS_SESSION_TOKEN" },
   },
-  "vercel-blob": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
+  "vercel": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
 }
 
 /** Options that ViteHub sets itself and that hold no credential. */
@@ -181,19 +182,33 @@ export function resolveRuntimeBlobSecrets<TStore extends ResolvedBlobStoreConfig
   const lazy: Record<string, string> = {}
   let resolved: Record<string, unknown> = config
   for (const [option, name] of Object.entries(secretEnv)) {
-    if (store.driver === "cloudflare-r2" && LAZY_R2_SECRETS.has(option)) lazy[option] = name
+    if (store.driver === "cloudflare" && LAZY_R2_SECRETS.has(option)) lazy[option] = name
     else resolved = withOptionPath(resolved, option.split("."), readBlobSecretEnv(env, name, option, store.driver))
   }
   // SAFETY: Only the masked string options changed to their runtime values, so the store keeps its shape.
   return (Object.keys(lazy).length ? { ...resolved, secretEnv: lazy } : resolved) as TStore
 }
 
+function namedFsBase(folder: string, store: string): string {
+  if (!/^[\w-]+(?:\.[\w-]+)*$/.test(store)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: `Blob store ${JSON.stringify(store)} cannot form a folder name.` })
+  }
+  const stem = normalize(folder).replace(/\/+$/, "")
+  const name = basename(stem)
+  if (!name || name === "." || name === ".." || /^[a-z]:$/i.test(stem) || /^\/\/[^/]+\/[^/]+$/.test(stem)) {
+    throw blobErrorDiagnostics.BLOB_FS_DEFAULT_FOLDER_INVALID({ message: "BLOB_FS_BASE must name a folder to derive a sibling folder for a named store." })
+  }
+  return `${stem}-${store}`
+}
+
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
+  store = "default",
 ): ResolvedFsBlobStoreConfig {
   const urlBaseUrl = trimmed(config.urlBaseUrl)
-  return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE"), ...(urlBaseUrl ? { urlBaseUrl } : {}) }, { base: ".vitehub/data/blob", driver: "fs" as const })
+  const folder = readEnv(env, "BLOB_FS_BASE") ?? ".vitehub/data/blob"
+  return { base: trimmed(config.base) ?? (store === "default" ? folder : namedFsBase(folder, store)), driver: "fs", ...(urlBaseUrl ? { urlBaseUrl } : {}) }
 }
 
 const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>
@@ -226,7 +241,7 @@ function resolveCloudflareStore(
       jurisdiction: resolveCloudflareJurisdiction(config.jurisdiction, env),
       secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
     },
-    { binding: "BLOB", driver: "cloudflare-r2" as const },
+    { binding: "BLOB", driver: "cloudflare" as const },
   )
 }
 
@@ -255,7 +270,7 @@ function resolveVercelStore(
   return {
     ...config,
     access: resolveVercelAccess(config, served, path),
-    driver: "vercel-blob",
+    driver: "vercel",
     token,
     ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
@@ -334,17 +349,18 @@ function resolveExplicitStore(
   env: Record<string, string | undefined>,
   served: ResolvedBlobModuleOptions["serve"],
   path: string,
+  name = "default",
 ) {
   switch (store.driver) {
-    case "cloudflare-r2":
+    case "cloudflare":
       return resolveCloudflareStore(store, env)
     case "fs":
-      return resolveFsStore(store, env)
+      return resolveFsStore(store, env, name)
     case "minio":
       return resolveMinioStore(store, env)
     case "netlify-blobs":
       return resolveNetlifyStore(store)
-    case "vercel-blob":
+    case "vercel":
       return resolveVercelStore(store, env, served, path)
     case "s3":
       assertS3CredentialsShape(store, path)
@@ -352,11 +368,49 @@ function resolveExplicitStore(
     case "azure":
     case "gcs":
       return store
-    default:
+    default: {
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-      throw blobErrorDiagnostics.BLOB_C0001({ message: `Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.` })
+      const driver = (store as { driver: unknown }).driver
+      throw blobErrorDiagnostics.BLOB_C0001({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedBlobDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** The options of each driver. `driver` and `remote` are options of every store. */
+const blobDriverOptions: Record<BlobStoreConfig["driver"], readonly string[]> = {
+  "azure": ["accountKey", "accountName", "connectionString", "container", "defaultUrlExpiresIn", "endpoint", "publicBaseUrl", "sasToken"],
+  "cloudflare": ["accessKeyId", "accountId", "binding", "bucketName", "defaultUrlExpiresIn", "jurisdiction", "publicBaseUrl", "secretAccessKey"],
+  "fs": ["base", "urlBaseUrl"],
+  "gcs": ["bucket", "credentials", "defaultUrlExpiresIn", "keyFilename", "projectId", "publicBaseUrl"],
+  "minio": ["accessKeyId", "bucket", "defaultUrlExpiresIn", "endpoint", "forcePathStyle", "publicBaseUrl", "region", "secretAccessKey"],
+  "netlify-blobs": ["consistency", "deployScoped", "name", "siteID", "token"],
+  "s3": ["bucket", "credentials", "defaultUrlExpiresIn", "endpoint", "forcePathStyle", "publicBaseUrl", "region"],
+  "vercel": ["access", "allowOverwrite", "downloadTimeoutMs", "token"],
+}
+
+/** A store without `driver` reads these when the host picks the Cloudflare or the Netlify driver. */
+const inferredBlobStoreOptions: Partial<Record<BlobStoreConfig["driver"], readonly string[]>> = {
+  "cloudflare": ["binding", "bucketName", "jurisdiction"],
+  "netlify-blobs": ["name"],
+}
+
+/**
+ * A config object that a variable or another file builds skips TypeScript's check of unknown keys. A store without
+ * `driver` ignores a driver option, such as `token` of a Vercel store, so Blob throws for every unknown key.
+ */
+function assertKnownBlobStoreKeys(store: object, driver: BlobStoreConfig["driver"] | undefined, path: string, extra: readonly string[] = [], inferredKeys: readonly string[] = []): void {
+  const known = new Set(["driver", "remote", ...extra, ...(driver ? blobDriverOptions[driver] : inferredKeys)])
+  // An option set to `undefined` is the same as an omitted one.
+  const key = Object.keys(store).find(name => !known.has(name) && Reflect.get(store, name) !== undefined)
+  if (key === undefined) return
+  const drivers = (Object.keys(blobDriverOptions) as BlobStoreConfig["driver"][]).filter(name => blobDriverOptions[name].includes(key))
+  throw blobErrorDiagnostics.BLOB_UNKNOWN_STORE_OPTION({ drivers, driver, key, path })
+}
+
+const moduleOptions = ["images", "serve"]
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedBlobDrivers = new Map([["cloudflare-r2", "cloudflare"], ["vercel-blob", "vercel"]])
 
 function normalizeServeHeaders(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return
@@ -506,13 +560,14 @@ function readRemote(value: unknown, path: string): boolean | undefined {
 
 /**
  * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob or S3 store that env or the
- * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
- * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
- * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
+ * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store keeps a dev runner's R2
+ * binding, which is a local emulation, and uses `fs` on the Node runner without one, also with an explicit `driver`.
+ * Netlify Blobs keeps the local sandbox of `netlify dev`. Another explicit `driver` is
+ * used as configured. Builds ignore `remote`.
  */
 function applyDevelopmentMode(
   resolved: ResolvedBlobStoreConfig,
-  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined },
+  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined, store?: string },
 ): ResolvedBlobStoreConfig {
   const { remote: _remote, ...local } = resolved
   if (local.driver === "fs") {
@@ -523,9 +578,9 @@ function applyDevelopmentMode(
   }
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
+  if (local.driver === "cloudflare") return { ...local, localFallback: resolveFsStore({}, options.env, options.store) }
   if (!options.inferred) return local
-  if (local.driver === "vercel-blob" || local.driver === "s3") return resolveFsStore({}, options.env)
-  if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
+  if (local.driver === "vercel" || local.driver === "s3") return resolveFsStore({}, options.env)
   return local
 }
 
@@ -554,14 +609,18 @@ export function normalizeBlobOptions(
   const serve = normalizeServeOptions(optionRecord?.serve)
   const images = normalizeImagesOptions(options?.images)
   const { serve: _serve, images: _images, ...storeOptions } = options || {}
-  const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined
 
   if (hasStoresConfig(options)) {
+    // With `stores`, each store holds its own driver options.
+    const extra = Object.keys(options).find(key => key !== "stores" && !moduleOptions.includes(key) && Reflect.get(options, key) !== undefined)
+    if (extra !== undefined) throw blobErrorDiagnostics.BLOB_UNKNOWN_STORE_OPTION({ drivers: [], key: extra, path: "blob" })
     const resolvedStores = Object.fromEntries(
       Object.entries(options.stores).map(([name, store]) => {
         const path = `blob.stores.${name}.remote`
         const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
-        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`), { dev, env, inferred: false, path, remote })]
+        const resolved = resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`, name)
+        assertKnownBlobStoreKeys(store, store.driver, `blob.stores.${name}`)
+        return [name, applyDevelopmentMode(resolved, { dev, env, inferred: false, path, remote, store: name })]
       }),
     )
     const defaultStore = resolvedStores.default
@@ -573,32 +632,34 @@ export function normalizeBlobOptions(
   const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
 
   if (explicit?.driver) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env, servedRoute(serve, "default"), "blob"), mode), undefined, serve, images)
+    const resolved = resolveExplicitStore(withoutModuleOptions(explicit), env, servedRoute(serve, "default"), "blob")
+    assertKnownBlobStoreKeys(explicit, explicit.driver, "blob", moduleOptions)
+    return createResolvedConfig(env, applyDevelopmentMode(resolved, mode), undefined, serve, images)
+  }
+  const inferred = (driver: BlobStoreConfig["driver"], resolveStore: () => ResolvedBlobStoreConfig) => {
+    assertKnownBlobStoreKeys(storeOptions, undefined, "blob", [], inferredBlobStoreOptions[driver])
+    return createResolvedConfig(env, applyDevelopmentMode(resolveStore(), mode), undefined, serve, images)
   }
 
   // NuxtHub checks its `S3_*` variables before the host, so an app that moves from NuxtHub keeps its bucket.
   const s3 = resolveS3EnvStore(env)
   if (s3) {
-    return createResolvedConfig(env, applyDevelopmentMode(s3, mode), undefined, serve, images)
+    return inferred("s3", () => s3)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
+    return inferred("cloudflare", () => resolveCloudflareStore(storeOptions as Partial<CloudflareR2BlobStoreConfig>, env))
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
+    return inferred("netlify-blobs", () => resolveNetlifyStore({ name: (storeOptions as Partial<NetlifyBlobsStoreConfig>).name }))
   }
 
-  if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
+  if (hasVercelBlobEnv(env) || hosting.includes("vercel")) {
+    return inferred("vercel", () => resolveVercelStore({}, env, servedRoute(serve, "default")))
   }
 
-  if (hosting.includes("vercel")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
-  }
-
-  return createResolvedConfig(env, applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
+  return inferred("fs", () => resolveFsStore({}, env))
 }
 
 export function warnVercelBlobFallback(

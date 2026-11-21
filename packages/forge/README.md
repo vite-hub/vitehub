@@ -1,13 +1,13 @@
 # @vite-hub/forge
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fforge&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fforge&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/forge)](https://npmx.dev/package/@vite-hub/forge)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/forge)](https://npmx.dev/package/@vite-hub/forge)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
-`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
+`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab, Forgejo or Gitea token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
 
-The GitHub Channel can use the same App credentials. The Workspace GitHub store and GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`); they do not mint App installation tokens.
+The GitHub Channel, the `forge()` Capability, and the Workspace GitHub store mint App installation tokens through `useForge()`. GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). Channels, Workspaces and Sources list `@vite-hub/forge` as an optional peer and load it only on a Forge path, so an app without a Forge does not install it. Such an app that uses a Forge Channel, the `forge()` Capability, a GitHub Store or a GitHub Source fails with `INTERNAL_FORGE_NOT_INSTALLED` until it runs `pnpm add @vite-hub/forge`.
 
 ## Use it in an app
 
@@ -30,9 +30,9 @@ await github.request("POST", "/repos/acme/web/issues", { body: { title: "Nightly
 | --- | --- |
 | `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `conditionalRequests: false` stops GitHub providers from revalidating repeated GETs with ETags. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
-| `forge.token({ repository, refresh, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for the owner of `repository` (see [Installations](https://vitehub.dev/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. Cached until one minute before it expires. |
-| `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
-| `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
+| `forge.token({ repository, installation, refresh, minLifetime, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `installation`, such as `installation.id` of a webhook delivery, else for the owner of `repository` (see [Installations](https://vitehub.dev/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. Cached until `minLifetime` milliseconds (default one minute) before it expires. |
+| `forge.provider({ repository, installation, refresh, minLifetime, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
+| `forge.app({ signal })` | `[error, { id, slug, login, email }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
 
 GitHub uses the App when `VITEHUB_GITHUB_APP_ID` is set, and `VITEHUB_GITHUB_TOKEN` otherwise. Runtime errors are `FORGE_APP_NOT_INSTALLED` and `FORGE_REQUEST_FAILED`. A cancelled call rejects with the abort reason. The codes are documented at [Forge limits and errors](https://vitehub.dev/docs/forge/limits-and-errors).
 
@@ -52,6 +52,9 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `github.webhookSecret` | `VITEHUB_GITHUB_WEBHOOK_SECRET`, `FORGES_GITHUB_WEBHOOK_SECRET` |
 | `gitlab.baseUrl`, `gitlab.token`, `gitlab.webhookSecret` | `VITEHUB_GITLAB_*`, `FORGES_GITLAB_*` |
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
+| `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
+
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
 
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/source",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Typed source retrieval primitives for ViteHub.",
   "keywords": [
     "content",
@@ -43,6 +43,11 @@
       "import": "./dist/drizzle.js",
       "default": "./dist/drizzle.js"
     },
+    "./internal/registry": {
+      "types": "./dist/internal/registry.d.ts",
+      "import": "./dist/internal/registry.js",
+      "default": "./dist/internal/registry.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
@@ -68,7 +73,6 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
@@ -78,6 +82,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
@@ -97,7 +102,8 @@
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "@vite-hub/forge": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
@@ -114,9 +120,12 @@
     },
     "vue": {
       "optional": true
+    },
+    "@vite-hub/forge": {
+      "optional": true
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

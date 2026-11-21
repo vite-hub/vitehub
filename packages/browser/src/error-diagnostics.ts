@@ -11,7 +11,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0001: { ...dynamicError, fix: "Pass a non-empty `audience` string to `session.handoff()` and to `claim()`, and use the same value on both sides." },
     BROWSER_R0002: { ...dynamicError, fix: "Pass `mode: \"live\"` to `session.handoff()`, for example `session.handoff({ mode: \"live\", audience: \"worker\" })`." },
     BROWSER_R0003: { ...dynamicError, fix: "Set `ttl` of `session.handoff()` or `policy.handoffTtl` to a number of milliseconds from 1 to 2147483647, or remove it to use 60000." },
-    BROWSER_R0004: { ...dynamicError, fix: "Pass a provider to `createBrowser()`, for example `createBrowser({ provider: localBrowser({ executablePath: \"/usr/bin/chromium\" }) })`." },
+    BROWSER_R0004: { ...dynamicError, fix: "Pass a driver to `createBrowser()`, for example `createBrowser({ driver: localBrowser({ executablePath: \"/usr/bin/chromium\" }) })`." },
     BROWSER_R0005: { ...dynamicError, fix: "Check that the host can open a TCP port on `127.0.0.1` for the local Chromium, then open the session again." },
     BROWSER_R0006: { ...dynamicError, fix: "Run the `executablePath` binary by hand to see why Chromium stops. Check that the host has the libraries that Chromium needs, or raise `startupTimeout` of `localBrowser()`." },
     BROWSER_R0007: { ...dynamicError, fix: "Pass the path of an installed Chromium to `localBrowser({ executablePath })`, for example `\"/usr/bin/chromium\"`." },
@@ -22,9 +22,9 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_B0001: { ...dynamicError, fix: "Set `browser: { binding }` in `vitehub()` to letters, digits, and `_` that do not start with a digit, such as `\"BROWSER\"`, or remove `binding`." },
     BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
     // Named errors. Keep these codes in alphabetical order.
-    BROWSER_CONTENT_FAILED: {
-      why: ({ status }: { status: number }) => `Browser content request failed with status ${status}`,
-      fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name.",
+    BROWSER_RENAMED_PROVIDER_KEY: {
+      why: "`createBrowser()` got a `provider` option. ViteHub renamed this option to `driver`, and it does not read `provider`.",
+      fix: "Pass the driver as `createBrowser({ driver: localBrowser() })`, or run `npx @vite-hub/codemods driver-key` to rename it in every file.",
     },
   },
 })
