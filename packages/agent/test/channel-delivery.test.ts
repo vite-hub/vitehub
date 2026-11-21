@@ -395,6 +395,7 @@ describe("Agent Channel delivery journal", () => {
     }
 
     await first.event({ type: "accepted" })
+    await state.delete("deliveries:index:trim")
     const newest = await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "delivery-10000" })
     const ids = await state.getList<string>("deliveries:index")
 
@@ -413,10 +414,12 @@ describe("Agent Channel delivery journal", () => {
     const first = await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })
     await first.event({ type: "completed" })
     let second: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
-    for (let index = 1; index <= 10_000; index++) {
+    for (let index = 1; index < 10_000; index++) {
       const delivery = await openAgentChannelDelivery(state, { ...input, sourceId: `delivery-${index}` })
       if (index === 1) second = delivery
     }
+    await state.delete("deliveries:index:trim")
+    await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-10000" })
 
     expect(await state.getList("deliveries:index")).not.toContain(first.delivery.id)
     expect(await state.get(`deliveries:${first.delivery.id}`)).toBeNull()
@@ -448,6 +451,8 @@ describe("Agent Channel delivery journal", () => {
       return snapshot
     }
 
+    await state.delete("deliveries:index:trim")
+
     await openAgentChannelDelivery(state, { ...input, sourceId: "overflow" })
 
     expect(retry?.duplicate).toBe(true)
@@ -458,6 +463,80 @@ describe("Agent Channel delivery journal", () => {
       expect.objectContaining({ type: "duplicate" }),
     ])
     expect((await openAgentChannelDelivery(state, input)).delivery.id).toBe(oldest.delivery.id)
+    info.mockRestore()
+  })
+
+  it("keeps a re-admitted delivery when the trim's lock on it expired", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "expired-oldest" }
+    const oldest = await openAgentChannelDelivery(state, input)
+    for (let index = 1; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const lockKey = `deliveries:${oldest.delivery.id}:journal-lock`
+    const acquireLock = state.acquireLock.bind(state)
+    const getList = state.getList.bind(state)
+    let trimHoldsOldest = false
+    let retried = false
+    let retry: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    state.acquireLock = async (threadId, ttlMs) => {
+      const lock = await acquireLock(threadId, ttlMs)
+      if (threadId === lockKey && lock) trimHoldsOldest = true
+      return lock
+    }
+    state.getList = async <T>(key: string) => {
+      const snapshot = await getList<T>(key)
+      if (key === "deliveries:index" && trimHoldsOldest && !retried) {
+        retried = true
+        // The trim's lock expires after its recheck, and a retry re-admits the delivery before the trim deletes it.
+        await state.releaseLock({ expiresAt: 0, threadId: lockKey, token: lockKey })
+        retry = await openAgentChannelDelivery(state, input)
+      }
+      return snapshot
+    }
+    await state.delete("deliveries:index:trim")
+
+    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow" })
+
+    expect(retry?.duplicate).toBe(true)
+    expect(await getList("deliveries:index")).toContain(oldest.delivery.id)
+    expect(await resumeAgentChannelDelivery(state, oldest.delivery.id)).toBeDefined()
+    expect(await getList(`deliveries:${oldest.delivery.id}:events`)).toEqual([
+      expect.objectContaining({ type: "received" }),
+      expect.objectContaining({ type: "duplicate" }),
+    ])
+    info.mockRestore()
+  })
+
+  it("reads the full inspection index once per trim, not on every admission", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    for (let index = 0; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const getList = vi.spyOn(state, "getList")
+    for (let index = 0; index < 100; index++) {
+      await openAgentChannelDelivery(state, { agentName: "support", provider: "github", scope: "webhook:support", sourceId: `delivery-${index}` })
+    }
+
+    // One trim, reading the index before and after its append and once more to recheck its candidates under their locks.
+    expect(getList.mock.calls.filter(([key]) => key === "deliveries:index")).toHaveLength(3)
+    info.mockRestore()
+  })
+
+  it("trims the index after overlapping admissions", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support" }
+    for (let index = 0; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    await Promise.all(Array.from({ length: 50 }, (_, index) => openAgentChannelDelivery(state, { ...input, sourceId: `overlap-${index}` })))
+    await state.delete("deliveries:index:trim")
+    await openAgentChannelDelivery(state, { ...input, sourceId: "after-overlap" })
+
+    expect(await state.getList("deliveries:index")).toHaveLength(10_000)
     info.mockRestore()
   })
 
@@ -487,6 +566,7 @@ describe("Agent Channel delivery journal", () => {
     }
 
     await openAgentChannelDelivery(state, input)
+    await state.delete("deliveries:index:trim")
     await openAgentChannelDelivery(state, { ...input, sourceId: "overflow-10000" })
 
     await expect(readAgentChannelDeliveries(state, 10_000)).resolves.toEqual(

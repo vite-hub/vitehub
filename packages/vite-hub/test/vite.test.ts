@@ -784,6 +784,7 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/generated-files-watch",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/vitest-inline",

@@ -448,6 +448,117 @@ describe("process Agent capacity", () => {
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
   })
 
+  it("resumes on a shared host whose idle memory pressure stays above resumePressure", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] })
+    try {
+      const sample = createBuiltInSample()
+      const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+
+      // Other services keep the host at 2-3% memory pressure; the default resumePressure is 1%.
+      resources.memoryPressure = 0.06
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      for (let minute = 1; minute < 10; minute++) {
+        vi.advanceTimersByTime(60_000)
+        resources.memoryPressure = minute % 2 ? 0.03 : 0.025
+        await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      }
+
+      // The last 10 minutes show an idle pressure of 2.5%, so 3% is within resumePressure of it.
+      vi.advanceTimersByTime(60_000)
+      resources.memoryPressure = 0.03
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+
+      // Pausing stays absolute.
+      vi.advanceTimersByTime(60_000)
+      resources.memoryPressure = 0.051
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      vi.advanceTimersByTime(60_000)
+      resources.memoryPressure = 0.04
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([10, 60])("restarts idle pressure warm-up after a %i-minute sampling gap", async (gapMinutes) => {
+    vi.useFakeTimers({ toFake: ["performance"] })
+    try {
+      const sample = createBuiltInSample()
+      const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+
+      resources.memoryPressure = 0.045
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+      vi.advanceTimersByTime(gapMinutes * 60_000)
+      resources.memoryPressure = 0.06
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      vi.advanceTimersByTime(5_000)
+      resources.memoryPressure = 0.049
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+
+      for (let minute = 1; minute < 10; minute++) {
+        vi.advanceTimersByTime(minute === 1 ? 55_000 : 60_000)
+        await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      }
+      vi.advanceTimersByTime(60_000)
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("excludes pressure readings older than the idle window from the minimum", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] })
+    try {
+      const sample = createBuiltInSample()
+      const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+
+      resources.memoryPressure = 0.02
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+      vi.advanceTimersByTime(60_000)
+      resources.memoryPressure = 0.06
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      resources.memoryPressure = 0.04
+      for (let minute = 2; minute <= 10; minute++) {
+        vi.advanceTimersByTime(60_000)
+        await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      }
+      vi.advanceTimersByTime(5_000)
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("resumes CPU admission relative to the idle CPU pressure and never above pausePressure", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] })
+    try {
+      const sample = createBuiltInSample()
+      const context = { active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal }
+
+      resources.hostCpuPressure = 0.2
+      for (let minute = 0; minute < 10; minute++) {
+        await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+        vi.advanceTimersByTime(60_000)
+      }
+      resources.hostCpuPressure = 0.3
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+
+      // Idle CPU pressure is 20%, and 20% + 10% is above the 25% pause threshold, so 26% stays paused and 25% resumes.
+      vi.advanceTimersByTime(60_000)
+      resources.hostCpuPressure = 0.26
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 0 })
+      vi.advanceTimersByTime(60_000)
+      resources.hostCpuPressure = 0.25
+      await expect(sample(context)).resolves.toMatchObject({ concurrency: 5 })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("resumes at zero pressure when the resume thresholds are zero", async () => {
     const sample = createBuiltInSample({
       concurrency: 6,

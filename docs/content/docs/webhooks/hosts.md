@@ -21,6 +21,8 @@ Webhooks stores each delivery in the Default Database and sends it through the Q
 
 In `vite dev`, the Queue follows the delay and retry rules of the build's provider, so a debounce and a retry act as on the host. See [Queue dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
+[Member endpoints](/docs/webhooks/member-endpoints) need only the Database, because they post in the request. They need a SQLite Default Database, not a Queue. On Cloudflare Workers, the URL guard cannot resolve a host name, so the host allowlist alone decides. See [The URL guard](/docs/webhooks/member-endpoints#the-url-guard).
+
 ## Debounce and retries on each host
 
 Webhooks counts the attempts of a delivery itself. After 4 attempts it marks the delivery `dead`, on every host. The Queue of the host decides when the next attempt runs.

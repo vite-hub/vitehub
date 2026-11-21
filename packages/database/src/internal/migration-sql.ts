@@ -28,6 +28,39 @@ const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}
 
 /** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
+  return scanSqlStatements(sql).statements
+}
+
+/**
+ * Adds Drizzle's `--> statement-breakpoint` between the statements of a hand-written file, which Wrangler runs as one
+ * script. Drizzle runs each part with one libSQL `execute()`, which runs only the first statement and drops the rest
+ * without an error. A file that has breakpoints, or one statement, stays as it is, so its hash does not change. The
+ * statements of a trigger body stay together.
+ */
+export function addStatementBreakpoints(sql: string): string {
+  if (sql.includes("--> statement-breakpoint")) return sql
+  const { ends, statements } = scanSqlStatements(sql)
+  if (statements.length < 2) return sql
+  const cuts: number[] = []
+  let trigger = false
+  for (const [index, statement] of statements.entries()) {
+    if (/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
+    if (trigger && !/^END\s*;$/i.test(statement)) continue
+    trigger = false
+    if (index < statements.length - 1) cuts.push(ends[index]!)
+  }
+  let result = ""
+  let start = 0
+  for (const cut of cuts) {
+    result += `${sql.slice(start, cut)}\n--> statement-breakpoint\n`
+    start = cut
+  }
+  return result + sql.slice(start)
+}
+
+/** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
+function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
+  const ends: number[] = []
   const statements: string[] = []
   let current = ""
   let quote: "'" | '"' | "`" | "]" | undefined
@@ -71,14 +104,17 @@ export function splitSqlStatements(sql: string): string[] {
       continue
     }
     if (char === ";") {
-      if (current.trim()) statements.push(`${current.trim()};`)
+      if (current.trim()) {
+        statements.push(`${current.trim()};`)
+        ends.push(index + 1)
+      }
       current = ""
       continue
     }
     current += char
   }
   if (current.trim()) statements.push(current.trim())
-  return statements
+  return { ends, statements }
 }
 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
