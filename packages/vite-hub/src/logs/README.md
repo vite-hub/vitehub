@@ -18,6 +18,8 @@ Attach `buffer.drain` to an existing Evlog drain hook instead when Evlog is alre
 
 The local buffer defaults to 256 entries and 16 KiB per event. It stores JSON snapshots, drops oversized or invalid events, and counts evictions and drops. It is per process, disappears on restart and does not combine serverless instances. It is for local inspection, not retained production history. `clear()` clears only this local buffer.
 
+Use `vite-hub/logs/client` in the browser to send an error that the page caught, or a warning, with `reportBrowserError(error, { action, level, fields })`. It needs `observability.browserErrors`, and it does nothing without it.
+
 Use `vite-hub/logs/source` for the read contract without loading Evlog. Use `vite-hub/logs/memory` for the buffer without loading Evlog at runtime. Read adapters can connect an existing backend without creating another copy of its logs. OpenTelemetry exports logs; it does not define the query API for that backend.
 
 Nostics fields can be stored within `LogEntry.data` as structured data. Keep diagnostic `code`, `why`, `fix`, `docs`, `sources`, and `data` intact after redaction. One owning operation should emit the error event; avoid reporting it again from both a Nostics reporter and the request error handler.

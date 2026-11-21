@@ -46,7 +46,9 @@ import {
 } from "./delivery-effects.ts"
 
 export { defineFinishEffect } from "./delivery-effects.ts"
-import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
+import { isTraceContentAttributeKey, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agent-run.ts"
@@ -2172,7 +2174,7 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
     if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: typeof input === "function"
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
+        : `[vitehub] Channel "${id}" must be a Channel from defineChannel() in vite-hub/channels, or an adapter from vite-hub/channels/adapters, such as webChat() or telegram({ ... }).` })
     }
     // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
@@ -3562,7 +3564,7 @@ function toAgentAdapterRunContext<
 
 async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
   try {
-    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+    return await (await import("@vite-hub/workspace/runtime")).resolveRegisteredWorkspaceDefinition(name)
   }
   catch (error) {
     if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
@@ -6299,7 +6301,7 @@ async function commitWorkspaceChanges<
   if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
 
   const diff = await context.workspace.diff()
-  const { isWorkspaceConflict, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+  const [{ isWorkspaceConflict }, { resolveWorkspaceAutoCommit }] = await Promise.all([import("@vite-hub/workspace"), import("@vite-hub/workspace/internal/workspace")])
   const commit = resolveWorkspaceAutoCommit(
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,

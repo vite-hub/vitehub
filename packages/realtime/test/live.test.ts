@@ -9,7 +9,8 @@ import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
 import { defineRealtime } from "../src/definition.ts"
-import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument, resolveRealtimeDefinition } from "../src/server.ts"
+import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
+import { realtimeRoomKey, resolveRealtimeDefinition } from "../src/internal/server.ts"
 import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({

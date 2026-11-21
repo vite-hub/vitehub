@@ -19,7 +19,7 @@ before `workspaceShell()`, so the shell gets the scoped Workspace.
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels/adapters'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 import { glob } from 'vite-hub/workspace'
 
@@ -125,7 +125,7 @@ pnpm vite build
 # In another terminal, keep the dev server running for `agent get`.
 pnpm vite dev
 pnpm vitehub inspect definitions --kind agent
-pnpm vitehub agent get --agent support --json
+pnpm vitehub agent get support --json
 ```
 
 Check that the definition lists the `teams` Channel, the `docs` Source, the

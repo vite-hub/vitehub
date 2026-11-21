@@ -14,9 +14,10 @@ import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, Rate
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, githubWorkspaceInstallError, isGitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
-import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
-import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
+import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace/runtime";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/internal/node";
 import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
@@ -186,6 +187,20 @@ function isProviderFailure(error: unknown): boolean {
 /** A provider failure this soon after dispatch gives the daily pass back. A longer pass did real work. */
 const providerFailureReleaseMs = 10 * 60_000;
 
+/**
+ * Whether the reconcile loop still makes progress, for the health route. `stalled`: the last reconcile
+ * waited longer than `stallMs` and was stopped. `silent`: no reconcile finished for `stallMs` plus one
+ * minute while the host accepts work.
+ */
+export interface BabysitterSchedulerHealth {
+  status: "ok" | "stalled" | "silent";
+  /** The reconcile that runs now and the step it waits on. */
+  running?: { reason: string; step: string; subject?: string; startedAt: string; stepAt: string };
+  lastFinishedAt?: string;
+  /** The last stopped reconcile, and how many reconciles in a row were stopped. */
+  lastStall?: { at: string; step: string; subject?: string; count: number };
+}
+
 /** Own one durable PR inbox and its repair passes inside a process host. */
 export interface BabysitterRuntime {
   inbox: PullRequestInbox;
@@ -197,6 +212,8 @@ export interface BabysitterRuntime {
     accepting?: () => boolean,
   ): Promise<void>;
   workload(): { running: number };
+  /** Reconcile liveness. Pass `accepting: false` while the host drains, so a quiet loop is not reported as silent. */
+  scheduler(accepting?: boolean): BabysitterSchedulerHealth;
   /**
    * Makes the next reconcile check the default branch of the delivery's repository when the delivery
    * is a failed push run of a watched workflow there. Returns whether it did.
@@ -566,6 +583,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
   }
 
+  // GitHub stamps the close with its own clock, which can run behind the host's. The login check
+  // already tells our close from a person's, so the margin only absorbs clock skew.
+  const closeClockMarginMs = 60_000;
   const forkReopenKey = (repository: string, number: number) => `fork-reopen:${repository}#${number}`;
 
   /**
@@ -585,7 +605,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (!isRuntimeRecord(issue)) continue;
         const closedBy = isRuntimeRecord(issue.closed_by) ? issue.closed_by : undefined;
         const ours = issue.state === "closed" && typeof value.login === "string" && String(closedBy?.login).toLowerCase() === value.login
-          && Date.parse(String(issue.closed_at)) >= Math.floor(Number(value.at) / 1000) * 1000;
+          && Date.parse(String(issue.closed_at)) >= Number(value.at) - closeClockMarginMs;
         const merged = isRuntimeRecord(issue.pull_request) && issue.pull_request.merged_at != null;
         if (ours && !merged) {
           await reopenPullRequest(repository, Number(number));
@@ -1767,6 +1787,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * one reconcile at a time, so one await that never settles stops every later claim.
    */
   interface ReconcileTick { reason: string; startedAt: number; step: string; subject?: string; stepAt: number }
+  const createdAt = Date.now();
+  let runningTick: ReconcileTick | undefined;
+  let lastFinishedAt: number | undefined;
+  let lastStall: { at: number; step: string; subject?: string; count: number } | undefined;
+  let stallsInRow = 0;
+
+  function scheduler(accepting = true): BabysitterSchedulerHealth {
+    const now = Date.now();
+    const iso = (time: number) => new Date(time).toISOString();
+    const silent = accepting && now - (lastFinishedAt ?? createdAt) > stallMs + 60_000;
+    return {
+      status: stallsInRow ? "stalled" : silent ? "silent" : "ok",
+      ...runningTick ? { running: { reason: runningTick.reason, step: runningTick.step, ...runningTick.subject ? { subject: runningTick.subject } : {}, startedAt: iso(runningTick.startedAt), stepAt: iso(runningTick.stepAt) } } : {},
+      ...lastFinishedAt ? { lastFinishedAt: iso(lastFinishedAt) } : {},
+      ...lastStall ? { lastStall: { at: iso(lastStall.at), step: lastStall.step, ...lastStall.subject ? { subject: lastStall.subject } : {}, count: lastStall.count } } : {},
+    };
+  }
 
   async function stallSnapshot(tick: ReconcileTick) {
     const now = Date.now();
@@ -1818,6 +1855,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stalled = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
+        stallsInRow += 1;
+        lastStall = { at: Date.now(), step: tick.step, ...tick.subject ? { subject: tick.subject } : {}, count: stallsInRow };
+        if (runningTick === tick) runningTick = undefined;
         const error = presetsErrorDiagnostics.PRESETS_BABYSITTER_RECONCILE_STALLED({ step: tick.subject ? `${tick.step} (${tick.subject})` : tick.step, minutes: Math.round((Date.now() - startedAt) / 60_000) });
         reject(error);
         controller.abort(error);
@@ -1825,10 +1865,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }, stallMs);
       timer.unref?.();
     });
+    runningTick = tick;
     try {
       await Promise.race([reconcileTick(reason, context, isAccepting, step, signal), stalled]);
     } finally {
       clearTimeout(timer);
+      if (!signal.aborted) {
+        // A reconcile that ended, even with an error, shows the loop still turns.
+        lastFinishedAt = Date.now();
+        stallsInRow = 0;
+        if (runningTick === tick) runningTick = undefined;
+      }
     }
   }
 
@@ -3442,7 +3489,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     track(batch);
   }
 
-  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload, observeMainRepair };
+  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, scheduler, workload, observeMainRepair };
 }
 
 function fixedOrSource(repositories: readonly string[] | BabysitterRepositories): BabysitterRepositories {

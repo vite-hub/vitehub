@@ -104,7 +104,7 @@ export default defineSchedule({
 
 Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. `timeZone` works with the Process Runtime and with every host's cron output.
 
-The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying. Write weekdays as standard cron numbers, 0 to 6 from Sunday. Cloudflare and Deno number weekdays 1 to 7 from Sunday, so their output writes weekday names: `0 4 * * 1-5` becomes `0 4 * * MON,TUE,WED,THU,FRI`.
 
 Applications that use the framework distribution turn Schedule on with a file in `server/schedules/`, with no `schedule` key, and import the definition helper from `vite-hub/schedule`. On Deno, the build writes standalone cron output and a `.output/main.ts` entrypoint that loads it before the Nitro server.
 
@@ -259,6 +259,10 @@ Add `--at <ISO date-time>` to run it as if the cron fired at that time, for exam
 Discovery reads `manual` as a literal boolean from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 
 The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. When the server runs the Process Runtime, the cron and time zone come from the loaded Definitions on each request, so they are the values that the runtime uses. `vitehub inspect definitions` reads them from the source file and shows `Not a static string` for a value that it cannot read there. Use `vitehub schedule runs list <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
+
+## Runs in logs
+
+With the evlog Nitro module registered, each Schedule handler run inside Nitro gets its own evlog event, `schedule: { name, source, scheduledAt, ms, outcome }`, with the error when it fails. Standalone provider wakes do not send these events. This includes Vercel and Deno cron wakes by default, and Cloudflare or Netlify when you select standalone output. Without evlog, failures go to the console and runtimes with a run store keep their run history. See [Server API](https://vitehub.dev/docs/schedule/server-api#see-schedule-runs-in-logs).
 
 ## Import runtime helpers
 

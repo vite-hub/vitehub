@@ -11,7 +11,7 @@ import { getViteHubErrorShape } from "@vite-hub/runtime"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 
 import { workspaceError } from "./errors.ts"
-import { historyConflict, normalizeHistoryRef, rejectHistoryHead, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
+import { deleteWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, sha256 } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -50,6 +50,7 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceRebaseOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
   WorkspaceSyncOptions,
@@ -195,6 +196,8 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceLookupName = Work
 }
 
 export interface WorkspaceHistory extends History<WorkspaceSnapshot>, WorkspaceRetainedHistory {
+  /** Throws `WORKSPACE_R0069` when the Store cannot delete refs. */
+  deleteRef(options: WorkspaceHistoryDeleteRefOptions): Promise<boolean>
   rebase(options?: WorkspaceRebaseOptions): Promise<void>
 }
 
@@ -324,6 +327,7 @@ function createLazyWorkspace(name: WorkspaceLookupName, definition?: WorkspaceDe
         if (!history?.openPullRequest) throw workspaceError("[vitehub] This Workspace Store cannot open pull requests.")
         return await history.openPullRequest(options)
       },
+      deleteRef: async options => await deleteWorkspaceHistoryRef((await resolveWorkspace()).history, options),
       head: async options => await requireWorkspaceHistory(await resolveWorkspace()).head(options),
       list: async options => await requireWorkspaceHistory(await resolveWorkspace()).list(options),
       refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),
@@ -615,6 +619,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceLookupName>(nam
       fs: createWritableFs(name, workspace),
       history: {
         ...workspace.history,
+        deleteRef: async options => await deleteWorkspaceHistoryRef(workspace.history, options),
         checkpoint: async options => await workspace.snapshot({ name: options?.message, ...(options?.author ? { author: options.author } : {}) }),
         rebase: async options => await workspace.rebase(options),
       },

@@ -7,7 +7,7 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-A Forge is a code host, such as GitHub, GitLab, or Forgejo. `useForge()` gives your server code one Forge identity. With a GitHub App, it signs the App JWT, finds the installation of a repository, and mints installation tokens. You do not write JWT or token code.
+A Forge is a code host, such as GitHub, GitLab, Forgejo, or Gitea. `useForge()` gives your server code one Forge identity. With a GitHub App, it signs the App JWT, finds the installation of a repository, and mints installation tokens. You do not write JWT or token code.
 
 In this tutorial, you open an issue as your GitHub App from a server route.
 
@@ -88,7 +88,7 @@ When an App has multiple installations, `useForge()` looks up the installation f
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/forge/configure"}
-Set the env for GitHub, GitLab, and Forgejo.
+Set the env for GitHub, GitLab, Forgejo, and Gitea.
 :::
 
 :::card{title="Server API" icon="i-lucide-code-2" to="/docs/forge/server-api"}

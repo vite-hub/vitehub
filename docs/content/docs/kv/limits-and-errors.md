@@ -64,6 +64,16 @@ Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl`
 
 `fs-lite`, `deno-kv`, and `upstash` do not check these limits. Upstash [limits requests](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans differ. ViteHub does not know your plan, so a larger request fails with `KV_OPERATION_FAILED`.
 
+## See expiry failures in logs
+
+A `database` store deletes expired rows in the background, at most once a minute. A failed delete does not fail the write that started it. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, KV logs each failure as its own evlog event:
+
+```json
+{ "level": "warn", "action": "kv", "message": "KV could not delete expired rows", "kv": { "op": "expiry-sweep", "driver": "database", "namespace": "sessions", "code": "SQLITE_BUSY" } }
+```
+
+`code` is the `code` of the error, else its class name. When the KV Nitro plugin cannot read the KV configuration at startup, it logs `kv: { op: "read-config" }`. A streak of failed deletes logs once, and a delete that works ends the streak. The event never holds the error's message. Without evlog, or with evlog's `enabled: false`, KV prints the failure to the server console.
+
 ## Runtime errors
 
 ### KV_INVALID_CURSOR
