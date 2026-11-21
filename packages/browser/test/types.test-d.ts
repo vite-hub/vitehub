@@ -1,5 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
+import type { Result } from "@vite-hub/runtime"
+
 import {
   createBrowser,
   defineBrowser,
@@ -33,7 +35,7 @@ describe("published Browser types", () => {
   })
 
   it("types Browser actions", () => {
-    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<string>()
+    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<Result<string, "BROWSER_CONTENT_FAILED">>()
   })
 
   it("types Browser Definition responses", () => {

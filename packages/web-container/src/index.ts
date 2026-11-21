@@ -1,9 +1,12 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
+import { defineDiagnostics } from "nostics"
+
 import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
 
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
+export { matchesWebContainerRoute } from "./routes.ts"
 
 /** One step of a boot checklist, in the order a UI shows it. */
 export type WebContainerStage =
@@ -123,10 +126,17 @@ export type WebContainerSupport =
   | { supported: true }
   | { supported: false, reason: string }
 
-// Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-export class WebContainerUnsupportedError extends Error {
-  override name: string = "WebContainerUnsupportedError"
-}
+// The code that this browser entry raises. Its own catalog keeps the page bundle small.
+const webContainerBrowserDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: "https://vitehub.dev/docs/web-container/diagnostics",
+  codes: {
+    // Named errors. Keep these codes in alphabetical order.
+    WEB_CONTAINER_UNSUPPORTED: {
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in `webContainer.routes` of `vitehub()`, which sends the isolation headers on it in dev, preview, and production.",
+    },
+  },
+})
 
 /** Checks the page, not the browser name: a WebContainer needs a cross-origin isolated page with SharedArrayBuffer. */
 export function checkWebContainerSupport(): WebContainerSupport {
@@ -336,7 +346,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   status.enter("checking")
   const support = checkWebContainerSupport()
   if (!support.supported) {
-    const error = new WebContainerUnsupportedError(support.reason)
+    const error = webContainerBrowserDiagnostics.WEB_CONTAINER_UNSUPPORTED({ reason: support.reason })
     status.fail("unsupported", error)
     throw error
   }

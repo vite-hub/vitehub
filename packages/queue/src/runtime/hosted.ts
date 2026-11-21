@@ -59,7 +59,7 @@ export async function handleHostedVercelQueueCallback(request: Request, name: st
     throw queueErrorDiagnostics.QUEUE_DRIVER_MISMATCH({ driver: queue.provider, expected: "vercel" })
   }
 
-  const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(request)
+  const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.callbackOptions))(request)
   if (result instanceof Response) return result
   return result === undefined ? new Response(null, { status: 204 }) : Response.json(result)
 }

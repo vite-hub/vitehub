@@ -6,7 +6,7 @@ navigation.order: 10
 icon: i-lucide-file-lock
 ---
 
-In a Nuxt app, you protect pages with `vitehub.auth.routes` in the config or `definePageMeta({ auth })` in a page. This is the page guard. It runs when the server renders the page and on each navigation in the browser. It decides where the browser goes. It does not protect your data, so you also [protect the API routes](#protect-the-apis-that-the-pages-call) that the page calls.
+In a Nuxt app, you protect pages with `access.pages` in the Auth Definition or `definePageMeta({ auth })` in a page. This is the page guard. It runs when the server renders the page and on each navigation in the browser. It decides where the browser goes. It does not protect your data, so you also [protect the API routes](#protect-the-apis-that-the-pages-call) that the page calls.
 
 > [!NOTE] Before you start
 > Add Auth to your Nuxt app with [Get started](/docs/auth/get-started). Your app must have an `app/pages/` folder, because the guard reads the meta of Nuxt pages.
@@ -90,49 +90,34 @@ async function submit() {
 
 ## Guard pages from one route map
 
-In a Nuxt app, the page guard sends each visitor to a page that they may open. It runs when the server renders a page and on each navigation in the browser. List the pages that it guards in `vitehub.auth.routes`:
+In a Nuxt app, the page guard sends each visitor to a page that they may open. It runs when the server renders a page and on each navigation in the browser. List the pages that it guards in `access.pages` of the Auth Definition:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    auth: {
-      routes: {
-        '/dashboard/**': 'user',
-        '/dashboard/pricing': false,
-        '/login': 'guest',
-      },
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  access: {
+    pages: {
+      '/dashboard/**': 'user',
+      '/dashboard/pricing': false,
+      '/login': 'guest',
     },
   },
 })
 ```
 
-- `'user'` sends a visitor without a session to `/login?redirect=<the page>`. A direct load and a navigation in the browser go to the same page.
-- `'guest'` sends a signed-in user to `/`. Use it for the login and sign-up pages.
+- `'user'` sends a visitor without a session to [`access.signIn`](#choose-where-visitors-go), `/login?redirect=<the page>` by default. A direct load and a navigation in the browser go to the same page.
+- `'guest'` sends a signed-in user to `access.afterSignIn`, `/` by default. Use it for the login and sign-up pages.
 - `false` removes the guard of a wider pattern. Here, `/dashboard/pricing` is public.
 - A key is a Nuxt route rule pattern with static segments, `:name` for one segment, and a last `/**` for the path and every path below it. When patterns overlap, the most specific pattern wins: Nuxt compares the segments from the left, and a static segment wins over `:name`, which wins over `**`.
 - Optional, repeated, and regex params, such as `/account/:id?`, stop the build with `AUTH_PAGE_ROUTES_INVALID`, because Nuxt then orders the patterns by their position and not by how specific they are. For an optional segment, add one key with the segment and one key without it. A `*` also stops the build, because Nuxt reads a last `*` as `**`: use `:name` for one segment and `/**` for every depth. Two keys that differ only in param names, such as `/team/:id` and `/team/:slug`, also stop the build.
 
-ViteHub adds the guard to the `appMiddleware` route rule of each pattern and keeps the other rules of the pattern. A wrong key or value stops the build with `AUTH_PAGE_ROUTES_INVALID`.
+The Nuxt module reads `access.pages` at build time, like `access.signIn`. Write it as an object in the `defineAuth()` call, with string keys and literal values, and do not use a spread or a computed key in `access`. ViteHub adds the guard to the `appMiddleware` route rule of each pattern and keeps the other rules of the pattern. A wrong key or value, or a value that the build cannot read, stops the build with `AUTH_PAGE_ROUTES_INVALID`. `access` must be an object in the call too: when it is a variable or a call, the build cannot see `access.pages`, so the build stops with the same code. In a `defineAuth()` callback, the build reads the object that the callback returns first. When Auth resolves a callback that returns other `access.pages`, that request fails with the same code. `access.pages` guards Nuxt pages only. It is not `access.routes`, which guards server routes.
 
-To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'user'`, `'guest'`, `false`, or `{ only, redirectTo }`. Page meta wins over `routes`, so `definePageMeta({ auth: false })` makes one page public inside a `'user'` pattern.
-
-`redirects.login` (default `/login`) and `redirects.guest` (default `/`) set where the guard sends visitors:
-
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    auth: {
-      redirects: { login: '/sign-in', guest: '/dashboard' },
-      routes: { '/dashboard/**': 'user', '/sign-in': 'guest' },
-    },
-  },
-})
-```
+To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'user'`, `'guest'`, `false`, or `{ only, redirectTo }`. Page meta wins over `access.pages`, so `definePageMeta({ auth: false })` makes one page public inside a `'user'` pattern.
 
 > [!NOTE]
-> A wide pattern such as `'/**': 'user'` also covers the login page. The guard never sends a visitor to the page they are on, so a signed-out visitor can still open the login page. Set the login page to `'guest'` so that a signed-in user leaves it.
+> A wide pattern such as `'/**': 'user'` also covers the sign-in page. The guard never sends a visitor to the page they are on, so a signed-out visitor gets a `401` error page there instead. Set the sign-in page to `'guest'`, so that signed-out visitors can open it and a signed-in user leaves it.
 
 The page guard decides which page the browser shows. It does not protect data, because a request straight to an API route skips it. Guard API routes with `access.routes` in `server/auth.ts`, for example `'/api/dashboard/**'`. Do not put page paths in `access.routes`. A direct load of the page then gets `401`, or starts the `access.signIn` provider sign-in, while a navigation in the browser goes to the login page.
 
@@ -140,21 +125,19 @@ Do not cache a guarded page with a route rule such as `swr`, `isr`, or `prerende
 
 ## Choose where visitors go
 
-Set the default pages under `vitehub.auth.redirects`:
+Set the default pages in `access` of the Auth Definition:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    auth: {
-      redirects: { login: '/sign-in', guest: '/dashboard' },
-    },
-  },
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  access: { signIn: '/sign-in', afterSignIn: '/dashboard' },
 })
 ```
 
-- `login` is where visitors without a session go from `'user'` pages. The default is `/login`.
-- `guest` is where signed-in users go from `'guest'` pages. The default is `/`.
+- `signIn` is where visitors without a session go from `'user'` pages. The default is `/login`.
+- `afterSignIn` is where signed-in users go from `'guest'` pages. The default is `/`.
+- With a provider, such as `signIn: { provider: 'github' }`, the guard sends visitors to `/api/auth/sign-in`, which starts the GitHub sign-in and comes back to the page. You need no sign-in page. After `signOut()` on a `'user'` page, the guard opens `/`, so the visitor is not signed in again at once.
 
 To change the target for one page, use the object form:
 
@@ -166,13 +149,13 @@ definePageMeta({ auth: { only: 'user', redirectTo: '/pricing' } })
 
 | `auth` | Who may open the page | Others go to |
 | --- | --- | --- |
-| `'user'` or `true` | Visitors with a session | `redirects.login`, with `?redirect=<the page>` |
-| `'guest'` | Visitors without a session | `redirects.guest` |
+| `'user'` or `true` | Visitors with a session | `access.signIn`, with `?redirect=<the page>` |
+| `'guest'` | Visitors without a session | `access.afterSignIn` |
 | `{ only, redirectTo }` | `only` is `'user'` (default) or `'guest'` | `redirectTo`. A `'user'` page also adds `?redirect=<the page>`. |
 | `false` | Everyone | |
-| Not set | The policy of `vitehub.auth.routes`, or everyone if no pattern matches | |
+| Not set | The policy of the most specific `access.pages` pattern, or everyone if no pattern matches | |
 
-The guard and `redirects` are for Nuxt only. A Vite app without Nuxt ignores them.
+The page guard is for Nuxt only. In a Vite app without Nuxt, `access.signIn` with a provider still serves the [sign-in link](/docs/auth/server-api#sign-in-and-out-with-a-link).
 
 ## Protect the APIs that the pages call
 
@@ -216,18 +199,16 @@ Nuxt imports these composables for you:
 | Composable | Gives |
 | --- | --- |
 | `useUserSession()` | `user`, `session`, `loggedIn`, `pending`, and `ready` refs, and the `signIn`, `signUp`, `signOut`, and `refresh` actions. `signIn` and `signUp` are Better Auth's, such as `signIn.email()` and `signUp.email()`. |
-| `useSession()` | Better Auth's session ref: `data`, `error`, `isPending`, `isRefetching`, and `refetch`. |
 | `useAuthClient()` | The Better Auth client that the composables use. |
 
-The guard runs only when the route changes. After a sign-out, send the user to another page yourself:
+On a protected page, `signOut()` sends the visitor to the configured sign-in page. If Auth starts a provider directly, Nuxt instead shows a signed-out page so it does not restart OAuth. To open a different page after sign-out, pass a public destination:
 
 ```vue [app/components/UserMenu.vue]
 <script setup lang="ts">
 const { loggedIn, user, signOut } = useUserSession()
 
 async function logout() {
-  await signOut()
-  await navigateTo('/login')
+  await signOut({ redirectTo: '/goodbye' })
 }
 </script>
 

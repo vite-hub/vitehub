@@ -9,7 +9,7 @@ import { consoleAccessAllows, readConsoleOperationUser, withConsoleAccess, type 
 import { isConsoleRpcPath } from "./console-signature.ts"
 import { consoleOperationRegistry, isHeldBackConsoleOperation } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
-import { isConsoleDevelopmentBuild } from "./development.ts"
+import { consoleDevelopmentContext } from "./development.ts"
 import { consoleDiagnostic } from "../diagnostics.ts"
 import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
@@ -202,7 +202,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
     access: context.access,
-    development: isConsoleDevelopmentBuild(),
+    ...consoleDevelopmentContext(),
     request,
     response: context.response,
     // A signed request names its signer. Without a signature, the CLI names itself with a header; only the

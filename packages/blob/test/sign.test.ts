@@ -135,6 +135,53 @@ describe("signed Blob requests", () => {
     expect(client.config.requestChecksumCalculation).toBe("WHEN_REQUIRED")
   })
 
+  it("binds the exact upload size and the download name on R2", async () => {
+    const storage = createR2Storage()
+
+    const [uploadError, upload] = await storage.sign("users/user/jobs/job/source.mp3", {
+      contentLength: 1_048_576,
+      contentType: "audio/mpeg",
+      createOnly: true,
+      expiresIn: 900,
+      method: "PUT",
+    })
+    expect(uploadError).toBeUndefined()
+    expect(upload?.headers).toEqual({ "Content-Type": "audio/mpeg", "If-None-Match": "*" })
+    expect((awsMock.getSignedUrl.mock.calls.at(-1)?.[1] as { input: Record<string, unknown> }).input).toMatchObject({ ContentLength: 1_048_576 })
+    expect(awsMock.getSignedUrl.mock.calls.at(-1)?.[2]).toEqual({ expiresIn: 900, signableHeaders: new Set(["content-type", "content-length"]) })
+
+    const [downloadError] = await storage.sign("users/user/jobs/job/source.mp3", { download: "Interview.mp3", expiresIn: 600, method: "GET" })
+    expect(downloadError).toBeUndefined()
+    expect((awsMock.getSignedUrl.mock.calls.at(-1)?.[1] as { input: Record<string, unknown> }).input).toEqual({
+      Bucket: "private-audio",
+      Key: "users/user/jobs/job/source.mp3",
+      ResponseContentDisposition: "attachment; filename=\"Interview.mp3\"; filename*=UTF-8''Interview.mp3",
+    })
+  })
+
+  it("signs the exact upload size and the download name on R2 with the Worker driver", async () => {
+    const storage = createBlobStorage(createNativeCloudflareDriver({
+      accountId: "account",
+      accessKeyId: "access-key",
+      binding: "BLOB",
+      bucketName: "private-audio",
+      driver: "cloudflare",
+      secretAccessKey: "secret-key",
+    }))
+
+    const [uploadError, upload] = await storage.sign("source.mp3", { contentLength: 4, contentType: "audio/mpeg", expiresIn: 60, method: "PUT" })
+    expect(uploadError).toBeUndefined()
+    // Browsers set Content-Length from the body and refuse it as a request header.
+    expect(upload?.headers).toEqual({ "Content-Type": "audio/mpeg" })
+    expect(new URL(upload!.url).searchParams.get("X-Amz-SignedHeaders")?.split(";")).toEqual(["content-length", "content-type", "host"])
+
+    const [downloadError, download] = await storage.sign("reports/q3.pdf", { download: true, expiresIn: 60, method: "GET" })
+    expect(downloadError).toBeUndefined()
+    const url = new URL(download!.url)
+    expect(url.searchParams.get("response-content-disposition")).toBe("attachment; filename=\"q3.pdf\"; filename*=UTF-8''q3.pdf")
+    expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy()
+  })
+
   it("signs on the default R2 host without a jurisdiction", async () => {
     const [error] = await createR2Storage().sign("source.mp3", { expiresIn: 60, method: "GET" })
 
@@ -212,7 +259,18 @@ describe("signed Blob requests", () => {
     const driver = { ...createUnsignedDriver(), sign: vi.fn() }
     const storage = createBlobStorage(driver)
 
-    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive integer.")
+    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive whole number of seconds")
+    await expect(storage.sign("source.mp3", { expiresIn: "1500ms", method: "GET" })).rejects.toMatchObject({ code: "BLOB_R0024" })
+    await expect(storage.sign("source.mp3", { expiresIn: "soon" as never, method: "GET" })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
     expect(driver.sign).not.toHaveBeenCalled()
+  })
+
+  it("gives the driver a duration as whole seconds", async () => {
+    const driver = { ...createUnsignedDriver(), sign: vi.fn(async () => ({ headers: {}, method: "GET" as const, url: "https://example.com/source.mp3" })) }
+    const storage = createBlobStorage(driver)
+
+    await storage.sign("source.mp3", { expiresIn: "4.15m", method: "GET" })
+
+    expect(driver.sign).toHaveBeenCalledWith("source.mp3", { expiresIn: 249, method: "GET" }, expect.anything())
   })
 })

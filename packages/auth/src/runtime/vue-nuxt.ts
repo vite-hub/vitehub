@@ -1,7 +1,8 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRouter, useRuntimeConfig, useState } from "#app"
 
+import { invariantError } from "@vite-hub/internal/invariant"
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
@@ -9,16 +10,26 @@ import { resolveAuthMountPath } from "../application-path.ts"
 // download them. The plugin installs its hooks through the bridge, and the browser guard loads them on demand.
 import { setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler } from "../nuxt-bridge.ts"
 
-import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
+import type { AuthPageGuardConfig, AuthPageMeta, AuthPageMode } from "../nuxt-types.ts"
 import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
-type ResponseLike = { headers: Headers }
-type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta }, matched: readonly unknown[], params: Record<string, unknown> }
+type RouterLike = { currentRoute: { value: RouteLike }, resolve: (target: string) => Pick<RouteLike, "matched" | "params"> }
+/** Vue Router gives the same params in other forms: `"a"` or `["a"]`, `[]` or `""` or nothing for an empty one, and any key order. */
+function sameParams(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const values = (value: unknown) => JSON.stringify([value ?? []].flat().filter(item => item !== ""))
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => values(a[key]) === values(b[key]))
+}
+/** The H3 event of a page request on the server. */
+type PageEvent = {
+  url: URL
+  req: Request & { ip?: string, runtime?: unknown, waitUntil?: unknown }
+  res: { headers: Headers }
+}
 
 const stateKey = "vitehub:auth:session"
 
@@ -43,8 +54,28 @@ function reviveDates(value: unknown): unknown {
 }
 
 /** Forward Better Auth's `Set-Cookie` headers, such as a refreshed session, to the page response. */
-function appendSetCookies(event: EventLike, response: ResponseLike): void {
-  for (const cookie of response.headers.getSetCookie?.() ?? []) event.res?.headers?.append("set-cookie", cookie)
+function appendSetCookies(event: PageEvent, response: Response): void {
+  for (const cookie of response.headers.getSetCookie()) event.res.headers.append("set-cookie", cookie)
+}
+
+// Headers of the page request that do not apply to the in-process request, as in Nuxt's `useRequestFetch()`.
+const unforwardedHeaders = /^(?:accept|accept-encoding|connection|content-.+|expect|if-.+|keep-alive|proxy-.+|te|trailer|transfer-encoding|upgrade)$/
+
+/**
+ * Calls the app in-process at the origin of the page request, with its headers, so Auth resolves the same origin and
+ * Better Auth reads the same cookie names, such as `__Secure-better-auth.session_token` on https.
+ */
+async function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
+  if ((import.meta as ImportMeta & { client?: boolean }).client) throw invariantError("Auth page fetch runs only on the Nuxt server")
+  const { serverFetch } = await import("nitro")
+  // Concatenate: a path such as `//host/x` must stay a path of the page's origin.
+  const request = new Request(`${event.url.origin}${path}`, init)
+  for (const [name, value] of event.req.headers) {
+    if (!unforwardedHeaders.test(name) && !request.headers.has(name)) request.headers.set(name, value)
+  }
+  // As H3's `fetchWithEvent()`: keep the client address for the rate limit and the Cloudflare bindings.
+  Object.assign(request, { ip: event.req.ip, runtime: event.req.runtime, waitUntil: event.req.waitUntil })
+  return serverFetch(request)
 }
 
 /**
@@ -56,23 +87,17 @@ function pathOf(input: string | URL | Request): string {
   return url.pathname + url.search
 }
 
-/**
- * The fetch of the current page request for Better Auth's client, or `undefined` outside a request. Nuxt's request fetch
- * calls the app in-process with the headers of the page request, such as the cookie, and its `native` form answers with
- * the `Response` that Better Auth reads.
- */
+/** The fetch of the current page request for Better Auth's client, or `undefined` outside a request. */
 function currentRequestFetch(): RequestFetch | undefined {
   const nuxtApp = tryUseNuxtApp() as object | undefined
-  const event = nuxtApp ? useRequestEvent() as EventLike | undefined : undefined
+  const event = nuxtApp ? useRequestEvent() as PageEvent | undefined : undefined
   if (!nuxtApp || !event) return undefined
-  // Nuxt types the request fetch without `native`.
-  const { native } = useRequestFetch() as { native: typeof fetch }
   const requestFetch = async (input: string | URL | Request, init?: RequestInit) => {
-    const response = await native(pathOf(input), init)
+    const response = await pageFetch(event, pathOf(input), init)
     appendSetCookies(event, response)
     return response
   }
-  return { request: nuxtApp, origin: (useRequestURL() as URL).origin, fetch: requestFetch }
+  return { request: nuxtApp, origin: event.url.origin, fetch: requestFetch }
 }
 
 /**
@@ -80,23 +105,23 @@ function currentRequestFetch(): RequestFetch | undefined {
  * once when the request has no session cookie, else a promise. Call it in a Nuxt context.
  */
 function readServerSession(basePath: string): unknown {
-  const event = useRequestEvent() as EventLike | undefined
+  const event = useRequestEvent() as PageEvent | undefined
   if (!event) return undefined
-  const cookie = event.req?.headers?.get("cookie") ?? undefined
+  const cookie = event.req.headers.get("cookie") ?? undefined
   // Without a session cookie the request has no session. Skip the lookup, so signed-out pages do not load Better Auth.
   if (!hasSessionCookie(cookie)) return null
-  return fetchServerSession(event, useRequestFetch(), basePath)
+  return fetchServerSession(event, basePath)
 }
 
-/** Asks Better Auth for the session with Nuxt's request fetch, which the caller got in a Nuxt context. */
-async function fetchServerSession(event: EventLike, fetch: (path: string, options: { baseURL: string, onResponse: (context: { response: ResponseLike }) => void }) => Promise<unknown>, basePath: string): Promise<unknown> {
+/** Asks Better Auth for the session of the page request. */
+async function fetchServerSession(event: PageEvent, basePath: string): Promise<unknown> {
   try {
-    const data: unknown = await fetch(`${basePath}/get-session`, {
-      // Nitro serves Auth below the base path of the build. Nuxt's `$fetch` adds a runtime `app.baseURL`, such as one
-      // from `NUXT_APP_BASE_URL`, and then the request renders a page that reads the session again, without end.
-      baseURL: "/",
-      onResponse: ({ response }) => appendSetCookies(event, response),
-    })
+    // Nitro serves Auth below the base path of the build, which `basePath` has. A runtime `app.baseURL`, such as one
+    // from `NUXT_APP_BASE_URL`, must not be added: the request would render a page that reads the session again.
+    const response = await pageFetch(event, `${basePath}/get-session`)
+    appendSetCookies(event, response)
+    if (!response.ok) return undefined
+    const data: unknown = await response.json()
     if (typeof data !== "object" || data === null) return null
     const session: unknown = Reflect.get(data, "session")
     const user: unknown = Reflect.get(data, "user")
@@ -123,20 +148,40 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     setNuxtErrorFactory(createError)
     // During server rendering, client calls such as `listSessions()` reach the app in-process with the visitor's cookie.
     if (!("window" in globalThis)) setRequestFetchResolver(currentRequestFetch)
-    const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
+    const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | Partial<AuthPageGuardConfig> } }
     const config = runtimeConfig.public?.vitehubAuth
-    const redirects = (config || undefined)?.redirects ?? {}
-    const routeModes = new WeakMap<RouteLike, "user" | "guest">()
+    const signInPage = config ? config.signInPage : "/login"
+    const afterSignIn = (config || undefined)?.afterSignIn ?? "/"
+    const routeModes = new WeakMap<RouteLike, AuthPageMode>()
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
     const guardOf = (to: RouteLike, meta = to.meta.auth) => {
       if (config === false || meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
-      return (loggedIn: boolean) => {
-        const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
-        // A wide `vitehub.auth.routes` pattern also covers the login page. Do not redirect it to itself.
-        if (!target || target.split(/[?#]/)[0] === to.path) return
-        return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
+      // A wide `access.pages` pattern can also cover the page of the redirect. Vue Router tells whether the redirect
+      // opens the same page with the same parameters.
+      const router = useRouter() as RouterLike
+      const isSelf = (target: string) => {
+        const resolved = router.resolve(target)
+        const page = resolved.matched.at(-1)
+        return page !== undefined && page === to.matched.at(-1) && sameParams(resolved.params, to.params)
+      }
+      return (loggedIn: boolean, signedOut = false) => {
+        if (mode === "guest") {
+          const target = redirectTo ?? afterSignIn
+          return loggedIn && !isSelf(target) ? navigateTo(target) : undefined
+        }
+        if (loggedIn) return
+        if (redirectTo || signInPage !== null) {
+          const target = redirectTo ?? signInPage ?? "/login"
+          // The page guards its own sign-in page, so it cannot render it to a signed-out visitor.
+          if (isSelf(target)) return showError({ statusCode: 401, statusMessage: "Signed out" })
+          return navigateTo({ path: target, query: { redirect: to.fullPath } })
+        }
+        if (signedOut) return showError({ statusCode: 401, statusMessage: "Signed out" })
+        // The Auth route starts the provider sign-in and comes back to `?redirect=`, a path below `app.baseURL`.
+        const signIn = `${resolveAuthMountPath(config?.basePath ?? "/api/auth", runtimeConfig.app?.baseURL)}/sign-in`
+        return navigateTo(`${signIn}?${new URLSearchParams({ redirect: to.fullPath })}`, { external: true })
       }
     }
     if ("window" in globalThis) {
@@ -147,8 +192,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         // Nuxt throws for a URL on another site without `external`.
         if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
         // The guard runs only when the route changes, so do its work for the page on screen.
-        const route = (useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value
-        return guardOf(route, route.meta.auth ?? routeModes.get(route))?.(false)
+        const route = (useRouter() as RouterLike).currentRoute.value
+        return guardOf(route, route.meta.auth ?? routeModes.get(route))?.(false, true)
       }))
     }
     if (config === false) return
@@ -196,7 +241,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const decide = guardOf(to, meta)
       if (!decide) return
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
-      // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
+      // navigations read the session into the state that `useUserSession()` and `useAbility()` share, so the page and
       // the guard see the same answer.
       const session = serverSession?.()
       // Keep the Nuxt app for the session read and the navigation after it answers.
@@ -209,7 +254,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       return loggedIn.then(value => inApp(() => decide(value)))
     }
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth), { global: true })
-    // `definePageMeta({ auth })` wins over the named guards attached by `vitehub.auth.routes`.
+    // `definePageMeta({ auth })` wins over the named guards that `access.pages` attaches.
     for (const mode of ["user", "guest"] as const) {
       addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => {
         if (to.meta.auth !== undefined) return

@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -37,6 +37,13 @@ function createNuxt() {
   }
 }
 
+/** Runs every handler registered for a hook, in registration order, as Nuxt does. */
+async function runHook(nuxt: ReturnType<typeof createNuxt>, name: string, input: Record<string, unknown>) {
+  for (const [index, hook] of nuxt.hooks.entries()) {
+    if (nuxt.hookNames[index] === name) await (hook as (config: Record<string, unknown>) => Promise<void>)(input)
+  }
+}
+
 describe("Auth Nuxt integration", () => {
   it("installs the Vue context bridge before existing Nuxt plugins", () => {
     const nuxt = createNuxt()
@@ -52,11 +59,11 @@ describe("Auth Nuxt integration", () => {
     nuxt.hooks[1]({} as never)
     expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
   })
-  it("passes the page guard redirects to the app and types definePageMeta({ auth })", () => {
+  it("passes the page guard defaults to the app and types definePageMeta({ auth })", () => {
     const hooks = new Map<string, (input: { declarations: string[] }) => void>()
     const nuxt = { ...createNuxt(), hook: (name: string, handler: (input: { declarations: string[] }) => void) => hooks.set(name, handler) }
-    hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } }, nuxt as never)
-    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", redirects: { login: "/sign-in", guest: "/" } } } })
+    hubAuthNuxt({ env: false }, nuxt as never)
+    expect((nuxt.options as { runtimeConfig?: unknown }).runtimeConfig).toEqual({ public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/" } } })
     const declarations: string[] = []
     hooks.get("prepare:types")?.({ declarations })
     expect(declarations.join("\n")).toContain('auth?: import("@vite-hub/auth/nuxt").AuthPageMeta')
@@ -71,9 +78,7 @@ describe("Auth Nuxt integration", () => {
 
     const path = /https:\/\/vitehub\.dev(\/docs\/[\w/-]+)/.exec(declarations.join("\n"))?.[1]
     expect(path).toBe("/docs/auth/protect-pages")
-    const page = await readFile(new URL(`../../../docs/content${path}.md`, import.meta.url), "utf8")
-    expect(page).toContain("definePageMeta({ auth: 'user' })")
-    expect(page).toContain("definePageMeta({ auth: 'guest' })")
+    await expect(access(new URL(`../../../docs/content${path}.md`, import.meta.url))).resolves.toBeUndefined()
   })
 
   it("removes Better Auth's client and the lazy composables from the prefetch hints of every page", () => {
@@ -101,20 +106,39 @@ describe("Auth Nuxt integration", () => {
     })
   })
 
-  it.each([false, { redirects: { login: "/module-login", guest: "/module-home" } }] as const)("uses module Auth options and ignores top-level Vite Auth %j", (auth) => {
-    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt", auth: { redirects: { login: "/sign-in", guest: "/home" } } }, runtimeConfig: {} } }
+  it("turns the page guard off with auth: false", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt" }, runtimeConfig: {} } }
 
-    hubAuthNuxt({ env: false, auth }, nuxt)
+    hubAuthNuxt({ env: false, auth: false }, nuxt)
 
-    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: auth === false ? false : { basePath: "/api/auth", redirects: auth.redirects } } })
+    expect(nuxt.options.runtimeConfig).toEqual({ public: { vitehubAuth: false } })
   })
 
-  it("attaches the page guard to the pages of auth.routes through appMiddleware route rules", () => {
-    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", routeRules: { "/dashboard/**": { appMiddleware: "track" }, "/docs/**": { prerender: true } } as Record<string, Record<string, unknown>> } }
+  it("fails for the removed redirects option with its move fix", () => {
+    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", vite: { root: "/tmp/vitehub-auth-nuxt" }, runtimeConfig: {} } }
 
-    hubAuthNuxt({ env: false, auth: { routes: { "/dashboard/**": "user", "/dashboard/public": false, "/dashboard/welcome": "guest", "/login": "guest" } } }, nuxt)
+    expect(() => hubAuthNuxt({ env: false, auth: { redirects: { login: "/sign-in" } } } as never, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_REDIRECTS_MOVED" }))
+  })
 
-    expect(nuxt.options.routeRules).toEqual({
+  /** Runs the module on an app whose `server/auth.ts` sets `access.pages`, and returns the Nuxt route rules. */
+  function guardAccessPages(pages: Record<string, unknown>, routeRules: Record<string, Record<string, unknown>> = {}) {
+    const rootDir = mkdtempSync(join(tmpdir(), "vitehub-auth-nuxt-pages-"))
+    try {
+      mkdirSync(join(rootDir, "server"))
+      writeFileSync(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: { pages: ${JSON.stringify(pages)} } })\n`)
+      const nuxt = { options: { rootDir, routeRules: structuredClone(routeRules) } }
+      hubAuthNuxt({ env: false }, nuxt)
+      return nuxt.options.routeRules
+    }
+    finally {
+      rmSync(rootDir, { force: true, recursive: true })
+    }
+  }
+
+  it("attaches the page guard to the pages of access.pages through appMiddleware route rules", () => {
+    const routeRules = guardAccessPages({ "/dashboard/**": "user", "/dashboard/public": false, "/dashboard/welcome": "guest", "/login": "guest" }, { "/dashboard/**": { appMiddleware: "track" }, "/docs/**": { prerender: true } })
+
+    expect(routeRules).toEqual({
       "/dashboard/**": { appMiddleware: { "track": true, "vitehub-auth-user": true, "vitehub-auth-guest": false } },
       "/dashboard/public": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": false } },
       "/dashboard/welcome": { appMiddleware: { "vitehub-auth-user": false, "vitehub-auth-guest": true } },
@@ -123,43 +147,107 @@ describe("Auth Nuxt integration", () => {
     })
   })
 
-  it.each([
-    [{ "dashboard/**": "user" }, '"dashboard/**": "user"'],
-    [{ "/admin/**": "admin" }, '"/admin/**": "admin"'],
-    [{ "/account": "user", "/account/:id?": false }, '"/account/:id?": false'],
-    [{ "/account/:id": "user", "/account/:id/:tab?": false }, '"/account/:id/:tab?": false'],
-    [{ "/p/:path+": "user" }, '"/p/:path+": "user"'],
-    [{ "/p/:path*": "user" }, '"/p/:path*": "user"'],
-    [{ "/account{/:id}?": "user" }, '"/account{/:id}?": "user"'],
-    [{ "/files/:id(\\d+)": "user" }, '"/files/:id(\\\\d+)": "user"'],
-    [{ "/files/:id.json": "user" }, '"/files/:id.json": "user"'],
-    [{ "/docs/**:rest": false }, '"/docs/**:rest": false'],
-    [{ "/a/**/b": "user" }, '"/a/**/b": "user"'],
-    [{ "/a/": "user" }, '"/a/": "user"'],
-    [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
-    [{ "/team/*": false }, '"/team/*": false'],
-    [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
-  ] as const)("stops the build on an invalid auth.routes entry %j", (routes, entry) => {
-    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt" } }
+  /** Runs the module twice, as Nuxt does with layers, on an app with this `server/auth.ts`, and returns its Nuxt options. */
+  function runModule(source: string) {
+    const rootDir = mkdtempSync(join(tmpdir(), "vitehub-auth-nuxt-pages-"))
+    try {
+      mkdirSync(join(rootDir, "server"))
+      writeFileSync(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\n${source}\n`)
+      const nuxt: NonNullable<Parameters<typeof hubAuthNuxt>[1]> = { options: { rootDir, runtimeConfig: {} } }
+      hubAuthNuxt({ env: false, nitro: false }, nuxt)
+      hubAuthNuxt({ env: false, nitro: false }, nuxt)
+      return nuxt.options
+    }
+    finally {
+      rmSync(rootDir, { force: true, recursive: true })
+    }
+  }
 
-    expect(() => hubAuthNuxt({ env: false, auth: { routes: routes as never } }, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining(entry) }))
+  it("adds no server middleware to an app without access.pages, so a public page needs no Env", () => {
+    // Without deploy credentials, a middleware that resolves the Env of this callback fails each prerendered page.
+    expect(runModule("export default defineAuth(({ env }) => ({ secret: env.AUTH_SECRET }))").nitro ?? {}).not.toHaveProperty("handlers")
+  })
+
+  it("stops the build when access is a variable that can hold access.pages", () => {
+    expect(() => runModule("const access = { pages: { '/admin/**': 'user' } }\nexport default defineAuth(() => ({ access }))")).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it("stops the build on an invalid access.pages entry", () => {
+    expect(() => guardAccessPages({ "/account": "user", "/account/:id?": false })).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining('"/account/:id?": false') }))
   })
 
   /** Resolves the Auth mode of a page like Nuxt 5: all matching route rules, less specific first, with later rules winning. */
-  function resolveAuthMode(routes: Record<`/${string}`, "user" | "guest" | false>, existing: Record<string, Record<string, unknown>> = {}) {
-    const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt", routeRules: structuredClone(existing) } }
-    hubAuthNuxt({ env: false, auth: { routes } }, nuxt)
+  function resolveAuthMode(pages: Record<`/${string}`, "user" | "guest" | false>, existing: Record<string, Record<string, unknown>> = {}) {
+    return authModeOf(guardAccessPages(pages, existing))
+  }
+
+  /** The `appMiddleware` flags that the Nuxt 5 matcher merges on a path, least specific pattern first. */
+  function middlewareOf(routeRules: Record<string, Record<string, unknown>>) {
     const router = createRouter<Record<string, unknown>>()
-    for (const [pattern, rule] of Object.entries(nuxt.options.routeRules)) addRoute(router, "", pattern, rule)
+    for (const [pattern, rule] of Object.entries(routeRules)) addRoute(router, "", pattern, rule)
     const compiled = compileRouter(router, { matchAll: true })
-    const mode = (matches: Array<{ data: Record<string, unknown> }>) => {
-      const flags: Record<string, boolean> = Object.assign({}, ...matches.map(match => match.data.appMiddleware))
+    const flags = (matches: Array<{ data: Record<string, unknown> }>): Record<string, boolean> => Object.assign({}, ...matches.map(match => match.data.appMiddleware))
+    return (path: string) => {
+      const interpreted = flags(findAllRoutes(router, "", path))
+      expect(flags(compiled("", path))).toEqual(interpreted)
+      return interpreted
+    }
+  }
+
+  function authModeOf(routeRules: Record<string, Record<string, unknown>>) {
+    const middleware = middlewareOf(routeRules)
+    return (path: string) => {
+      const flags = middleware(path)
       return flags["vitehub-auth-user"] ? "user" : flags["vitehub-auth-guest"] ? "guest" : "public"
     }
-    return (path: string) => {
-      const interpreted = mode(findAllRoutes(router, "", path))
-      expect(mode(compiled("", path))).toBe(interpreted)
-      return interpreted
+  }
+
+  type Rule = Record<string, unknown>
+  type InlinePage = { path: string, rules?: Rule, children?: InlinePage[] }
+
+  /**
+   * What Nuxt does with the `defineRouteRules()` of the pages after `pages:resolved`: it keys each page by its rou3
+   * pattern, merges it over the route rule of that pattern with `defu`, then expands a middleware name or list.
+   */
+  async function mergeInlineRouteRules(pages: InlinePage[], routeRules: Record<string, Rule>) {
+    const { vueRouterToRou3 } = await import("unrouting")
+    const isRule = (value: unknown): value is Rule => typeof value === "object" && value !== null && !Array.isArray(value)
+    // `defu` concatenates two lists, merges two objects, and otherwise keeps the value of the page.
+    const defu = (inline: Rule, base: Rule = {}): Rule => Object.fromEntries([...new Set([...Object.keys(inline), ...Object.keys(base)])].map((key) => {
+      const value = inline[key]
+      const fallback = base[key]
+      if (value === undefined) return [key, fallback]
+      if (Array.isArray(value) && Array.isArray(fallback)) return [key, [...value, ...fallback]]
+      return [key, isRule(value) && isRule(fallback) ? defu(value, fallback) : value]
+    }))
+    const collect = (list: InlinePage[], prefix: string) => {
+      for (const page of list) {
+        if (page.rules) for (const pattern of vueRouterToRou3(prefix + page.path, { collapse: true }).patterns) routeRules[pattern] = defu(page.rules, routeRules[pattern])
+        if (page.children) collect(page.children, `${prefix}${page.path}/`)
+      }
+    }
+    collect(pages, "")
+    for (const rule of Object.values(routeRules)) {
+      const middleware = rule.appMiddleware
+      if (typeof middleware === "string" || Array.isArray(middleware)) rule.appMiddleware = Object.fromEntries([middleware].flat().map(name => [name, true]))
+    }
+  }
+
+  /** Runs the Auth Nuxt module with `server/auth.ts`, then Nuxt's `pages:resolved` hooks and inline rule merge. */
+  async function resolveInlineRouteRules(auth: string, routeRules: Record<string, Rule>, pages: InlinePage[]) {
+    const rootDir = mkdtempSync(join(tmpdir(), "vitehub-auth-nuxt-inline-"))
+    try {
+      mkdirSync(join(rootDir, "server"))
+      writeFileSync(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth(${auth})\n`)
+      const resolved: Array<(pages: unknown[]) => unknown> = []
+      const nuxt = { options: { rootDir, routeRules }, hook: (name: string, handler: (pages: unknown[]) => unknown) => { if (name === "pages:resolved") resolved.push(handler) } }
+      hubAuthNuxt({ env: false }, nuxt as never)
+      for (const handler of resolved) await handler(pages)
+      await mergeInlineRouteRules(pages, routeRules)
+      return middlewareOf(routeRules)
+    }
+    finally {
+      rmSync(rootDir, { force: true, recursive: true })
     }
   }
 
@@ -172,8 +260,8 @@ describe("Auth Nuxt integration", () => {
     [{ "/a/**": false, "/a/:b/**": "user", "/a/:b/c": "guest" }, { "/a": "public", "/a/b": "user", "/a/b/c": "guest", "/a/b/c/d": "user" }],
     [{ "/team/**": false, "/team/:id": "user" }, { "/team": "public", "/team/a": "user", "/team/a/b": "public" }],
     [{ "/**": "guest", "/:id": "user", "/x": false }, { "/x": "public", "/y": "user", "/y/z": "guest" }],
-  ] as const)("keeps the most specific pattern of %j in any key order through the Nuxt 5 matcher", (routes, expected) => {
-    const entries = Object.entries(routes)
+  ] as const)("keeps the most specific pattern of %j in any key order through the Nuxt 5 matcher", (pages, expected) => {
+    const entries = Object.entries(pages)
     for (const order of [entries, [...entries].reverse()]) {
       const resolve = resolveAuthMode(Object.fromEntries(order))
       expect(Object.fromEntries(Object.keys(expected).map(path => [path, resolve(path)]))).toEqual(expected)
@@ -185,6 +273,40 @@ describe("Auth Nuxt integration", () => {
     const resolve = resolveAuthMode({ "/account/public": false, "/account/**": "user" }, existing)
 
     expect([resolve("/account/public"), resolve("/account/x")]).toEqual(["public", "user"])
+  })
+
+  it("keeps the page guard when a page sets appMiddleware with defineRouteRules", async () => {
+    const middleware = await resolveInlineRouteRules("{ access: { pages: { '/dashboard': 'user', '/team/:id': 'user' } } }", {}, [
+      { path: "/dashboard", rules: { appMiddleware: "audit" } },
+      { path: "/team", children: [{ path: ":id()", rules: { appMiddleware: ["audit"] } }] },
+    ])
+
+    expect([middleware("/dashboard"), middleware("/team/1")]).toEqual([
+      { "audit": true, "vitehub-auth-user": true, "vitehub-auth-guest": false },
+      { "audit": true, "vitehub-auth-user": true, "vitehub-auth-guest": false },
+    ])
+  })
+
+  it("keeps the app middleware of a page that access.pages does not guard", async () => {
+    const middleware = await resolveInlineRouteRules("{ access: { pages: { '/dashboard': 'user' } } }", { "/members": { appMiddleware: ["require-member"] } }, [
+      { path: "/members", rules: { appMiddleware: ["audit"] } },
+    ])
+
+    expect(middleware("/members")).toEqual({ "audit": true, "require-member": true })
+  })
+
+  it("keeps the app middleware on the unguarded pattern of a page with an optional parameter", async () => {
+    // `/team/:id?` has the rou3 patterns `/team` and `/team/:_0`, and access.pages guards only `/team/:_0`. Nuxt merges
+    // the inline rules of the page over the rule of each pattern, so the record that keeps the guard on `/team/:_0` must
+    // not replace the list of the app on `/team`.
+    const middleware = await resolveInlineRouteRules("{ access: { pages: { '/team/:_0': 'user' } } }", { "/team": { appMiddleware: ["require-member"] } }, [
+      { path: "/team/:id?", rules: { appMiddleware: ["audit"] } },
+    ])
+
+    expect([middleware("/team"), middleware("/team/1")]).toEqual([
+      { "audit": true, "require-member": true },
+      { "audit": true, "vitehub-auth-user": true, "vitehub-auth-guest": false },
+    ])
   })
 
   it("disables the session bridge and guard through module Auth options", () => {
@@ -236,8 +358,9 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can> and <Cannot>, and build:manifest.
-    expect(nuxt.hookNames).toEqual(["nitro:config", "modules:done", "prepare:types", "components:extend", "build:manifest"])
+    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can> and <Cannot>,
+    // build:manifest, and pages:resolved and nitro:init for the check of cached guarded pages.
+    expect(nuxt.hookNames.toSorted()).toEqual(["build:manifest", "components:extend", "modules:done", "nitro:config", "nitro:init", "pages:resolved", "prepare:types"])
   })
 
   it("registers <Can> and <Cannot> from the Vue entry, unless the app has its own component with the name", () => {
@@ -302,7 +425,7 @@ describe("Auth Nuxt integration", () => {
     expect(options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     )
-    expect(options.imports.imports).toHaveLength(4)
+    expect(options.imports.imports).toHaveLength(3)
     expect(options).not.toHaveProperty("alias")
     expect(options).not.toHaveProperty("nitro")
   })
@@ -319,10 +442,8 @@ describe("Auth Nuxt integration", () => {
     const authPlugin = plugins.find(plugin => plugin.name === "@vite-hub/auth/vite")!
     const authConfig = vi.fn(() => ({ nitro: {} }))
     authPlugin.config = authConfig
-    await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
+    await runHook(nuxt, "nitro:config", {})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, components:extend for <Can> and <Cannot>, and build:manifest.
-    expect(nuxt.hooks).toHaveLength(5)
   })
 
   it("resolves relative Env roots from the Vite root", () => {
@@ -390,7 +511,7 @@ describe("Auth Nuxt integration", () => {
     const authPlugin = plugins.find(plugin => plugin.name === "@vite-hub/auth/vite")!
     const authConfig = vi.fn(() => ({ nitro: {} }))
     authPlugin.config = authConfig
-    await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
+    await runHook(nuxt, "nitro:config", {})
     expect(authConfig).toHaveBeenCalledWith(expect.not.objectContaining({ auth: false }), expect.anything())
   })
 

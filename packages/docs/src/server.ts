@@ -1,4 +1,4 @@
-export { createDocsContent, createDocsManifest, DocsContentError } from "./manifest.ts"
+export { createDocsContent, createDocsManifest } from "./manifest.ts"
 export type { DocsManifestOptions } from "./manifest.ts"
 export { createDocsParser, docsMarkdown, docsSearchSections } from "./markdown.ts"
 export type { DocsDocument, DocsParserOptions } from "./markdown.ts"
@@ -8,5 +8,5 @@ export { docsPageResponse } from "./page.ts"
 export type { DocsPageLink, DocsPageResponse } from "./page.ts"
 
 export type { DocsContentSource, DocsSource, DocsSourceInput } from "./manifest.ts"
-export { checkDocsLinks, DocsLinkError } from "./check-links.ts"
+export { checkDocsLinks } from "./check-links.ts"
 export type { DocsLinkCheckOptions } from "./check-links.ts"

@@ -1,7 +1,10 @@
+import { parseDuration } from "@vite-hub/runtime"
+import { assertAuthPages } from "./access-pages.ts"
 import { accessRouteSyntaxError } from "./application-path.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
+import type { Duration } from "@vite-hub/runtime"
 import type {
   AuthAccessConfiguration,
   AuthAccessPolicy,
@@ -16,6 +19,7 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { authDatabaseName } from "./database-options.ts"
+import { validateDeleteAccount } from "./delete-account.ts"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
@@ -54,14 +58,18 @@ function validateRouteValue(value: unknown, label: string): void {
   if (syntaxError) throw authErrorDiagnostics.AUTH_C0068({ message: syntaxError })
 }
 
-function validateAuthSignIn(value: AuthSignInConfiguration | undefined): void {
+function validateAuthSignIn(value: string | AuthSignInConfiguration | undefined): void {
+  if (typeof value === "string") {
+    if (!isAppPath(value)) throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be a path that starts with one `/`, or an object." })
+    return
+  }
   if (typeof value === "undefined") return
   if (!isPlainObject(value)) {
-    throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be an object." })
+    throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be a path or an object." })
   }
 
   validateStringValue(value.provider, "access.signIn.provider")
-  if (typeof value.callbackURL !== "undefined") validateStringValue(value.callbackURL, "access.signIn.callbackURL")
+  if ("callbackURL" in value) throw authErrorDiagnostics.AUTH_SIGN_IN_CALLBACK_URL_MOVED()
   if (typeof value.errorCallbackURL !== "undefined") validateStringValue(value.errorCallbackURL, "access.signIn.errorCallbackURL")
   if (typeof value.requestSignUp !== "undefined" && typeof value.requestSignUp !== "boolean") {
     throw authErrorDiagnostics.AUTH_C0029({ message: "`defineAuth()` access.signIn.requestSignUp must be a boolean." })
@@ -109,6 +117,13 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
   validateAuthAccessPublic(access.public)
   validateAuthAccessPolicy(access.policy)
   validateAuthSignIn(access.signIn)
+  if (typeof access.afterSignIn !== "undefined" && !isAppPath(access.afterSignIn)) throw authErrorDiagnostics.AUTH_AFTER_SIGN_IN_INVALID()
+  if (typeof access.pages !== "undefined") assertAuthPages(access.pages)
+}
+
+/** A path of the app: one `/`, then no `/` or `\`, so it cannot name another site. */
+function isAppPath(value: unknown): value is string {
+  return typeof value === "string" && /^\/(?![/\\])/.test(value)
 }
 
 function validateAuthAccessPublic(value: unknown): void {
@@ -122,11 +137,11 @@ function validateAuthAccessPublic(value: unknown): void {
 /** Also checked when a Definition callback returns the options. */
 export function validateAuthAccessPolicy(value: unknown): asserts value is AuthAccessPolicy | undefined {
   if (typeof value === "undefined") return
-  const recheck = isPlainObject(value) ? value.recheck : undefined
-  if (!isPlainObject(value) || typeof value.allow !== "function"
-    || (typeof recheck !== "undefined" && (typeof recheck !== "number" || !Number.isFinite(recheck) || recheck < 0))) {
-    throw authErrorDiagnostics.AUTH_C0065({ message: "`defineAuth()` access.policy must be an object with an `allow` function and an optional `recheck` of 0 or more milliseconds." })
+  if (!isPlainObject(value) || typeof value.allow !== "function") {
+    throw authErrorDiagnostics.AUTH_C0065({ message: "`defineAuth()` access.policy must be an object with an `allow` function and an optional `recheck` duration such as \"5m\"." })
   }
+  // SAFETY: parseDuration() checks the value at runtime and names `recheck` in its error.
+  if (value.recheck !== undefined) parseDuration(value.recheck as Duration, "recheck")
 }
 
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(
@@ -187,6 +202,7 @@ function defineAuthOptions(
   }
 
   validateAuthEvents(options.events)
+  validateDeleteAccount(options)
   validateAuthDatabase(viteHubOptions.database)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)

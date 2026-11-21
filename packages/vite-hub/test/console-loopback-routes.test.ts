@@ -29,10 +29,10 @@ const forgedLocal = { "host": "localhost:3000", "origin": "http://localhost:3000
 
 /**
  * Routes that answer a remote client without Console access, and why each one is safe.
- * - `page-session.ts`: the page tools session. It only says which page tools this visitor gets. The Console link asks
+ * - `page-tools-route.ts`: the page tools session. It only says which page tools this visitor gets. The Console link asks
  *   `consolePageToolAllowed()`, which `console-page-tool.test.ts` covers, and the link gives no access.
  */
-const outsideConsoleAccess = new Set(["page-session.ts"])
+const outsideConsoleAccess = new Set(["page-tools-route.ts"])
 
 /** The Console routes that the Vite plugin and the Nuxt module register, with every section on and no sign-in. */
 async function registeredConsoleRoutes(): Promise<Registration[]> {
@@ -104,7 +104,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["page-session.ts", "rpc.ts", "site-entry.ts"])
+    expect([...files].sort()).toEqual(["page-tools-route.ts", "rpc.ts", "site-entry.ts"])
     const guarded = routes.filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
@@ -163,11 +163,11 @@ describe("Console access outside its routes", () => {
     useViteHubDevPeerKey()
   })
 
-  const remote = () => consoleEvent({ url: "http://localhost:3000/api/_vitehub/realtime/content/doc", headers: forgedLocal })
+  const remote = () => consoleEvent({ url: "http://localhost:3000/_vitehub/realtime/content/doc", headers: forgedLocal })
 
   it("closes Console Realtime rooms to a remote client", async () => {
     const access = consoleRealtimeAccess("agents")
-    expect(await access.authorize({ event: remote(), kind: "read" })).toBe(false)
+    expect(await access.authorize({ event: remote(), mode: "read" })).toBe(false)
     expect(await access.identify({ event: remote() })).toBeNull()
     expect(await access.user({ event: remote() })).toBeNull()
   })

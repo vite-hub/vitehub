@@ -116,7 +116,7 @@ Enable Rate Limit in the Vite config:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', rateLimit: true },
+  vitehub: { rateLimit: true },
 })
 ```
 :::
@@ -128,7 +128,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ rateLimit: true }), nitro()],
 })
 ```
 :::
@@ -139,7 +139,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true })],
+  plugins: [vitehub({ rateLimit: true })],
 })
 ```
 :::

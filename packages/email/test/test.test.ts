@@ -38,9 +38,6 @@ describe("createTestEmail", () => {
 
 it("exposes the memory driver for custom test clients", async () => {
   const driver = createMemoryEmailDriver()
-  await expect(driver.send(message, { attempt: 1, driver: "memory", meta: {} })).resolves.toMatchObject({
-    data: { driver: "memory", id: "memory-1" },
-    error: null,
-  })
+  await expect(driver.send(message, { attempt: 1, driver: "memory", meta: {} })).resolves.toMatchObject([undefined, { driver: "memory", id: "memory-1" }])
   expect(driver.messages).toEqual([message])
 })

@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto"
 
+import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runWithCloudflareEnv } from "../src/server.ts"
@@ -23,9 +24,27 @@ afterEach(() => {
 describe("verifyWebhook({ provider: 'stripe' })", () => {
   it("returns the parsed body for a valid signature", async () => {
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
-    const [error, event] = await verifyWebhook<{ type: string }>(post({ "stripe-signature": stripeHeader(body) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+    const [error, event] = await verifyWebhook(post({ "stripe-signature": stripeHeader(body) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema: v.object({ type: v.string() }) })
     expect(error).toBeUndefined()
     expect(event?.type).toBe("checkout.session.completed")
+  })
+
+  it("returns ENV_WEBHOOK_SCHEMA_MISMATCH for a signed body that does not match the schema", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
+    const payload = JSON.stringify({ id: "evt_2", type: 42 })
+    const schema = v.object({ id: v.string(), type: v.string() })
+    const [error, event] = await verifyWebhook(post({ "stripe-signature": stripeHeader(payload) }, payload), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema })
+    expect(event).toBeUndefined()
+    expect(error).toMatchObject({ code: "ENV_WEBHOOK_SCHEMA_MISMATCH", docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_schema_mismatch" })
+    expect(error?.cause).toEqual([expect.objectContaining({ path: [expect.objectContaining({ key: "type" })] })])
+  })
+
+  it("returns the schema output, so a transform applies", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
+    const schema = v.pipe(v.object({ type: v.string() }), v.transform(stripeEvent => stripeEvent.type.split(".")))
+    const [error, parts] = await verifyWebhook(post({ "stripe-signature": stripeHeader(body) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema })
+    expect(error).toBeUndefined()
+    expect(parts).toEqual(["checkout", "session", "completed"])
   })
 
   it("refuses a changed body, a wrong secret, and a missing header", async () => {
@@ -76,9 +95,9 @@ describe("verifyWebhook({ provider: 'github' })", () => {
     vi.stubEnv("GITHUB_WEBHOOK_SECRET", "gh-secret")
     const payload = JSON.stringify({ action: "opened", number: 7 })
     const signature = `sha256=${createHmac("sha256", "gh-secret").update(payload).digest("hex")}`
-    const [error, delivery] = await verifyWebhook<{ action: string }>(post({ "x-hub-signature-256": signature }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
+    const [error, delivery] = await verifyWebhook(post({ "x-hub-signature-256": signature }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
     expect(error).toBeUndefined()
-    expect(delivery?.action).toBe("opened")
+    expect(delivery).toEqual({ action: "opened", number: 7 })
     const [wrong] = await verifyWebhook(post({ "x-hub-signature-256": signature.replace("sha256=", "") }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
     expect(wrong?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
   })
@@ -90,7 +109,7 @@ describe("verifyWebhook({ provider: 'github' })", () => {
     const signature = `sha256=${createHmac("sha256", "gh-secret").update(form).digest("hex")}`
     const options = { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" } as const
     const formHeaders = { "content-type": "application/x-www-form-urlencoded", "x-hub-signature-256": signature }
-    const [error, delivery] = await verifyWebhook<{ pull_request: { title: string } }>(post(formHeaders, form), options)
+    const [error, delivery] = await verifyWebhook(post(formHeaders, form), { ...options, schema: v.object({ pull_request: v.object({ title: v.string() }) }) })
     expect(error).toBeUndefined()
     expect(delivery?.pull_request.title).toBe("Add rate limits & retries")
 
@@ -111,7 +130,7 @@ describe("verifyWebhook({ provider: 'hmac' })", () => {
     const payload = JSON.stringify({ base: { id: "app1" }, webhook: { id: "ach1" } })
     const mac = `hmac-sha256=${createHmac("sha256", Buffer.from(key, "base64")).update(payload).digest("hex")}`
     const options = { provider: "hmac", secret: "AIRTABLE_WEBHOOK_SECRET", header: "X-Airtable-Content-MAC", prefix: "hmac-sha256=", encoding: "hex", secretEncoding: "base64" } as const
-    const [error, notification] = await verifyWebhook<{ webhook: { id: string } }>(post({ "x-airtable-content-mac": mac }, payload), options)
+    const [error, notification] = await verifyWebhook(post({ "x-airtable-content-mac": mac }, payload), { ...options, schema: v.object({ webhook: v.object({ id: v.string() }) }) })
     expect(error).toBeUndefined()
     expect(notification?.webhook.id).toBe("ach1")
   })
@@ -171,7 +190,7 @@ describe("signWebhook()", () => {
       vi.stubEnv("HOOK_SECRET", "hook-secret")
       const options = { provider, secret: "HOOK_SECRET" }
       const headers = await signWebhook(body, { provider, secret: "hook-secret" })
-      const [error, event] = await verifyWebhook<{ id: string }>(post(headers), options)
+      const [error, event] = await verifyWebhook(post(headers), { ...options, schema: v.object({ id: v.string() }) })
       expect(error).toBeUndefined()
       expect(event?.id).toBe("evt_1")
 

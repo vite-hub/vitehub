@@ -63,8 +63,7 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment. Not reported
-// to Vite yet (repro: https://github.com/onmax/repros/tree/repro/vite-virtual-id-hash/vite-virtual-id-hash).
+// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment.
 const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 // Rolldown and Vite skip the resolveId and load hooks for every other id.
@@ -118,7 +117,7 @@ function resolveDeclarations(options: EnvDeclarations, config: object): EnvDecla
 
 export type EnvVitePlugin = Plugin & {
   api: EnvVitePluginAPI
-  /** Contributes `vitehub env inspect`, `vitehub env check`, and the `env.inspect` operation. */
+  /** Contributes `vitehub env list`, `vitehub env check`, and the `env.inspect` operation. */
   vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
 
@@ -270,7 +269,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     },
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
-      // The Console, `vitehub env status`, and agents run these on the signed RPC endpoint of the app.
+      // The Console, `vitehub env list --url <app>`, and agents run these on the signed RPC endpoint of the app.
       operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
     // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.

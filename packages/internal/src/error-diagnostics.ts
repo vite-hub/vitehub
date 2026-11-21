@@ -89,7 +89,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_C0002: { ...dynamicError, fix: "Rename or remove one of the two files that the message lists. ViteHub takes the Definition name from the file path." },
     INTERNAL_R0001: { ...dynamicError, fix: "Set `host` in `vitehub()`, or in the `vitehub` options of `nuxt.config.ts`, to `cloudflare`, `deno`, `netlify`, `node`, or `vercel`. Or remove `host` so that ViteHub finds the host from the environment." },
     INTERNAL_R0002: { ...dynamicError, fix: "Stop using the feature that the message names, or set `host` in `vitehub()` to a host that provides it. For Blob, you can also set `blob: { driver: \"s3\" }` with a remote store." },
-    INTERNAL_R0004: { ...dynamicError, fix: "Set a larger `maxResponseBytes` on the HTTP request, such as the `fetch()` Source options, or ask the server for a smaller response." },
+    INTERNAL_R0004: { ...dynamicError, fix: "Set a larger `maxResponseBytes` on the HTTP request, such as the `url()` Source options, or ask the server for a smaller response." },
     INTERNAL_R0005: { ...dynamicError, fix: "Set `method` of the HTTP request to `GET`, `HEAD`, or `POST`." },
     INTERNAL_R0006: { ...dynamicError, fix: "Set `timeout` of the HTTP request to a number of milliseconds from 1 to 2147483647, or remove it to use the default." },
     INTERNAL_R0007: { ...dynamicError, fix: "Set `maxResponseBytes` of the HTTP request to a positive integer no greater than the limit that the message names, or remove it to use the default." },
@@ -113,6 +113,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLE_INVALID: {
       why: ({ variable }: { variable: string }) => `[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`,
       fix: "Set the variable that the message names to the private key that `vitehub secret console-key` prints, and name it `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` with A-Z, 0-9, and _ in `<NAME>`.",
+    },
+    INTERNAL_DEV_SERVER_NOT_FOUND: {
+      why: ({ command }: { command: string }) => `[vitehub] No dev server of this project is running, and --url is not set, so \`vitehub ${command}\` has no app to call.`,
+      fix: "Start the dev server of this project, such as with `pnpm dev`, or pass --url with the app URL, such as --url http://localhost:3000.",
     },
     INTERNAL_FORGE_NOT_INSTALLED: {
       why: ({ feature }: { feature: string }) => `${feature} needs @vite-hub/forge, and the app did not install it.`,

@@ -1,9 +1,9 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
-import type { AuthRedirects, AuthRoutes } from "./nuxt-types.ts"
+import type { AuthPages } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 import type { AuthSchemaOptions } from "./table-specs.ts"
@@ -24,12 +24,22 @@ export type AuthReservedOption =
   | "adminClaim"
   | "basePath"
   | "database"
+  | "deleteAccount"
   | "preset"
   | "route"
   | "runtime"
   | "secondaryStorage";
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
+}
+
+/**
+ * Better Auth `user.deleteUser` options without `enabled`. `beforeDelete` runs first: delete the app's own rows of the
+ * user there, or throw an `APIError` to keep the account.
+ */
+export type AuthDeleteAccountOptions = Omit<NonNullable<NonNullable<BetterAuthOptions["user"]>["deleteUser"]>, "enabled"> & {
+  /** Database-backed `apiKey()` configuration IDs that reference users, never organizations. Use `"default"` for the unnamed configuration. */
+  userApiKeyConfigIds?: readonly string[]
 }
 
 /** Session fields to write when a refresh extends the session. */
@@ -65,11 +75,13 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath" | "database">> & {
   /** A Better Auth adapter, or `"memory"` to keep users and sessions in the memory of one server process. */
   database?: BetterAuthOptions["database"] | "memory"
+  deleteAccount?: true | AuthDeleteAccountOptions
   events?: AuthEventsConfiguration | false
 }
 
+/** A provider sign-in that the Auth route starts at `GET <basePath>/sign-in`. */
 export interface AuthSignInConfiguration {
-  callbackURL?: string
+  /** Where Better Auth sends the visitor when the provider sign-in fails. */
   errorCallbackURL?: string
   provider: string
   requestSignUp?: boolean
@@ -84,27 +96,36 @@ export interface AuthAccessRouteConfiguration {
 
 export type AuthAccessRoute = string | AuthAccessRouteConfiguration
 
-export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuthorizationContext<TEvent>
+export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuthorizationContext<TEvent, false>
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
-export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent>
+export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent, false>
 
-/** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<Omit<AuthAccessAuthorizationContext, "event"> & {
-  /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
-  session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
+/** The Session and user that the app's Auth Definition returns, with the fields of its plugins and `additionalFields`. */
+type RegisteredSession<TRegistry> = RegisteredAuth<TRegistry>["$Infer"]["Session"]
+type GuardSession<TSession> = Pick<TSession, Extract<keyof TSession, keyof Session>> & Partial<Omit<TSession, keyof Session>>
+
+/**
+ * The checked request, Session, and user that a guarded handler receives. Only Auth guards create it.
+ * Guards using the default Definition read plugin and custom fields from the generated Auth registry.
+ */
+export type AuthAuthorization<TRegistry = ViteHub.AuthRegistry> = Readonly<{
+  request: AuthAccessAuthorizationContext["request"]
+  /** API-key sessions can omit plugin and custom fields. The admin plugin sets `impersonatedBy` for impersonation. */
+  session: GuardSession<RegisteredSession<TRegistry>["session"]> & { impersonatedBy?: string | null }
+  user: RegisteredSession<TRegistry>["user"]
 }>
 
 /** A server handler that runs only after an Auth guard accepts the request. */
-export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
+export type AuthGuardedHandler<TInput, TResult, TRegistry = ViteHub.AuthRegistry> = (input: TInput, authorization: AuthAuthorization<TRegistry>) => TResult | Promise<TResult>
 
 /** The checked request of a signed-out caller that `withAnonymousAuthorization()` accepted. */
 export type AuthAnonymousAuthorization = Readonly<Omit<AnonymousAccessAuthorizationContext, "event">>
-export type AuthAnonymousAuthorize<TEvent = ViteHubContext> = AnonymousAccessAuthorize<TEvent>
+export type AuthAnonymousAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = AnonymousAccessAuthorize<TEvent, TRegistered>
 
 /** A server handler that runs after `authorize` accepts a signed-in or signed-out caller. */
-export type AuthAnonymousGuardedHandler<TInput, TResult> = (
+export type AuthAnonymousGuardedHandler<TInput, TResult, TRegistry = ViteHub.AuthRegistry> = (
   input: TInput,
-  authorization: AuthAuthorization | AuthAnonymousAuthorization,
+  authorization: AuthAuthorization<TRegistry> | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
 /** What `access.policy.allow` gets: the user, and the provider access tokens of the user's accounts. */
@@ -121,8 +142,8 @@ export interface AuthAccessPolicy {
    * request fails and the session stays.
    */
   allow: (context: AuthAccessPolicyContext) => boolean | Promise<boolean>
-  /** Milliseconds that an allowed answer holds for one session or one MCP user. `0` asks on each request. Default: 300000. */
-  recheck?: number
+  /** How long an allowed answer holds for one session or one MCP user, such as `"5m"`. `"0s"` asks on each request. Default: `"5m"`. */
+  recheck?: Duration
 }
 
 export interface AuthAccessConfiguration {
@@ -130,7 +151,23 @@ export interface AuthAccessConfiguration {
   /** Paths that no access route guards, in the same form as `routes`. With `routes: ['/**']`, these are the only paths a signed-out visitor reaches. */
   public?: string[]
   policy?: AuthAccessPolicy
-  signIn?: AuthSignInConfiguration
+  /**
+   * Where a signed-out visitor signs in: the path of a sign-in page, such as `"/login"`, or a provider, such as
+   * `{ provider: "github" }`, that the Auth route starts. The Nuxt page guard sends visitors there, with
+   * `?redirect=<the page>`. Default: `"/login"`.
+   */
+  signIn?: string | AuthSignInConfiguration
+  /**
+   * Where a visitor goes after a provider sign-in without `?redirect=`, and where the Nuxt page guard sends a signed-in
+   * user from an `auth: 'guest'` page. Default: `"/"`.
+   */
+  afterSignIn?: string
+  /**
+   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`, such as
+   * `{ '/dashboard/**': 'user', '/login': 'guest' }`. The most specific pattern wins, and `definePageMeta({ auth })` of
+   * a page wins over all patterns. Vite apps without Nuxt ignore it.
+   */
+  pages?: AuthPages
 }
 
 /** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
@@ -139,6 +176,12 @@ export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterA
 export interface AuthViteHubOptions {
   /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
   adminClaim?: false
+  /**
+   * Let users delete their account with Better Auth `deleteUser()`. Auth also deletes the rows of the user in ViteHub
+   * Server Primitives, such as their comments and form submissions. Pass options to run `beforeDelete` for the app's
+   * own rows.
+   */
+  deleteAccount?: true | AuthDeleteAccountOptions
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -200,6 +243,12 @@ export interface ResolvedAuthViteConfig {
     routes: ResolvedAuthAccessRoute[]
     /** Paths that the access middleware leaves to the handler. Set only when the Definition lists some. */
     public?: string[]
+    /** `access.signIn`: a sign-in page, or a provider that the Auth route starts. Set only when the Definition has it. */
+    signIn?: { page: string } | { provider: true }
+    /** `access.afterSignIn`. Set only when the Definition has it. */
+    afterSignIn?: string
+    /** `access.pages`. Set only when the Definition has it. */
+    pages?: AuthPages
   }
   basePath: string
   /**
@@ -225,6 +274,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"
@@ -238,6 +288,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"
@@ -261,14 +312,5 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export interface AuthObjectOptions {
-  /** Where the Nuxt page guard of `definePageMeta({ auth })` and `routes` sends visitors. Vite apps without Nuxt ignore it. */
-  redirects?: AuthRedirects
-  /**
-   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`. The most specific
-   * pattern wins, and `definePageMeta({ auth })` of a page wins over all patterns. Vite apps without Nuxt ignore it.
-   */
-  routes?: AuthRoutes
-}
-
-export type AuthOptions = false | AuthObjectOptions
+/** `false` turns Auth off. `server/auth.ts` turns it on, and `defineAuth()` holds every Auth option. */
+export type AuthOptions = false

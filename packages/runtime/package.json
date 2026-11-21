@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/runtime",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
   "keywords": [
     "approvals",
@@ -37,10 +37,25 @@
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
     },
+    "./internal/console": {
+      "types": "./dist/internal/console.d.ts",
+      "import": "./dist/internal/console.js",
+      "default": "./dist/internal/console.js"
+    },
+    "./internal/context": {
+      "types": "./dist/internal/context.d.ts",
+      "import": "./dist/internal/context.js",
+      "default": "./dist/internal/context.js"
+    },
     "./internal/drain": {
       "types": "./dist/internal/drain.d.ts",
       "import": "./dist/internal/drain.js",
       "default": "./dist/internal/drain.js"
+    },
+    "./internal/error-diagnostics": {
+      "types": "./dist/internal/error-diagnostics.d.ts",
+      "import": "./dist/internal/error-diagnostics.js",
+      "default": "./dist/internal/error-diagnostics.js"
     },
     "./internal/execution-budget": {
       "types": "./dist/internal/execution-budget.d.ts",
@@ -67,6 +82,16 @@
       "import": "./dist/internal/public-url.js",
       "default": "./dist/internal/public-url.js"
     },
+    "./internal/response": {
+      "types": "./dist/internal/response.d.ts",
+      "import": "./dist/internal/response.js",
+      "default": "./dist/internal/response.js"
+    },
+    "./internal/run-failed": {
+      "types": "./dist/internal/run-failed.d.ts",
+      "import": "./dist/internal/run-failed.js",
+      "default": "./dist/internal/run-failed.js"
+    },
     "./internal/run-scope": {
       "types": "./dist/internal/run-scope.d.ts",
       "import": "./dist/internal/run-scope.js",
@@ -91,6 +116,11 @@
       "types": "./dist/internal/test-mode-setup.d.ts",
       "import": "./dist/internal/test-mode-setup.js",
       "default": "./dist/internal/test-mode-setup.js"
+    },
+    "./internal/trace": {
+      "types": "./dist/internal/trace.d.ts",
+      "import": "./dist/internal/trace.js",
+      "default": "./dist/internal/trace.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
@@ -124,6 +154,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

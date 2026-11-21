@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { access } from "../src/capabilities/access.ts"
+import { telegram } from "../src/channels.ts"
 import { defineChatCapability } from "../src/chat-trigger.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelConversationArchive } from "../src/internal/channel-conversation.ts"
@@ -26,7 +27,7 @@ import type { Adapter, ChatInstance, StateAdapter, WebhookOptions } from "chat"
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }))
 
-const webhookUrl = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
+const webhookUrl = "https://example.com/_vitehub/agents/support/webhooks/telegram"
 
 // Every message runs the chat route with a libSQL State, which takes a moment.
 vi.setConfig({ testTimeout: 30_000 })
@@ -120,7 +121,7 @@ interface Fixture {
   history: (threadId: string) => Promise<Response>
   state: StateAdapter
   recover: (placeholder?: "edit" | "failed-edit", legacy?: boolean, retryFailure?: boolean) => Promise<void>
-  say: (id: number, text: string, extra?: Partial<TelegramMessage>, chat?: number) => Promise<void>
+  say: (id: number, text: string, extra?: Partial<TelegramMessage>, chat?: number, webhook?: string) => Promise<void>
 }
 
 const cleanups: Array<() => Promise<void>> = []
@@ -135,6 +136,7 @@ let memoryFixtures = 0
 interface FixtureOptions {
   adapterName?: string
   channel?: string
+  webhookIds?: string[]
   cache?: boolean
   content?: boolean
   rejection?: "access" | "filter"
@@ -164,6 +166,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const invocationStore = createMemoryAgentInvocationStore()
   const invocations = defineAgentInvocations({ ...(options.content ? { content: "content" as const } : {}), store: invocationStore })
   const channel = options.channel ?? "telegram"
+  const webhook = { adapter: "telegram", secretHeader: "x-test-secret", secret: options.secretToken ?? (() => "history-secret") }
   const capabilities: AgentCapabilityDefinition[] = [
     defineChatCapability({
       // SAFETY: The fake implements the Adapter methods that the chat route calls.
@@ -173,12 +176,17 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
       ...(options.rejection === "filter" ? { filter: () => false } : {}),
       ...(options.identity ? { identity: options.identity } : {}),
       ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
-      webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: options.secretToken ?? "history-secret" } },
+      webhooks: { [channel]: webhook },
     }),
   ]
   if (options.rejection === "access") capabilities.push(access({ chat: { resolve: () => false } }))
   const agent = defineAgent({
-    capabilities,
+    ...(options.webhookIds ? { channels: { [channel]: telegram({
+      // SAFETY: The fake implements the Adapter methods that the chat route calls.
+      adapter: () => adapter as unknown as Adapter,
+      messages: { stream: false },
+      webhooks: options.webhookIds.map(id => ({ ...webhook, id, provider: `custom-${id}`, stateScope: id })),
+    }) } } : { capabilities }),
     driver: { run: options.run ?? (() => ({ text: `reply ${++turn}` })) },
     invocations,
     name: "support",
@@ -245,14 +253,14 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         method: "POST",
       }), channel, routeOptions)
     },
-    async say(id, text, extra = {}, chat = 456) {
+    async say(id, text, extra = {}, chat = 456, webhook = channel) {
       vi.setSystemTime(new Date(Date.parse("2026-06-10T12:00:00.000Z") + id * 60_000))
       const message: TelegramMessage = { chat: { id: chat, type: "private" }, date: Math.floor(Date.now() / 1000), from: { id: chat, username: "maxi" }, message_id: id + idOffset, text, ...extra }
-      const response = await handler(new Request(webhookUrl, {
+      const response = await handler(new Request(new URL(webhook, webhookUrl), {
         body: JSON.stringify({ message, update_id: id + idOffset }),
         headers: { "x-test-secret": "history-secret" },
         method: "POST",
-      }), channel, routeOptions)
+      }), webhook, routeOptions)
       expect(response.status).toBe(200)
     },
     state: state ?? libsql,
@@ -272,6 +280,7 @@ const operations = {
   "channels.threads": agentChannelOperations[1],
   "channels.conversation": agentChannelOperations[2],
   "conversations.export": agentChannelOperations[3],
+  "channels.deliveries": agentChannelOperations[5],
 }
 type Operations = typeof operations
 type OperationInput<Name extends keyof Operations> = Parameters<Operations[Name]["run"]>[0]
@@ -301,7 +310,24 @@ describe("Channel conversation operations", () => {
       ["channels.conversation", "channels", "read"],
       ["conversations.export", "channels", "read"],
       ["channels.status", "channels", "read"],
+      ["channels.deliveries", "channels", "read"],
     ])
+  })
+
+  it("lists each delivery with the Invocation it started, or why it started none", async () => {
+    const chat = await fixture({ rejection: "filter" })
+    await chat.say(1, "ignored by the filter")
+    const rejected = await operation("channels.deliveries")({ agent: "support", channel: "telegram" })
+    expect(rejected.deliveries).toEqual([expect.objectContaining({ reason: "filtered", sourceId: "1", status: "rejected" })])
+    expect(rejected.deliveries[0]).not.toHaveProperty("invocationId")
+
+    const answered = await fixture()
+    await answered.say(2, "hello")
+    const [delivery] = (await operation("channels.deliveries")({ agent: "support", channel: "telegram" })).deliveries
+    expect(delivery).toMatchObject({ invocationId: expect.stringMatching(/^sha256_/), sourceId: "2", status: "completed" })
+    expect(await answered.invocationStore.get(delivery!.invocationId!)).toMatchObject({ status: "completed" })
+    await expect(operation("channels.deliveries", { conversations: "participant", surface: "agent" })({ agent: "support", channel: "telegram" }))
+      .rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN" })
   })
 
   it("lists the Channels with the provider and whether ViteHub keeps their transcripts", async () => {
@@ -314,6 +340,17 @@ describe("Channel conversation operations", () => {
     // A durable State keeps them without any option.
     await fixture()
     await expect(operation("channels.list")({})).resolves.toMatchObject({ channels: [{ retention: { durable: true, mode: "durable-transcripts", transcripts: true } }] })
+  })
+
+  it("lists deliveries by Channel ID across custom webhook registrations", async () => {
+    const chat = await fixture({ channel: "helpdesk", webhookIds: ["primary", "secondary"] })
+    await chat.say(1, "first webhook", {}, 456, "primary")
+    await chat.say(2, "second webhook", {}, 456, "secondary")
+    await expect(operation("channels.list")({})).resolves.toMatchObject({ channels: [{ channel: "helpdesk" }] })
+    const list = operation("channels.deliveries")
+    const input = { agent: "support", channel: "helpdesk" }
+    expect((await list(input)).deliveries.map(delivery => delivery.sourceId)).toEqual(["2", "1"])
+    expect((await list({ ...input, limit: 1 })).deliveries.map(delivery => delivery.sourceId)).toEqual(["2"])
   })
 
   it("lists the threads from the journal, with a cursor that survives new threads", async () => {

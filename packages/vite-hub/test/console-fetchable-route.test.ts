@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe("Fetchable Console routes", () => {
   it("sends a value as JSON with the Console response headers, and a Response as it is", async () => {
-    const value = await consoleRoute(() => ({ ok: 1 })).fetch(new Request("http://app.test/api/_vitehub/console/x"))
+    const value = await consoleRoute(() => ({ ok: 1 })).fetch(new Request("http://app.test/_vitehub/console/x"))
     expect(value.status).toBe(200)
     expect(value.headers.get("cache-control")).toBe("no-store")
     expect(value.headers.get("x-content-type-options")).toBe("nosniff")
@@ -31,7 +31,7 @@ describe("Fetchable Console routes", () => {
     vi.stubGlobal("Response", ServerResponse)
     installConsoleAccess({ mode: "open", authorize: () => rejection })
 
-    const response = await statusRoute.fetch(new Request("http://app.test/api/_vitehub/console/status"))
+    const response = await statusRoute.fetch(new Request("http://app.test/_vitehub/console/status"))
     expect(response).toBe(rejection)
     expect(response.status).toBe(401)
     expect(response.headers.get("www-authenticate")).toBe("Bearer")
@@ -72,16 +72,16 @@ describe("Fetchable Console routes", () => {
 
   it("serves the status route through an H3 router below an app base, as Nitro 3 mounts it", async () => {
     installConsoleSections("/console-route-test", ["agents"])
-    const app = new H3().get("/portal/api/_vitehub/console/status", statusRoute)
-    const ok = await app.fetch(new Request("http://app.test/portal/api/_vitehub/console/status"))
+    const app = new H3().get("/portal/_vitehub/console/status", statusRoute)
+    const ok = await app.fetch(new Request("http://app.test/portal/_vitehub/console/status"))
     expect(ok.status).toBe(200)
     expect(ok.headers.get("cache-control")).toBe("no-store")
     await expect(ok.json()).resolves.toEqual({ agents: [], observability: null })
-    const invalid = await app.fetch(new Request(`http://app.test/portal/api/_vitehub/console/status?agent=${"a".repeat(600)}`))
+    const invalid = await app.fetch(new Request(`http://app.test/portal/_vitehub/console/status?agent=${"a".repeat(600)}`))
     expect(invalid.status).toBe(400)
     await expect(invalid.json()).resolves.toMatchObject({ code: "VITE_HUB_R0113", message: "Invalid Agent name.", status: 400 })
     installConsoleAccess({ mode: "open", authorize: () => false })
-    const denied = await app.fetch(new Request("http://app.test/portal/api/_vitehub/console/status"))
+    const denied = await app.fetch(new Request("http://app.test/portal/_vitehub/console/status"))
     expect(denied.status).toBe(403)
     await expect(denied.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED" })
   })

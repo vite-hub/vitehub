@@ -87,7 +87,7 @@ describe("webhook route without deliveryId", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },

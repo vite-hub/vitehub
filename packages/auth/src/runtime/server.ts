@@ -1,16 +1,42 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
 import { canonicalAccessPath, resolveAccessRoutePath } from "../application-path.ts"
+import { authErrorDiagnostics } from "../error-diagnostics.ts"
+import { routedToAccessHandler } from "../own-access.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
+export { authAccessHandlerMeta } from "../own-access.ts"
+
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "../runtime-state.ts"
-import type { AuthDefinition, AuthRequestInput, ResolvedAuthAccessRoute } from "../types.ts"
+import type { AuthDefinition, AuthDefinitionResolver, AuthRequestInput, ResolvedAuthAccessRoute } from "../types.ts"
 
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
   const state = getAuthRuntimeState()
   if (definition) state.envResolvers?.set(definition as object, resolver as AuthRuntimeEnvResolver)
   else state.envResolver = resolver
+}
+
+function assertSamePages(pages: Readonly<Record<string, unknown>> = {}, built: Readonly<Record<string, unknown>>): void {
+  const keys = Object.keys(pages)
+  if (keys.length === Object.keys(built).length && keys.every(key => Object.hasOwn(built, key) && built[key] === pages[key])) return
+  throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access.pages is not the map that the build read from server/auth.ts, so the build guards other pages. Write `access` and `access.pages` inline in `defineAuth()`, and restart the dev server after you change them." })
+}
+
+/**
+ * Stops the server when `access.pages` of the Auth Definition differs from the map that the Nuxt build read, for
+ * example when `access` is a variable: the build guards only the pages that it reads. A Definition callback returns its
+ * options when Auth resolves them, so the check runs on each result.
+ */
+export function checkBuiltAuthPages(definition: AuthDefinition, built: Readonly<Record<string, unknown>>): void {
+  const { options } = definition
+  if (typeof options !== "function") return assertSamePages(options.access?.pages, built)
+  const resolve: AuthDefinitionResolver = (context) => {
+    const resolved = options(context)
+    assertSamePages(resolved.access?.pages, built)
+    return resolved
+  }
+  definition.options = resolve
 }
 
 /**
@@ -22,21 +48,6 @@ export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccess
   state.accessIdentityResolvers ??= new Map()
   if (resolver) state.accessIdentityResolvers.set(path, resolver)
   else state.accessIdentityResolvers.delete(path)
-}
-
-/**
- * The Nitro route `meta` of a handler that checks its own access, such as the ViteHub Console route. The access routes
- * leave a request to the handler that Nitro routed it to when that handler has this meta, whatever its path and method.
- * The exception follows the dispatch, so an app route file on the same path keeps the access routes.
- */
-export const authAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
-
-/** Whether Nitro routed the request event to a handler with `authAccessHandlerMeta`. A plain Request has no route. */
-function routedToAccessHandler(input: AuthRequestInput): boolean {
-  if (!("context" in input) || !(input.context instanceof Object)) return false
-  const route: unknown = Reflect.get(input.context, "matchedRoute")
-  const meta: unknown = route instanceof Object ? Reflect.get(route, "meta") : undefined
-  return meta instanceof Object && Reflect.get(meta, "vitehubAuthAccess") === authAccessHandlerMeta.vitehubAuthAccess
 }
 
 export interface AuthAccessRouteMatch {

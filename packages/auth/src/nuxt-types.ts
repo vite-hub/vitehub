@@ -11,17 +11,18 @@ export type AuthPageMeta = boolean | AuthPageMode | {
   redirectTo?: string
 }
 
-/** Where the Nuxt page guard sends visitors. */
-export interface AuthRedirects {
-  /** The login page for `auth: 'user'` pages. The guard adds `?redirect=<the page>`. Default `/login`. */
-  login?: string
-  /** Where signed-in users go from `auth: 'guest'` pages. Default `/`. */
-  guest?: string
+/** What the Nuxt page guard reads from the public runtime config: the Auth path and `access` of the Auth Definition. */
+export interface AuthPageGuardConfig {
+  basePath: string
+  /** The sign-in page of `access.signIn`, or `null` when the Auth route starts a provider sign-in. */
+  signInPage: string | null
+  /** `access.afterSignIn`, where signed-in users go from `auth: 'guest'` pages. */
+  afterSignIn: string
 }
 
 /**
- * Nuxt pages that the page guard protects, by route pattern, such as `'/dashboard/**'`. A key has static segments,
- * `:name`, and a last `**`. `'user'` and `'guest'` work as in `definePageMeta({ auth })`. `false` removes the guard
- * of a wider pattern from the matching pages.
+ * `access.pages`: the Nuxt pages that the page guard protects, by route pattern, such as `'/dashboard/**'`. A key has
+ * static segments, `:name`, and a last `**`. `'user'` and `'guest'` work as in `definePageMeta({ auth })`. `false`
+ * removes the guard of a wider pattern from the matching pages.
  */
-export type AuthRoutes = Record<`/${string}`, AuthPageMode | false>
+export type AuthPages = Record<`/${string}`, AuthPageMode | false>

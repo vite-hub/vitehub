@@ -24,8 +24,8 @@ export interface CommentsOverlayAssets {
   overlay: string
 }
 
-/** Where the loader and overlay are served, below the app mount. */
-export const overlayRoute = "/_vitehub/comments"
+/** Where the loader and overlay are served, below the app mount: the assets folder of the Comments API route. */
+export const overlayRoute = "/_vitehub/comments/assets"
 
 /** The path the app is mounted at: `""` for the root, `"/portal"` below it. A relative or empty Vite base is the root. */
 export function mountPath(base: string | undefined): string {
@@ -145,7 +145,7 @@ function createHtmlScanner() {
       else if (element?.[1] === "") {
         if (!templates && name === "script") {
           const src = htmlAttributes(tag).find(attribute => attribute.name === "src")?.value
-          if (src && /\/_vitehub\/comments\/loader\.[\w-]+\.js(?:[?#]|$)/i.test(src)) return { loaded: { start: position, end: position + tag.length }, scanned: position }
+          if (src && /\/_vitehub\/comments\/assets\/loader\.[\w-]+\.js(?:[?#]|$)/i.test(src)) return { loaded: { start: position, end: position + tag.length }, scanned: position }
         }
         if (name && /^(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript|plaintext)$/.test(name)) raw = name
       }

@@ -154,7 +154,7 @@ Returned text becomes model input. Treat `args` as untrusted.
 
 ## Verify input commands
 
-1. `vitehub agent info --agent support --json` lists each command, description, and the trigger.
+1. `vitehub agent get support --json` lists each command, description, and the trigger.
 2. Run with the command and check that the final Agent Run Input has the replaced text or context value.
 3. A `context.reply()` command returns `204`, and the Driver does not run.
 

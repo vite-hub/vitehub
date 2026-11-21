@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
+import { createCommentsClient, replyMessageId, type CommentThread, type CommentUser } from "../src/client.ts"
 import { createMemoryTransport } from "../src/testing.ts"
 
 function deferred<T>() {
@@ -24,6 +24,16 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it("drops the Agent of an earlier resolution in the memory transport", async () => {
+    const seeded = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+    const thread = { ...seeded, status: "resolved" as const, resolvedBy: ana, resolvedActor: { id: "claude", name: "Claude" }, resolvedAt: 1 }
+    const store = createMemoryTransport({ user: ben, threads: [thread] })
+    const byBen = await store.resolve({ threadId: thread.id })
+    expect(byBen.resolvedBy).toEqual(ben)
+    expect(byBen).not.toHaveProperty("resolvedActor")
+    expect(await createMemoryTransport({ user: ben, threads: [thread] }).reopen({ threadId: thread.id })).not.toHaveProperty("resolvedActor")
+  })
+
   it("preserves independent metadata copies in the memory transport", async () => {
     const { store } = setup()
     const metadata = { version: 3, emptyBody: true, category: "feedback" }
@@ -583,4 +593,14 @@ it("bounds refresh retries and preserves the cache while pages keep changing", a
   expect(client.status).toBe("ready")
   expect(client.error).toBeUndefined()
   expect(client.threads).toEqual(store.threads.sort((a, b) => a.n - b.n))
+})
+
+describe("replyMessageId", () => {
+  it("exports the id that a reply with a retry key gets, so a waiting copy finds its server copy", async () => {
+    const { client, store } = setup()
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    const replied = await store.reply({ threadId: thread.id, body: "Yearly too", requestId: "draft-1" })
+    expect(replied.messages.at(-1)!.id).toBe(await replyMessageId(thread.id, "draft-1"))
+    expect(await replyMessageId(thread.id, "draft-1")).toMatch(/^message_[0-9a-f]{32}$/)
+  })
 })

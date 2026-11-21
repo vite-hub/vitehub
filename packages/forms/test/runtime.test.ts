@@ -5,6 +5,8 @@ import { join } from "node:path"
 import * as v from "valibot"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { viteHubUserData } from "@vite-hub/internal/runtime/user-data"
+
 import { defineForm } from "../src/index.ts"
 import { createFormsHandler, installedForms } from "../src/runtime.ts"
 import type { FormsSharedRateLimit } from "../src/runtime.ts"
@@ -95,7 +97,7 @@ describe("hubForms without a Database", () => {
 describe("createFormsHandler", () => {
   const contact = defineForm({ schema: v.object({ message: v.string() }), rateLimit: { limit: 2, window: "1m" } })
   const post = (name: string, address = "1.1.1.1") => {
-    const request = new Request(`https://site.test/api/_vitehub/forms/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
+    const request = new Request(`https://site.test/_vitehub/forms/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
     return { request, address }
   }
 
@@ -144,6 +146,19 @@ describe("createFormsHandler", () => {
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
     expect((await handler.fetch(post("contact").request)).status).toBe(429)
     expect(error).toHaveBeenCalledWith(expect.stringContaining("counts it in the memory of this process"), new Error("KV down"))
+  })
+
+  it("registers the submissions of a signed-in user for Auth deleteAccount", async () => {
+    const app = {}
+    const handler = createFormsHandler({ forms: { contact }, memory: true, session: async () => ({ id: "user-1", email: "ana@example.com" }) })
+    handler.registerUserData(app)
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    const forms = viteHubUserData(app).find(data => data.owner === "forms")
+    expect(viteHubUserData({})).toEqual([])
+    expect(forms?.tables).toEqual(["vitehub_form_submissions"])
+    await forms!.delete("user-1")
+    const [, listed] = await installedForms()!.inbox.list()
+    expect(listed).toEqual([])
   })
 
   it("answers 503 without a Database or memory, and stores nothing", async () => {

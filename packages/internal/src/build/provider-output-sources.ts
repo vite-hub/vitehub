@@ -1,11 +1,15 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import type { Rolldown } from "vite"
+
 import { createImportPath } from "./paths.ts"
+import { importRolldown } from "./rolldown.ts"
+import { copyRetainedSourceTree, isPublishedPackagePath, publishedPackagePaths, unlessGone } from "./runtime-package-files.ts"
 import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
@@ -317,18 +321,21 @@ async function linkDependencies(
   target: string,
   resolveLinkTarget: (source: string) => string = source => source,
 ): Promise<void> {
+  const entries = await unlessGone(() => readdir(source))
+  if (!entries) return
   await mkdir(target, { recursive: true })
-  for (const entry of await readdir(source, { withFileTypes: true })) {
-    if (entry.name === ".bin" || entry.name === ".pnpm") continue
-    const sourceEntry = resolve(source, entry.name)
-    const targetEntry = resolve(target, entry.name)
-    if (!existsSync(sourceEntry)) continue
-    const resolvedSourceEntry = realpathSync(sourceEntry)
-    if (!statSync(resolvedSourceEntry).isDirectory()) continue
-    if (entry.name.startsWith("@") && entry.isDirectory() && !entry.isSymbolicLink()) {
+  for (const entry of entries) {
+    if (entry === ".bin" || entry === ".pnpm") continue
+    const sourceEntry = resolve(source, entry)
+    const targetEntry = resolve(target, entry)
+    const sourceType = await unlessGone(() => lstat(sourceEntry))
+    if (!sourceType) continue
+    if (entry.startsWith("@") && sourceType.isDirectory()) {
       await linkDependencies(sourceEntry, targetEntry, resolveLinkTarget)
       continue
     }
+    const resolvedSourceEntry = await unlessGone(() => realpath(sourceEntry))
+    if (!resolvedSourceEntry || !(await unlessGone(() => stat(resolvedSourceEntry)))?.isDirectory()) continue
     if (existsSync(targetEntry)) continue
     await symlink(resolveLinkTarget(resolvedSourceEntry), targetEntry, process.platform === "win32" ? "junction" : "dir")
   }
@@ -621,8 +628,9 @@ function traceComputedModuleSources(
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
-  // Load esbuild when a trace runs, so code that only imports these helpers does not load it.
-  const { build } = await import("esbuild")
+  // Load Rolldown when a trace runs, so code that only imports these helpers does not load it.
+  const { rolldown } = await importRolldown()
+  const resolvingTraceHint = "vitehubResolvingTraceHint"
   const physicalRoot = realpathSync(root)
   const traceBuildVariants = [
     { platform: "node" as const },
@@ -653,137 +661,108 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
       for (const entry of tracedBatch) tracedEntries.add(entry)
       const queriedResourceSources = new Set<string>()
       const importedSourceHints = new Set<string>()
-      const results = []
+      const results: Array<Set<string>> = []
+      const toRootSource = (path: string) => pathContains(root, path)
+        ? path
+        : pathContains(physicalRoot, path)
+          ? resolve(root, relative(physicalRoot, path))
+          : undefined
+      const isProjectSource = (path: string | undefined): path is string => Boolean(path && existsSync(path)
+        && !relative(root, path).split(sep).includes("node_modules"))
       // A retained root can pull in the full application graph. Run its host-condition variants
-      // sequentially so the two-root worker limit also bounds concurrent esbuild graphs.
+      // sequentially so the two-root worker limit also bounds concurrent Rolldown graphs.
       for (const variant of traceBuildVariants) {
-        const [result] = await Promise.allSettled([build({
-        absWorkingDir: root,
-        bundle: true,
-        entryPoints: tracedBatch,
-        format: "esm",
-        logLevel: "silent",
-        metafile: true,
-        outdir: resolve(root, ".vitehub-provider-trace"),
-        packages: "bundle",
-        ...variant,
-        plugins: [{
+        const inputs = new Set<string>()
+        const tracePlugin: Rolldown.Plugin = {
           name: "vitehub-provider-vite-resource-query",
-          setup(traceBuild) {
-            const resolvingPackageImportHint = "vitehubResolvingPackageImportHint"
-            traceBuild.onResolve({ filter: /^\.\.?\// }, (request) => {
-              const source = request.resolveDir && resolve(request.resolveDir, request.path.split(/[?#]/, 1)[0]!)
-              if (source && existsSync(source)) importedSourceHints.add(source)
-              return undefined
-            })
-            traceBuild.onResolve({ filter: /^#/ }, async (request) => {
-              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
-              if (!request.importer) return undefined
-              const suffixOffset = request.path.slice(1).search(/[?#]/)
-              const packageImport = suffixOffset === -1 ? request.path : request.path.slice(0, suffixOffset + 1)
-              const resolution = await traceBuild.resolve(packageImport, {
-                importer: request.importer,
-                kind: request.kind,
-                namespace: request.namespace,
-                pluginData: { ...request.pluginData, [resolvingPackageImportHint]: true },
-                resolveDir: request.resolveDir,
-                with: request.with,
-              })
-              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file" && existsSync(resolution.path)) {
-                importedSourceHints.add(resolution.path)
-              }
-              return undefined
-            })
-            const resolvingBarePackageHint = "vitehubResolvingBarePackageHint"
-            traceBuild.onResolve({ filter: /^[^./#]/ }, async (request) => {
-              if (request.pluginData?.[resolvingBarePackageHint]) return undefined
-              if (!request.importer) return undefined
-              const suffixOffset = request.path.search(/[?#]/)
-              const packageImport = suffixOffset === -1 ? request.path : request.path.slice(0, suffixOffset)
-              const resolution = await traceBuild.resolve(packageImport, {
-                importer: request.importer,
-                kind: request.kind,
-                namespace: request.namespace,
-                pluginData: { ...request.pluginData, [resolvingBarePackageHint]: true },
-                resolveDir: request.resolveDir,
-                with: request.with,
-              })
-              const source = pathContains(root, resolution.path)
-                ? resolution.path
-                : pathContains(physicalRoot, resolution.path)
-                  ? resolve(root, relative(physicalRoot, resolution.path))
-                  : undefined
-              if (!resolution.errors.length && !resolution.external && resolution.namespace === "file"
-                && source && existsSync(source)
-                && !relative(root, source).split(sep).includes("node_modules")) {
-                importedSourceHints.add(source)
-              }
-              return { external: true, path: request.path }
-            })
-            traceBuild.onResolve({ filter: /[?#]/ }, (request) => {
-              if (request.pluginData?.[resolvingPackageImportHint]) return undefined
-              const resourcePath = request.path.split(/[?#]/, 1)[0]!
-              let resourceSource: string | undefined
-              if (request.resolveDir && (resourcePath.startsWith("./") || resourcePath.startsWith("../"))) {
-                resourceSource = resolve(request.resolveDir, resourcePath)
-              }
-              else if (request.resolveDir && resourcePath.startsWith("/")) {
-                const projectRoot = configuredRoots
-                  .filter(configuredRoot => pathContains(configuredRoot, request.resolveDir))
-                  .sort((left, right) => right.length - left.length)[0] ?? root
-                const rootRelativePath = resourcePath.slice(1)
-                const publicSource = resolve(projectRoot, "public", rootRelativePath)
-                resourceSource = existsSync(publicSource) ? publicSource : resolve(projectRoot, rootRelativePath)
-              }
-              if (resourceSource && existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
-              return { external: true, path: request.path }
-            })
-            traceBuild.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (request) => {
-              const sourcePath = pathContains(root, request.path)
-                ? request.path
-                : pathContains(physicalRoot, request.path)
-                  ? resolve(root, relative(physicalRoot, request.path))
-                  : undefined
-              if (!sourcePath || relative(root, sourcePath).split(sep).includes("node_modules")) return undefined
-              const source = await readFile(request.path, "utf8").catch(() => undefined)
-              if (!source) return undefined
-              const runtimeRequests = new Map<string, RuntimeModuleRequest>()
-              for (const runtimeRequest of traceComputedModuleSourcesOnce(request.path, source).requests) {
-                runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
-              }
-              await Promise.all([...runtimeRequests.values()].map(async runtimeRequest => {
-                const resolveFrom = runtimeRequest.resolveFrom ?? request.path
-                const resolution = await traceBuild.resolve(runtimeRequest.specifier, {
-                  importer: resolveFrom,
-                  kind: runtimeRequest.kind,
-                  namespace: request.namespace,
-                  resolveDir: dirname(resolveFrom),
-                })
-                const resolvedSource = pathContains(root, resolution.path)
-                  ? resolution.path
-                  : pathContains(physicalRoot, resolution.path)
-                    ? resolve(root, relative(physicalRoot, resolution.path))
-                    : undefined
-                if (!resolution.errors.length && !resolution.external && resolution.namespace === "file"
-                  && resolvedSource && existsSync(resolvedSource)
-                  && !relative(root, resolvedSource).split(sep).includes("node_modules")) {
-                  importedSourceHints.add(resolvedSource)
-                }
-              }))
-              return undefined
-            })
+          async resolveId(source, importer, extra) {
+            if (!importer || extra.custom?.[resolvingTraceHint]) return
+            const resolveDir = isAbsolute(importer) ? dirname(importer) : root
+            const hintOptions = { custom: { ...extra.custom, [resolvingTraceHint]: true }, kind: extra.kind }
+            if (/^\.\.?\//.test(source)) {
+              const relativeSource = resolve(resolveDir, source.split(/[?#]/, 1)[0]!)
+              if (existsSync(relativeSource)) importedSourceHints.add(relativeSource)
+            }
+            else if (source.startsWith("#")) {
+              const suffixOffset = source.slice(1).search(/[?#]/)
+              const packageImport = suffixOffset === -1 ? source : source.slice(0, suffixOffset + 1)
+              const resolution = await this.resolve(packageImport, importer, hintOptions)
+              if (resolution && !resolution.external && isAbsolute(resolution.id) && existsSync(resolution.id)) importedSourceHints.add(resolution.id)
+            }
+            else if (/^[^./#]/.test(source)) {
+              const suffixOffset = source.search(/[?#]/)
+              const packageImport = suffixOffset === -1 ? source : source.slice(0, suffixOffset)
+              const resolution = await this.resolve(packageImport, importer, hintOptions)
+              const resolvedSource = resolution && !resolution.external && isAbsolute(resolution.id) ? toRootSource(resolution.id) : undefined
+              if (isProjectSource(resolvedSource)) importedSourceHints.add(resolvedSource)
+              return { id: source, external: true }
+            }
+            if (!/[?#]/.test(source)) return
+            const resourcePath = source.split(/[?#]/, 1)[0]!
+            let resourceSource: string | undefined
+            if (resourcePath.startsWith("./") || resourcePath.startsWith("../")) {
+              resourceSource = resolve(resolveDir, resourcePath)
+            }
+            else if (resourcePath.startsWith("/")) {
+              const projectRoot = configuredRoots
+                .filter(configuredRoot => pathContains(configuredRoot, resolveDir))
+                .sort((left, right) => right.length - left.length)[0] ?? root
+              const rootRelativePath = resourcePath.slice(1)
+              const publicSource = resolve(projectRoot, "public", rootRelativePath)
+              resourceSource = existsSync(publicSource) ? publicSource : resolve(projectRoot, rootRelativePath)
+            }
+            if (resourceSource && existsSync(resourceSource)) queriedResourceSources.add(resourceSource)
+            return { id: source, external: true }
           },
-        }],
-        write: false,
-        })])
-        if (result?.status === "fulfilled") results.push(result.value)
+          async load(id) {
+            if (!isAbsolute(id)) return
+            inputs.add(id)
+            if (!/\.[cm]?[jt]sx?$/.test(id)) return
+            const sourcePath = toRootSource(id)
+            if (!sourcePath || relative(root, sourcePath).split(sep).includes("node_modules")) return
+            const source = await readFile(id, "utf8").catch(() => undefined)
+            if (!source) return
+            const runtimeRequests = new Map<string, RuntimeModuleRequest>()
+            for (const runtimeRequest of traceComputedModuleSourcesOnce(id, source).requests) {
+              runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
+            }
+            await Promise.all([...runtimeRequests.values()].map(async (runtimeRequest) => {
+              const resolution = await this.resolve(runtimeRequest.specifier, runtimeRequest.resolveFrom ?? id, {
+                kind: runtimeRequest.kind === "dynamic-import" ? "dynamic-import" : "require-call",
+                skipSelf: false,
+              })
+              const resolvedSource = resolution && !resolution.external && isAbsolute(resolution.id) ? toRootSource(resolution.id) : undefined
+              if (isProjectSource(resolvedSource)) importedSourceHints.add(resolvedSource)
+            }))
+          },
+        }
+        try {
+          const bundle = await rolldown({
+            cwd: root,
+            input: tracedBatch,
+            onLog(_level, log) {
+              if (log.code === "UNRESOLVED_IMPORT") throw Object.assign(new Error(log.message), { code: log.code })
+            },
+            platform: variant.platform,
+            plugins: [tracePlugin],
+            resolve: { conditionNames: variant.conditions },
+          })
+          try {
+            await bundle.generate({ format: "esm" })
+          }
+          finally {
+            await bundle.close()
+          }
+          results.push(inputs)
+        }
+        catch {
+          // A host variant that cannot bundle these entries adds nothing. The other variants still trace them.
+        }
       }
-      for (const result of results) {
-        for (const path of Object.keys(result.metafile.inputs)) {
-          const source = resolve(root, path)
+      for (const inputs of results) {
+        for (const source of inputs) {
           importedSources.add(source)
-          if (results.length === traceBuildVariants.length
-            && results.every(variant => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source)
+          if (results.length === traceBuildVariants.length && results.every(variant => variant.has(source))) tracedEntries.add(source)
         }
       }
       for (const path of importedSourceHints) {
@@ -1034,6 +1013,17 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     }
     const requestedSymlinks = [...new Set([root, ...materializedSources].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
       .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
+    // The trace names a module behind a requested link by its target path. Name it by its path under the link too,
+    // so the link's copy keeps the modules that a linked file imports, such as the Sandbox Task definitions that
+    // `.vitehub/sandbox-task/runtime/sandbox-task-registry.mjs` imports from its generation folder.
+    const physicalRoot = realpathSync(root)
+    materializedSources.push(...requestedSymlinks.flatMap((link) => {
+      const physicalTarget = realpathSync(link)
+      const target = pathContains(physicalRoot, physicalTarget) ? resolve(root, relative(physicalRoot, physicalTarget)) : physicalTarget
+      return materializedSources
+        .filter(source => source !== target && pathContains(target, source))
+        .map(source => resolve(link, relative(target, source)))
+    }))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
       const segments = relative(root, configuredRoot).split(sep)
       const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))
@@ -1078,15 +1068,22 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         if (directory === root) break
       }
     }
+    // A linked workspace package is a whole source folder with tests and fixtures. Copy only what it publishes.
+    const referencedSourceSet = new Set(referencedSources)
+    const publishedPaths = new Map([...referencedPackages].map(sourcePackage => [sourcePackage, publishedPackagePaths(sourcePackage)]))
     const isReferencedSource = (path: string): boolean => {
       if (referencedAncestors.has(path)) return true
       for (let directory = path; pathContains(root, directory); directory = dirname(directory)) {
-        if (referencedTrees.has(directory)) return true
+        if (referencedSourceSet.has(directory)) return true
+        if (publishedPaths.has(directory)) return isPublishedPackagePath(directory, publishedPaths.get(directory), path)
         if (directory === root) break
       }
       return false
     }
-    const nestedDependencyRoots = new Map<string, string>()
+    const nestedDependencyRoots = new Map([...referencedPackages].map(sourcePackage => [
+      resolve(retainedRoot, relative(root, sourcePackage), "node_modules"),
+      resolve(sourcePackage, "node_modules"),
+    ]))
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), "vitehub-provider-sources-"))
     const stagedContainer = resolve(temporaryRoot, "source")
     const stagedRoot = resolve(stagedContainer, relative(captureRoot, root))
@@ -1140,35 +1137,31 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
         }
         return true
       }
-      await cp(root, stagedRoot, {
-        recursive: true,
-        filter: source => shouldCopySource(resolve(source)),
-      })
+      await copyRetainedSourceTree(root, stagedRoot, source => shouldCopySource(resolve(source)))
       const escapedMaterializedSources = materializedSources
         .filter(source => !pathContains(root, source))
         .filter((source, _, sources) => !sources.some(parent => parent !== source
-          && statSync(parent).isDirectory()
-          && pathContains(parent, source)))
+          && pathContains(parent, source)
+          && statSync(parent, { throwIfNoEntry: false })?.isDirectory()))
       for (const source of escapedMaterializedSources) {
         const retainedSource = resolve(stagedContainer, relative(captureRoot, source))
         await mkdir(dirname(retainedSource), { recursive: true })
-        await cp(realpathSync(source), retainedSource, { filter: path => !isLocalSecretFile(path), recursive: statSync(source).isDirectory() })
+        const sourceTarget = await unlessGone(() => realpath(source))
+        if (sourceTarget) await copyRetainedSourceTree(sourceTarget, retainedSource, path => !isLocalSecretFile(path))
       }
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))
-        const sourceTarget = realpathSync(source)
+        const sourceTarget = await unlessGone(() => realpath(source))
+        if (!sourceTarget) continue
         await rm(retainedSource, { force: true, recursive: true })
-        await cp(sourceTarget, retainedSource, {
-          recursive: statSync(source).isDirectory(),
-          filter(candidate) {
-            const physicalCandidate = resolve(candidate)
-            const logicalCandidate = resolve(source, relative(sourceTarget, physicalCandidate))
-            const retained = materializedSources.some(path => pathContains(logicalCandidate, path)
-              || pathContains(path, logicalCandidate)
-              || pathContains(physicalCandidate, path)
-              || pathContains(path, physicalCandidate))
-            return retained && shouldCopySource(logicalCandidate)
-          },
+        await copyRetainedSourceTree(sourceTarget, retainedSource, candidate => {
+          const physicalCandidate = resolve(candidate)
+          const logicalCandidate = resolve(source, relative(sourceTarget, physicalCandidate))
+          const retained = materializedSources.some(path => pathContains(logicalCandidate, path)
+            || pathContains(path, logicalCandidate)
+            || pathContains(physicalCandidate, path)
+            || pathContains(path, physicalCandidate))
+          return retained && shouldCopySource(logicalCandidate)
         })
       }
       await rebaseCapturedAbsoluteSourceLinks(stagedContainer, captureRoot, retainedContainer)

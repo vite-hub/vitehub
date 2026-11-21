@@ -61,6 +61,7 @@ export interface SetupSessionPlanFields {
   command: string
   /** True when applying writes the config file, so the dev server restarts. */
   restart: boolean
+  restartRequired?: true
 }
 
 export interface SetupSession {
@@ -177,12 +178,12 @@ export function createSetupSession(options: SetupSessionOptions): SetupSession {
       if (action === "add") {
         const args = readAddArgs([...argv, "--dry-run", "--json"])
         const planned = await planSetupAdd(project, args, options.env)
-        stored = { action, args, fields: { command, restart: !!planned.configFile }, files: new Map(), planned }
+        stored = { action, args, fields: { command, restart: !!planned.configFile, ...(planned.restartRequired ? { restartRequired: true } : {}) }, files: new Map(), planned }
       }
       else {
         const args = readRemoveArgs([...argv, "--dry-run", "--json"])
         const planned = await planSetupRemove(project, args, options.env)
-        stored = { action, args, fields: { command, restart: !!planned.configFile }, files: new Map(), planned }
+        stored = { action, args, fields: { command, restart: !!planned.configFile, ...(planned.restartRequired ? { restartRequired: true } : {}) }, files: new Map(), planned }
       }
       const { plan: document } = stored.planned
       if (document.status === "planned") {

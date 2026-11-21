@@ -2,8 +2,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
+import { renderDatabaseLookup } from "./database-lookup.injected.ts"
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
-import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsRenamedAccessProblem, cmsStoreOf } from "./options.ts"
 
 import type { CmsPresetOptions } from "./index.ts"
 
@@ -78,6 +79,13 @@ function propertyName(node: AstNode): string | undefined {
   if (key.type === "Literal" && String(key.value) === key.value) return key.value
 }
 
+/** A string or `true` literal: the values that the cms preset options take. */
+function literalValue(node: unknown): string | true | undefined {
+  const value = unwrap(node)
+  if (isNode(value) && value.type === "Literal" && value.value === true) return true
+  return stringValue(value)
+}
+
 function stringValue(node: unknown): string | undefined {
   const value = unwrap(node)
   if (!isNode(value)) return
@@ -105,7 +113,7 @@ export function cmsRequirementError(file: string, projectRoot: string, message: 
 
 /**
  * Read how `server/content.ts` selects the `cms` preset. The build cannot run the Definition, so the preset must be
- * imported from `vite-hub/cms` or `@vite-hub/cms` and passed as `extends: cms` or `extends: [cms, { ... }]` with string
+ * imported from `vite-hub/cms` or `@vite-hub/cms` and passed as `extends: cms` or `extends: [cms, { ... }]` with
  * literal options. Returns undefined when the file does not import the preset.
  */
 export function readCmsPresetUsage(source: string, file: string, projectRoot: string, parseAst: ParseAst): CmsPresetUsage | undefined {
@@ -282,21 +290,22 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   for (const property of Array.isArray(optionsNode.properties) ? optionsNode.properties : []) {
     const key = isNode(property) ? propertyName(property) : undefined
     if (!isNode(property) || key === undefined || property.kind !== "init" || property.method === true) {
-      throw presetError(file, projectRoot, "cms preset options must be plain properties with string literal values, because the build reads them without running the file.")
+      throw presetError(file, projectRoot, "cms preset options must be plain properties with literal values, because the build reads them without running the file.")
     }
+    if (key === "access") throw presetError(file, projectRoot, `cms preset ${cmsRenamedAccessProblem}`)
     if (!cmsOptionKeys.includes(key)) {
       throw presetError(file, projectRoot, `unknown cms preset option ${JSON.stringify(key)}. Use ${cmsOptionKeys.join(", ")}.`)
     }
     const valueNode = unwrap(property.value)
     // `database: undefined` keeps the default, like omitting the key.
     if (isNode(valueNode) && valueNode.type === "Identifier" && valueNode.name === "undefined") continue
-    const value = stringValue(valueNode)
+    const value = literalValue(valueNode)
     if (value === undefined) {
-      throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a string literal, because the build reads it without running the file.`)
+      throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a ${key === "roles" ? "`true`" : "string"} literal, because the build reads it without running the file.`)
     }
     const problem = cmsOptionProblem(key, value)
     if (problem) throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} ${problem}`)
-    // SAFETY: key is one of the option names and value is a valid string for it, both checked above.
+    // SAFETY: key is one of the option names and value is a valid literal for it, both checked above.
     Reflect.set(options, key, value)
   }
   const problem = cmsOptionsProblem(options)
@@ -405,25 +414,6 @@ export interface CmsWorkspaceImports {
 export const cmsWorkspaceExport = "contentWorkspace"
 
 /**
- * Reads the Database of the plan. The build loads the generated module without the app's Databases, and
- * `useDatabase()` throws for a missing one, so the module keeps the error and throws it on first use.
- */
-function renderDatabaseLookup(plan: CmsPresetPlan): string[] {
-  const missing = `[vitehub] The Content cms preset needs Database ${JSON.stringify(plan.database)}, but it is not configured at runtime. Enable database in vitehub() and keep its Database Definition.`
-  return [
-    "let database",
-    `try { database = useDatabase(${JSON.stringify(plan.database)}).db }`,
-    "catch (error) {",
-    "  database = new Proxy({}, {",
-    "    get() {",
-    `      throw new Error(${JSON.stringify(missing)}, { cause: error })`,
-    "    },",
-    "  })",
-    "}",
-  ]
-}
-
-/**
  * The generated Workspace Definition module. It only reads the Database registry and creates a lazy store when it
  * loads, so the build can load it to bundle Workspace assets. The GitHub store reads its token on first use.
  */
@@ -436,7 +426,7 @@ export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: CmsWorksp
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     `import { createBlobDatabaseWorkspaceStore } from ${JSON.stringify(imports.blobDatabase)}`,
     "",
-    ...renderDatabaseLookup(plan),
+    ...renderDatabaseLookup(plan.database),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: createBlobDatabaseWorkspaceStore({",
@@ -456,12 +446,12 @@ function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan,
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     "",
     "// The Database holds editor sessions only. Documents and their history live in the repository.",
-    ...renderDatabaseLookup(plan),
+    ...renderDatabaseLookup(plan.database),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: {",
     '    driver: "github",',
-    ...(github.repo ? [`    repository: ${JSON.stringify(github.repo)},`] : []),
+    ...(github.repo ? [`    repo: ${JSON.stringify(github.repo)},`] : []),
     `    branch: ${JSON.stringify(github.branch)},`,
     `    root: ${JSON.stringify(github.root)},`,
     `    refs: { published: ${JSON.stringify(github.branch)}, draft: ${JSON.stringify(github.draftBranch)} },`,

@@ -3,16 +3,15 @@ import { resolve } from "node:path"
 
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
-import { getResolvedFeatureOptions, isProductionBuild, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { getResolvedFeatureOptions, isProductionBuild, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
-import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { OperationContributingPlugin, OperationContributionEntry } from "@vite-hub/internal/operations"
-import type { Environment, Plugin, ViteDevServer } from "vite"
+import type { Environment, Plugin } from "vite"
 import { insertConsoleSection, isConsoleMcpClientEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
@@ -89,7 +88,7 @@ interface LocalConsoleOptions extends ConsoleOptions {
 
 const localDevelopmentConsole: Readonly<LocalConsoleOptions> = Object.freeze({ auth: false, local: true })
 
-const consoleGuide = "https://vitehub.dev/docs/development/console"
+const consoleGuide = "https://vitehub.dev/docs/console/migrate"
 
 /** Options that the Console had before it moved out of apps, with the change that replaces each one. */
 const removedConsoleOptions: Record<string, string> = {
@@ -252,7 +251,7 @@ export function resolveConsoleAccessBuild(configured: ConsoleOptions, options: {
 /** Check the Console options against the app: `console.impersonation` needs app Auth. */
 export function assertConsoleAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig }): void {
   if (configured.impersonation === true && !options.auth) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: "[vitehub] console.impersonation needs app Auth. Set auth: true and add server/auth.ts with Better Auth's admin plugin, or remove console.impersonation." })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: "[vitehub] console.impersonation needs app Auth. Add server/auth.ts with Better Auth's admin plugin, or remove console.impersonation." })
   }
 }
 
@@ -468,14 +467,14 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       if (!cliDiscovery) await refreshConsoleCatalog()
     },
     configureServer(server) {
-      publishDevServer(server)
+      publishViteHubDevServer(server)
       // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
       if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
       if (resolvedConsoleConfiguration && server.httpServer) {
         const http = server.httpServer
         http.once("listening", () => {
           const notice = consoleDevAccessNotice(consoleAccess()?.mode, http.address())
-          if (notice) server.config.logger[notice.level](notice.message)
+          if (notice) server.config.logger.warn(notice)
         })
       }
       const refresh = async () => {
@@ -520,40 +519,6 @@ export function consoleOperationContributions(sections: () => readonly string[])
         runtime: false as const,
       }]
     : [])]
-}
-
-/**
- * Tell `vitehub` commands where this dev server listens: `.vitehub/dev-server.json` in the project root, removed when
- * the server closes. A host that runs Vite in middleware mode has no listening server and writes nothing.
- */
-function publishDevServer(server: ViteDevServer): void {
-  const http = server.httpServer
-  // In middleware mode another server owns the listener and publishes it, as the Nuxt module does.
-  if (!http || server.config.server.middlewareMode) return
-  const root = resolve(server.config.root)
-  const write = () => {
-    const address = http.address()
-    if (!address || typeof address === "string") return
-    const host = address.address === "::" || address.address === "0.0.0.0" ? "localhost" : address.family === "IPv6" ? `[${address.address}]` : address.address
-    const url = server.resolvedUrls?.local[0] ?? `${server.config.server.https ? "https" : "http"}://${host}:${address.port}${server.config.base}`
-    try {
-      writeViteHubDevServerFile(root, { root, url })
-    }
-    catch {
-      // A read-only project root only means commands must pass --url.
-    }
-  }
-  const remove = () => {
-    try {
-      removeViteHubDevServerFile(root)
-    }
-    catch {
-      // The file is advisory.
-    }
-  }
-  if (http.listening) write()
-  else http.once("listening", write)
-  http.once("close", remove)
 }
 
 /**

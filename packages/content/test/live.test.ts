@@ -19,7 +19,7 @@ import { defineContent } from "../src/index.ts"
 import { contentDocument, contentLiveSession, contentLiveTarget, contentRealtime, installContentLive } from "../src/realtime.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 
-import type { RealtimeAuthorizeContext, RealtimeDocumentContext } from "@vite-hub/realtime"
+import type { RealtimeAuthorizeContext, RealtimeDefinition, RealtimeDocumentContext } from "@vite-hub/realtime"
 
 const history = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const sessionsTable = await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8")
@@ -165,7 +165,11 @@ describe("contentDocument", { timeout: 30_000 }, () => {
     const { content, posts } = await setup()
     await content.sessions.acquire("posts", "hello", { session: "tab-cleo-0001", user: { id: "cleo", name: "Cleo" } })
     await expect(contentDocument(posts, { sessions: content.sessions }).hold!(context("hello"), { users: [ana] }))
-      .rejects.toThrow("Cleo is editing this document alone.")
+      .rejects.toThrow(expect.objectContaining({
+        code: "CONTENT_LIVE_DOCUMENT_HELD",
+        fix: expect.stringContaining("edit lease"),
+        message: expect.stringContaining("Cleo is editing this document alone."),
+      }))
   })
 
   it("holds nothing without the sessions table", async () => {
@@ -175,6 +179,12 @@ describe("contentDocument", { timeout: 30_000 }, () => {
 })
 
 describe("contentRealtime", { timeout: 30_000 }, () => {
+  function authorizer(definition: RealtimeDefinition) {
+    const { authorize } = definition
+    if (typeof authorize !== "function") throw new Error("Expected an authorize() callback.")
+    return authorize
+  }
+
   function authorizeContext(documentId: string | null, mode: "read" | "write", user: { id: string, name?: string } | null): RealtimeAuthorizeContext {
     // SAFETY: contentRealtime() reads only the request and the user of this context, never the event.
     return { definition: "content", documentId, event: {} as RealtimeAuthorizeContext["event"], mode, request: new Request("https://example.com"), user }
@@ -194,26 +204,36 @@ describe("contentRealtime", { timeout: 30_000 }, () => {
     const { content } = await setup()
     const consoleAccess = vi.fn(({ user }: RealtimeAuthorizeContext) => user?.id !== "blocked")
     const definition = contentRealtime(content, { authorize: consoleAccess })
-    expect(definition.auth).toBe(true)
-    await expect(definition.authorize!(authorizeContext("posts/hello", "write", ana))).resolves.toBe(true)
-    await expect(definition.authorize!(authorizeContext("posts/hello", "write", { id: "viewer" }))).resolves.toBe(false)
-    await expect(definition.authorize!(authorizeContext("posts/hello", "read", { id: "viewer" }))).resolves.toBe(true)
-    await expect(definition.authorize!(authorizeContext("posts/hello", "read", { id: "blocked" }))).resolves.toBe(false)
-    await expect(definition.authorize!(authorizeContext("authors/ada", "read", ana))).resolves.toBe(false)
+    // A signed-out caller gets nothing, whatever the access check and content.can() allow.
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "read", null))).resolves.toBe(false)
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "write", ana))).resolves.toBe(true)
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "write", { id: "viewer" }))).resolves.toBe(false)
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "read", { id: "viewer" }))).resolves.toBe(true)
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "read", { id: "blocked" }))).resolves.toBe(false)
+    await expect(authorizer(definition)(authorizeContext("authors/ada", "read", ana))).resolves.toBe(false)
     // The Workspace event channel carries no document; identified people may listen.
-    await expect(definition.authorize!(authorizeContext(null, "read", ana))).resolves.toBe(true)
+    await expect(authorizer(definition)(authorizeContext(null, "read", ana))).resolves.toBe(true)
+  })
+
+  it("denies when the extra access check returns undefined", async () => {
+    const { content } = await setup()
+    // SAFETY: A JavaScript caller can return undefined, which the type does not allow.
+    const silent = vi.fn(() => undefined) as unknown as (context: RealtimeAuthorizeContext) => boolean
+    const definition = contentRealtime(content, { authorize: silent })
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "write", ana))).resolves.toBe(false)
+    await expect(authorizer(definition)(authorizeContext(null, "read", ana))).resolves.toBe(false)
   })
 
   it("gives content.can() the user that options.user returns", async () => {
     const { content } = await setup()
     const definition = contentRealtime(content, { user: () => ({ id: "ana" }) })
-    await expect(definition.authorize!(authorizeContext("posts/hello", "write", { id: "someone-else" }))).resolves.toBe(true)
+    await expect(authorizer(definition)(authorizeContext("posts/hello", "write", { id: "someone-else" }))).resolves.toBe(true)
   })
 
   it("denies every room with live: false", async () => {
     const { content } = await setup({ live: false })
     expect(content.live).toBe(false)
-    await expect(contentRealtime(content).authorize!(authorizeContext("posts/hello", "read", ana))).resolves.toBe(false)
+    await expect(authorizer(contentRealtime(content))(authorizeContext("posts/hello", "read", ana))).resolves.toBe(false)
   })
 
   it("picks the codec of each collection and loads through its document", async () => {

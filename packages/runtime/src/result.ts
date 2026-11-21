@@ -4,6 +4,8 @@ import type { DiagnosticCallParams, DiagnosticDefinition, DiagnosticJSON, Diagno
 
 import { isRuntimeDiagnostic } from "./diagnostics.ts"
 
+const resultErrorBrand = Symbol.for("vitehub.runtime.resultError")
+
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
  *
@@ -13,8 +15,11 @@ import { isRuntimeDiagnostic } from "./diagnostics.ts"
  * - `docs` links to the code on vitehub.dev.
  * - `cause` keeps the lower-level error, for example the provider error.
  * - `data` keeps catalog metadata in memory. Its type is inferred by `defineErrors()`.
+ * - `status` is the HTTP status that `toResponse(error)` answers, when the catalog code sets one. Without it, 500.
  */
 export interface ResultError<TCode extends string = string, TData = unknown> extends Diagnostic<TData, TCode> {
+  /** HTTP status of the code, for example 409 for a conflict. `toResponse(error)` answers 500 without it. */
+  readonly status?: number
   /** Retains the Nostics serializer type for compatibility; runtime JSON is redacted. */
   toJSON(): DiagnosticJSON<TData> & {
     code: TCode
@@ -33,8 +38,11 @@ export type Result<TData, TCode extends string = string> =
   | [error: ResultError<TCode>, data: undefined]
   | [error: undefined, data: TData]
 
-/** Code map that `defineErrors()` accepts. `is` is reserved for `ErrorCatalog.is`. */
-export type ErrorCodes = Record<string, DiagnosticDefinition> & { is?: never }
+/**
+ * Code map that `defineErrors()` accepts. `is` is reserved for `ErrorCatalog.is`.
+ * `status` is the HTTP status that `toResponse(error)` answers for the code, such as 409 for a conflict. Without it, 500.
+ */
+export type ErrorCodes = Record<string, DiagnosticDefinition & { status?: number }> & { is?: never }
 
 type CatalogCode<TCodes> = Exclude<keyof TCodes, "is"> & string
 
@@ -70,7 +78,7 @@ export type ErrorCatalog<TCodes extends Record<string, DiagnosticDefinition>> = 
 }
 
 export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDefinition>> {
-  /** Each code with a `why` and a `fix`. */
+  /** Each code with a `why` and a `fix`, and an optional HTTP `status`. */
   codes: TCodes
   /** Base URL of the diagnostics pages, which have one page for each code. The `docs` URL of an error is `<docs>/<code in lowercase>`. */
   docs: string
@@ -89,7 +97,7 @@ export function toResultError<TCode extends string, TData>(
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     return descriptor ? descriptor.configurable === true : Object.isExtensible(error)
   }
-  const result = canReplace("name") && canReplace("toJSON")
+  const result = canReplace("name") && canReplace("toJSON") && (Object.hasOwn(error, resultErrorBrand) || Object.isExtensible(error))
     ? error
     : new Diagnostic<unknown>({
       code: error.code,
@@ -100,8 +108,13 @@ export function toResultError<TCode extends string, TData>(
       data: error.data,
       sources: error.sources,
     })
-  if (result !== error) result.stack = error.stack
+  if (result !== error) {
+    result.stack = error.stack
+    const status: unknown = Reflect.get(error, "status")
+    if (typeof status === "number") Object.defineProperty(result, "status", { configurable: true, value: status })
+  }
   Object.defineProperty(result, "name", { configurable: true, value: result.code, writable: true })
+  Object.defineProperty(result, resultErrorBrand, { value: true })
   Object.defineProperty(result, "toJSON", {
     configurable: true,
     value: () => ({ code: result.code, docs: result.docs, fix: result.fix, name: result.name, why: result.why }),
@@ -125,7 +138,12 @@ export function defineErrors(options: DefineErrorsOptions<ErrorCodes>): object {
   })
   for (const code of codes) {
     const create = diagnostics[code]
-    catalog[code] = Object.assign((params?: DiagnosticCallParams) => toResultError(create(params)), {
+    const status = options.codes[code]?.status
+    catalog[code] = Object.assign((params?: DiagnosticCallParams) => {
+      const error = toResultError(create(params))
+      if (status !== undefined) Object.defineProperty(error, "status", { configurable: true, enumerable: false, value: status })
+      return error
+    }, {
       is: (error: unknown) => isRuntimeDiagnostic(error) && error.code === code,
     })
   }

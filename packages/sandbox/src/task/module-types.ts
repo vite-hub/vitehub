@@ -1,5 +1,6 @@
 import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
+import type { sandboxTaskRunErrors } from './runtime/result'
 import type { SandboxTaskSizeOptions } from './size'
 
 export type { SandboxTaskSizeOptions } from './size'
@@ -12,7 +13,15 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
+export interface SandboxTaskDevOptions {
+  /**
+   * `vite dev` runs Sandbox Tasks as processes on this machine, with no isolation and no provider account.
+   * Set `true` to use the host's Sandbox in `vite dev` too.
+   */
+  remote?: boolean
+}
+
+export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
   driver: 'vercel'
   runtime?: string
   ports?: number[]
@@ -24,7 +33,7 @@ export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions {
+export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions, SandboxTaskDevOptions {
   driver: 'cloudflare'
   /** Maximum number of Containers that run at once. Defaults to 12. */
   maxInstances?: number
@@ -46,7 +55,7 @@ export type SandboxTaskDefinitionDriverOptions
 
 export type AgentSandboxTaskConfig =
   | SandboxTaskDefinitionDriverOptions
-  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions)
+  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions & SandboxTaskDevOptions)
 
 export interface SandboxTaskDefinitionBundle {
   entry: string
@@ -105,9 +114,13 @@ export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) =
     handler: THandler
   }
 
-/** The result of a sandbox invocation. HTTP semantics are used for both
- * successful values and failures. */
-export type SandboxTaskRunResult = Response
+/**
+ * What `runSandboxTask()` returns: `[error, data]`. `data` is the decoded handler result. A failed run returns
+ * `SANDBOX_TASK_RUN_FAILED`, with the failure in `error.cause`.
+ */
+export type SandboxTaskRunResult<TResult = unknown> =
+  | [error: ReturnType<typeof sandboxTaskRunErrors.SANDBOX_TASK_RUN_FAILED>, data: undefined]
+  | [error: undefined, data: TResult]
 
 export function getSandboxTaskFeatureDriver(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionDriverOptions | undefined {
   if (!config || typeof config !== 'object' || typeof config.driver !== 'string')

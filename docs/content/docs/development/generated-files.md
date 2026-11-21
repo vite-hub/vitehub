@@ -11,6 +11,10 @@ resolved Definitions, Runtime Registries, stable imports, and Provider Output
 (the files built for your host). Your app code uses documented ViteHub imports,
 not these files.
 
+The `vitehub()` plugin adds `**/.vitehub/**` to Vite's `server.watch.ignored`,
+so a generated write does not reload the dev server. You do not need to add it
+to your Vite config.
+
 ## Common generated paths
 
 | Path | Owner | Purpose |

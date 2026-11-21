@@ -5,16 +5,17 @@ import { fileURLToPath } from "node:url"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
+import { assertNoCachedPageGuards, type NuxtPageLike } from "./page-guard-cache.ts"
+import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
 
-import type { AuthRoutes } from "./nuxt-types.ts"
+import type { AuthPageGuardConfig, AuthPages } from "./nuxt-types.ts"
 import type { AuthOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-export type { AuthPageMeta, AuthPageMode, AuthRedirects, AuthRoutes } from "./nuxt-types.ts"
+export type { AuthPageMeta, AuthPageMode, AuthPages } from "./nuxt-types.ts"
 
 export interface AuthNuxtModuleOptions {
   auth?: AuthOptions
@@ -36,6 +37,9 @@ type NuxtLike = {
     app?: {
       baseURL?: string
     }
+    experimental?: {
+      extraPageMetaExtractionKeys?: string[]
+    }
     imports?: {
       imports?: Array<{ from: string, name: string }>
     }
@@ -45,8 +49,12 @@ type NuxtLike = {
     }
     rootDir?: string
     routeRules?: Record<string, Record<string, unknown>>
+    router?: {
+      options?: { sensitive?: boolean }
+    }
     serverDir?: string
     srcDir?: string
+    ssr?: boolean
     vite?: {
       define?: Record<string, unknown>
       plugins?: unknown[]
@@ -70,13 +78,19 @@ type NuxtComponent = {
   shortPath: string
 }
 
-const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+const composables = ["useAbility", "useAuthClient", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
 const manifestRegistered = new WeakSet<object>()
+const pageCacheCheckRegistered = new WeakSet<object>()
+
+type NitroBuild = {
+  hooks: { hook: (name: "build:config", callback: () => Promise<void> | void) => void }
+  options: { routeRules: Parameters<typeof assertNoCachedPageGuards>[1] }
+}
 
 /** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
 function resolveBetterAuthVueClient(): string | undefined {
@@ -88,39 +102,49 @@ function resolveBetterAuthVueClient(): string | undefined {
   }
 }
 
-/** A static segment or `:name`. */
-const routeSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*)$/
+/**
+ * Attaches the page guard to the pages of `access.pages` with the `appMiddleware` route rule. Nuxt runs it on the server
+ * render and on navigation in the browser. Nuxt merges the rules of all matching patterns and the most specific pattern
+ * wins, so each rule sets both modes: `false` and a narrower other mode remove the mode of a wider pattern.
+ * `assertAuthPages()` accepts only the patterns that keep this order.
+ */
+function guardPages(routeRules: NonNullable<NuxtLike["options"]["routeRules"]>, pages: AuthPages): void {
+  for (const [path, mode] of Object.entries(pages)) {
+    const rule = routeRules[path] ??= {}
+    // Keep the middleware that the app attaches to the same pattern.
+    rule.appMiddleware = { ...appMiddlewareRecord(rule.appMiddleware), "vitehub-auth-user": mode === "user", "vitehub-auth-guest": mode === "guest" }
+  }
+}
+
+/** `appMiddleware` as a record. Nuxt reads a name or a list as `{ [name]: true }`. */
+function appMiddlewareRecord(value: unknown): object | undefined {
+  if (typeof value === "string" || Array.isArray(value)) return Object.fromEntries([value].flat().map(name => [name, true]))
+  return typeof value === "object" && value !== null ? value : undefined
+}
+
+type PageWithRules = { path: string, rules?: { appMiddleware?: unknown }, children?: PageWithRules[] }
 
 /**
- * Attaches the page guard to the pages of `vitehub.auth.routes` with the `appMiddleware` route rule. Nuxt runs it on the
- * server render and on navigation in the browser. Nuxt merges the rules of all matching patterns and the most specific
- * pattern wins, so each rule sets both modes: `false` and a narrower other mode remove the mode of a wider pattern.
- *
- * Nuxt orders matches by their segments from the left: a static segment wins over `:name`, which wins over `**`.
- * Optional, repeated, and regex params and duplicate patterns break this order, because Nuxt then orders the matches by
- * position in `routeRules`. A `*` matches one segment in the middle of a pattern but every depth at its end, so the
- * route map does not accept it. The route map accepts only the patterns that keep the order, so a wider pattern never
- * silently replaces a narrower one.
+ * Nuxt merges the `defineRouteRules()` of a page over the rule of each rou3 pattern of the page with `defu`. On the
+ * pattern of an `access.pages` key, a name or a list then replaces the guard record, and a record merges with it. Other
+ * patterns keep the value of the page, because `defu` joins two lists. A page with an optional parameter has several
+ * patterns, and a record of the page would replace a name or a list of the app on the others, so they become records.
+ * Keys match the rou3 patterns exactly: Nuxt turns the lists into records before it merges keys that differ only in a
+ * parameter name, such as `/team/:id` and `/team/:_0`.
  */
-function guardRoutes(routeRules: NonNullable<NuxtLike["options"]["routeRules"]>, routes: AuthRoutes): void {
-  const shapes = new Map<string, string>()
-  for (const [path, mode] of Object.entries(routes)) {
-    const invalid = (reason: string) => authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: `\`vitehub.auth.routes\` has ${JSON.stringify(path)}: ${JSON.stringify(mode)}. ${reason}` })
-    if (mode !== "user" && mode !== "guest" && mode !== false) throw invalid("A value must be 'user', 'guest', or false.")
-    const segments = path.split("/").slice(1)
-    if (!path.startsWith("/") || (path !== "/" && !segments.every((segment, index) => routeSegment.test(segment) || (segment === "**" && index === segments.length - 1)))) {
-      throw invalid("A key must start with `/` and have only static segments, `:name`, and a last `**`.")
+function expandPageMiddleware(pages: readonly PageWithRules[], patternsOf: (path: string) => string[], keys: ReadonlySet<string>, routeRules: NonNullable<NuxtLike["options"]["routeRules"]>, prefix = ""): void {
+  for (const page of pages) {
+    const middleware = page.rules?.appMiddleware
+    const patterns = patternsOf(prefix + page.path)
+    if (page.rules && (typeof middleware === "string" || Array.isArray(middleware)) && patterns.some(pattern => keys.has(pattern))) {
+      page.rules.appMiddleware = appMiddlewareRecord(middleware)
+      for (const pattern of patterns) {
+        const rule = routeRules[pattern]
+        if (typeof rule?.appMiddleware === "string" || Array.isArray(rule?.appMiddleware)) rule.appMiddleware = appMiddlewareRecord(rule.appMiddleware)
+      }
     }
-    // Two patterns that differ only in their param names match the same pages, so they have no order.
-    const shape = segments.map(segment => segment.startsWith(":") ? ":" : segment).join("/")
-    const same = shapes.get(shape)
-    if (same !== undefined) throw invalid(`It matches the same pages as ${JSON.stringify(same)}. Keep one of them.`)
-    shapes.set(shape, path)
-    const rule = routeRules[path] ??= {}
-    const current = rule.appMiddleware
-    // Keep the middleware that the app attaches to the same pattern. Nuxt reads a name or a list as `{ [name]: true }`.
-    const attached = typeof current === "string" ? { [current]: true } : Array.isArray(current) ? Object.fromEntries(current.map(name => [name, true])) : typeof current === "object" ? current : undefined
-    rule.appMiddleware = { ...attached, "vitehub-auth-user": mode === "user", "vitehub-auth-guest": mode === "guest" }
+    // Nuxt joins a child path to the path of its parent the same way.
+    if (page.children) expandPageMiddleware(page.children, patternsOf, keys, routeRules, `${prefix}${page.path}/`)
   }
 }
 
@@ -178,7 +202,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": authConfig.definition.handler,
+          "#vitehub/auth/definition": await writeNuxtAuthDefinition(viteRoot, authConfig),
           ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }
@@ -199,16 +223,25 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  // The session bridge and page guard share the discovered Auth path and redirects.
-  const authOptions = resolveAuthOptions()
-  const redirects = authOptions ? authOptions.redirects : undefined
+  // The session bridge and page guard share the discovered Auth path and the sign-in pages of `access`.
+  const authConfig = resolveAuthOptions() === false ? undefined : resolveAuthConfig()
+  const signIn = authConfig?.access.signIn
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
-  nuxt.options.runtimeConfig.public.vitehubAuth = authOptions === false ? false : {
-    basePath: resolveAuthConfig()?.basePath ?? "/api/auth",
-    redirects: { login: redirects?.login ?? "/login", guest: redirects?.guest ?? "/" },
+  nuxt.options.runtimeConfig.public.vitehubAuth = resolveAuthOptions() === false ? false : {
+    basePath: authConfig?.basePath ?? "/api/auth",
+    signInPage: signIn && "provider" in signIn ? null : signIn?.page ?? "/login",
+    afterSignIn: authConfig?.access.afterSignIn ?? "/",
+  } satisfies AuthPageGuardConfig
+  const accessPages = authConfig?.access.pages
+  if (accessPages) {
+    guardPages(nuxt.options.routeRules ??= {}, accessPages)
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `pages:resolved` before it merges the rules of the pages, and nuxt.test.ts checks it.
+    if (nuxt.hook) (nuxt.hook as unknown as (name: "pages:resolved", handler: (pages: PageWithRules[]) => Promise<void>) => void)("pages:resolved", async (pages) => {
+      const { vueRouterToRou3 } = await import("unrouting")
+      expandPageMiddleware(pages, path => vueRouterToRou3(path, { collapse: true }).patterns, new Set(Object.keys(accessPages)), nuxt.options.routeRules ??= {})
+    })
   }
-  if (authOptions && authOptions.routes) guardRoutes(nuxt.options.routeRules ??= {}, authOptions.routes)
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
@@ -255,6 +288,26 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       const keys = new Set(Object.keys(manifest).filter(id => lazy.has(resolve(root, id))))
       if (!keys.size) return
       for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => !keys.has(id))
+    })
+  }
+
+  if (resolveAuthOptions() !== false && !pageCacheCheckRegistered.has(nuxt) && nuxt.hook) {
+    pageCacheCheckRegistered.add(nuxt)
+    // Nuxt reads a `definePageMeta()` key into the page at build time only when the key is in this list or
+    // `experimental.extractSerializablePageMeta` is on.
+    nuxt.options.experimental ??= {}
+    const extractionKeys = nuxt.options.experimental.extraPageMetaExtractionKeys ??= []
+    if (!extractionKeys.includes("auth")) extractionKeys.push("auth")
+    let pages: readonly NuxtPageLike[] = []
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `pages:resolved` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
+    ;(nuxt.hook as unknown as (name: "pages:resolved", handler: (resolved: NuxtPageLike[]) => void) => void)("pages:resolved", (resolved) => {
+      pages = resolved
+    })
+    // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
+    // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `nitro:init` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
+    ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
+      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive, accessPages: authConfig?.access.pages }))
     })
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/presets",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Ready-made Agents built from ViteHub primitives: Babysitter, Labeller, and the workspace preset.",
   "keywords": [
     "agent",
@@ -91,6 +91,6 @@
     "@vite-hub/agent": "workspace:*"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

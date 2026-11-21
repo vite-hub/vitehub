@@ -203,6 +203,8 @@ export interface ConsoleDocumentHint {
 
 /** What the project lacks for some editor features. It mirrors `ViteHubConsoleDocumentSetup`. */
 export interface ConsoleDocumentSetup {
+  /** The project has GitHub Sources but no document collections. */
+  sourceHeadsOnly?: true
   /** No user can read anything because the owner has no access policy. */
   access?: ConsoleDocumentHint
   /** Nothing runs scheduled publishes. */
@@ -422,6 +424,7 @@ function parseConsoleDocumentHint(value: unknown): ConsoleDocumentHint | undefin
 export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup | undefined {
   const source = record(value)
   const setup: ConsoleDocumentSetup = {}
+  if (source?.sourceHeadsOnly === true) setup.sourceHeadsOnly = true
   for (const key of ["access", "schedule"] as const) {
     const hint = parseConsoleDocumentHint(source?.[key])
     if (hint) setup[key] = hint

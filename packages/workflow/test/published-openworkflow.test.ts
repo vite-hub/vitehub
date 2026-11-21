@@ -24,7 +24,7 @@ it("resolves the startup plugin, dispatches handles and executes folder steps wi
     await writeFile(join(root, "server/workflows/demo.mjs"), 'import { createWorkflow } from "@vite-hub/workflow"; export default createWorkflow("demo", async () => "ok")')
     await writeFile(join(root, "server/workflows/named.mjs"), 'import { createWorkflow } from "@vite-hub/workflow"; export const workflow = createWorkflow("named", async () => "ok")')
     await mkdir(join(root, "server/workflows/pipeline"))
-    await writeFile(join(root, "server/workflows/pipeline/index.mjs"), 'import { createWorkflow } from "@vite-hub/workflow"; export default createWorkflow("pipeline", async (input, { steps }) => await steps.first(input))')
+    await writeFile(join(root, "server/workflows/pipeline/index.mjs"), 'import { createWorkflow } from "@vite-hub/workflow"; export default createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))')
     await writeFile(join(root, "server/workflows/pipeline/01.first.mjs"), "export default async input => input + 1")
     const script = join(root, "check.mjs")
     await writeFile(script, `
@@ -52,19 +52,22 @@ const app = { hooks: { hook: (_name, callback) => hooks.push(callback) } }
 try {
   const worker = await createOpenWorkflowWorker()
   try {
-    const run = await startWorkflow("pipeline", 1)
+    const [startError, run] = await startWorkflow("pipeline", 1)
+    assert.equal(startError, undefined)
     assert.equal(await worker.tick(), 1)
     await worker.stop()
-    const completed = await getWorkflowRun("pipeline", run.id)
+    const [getError, completed] = await getWorkflowRun("pipeline", run.id)
+    assert.equal(getError, undefined)
     assert.equal(completed.status, "completed", JSON.stringify(completed))
     assert.equal(completed.result, 2)
-    assert.equal((await state.loadWorkflowDefinition("pipeline")).options.rootStep, false)
+    assert.equal((await state.loadWorkflowDefinition("pipeline")).rootStep, false)
   } finally {
     await worker.stop()
   }
   assert.equal(await installOpenWorkflow(app), true)
   for (const name of ["demo", "named"]) {
-    const run = await startWorkflow(name)
+    const [error, run] = await startWorkflow(name)
+    assert.equal(error, undefined)
     assert.equal(run.status, "queued")
   }
 } finally {

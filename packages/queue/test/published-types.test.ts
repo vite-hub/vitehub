@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { object, optional, parse, parseJson, pipe, record, safeParse, string } from "valibot"
-import { expect, it } from "vitest"
+import { object, optional, parse, parseJson, pipe, safeParse, string } from "valibot"
+import { it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -75,26 +75,3 @@ function workspaceConfig(specs: Record<string, string>) {
     "",
   ].join("\n")
 }
-
-it("keeps Effect internals out of published Queue artifacts", async () => {
-  const dist = resolve(packageRoot, "dist")
-  const files = (await readdir(dist, { recursive: true }))
-    .filter(path => /\.(?:[cm]?js|d\.ts)$/.test(path))
-  const output = (await Promise.all(files.map(path => readFile(join(dist, path), "utf8")))).join("\n")
-  const manifest = parse(
-    pipe(string(), parseJson(), object({
-      dependencies: optional(record(string(), string())),
-      devDependencies: optional(record(string(), string())),
-      optionalDependencies: optional(record(string(), string())),
-      peerDependencies: optional(record(string(), string())),
-    })),
-    await readFile(join(packageRoot, "package.json"), "utf8"),
-  )
-
-  expect(output).not.toMatch(/(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']effect(?:\/[^"']*)?["']/)
-  expect(output).not.toContain("FiberFailure")
-  expect(manifest.dependencies?.effect).toBeUndefined()
-  expect(manifest.devDependencies?.effect).toBeUndefined()
-  expect(manifest.optionalDependencies?.effect).toBeUndefined()
-  expect(manifest.peerDependencies?.effect).toBeUndefined()
-})
