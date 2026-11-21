@@ -136,12 +136,14 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
   })
 }
 
-/** The `/// <reference>` lists of the declaration files that Nuxt writes for the app, `shared/`, and server code. */
 type NuxtTypeReference = { path: string } | { types: string }
+type NuxtTypeConfig = { compilerOptions?: { paths?: Record<string, string[]> } }
 type NuxtPrepareTypesContext = {
   references: NuxtTypeReference[]
   sharedReferences?: NuxtTypeReference[]
   serverReferences?: NuxtTypeReference[]
+  tsConfig: NuxtTypeConfig
+  sharedTsConfig: NuxtTypeConfig
 }
 
 type NuxtLike = {
@@ -204,6 +206,7 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+const cloudflareAppTypes = fileURLToPath(new URL("./cloudflare-app-types.d.ts", import.meta.url))
 const cloudflareWorkersDeclaration = fileURLToPath(new URL("./cloudflare-workers.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
@@ -1241,19 +1244,22 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
   addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
-  // Generated server files such as the Database middleware import `cloudflare:workers`. `cloudflare-workers.d.ts` declares
-  // what they use, without globals. App and shared code also reach server files, through typed server routes and type
-  // imports, so they get only that declaration: the global Workers types replace DOM types such as `Element`.
-  // `@cloudflare/workers-types` is an optional peer. When the app installs it, the server code gets its full types.
-  // Both files live under `node_modules`, which every Nuxt tsconfig excludes, and `exclude` drops a matching `include`.
+  // Nuxt excludes `node_modules`, so it drops these declarations from `include` in an installed app.
   // A `/// <reference>` in the declaration files that Nuxt writes loads them anyway.
   if (plan.host === "cloudflare") {
-    const workers = { path: cloudflareWorkersDeclaration }
-    const server = isPackageInstalled("@cloudflare/workers-types") ? { path: cloudflareTypes } : workers
-    nuxt.hook?.("prepare:types", ({ references, sharedReferences, serverReferences }) => {
-      references.push(workers)
-      sharedReferences?.push(workers)
-      serverReferences?.push(server)
+    const hasWorkerTypes = isPackageInstalled("@cloudflare/workers-types")
+    const appTypes = { path: hasWorkerTypes ? cloudflareAppTypes : cloudflareWorkersDeclaration }
+    const serverTypes = { path: hasWorkerTypes ? cloudflareTypes : cloudflareWorkersDeclaration }
+    nuxt.hook?.("prepare:types", ({ references, sharedReferences, serverReferences, tsConfig, sharedTsConfig }) => {
+      references.push(appTypes)
+      sharedReferences?.push(appTypes)
+      serverReferences?.push(serverTypes)
+      if (hasWorkerTypes) {
+        for (const config of [tsConfig, sharedTsConfig]) {
+          const paths = ((config.compilerOptions ??= {}).paths ??= {})
+          paths["cloudflare:workers"] ??= [cloudflareAppTypes]
+        }
+      }
     })
   }
   if (options.database) {

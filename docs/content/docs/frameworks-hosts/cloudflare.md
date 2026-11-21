@@ -157,7 +157,7 @@ find .output -maxdepth 4 -type f | sort
 
 The Worker gets ViteHub's tested `compatibility_date`, `2026-04-20`, not the day of the build, because Wrangler refuses a date newer than its own workerd. To use another date, set `nitro({ compatibilityDate: '2026-11-01' })` in Vite, or `nitro: { compatibilityDate: '2026-11-01' }` in `nuxt.config.ts`. You can also set `compatibility_date` in a project Wrangler config or set `COMPATIBILITY_DATE` in the build environment or the project's `.env` file.
 
-Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub references the types of that module from the declaration files that Nuxt writes in `.nuxt/`, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, server code gets its full types, such as `DurableObjectState`. App and `shared/` code keep the DOM types. You do not need a `declare module "cloudflare:workers"` file or a `/// <reference types="@cloudflare/workers-types" />` line in the app.
+Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. ViteHub supplies the types that those files need, even without `@cloudflare/workers-types`. Install `@cloudflare/workers-types` to use other Worker APIs. The Nuxt server project loads the full Worker types. The app and `shared/` projects get `cloudflare:workers` and `DurableObjectState` without replacing browser DOM types, so Nuxt can check server auto-imports and typed routes. You do not need to add a `declare module "cloudflare:workers"` file or a `/// <reference types="@cloudflare/workers-types" />` line in the app.
 
 ### A project Wrangler config
 

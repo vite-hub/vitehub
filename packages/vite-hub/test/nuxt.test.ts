@@ -153,7 +153,14 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const modulesDoneHooks: Array<() => void> = []
   const buildBeforeHooks: Array<() => void> = []
   type TypeReference = { path: string } | { types: string }
-  type PrepareTypesContext = { references: TypeReference[], sharedReferences: TypeReference[], serverReferences: TypeReference[] }
+  type TypeConfig = { compilerOptions?: { paths?: Record<string, string[]> } }
+  type PrepareTypesContext = {
+    references: TypeReference[]
+    sharedReferences: TypeReference[]
+    serverReferences: TypeReference[]
+    tsConfig: TypeConfig
+    sharedTsConfig: TypeConfig
+  }
   const prepareTypesHooks: Array<(context: PrepareTypesContext) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
@@ -238,7 +245,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       return entries
     },
     runPrepareTypesHook() {
-      const context: PrepareTypesContext = { references: [], sharedReferences: [], serverReferences: [] }
+      const context: PrepareTypesContext = { references: [], sharedReferences: [], serverReferences: [], tsConfig: {}, sharedTsConfig: {} }
       for (const hook of prepareTypesHooks) hook(context)
       return context
     },
@@ -3805,21 +3812,24 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
   })
 
-  it("adds the global Workers types to Nitro only, so app code keeps DOM types", async () => {
+  it("adds scoped Workers types to the app and full Workers types to Nitro", async () => {
     const { nuxt, runPrepareTypesHook } = createNuxt()
 
     await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
     // Nuxt excludes `node_modules` from every tsconfig, and `exclude` drops a matching `include`, so an installed
     // vite-hub must load the declarations through `/// <reference path>` in the files that Nuxt writes.
-    const workers = { path: expect.stringMatching(/cloudflare-workers\.d\.ts$/) }
+    const appTypes = expect.stringMatching(/cloudflare-app-types\.d\.ts$/)
+    const appConfig = { compilerOptions: { paths: { "cloudflare:workers": [appTypes] } } }
     expect(runPrepareTypesHook()).toEqual({
-      references: [workers],
-      sharedReferences: [workers],
+      references: [{ path: appTypes }],
+      sharedReferences: [{ path: appTypes }],
       serverReferences: [{ path: expect.stringMatching(/cloudflare-types\.d\.ts$/) }],
+      tsConfig: appConfig,
+      sharedTsConfig: appConfig,
     })
     for (const typescript of [nuxt.options.nitro.typescript, Reflect.get(nuxt.options, "typescript")]) {
-      expect(JSON.stringify(typescript)).not.toMatch(/cloudflare-(?:types|workers)\.d\.ts/)
+      expect(JSON.stringify(typescript)).not.toMatch(/cloudflare-(?:app-types|types|workers)\.d\.ts/)
     }
   })
 
@@ -3832,7 +3842,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
       const workers = { path: expect.stringMatching(/cloudflare-workers\.d\.ts$/) }
-      expect(runPrepareTypesHook()).toEqual({ references: [workers], sharedReferences: [workers], serverReferences: [workers] })
+      expect(runPrepareTypesHook()).toEqual({ references: [workers], sharedReferences: [workers], serverReferences: [workers], tsConfig: {}, sharedTsConfig: {} })
     }
     finally {
       vi.mocked(isPackageInstalled).mockImplementation(installed)
@@ -3844,7 +3854,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
     await viteHubNuxtModule({ host: "node" }, nuxt)
 
-    expect(runPrepareTypesHook()).toEqual({ references: [], sharedReferences: [], serverReferences: [] })
+    expect(runPrepareTypesHook()).toEqual({ references: [], sharedReferences: [], serverReferences: [], tsConfig: {}, sharedTsConfig: {} })
   })
 
   it.each([
