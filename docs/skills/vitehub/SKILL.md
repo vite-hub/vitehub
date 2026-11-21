@@ -19,30 +19,36 @@ Orientation is complete when the current setup, target outcome, host boundary, a
 
 ## 2. Look up the built-in first
 
-ViteHub ships code that apps often write by hand. Before you write or change auth, migration, storage, realtime, skill, logging, rate limit, env, or deploy code, find the problem in this table. Also read the app code that already does the job: a built-in can ship after the app wrote its own version.
+ViteHub ships code that apps often write by hand. Before you write or change auth, migration, storage, realtime, skill, logging, rate limit, env, or deploy code, find the problem in this table. Also read the app code that already does the job: a built-in can ship after the app wrote its own version. A row is a candidate, not a drop-in: its limits column says where the built-in behaves differently.
 
-| Problem | Built-in | Docs |
-| --- | --- | --- |
-| Migrations: a `drizzle.config.ts`, `drizzle-kit` scripts, or SQL files written by hand | `vitehub database generate`, then `vitehub database migrate`. `vitehub database up` converts an old folder once | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#apply-migrations) |
-| Apply migrations when the server starts or deploys: a custom migrator, or `wrangler d1 migrations apply` in a script | `database.migrateOnStart` on Node, `database.migrateOnDeploy` on Cloudflare, `ensureMigrations()` in a task or test | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#migrate-when-the-server-starts) |
-| Copy the SQLite file before migrations, such as with `VACUUM INTO` | `database.migrateOnStart: { backup: true }` | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#back-up-sqlite-before-migrations) |
-| Dump a database to a SQL file | `vitehub database export` | [cli/primitives](https://vitehub.dev/raw/docs/cli/primitives.md) |
-| Split a long `inArray()` list or a multi-row insert for the D1 parameter limit | `chunkParameters()` from `vite-hub/database` | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#stay-under-the-bound-parameter-limit) |
-| Run a webhook or a retried request once per key | `withIdempotency()` from `vite-hub/database` | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#run-work-once-for-a-key) |
-| Let one runner at a time do a job, such as a get-then-set flag on a storage key | `kv.lock(key, { ttl }).run()` from `vite-hub/kv` | [kv/server-api](https://vitehub.dev/raw/docs/kv/server-api.md#locks) |
-| Sign people in from the headers of oauth2-proxy (`x-auth-request-*`), Cloudflare Access, or Tailscale Serve | `forwardAuth()` from `vite-hub/auth/forward` | [auth/configure](https://vitehub.dev/raw/docs/auth/configure.md#sign-in-through-a-trusted-proxy) |
-| Turn skills on and off while the app runs, such as with a settings table | `skillSettings()` from `vite-hub/skills` | [console/skills](https://vitehub.dev/raw/docs/console/skills.md#turn-skills-on-and-off) |
-| Presence or cursors in a Realtime room that has no shared document | `defineRealtime({ document: false })` | [realtime/server-api](https://vitehub.dev/raw/docs/realtime/server-api.md#presence-without-an-editor) |
-| Limit requests per user, IP, or key | `requireRateLimit(event, id, options)` from `vite-hub/rate-limit` | [rate-limit/server-api](https://vitehub.dev/raw/docs/rate-limit/server-api.md) |
-| A same-origin check for writes, a request body limit, or security headers | `sameOriginWrites: true` and `security` with `maxBodySize` in `vitehub()` | [frameworks-hosts/production](https://vitehub.dev/raw/docs/frameworks-hosts/production.md#add-security-headers-and-a-body-limit) |
-| Read and check `process.env` values | `vitehub({ env })` and `useServerEnv()` from `vite-hub/env` | [env/configure](https://vitehub.dev/raw/docs/env/configure.md) |
-| A logger or a log event per request | `vitehub({ logs })` with Evlog | [logs/configure](https://vitehub.dev/raw/docs/logs/configure.md) |
-| Deploy scripts: `wrangler deploy --secrets-file`, or creating host resources by hand | `vitehub deploy`, with `--push-env` for env values | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#deploy-from-your-machine) |
-| Move ViteHub packages to a new version | `vitehub update` | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#update-vitehub-packages) |
+| Problem | Built-in | Limits | Docs |
+| --- | --- | --- | --- |
+| Migrations: a `drizzle.config.ts`, `drizzle-kit` scripts, or SQL files written by hand | `vitehub database generate`, then `vitehub database migrate`. `vitehub database up` converts an old folder once | Old flat migration folders need `vitehub database up` first | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#apply-migrations) |
+| Apply migrations when the server starts or deploys: a custom migrator, or `wrangler d1 migrations apply` in a script | `database.migrateOnStart` on Node, `database.migrateOnDeploy` on Cloudflare, `ensureMigrations()` in a task or test | `migrateOnStart` runs only in a Node server build, never in development; it migrates SQLite only when set to `true` | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#migrate-when-the-server-starts) |
+| Copy the SQLite file before migrations, such as with `VACUUM INTO` | `database.migrateOnStart: { backup: true }` | Local SQLite files only. Copies only when a migration is pending, and keeps 3 unless you set `keep` | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#back-up-sqlite-before-migrations) |
+| Dump a database to a SQL file | `vitehub database export` | - | [cli/primitives](https://vitehub.dev/raw/docs/cli/primitives.md) |
+| Split a long `inArray()` list or a multi-row insert for the D1 parameter limit | `chunkParameters()` from `vite-hub/database` | - | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#stay-under-the-bound-parameter-limit) |
+| Run a webhook or a retried request once per key | `withIdempotency()` from `vite-hub/database` | Not exactly once: a crash after the work, or a run longer than `timeout` (300 s), runs it again. Keep the provider's own idempotency key | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#run-work-once-for-a-key) |
+| Let one runner at a time do a job, such as a get-then-set flag on a storage key | `kv.lock(key, { ttl }).run()` from `vite-hub/kv` | Needs the `redis`, `upstash`, or `database` KV driver. On `fs-lite`, `deno-kv`, and Cloudflare KV, `run()` returns `KV_UNSUPPORTED_OPERATION` and skips the job. The lock expires after `ttl` and never renews | [kv/server-api](https://vitehub.dev/raw/docs/kv/server-api.md#locks) |
+| Sign people in from the headers of oauth2-proxy (`x-auth-request-*`), Cloudflare Access, or Tailscale Serve | `forwardAuth()` from `vite-hub/auth/forward` | `verify` must prove the header, since anyone who reaches the app without the proxy can send it | [auth/configure](https://vitehub.dev/raw/docs/auth/configure.md#sign-in-through-a-trusted-proxy) |
+| Turn skills on and off while the app runs, such as with a settings table | `skillSettings()` from `vite-hub/skills` | - | [console/skills](https://vitehub.dev/raw/docs/console/skills.md#turn-skills-on-and-off) |
+| Presence or cursors in a Realtime room that has no shared document | `defineRealtime({ document: false })` | - | [realtime/server-api](https://vitehub.dev/raw/docs/realtime/server-api.md#presence-without-an-editor) |
+| Limit requests per user, IP, or key | `requireRateLimit(event, id, options)` from `vite-hub/rate-limit` | - | [rate-limit/server-api](https://vitehub.dev/raw/docs/rate-limit/server-api.md) |
+| A same-origin check for writes, a request body limit, or security headers | `sameOriginWrites: true` and `security` with `maxBodySize` in `vitehub()` | `sameOriginWrites` checks only writes that carry cookies; a write without cookies passes. `maxBodySize` applies to every route, not one | [frameworks-hosts/production](https://vitehub.dev/raw/docs/frameworks-hosts/production.md#add-security-headers-and-a-body-limit) |
+| Read and check `process.env` values | `vitehub({ env })` and `useServerEnv()` from `vite-hub/env` | - | [env/configure](https://vitehub.dev/raw/docs/env/configure.md) |
+| A logger or a log event per request | `vitehub({ logs })` with Evlog | - | [logs/configure](https://vitehub.dev/raw/docs/logs/configure.md) |
+| Deploy scripts: `wrangler deploy --secrets-file`, or creating host resources by hand | `vitehub deploy`, with `--push-env` for env values | - | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#deploy-from-your-machine) |
+| Move ViteHub packages to a new version | `vitehub update` | - | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#update-vitehub-packages) |
 
-When a row matches, use the built-in and delete the app's own version in the same change. When no row matches, search `https://vitehub.dev/llms.txt` for the problem before you write the code.
+When a row matches, read its docs page and compare the built-in with the app's own code before you delete anything:
 
-This step is complete when each piece of planned code is a built-in, or you can name the docs page that shows ViteHub has none.
+- The installed ViteHub version exports it (step 4 checks the exact contract).
+- It works on the app's host and driver, such as the KV driver for `kv.lock`.
+- It keeps every guarantee the app's code gives: the same requests refused, the same retries, the same data kept.
+
+When all three hold, switch to the built-in and delete the app's own version in the same change. When one fails, keep the app's code and say which limit stopped the switch. When no row matches, search `https://vitehub.dev/llms.txt` for the problem before you write the code.
+
+This step is complete when each piece of planned code is a built-in that passed the three checks, or you can name the docs page or limit that rules it out.
 
 ## 3. Route before code
 
