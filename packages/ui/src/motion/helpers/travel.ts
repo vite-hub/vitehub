@@ -1,3 +1,4 @@
+import { onReducedMotionChange } from "../reduced-motion.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { createSpring, springs } from "../spring.ts";
 import type { Spring, SpringPreset } from "../spring.ts";
@@ -12,7 +13,7 @@ export interface TravelBox {
 }
 
 export interface TravelOptions {
-  /** Where the element starts, such as the place of a picture in the page before it opens larger. */
+  /** Where the element starts. Defaults to the last drawn box during a travel, or to the element's own place. */
   from?: TravelBox;
   /**
    * Where the element goes, such as back to the place of the picture when it closes. The element stays there when it
@@ -56,26 +57,29 @@ export function travelOffset(rest: TravelBox, origin: { x: number; y: number }, 
 }
 
 interface Running {
-  x: Spring;
-  y: Spring;
-  scaleX: Spring;
-  scaleY: Spring;
+  parts: Record<keyof TravelBox, Spring>;
   stop(): void;
 }
 
 const running = new WeakMap<HTMLElement, Running>();
-const rest: TravelOffset = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
+const keys = ["left", "top", "width", "height"] as const;
 
 /** The element's box with nothing of the travel written, and the point of the screen that its scale turns around. */
-function measure(element: HTMLElement): { box: DOMRect; origin: { x: number; y: number } } {
+function measure(element: HTMLElement) {
   const { translate, scale } = element.style;
   writeMotionStyle(element, { translate: null, scale: null });
   const box = element.getBoundingClientRect();
   // A scale of one half moves each corner halfway to the origin, so the origin is twice the half box less the box.
   writeMotionStyle(element, { scale: "0.5" });
   const half = element.getBoundingClientRect();
+  writeMotionStyle(element, { translate: "100px 100px" });
+  const shifted = element.getBoundingClientRect();
   writeMotionStyle(element, { translate, scale });
-  return { box, origin: { x: 2 * half.left - box.left, y: 2 * half.top - box.top } };
+  return {
+    box,
+    origin: { x: 2 * half.left - box.left, y: 2 * half.top - box.top },
+    pixels: { x: (shifted.left - half.left) / 100 || 1, y: (shifted.top - half.top) / 100 || 1 },
+  };
 }
 
 /**
@@ -84,8 +88,8 @@ function measure(element: HTMLElement): { box: DOMRect; origin: { x: number; y: 
  * each of its position and its size, and keeps its speed when a new travel starts in the middle of one.
  *
  * The page lays the element out at its new place first; the travel only draws it on the way there, with `translate`
- * and `scale`. Under reduced motion and inside `data-motion="none"` the element is at its place at once, and `done` is
- * false.
+ * and `scale`. Under reduced motion and inside `data-motion="none"` a new travel leaves the element at its own place,
+ * and `done` is false. If reduced motion turns on during a travel, it lands at once.
  */
 export function travel(element: HTMLElement, options: TravelOptions): Travel {
   const previous = running.get(element);
@@ -93,9 +97,8 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
     previous?.stop();
     return { done: Promise.resolve(false), stop() {} };
   }
-  const { box, origin } = measure(element);
-  const start = options.from ? travelOffset(box, origin, options.from) : undefined;
-  const target = options.to ? travelOffset(box, origin, options.to) : rest;
+  const { box, origin, pixels } = measure(element);
+  const target = options.to ?? box;
   const preset = options.preset ?? springs.snappy;
 
   let finish!: (landed: boolean) => void;
@@ -104,11 +107,15 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
   });
   const draw = () => {
     if (running.get(element) !== motion) return;
-    writeMotionStyle(element, {
-      translate: `${motion.x.value}px ${motion.y.value}px`,
-      scale: `${motion.scaleX.value} ${motion.scaleY.value}`,
+    const offset = travelOffset(box, origin, {
+      left: parts.left.value, top: parts.top.value, width: parts.width.value, height: parts.height.value,
     });
-    if ([motion.x, motion.y, motion.scaleX, motion.scaleY].some(spring => spring.active)) return;
+    writeMotionStyle(element, {
+      translate: `${offset.x / pixels.x}px ${offset.y / pixels.y}px`,
+      scale: `${offset.scaleX} ${offset.scaleY}`,
+    });
+    if (keys.some(key => parts[key].active)) return;
+    unwatch();
     if (!options.to) {
       running.delete(element);
       writeMotionStyle(element, { translate: null, scale: null });
@@ -116,21 +123,18 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
     finish(true);
   };
   // A travel in the middle of another one starts where the element is now, with its speed.
-  const spring = (key: keyof TravelOffset) => {
-    const value = start?.[key] ?? previous?.[key].value ?? rest[key];
-    const made = createSpring(value, draw, preset);
-    const velocity = start ? 0 : previous?.[key].velocity ?? 0;
-    return { made, velocity };
-  };
-  const parts = { x: spring("x"), y: spring("y"), scaleX: spring("scaleX"), scaleY: spring("scaleY") };
+  const spring = (key: keyof TravelBox) => createSpring(options.from?.[key] ?? previous?.parts[key].value ?? box[key], draw, preset);
+  const parts = { left: spring("left"), top: spring("top"), width: spring("width"), height: spring("height") };
+  const velocity = keys.map(key => previous?.parts[key].velocity ?? 0);
+  const unwatch = onReducedMotionChange((isReduced) => {
+    if (isReduced) for (const key of keys) parts[key].set(target[key]);
+  });
   const motion: Running = {
-    x: parts.x.made,
-    y: parts.y.made,
-    scaleX: parts.scaleX.made,
-    scaleY: parts.scaleY.made,
+    parts,
     stop() {
       if (running.get(element) !== motion) return;
-      for (const key of ["x", "y", "scaleX", "scaleY"] as const) motion[key].stop();
+      unwatch();
+      for (const key of keys) parts[key].stop();
       running.delete(element);
       writeMotionStyle(element, { translate: null, scale: null });
       finish(false);
@@ -138,7 +142,7 @@ export function travel(element: HTMLElement, options: TravelOptions): Travel {
   };
   previous?.stop();
   running.set(element, motion);
-  for (const key of ["x", "y", "scaleX", "scaleY"] as const) parts[key].made.to(target[key], { velocity: parts[key].velocity });
+  keys.forEach((key, index) => parts[key].to(target[key], { velocity: velocity[index] }));
   draw();
 
   return { done, stop: motion.stop };

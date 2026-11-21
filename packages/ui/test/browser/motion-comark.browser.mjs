@@ -82,27 +82,53 @@ describe("copies of the motion layer", () => {
       const counter = { name: "count-select", selector: "[role=tab]", state: () => { calls++ } }
       const stopA = a.installMotion()
       b.defineMotionEffect(counter)
-      const stopB = b.installMotion()
+      const stopB = b.installMotion(document.querySelector("#tabs"))
+      const shadow = document.body.appendChild(document.createElement("div")).attachShadow({ mode: "open" })
+      shadow.innerHTML = '<button role="tab" aria-selected="false">Shadow</button>'
+      const stopShadow = b.installMotion(shadow)
       const [one, two] = document.querySelectorAll("[role=tab]")
       one.setAttribute("aria-selected", "false")
       two.setAttribute("aria-selected", "true")
+      shadow.firstElementChild.setAttribute("aria-selected", "true")
       await new Promise(requestAnimationFrame)
       await new Promise(requestAnimationFrame)
       const names = a.listMotionEffects().map(effect => effect.name)
       const ownOfB = b.listMotionEffects().length
       removePending()
-      b.installMotion()()
+      stopA()
+      stopShadow()
       one.setAttribute("aria-selected", "true")
       await new Promise(requestAnimationFrame)
       stopB()
-      stopA()
       return { calls, pendingCalls, names, ownOfB }
     })
-    assert.equal(result.calls, 3, "each state change runs the effect once")
-    assert.equal(result.pendingCalls, 2, "the disposer removes the handed-off effect, even across another install")
+    assert.equal(result.calls, 4, "overlapping roots dispatch once, including after the outer root stops")
+    assert.equal(result.pendingCalls, 3, "the disposer removes the handed-off effect, even across another install")
     assert.ok(result.names.includes("count-select"), "the effect that copy b defined runs in copy a")
     assert.equal(result.ownOfB, 0, "copy b keeps no registry of its own")
     assert.deepEqual(errors, [])
+    await context.close()
+  })
+
+  test("delegated press effects follow the preference of the copy that defined them", async () => {
+    const { context, page } = await open()
+    const calls = await page.evaluate(() => {
+      const { a, b } = window.copies
+      let calls = 0
+      b.defineMotionEffect({ name: "press-counter", selector: "#press", press: () => { calls++ } })
+      a.installMotion()
+      b.installMotion()
+      const press = document.querySelector("#press")
+      a.forceReducedMotion(true)
+      b.forceReducedMotion(false)
+      press.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+      const first = calls
+      a.forceReducedMotion(false)
+      b.forceReducedMotion(true)
+      press.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+      return [first, calls]
+    })
+    assert.deepEqual(calls, [1, 1])
     await context.close()
   })
 
@@ -129,9 +155,16 @@ describe("copies of the motion layer", () => {
 describe("divider", () => {
   test("a divider whose line is a child hides only the line while it bends, so its grip stays", async () => {
     const { context, errors, page } = await open()
-    await page.evaluate(() => window.copies.a.installMotion())
+    await page.evaluate(() => {
+      window.copies.a.installMotion()
+      document.querySelector("#line").style.setProperty("opacity", "0.5", "important")
+    })
     const grip = await page.locator("#grip").boundingBox()
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.evaluate(() => new Promise(requestAnimationFrame))
+    assert.equal(await page.locator("#line").evaluate(line => line.style.opacity), "0.5")
     await page.mouse.down()
     // The divider sits at its limit, the left edge of the pair, so a pull to the left bends its line.
     await page.mouse.move(grip.x - 60, grip.y + grip.height / 2, { steps: 8 })
@@ -145,7 +178,7 @@ describe("divider", () => {
     await page.mouse.up()
     assert.deepEqual(pulled, { bent: true, line: "0", handle: "1", grip: "1" })
     await page.waitForFunction(() => !document.querySelector("[data-motion=bend]"), null, { timeout: 5000 })
-    assert.equal(await page.evaluate(() => document.querySelector("#line").style.opacity), "", "the line shows again when it is straight")
+    assert.deepEqual(await page.locator("#line").evaluate(line => [line.style.opacity, line.style.getPropertyPriority("opacity")]), ["0.5", "important"])
     assert.deepEqual(errors, [])
     await context.close()
   })
@@ -181,25 +214,76 @@ describe("travel", () => {
     await context.close()
   })
 
-  test("a travel to a box in the middle of one keeps the speed, and stays on the box", async () => {
+  for (const explicit of [true, false]) test(`retargeting after layout changes keeps position and speed (explicit from: ${explicit})`, async () => {
     const { context, page } = await open()
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (explicit) => {
       const frame = document.querySelector("#frame")
+      window.copies.a.setMotionSlowFactor(2)
       const { travel } = window.copies.a
       travel(frame, { from: { left: 10, top: 20, width: 120, height: 90 } })
       for (let index = 0; index < 4; index++) await new Promise(requestAnimationFrame)
-      const before = frame.getBoundingClientRect().left
-      const back = travel(frame, { to: { left: 10, top: 20, width: 120, height: 90 } })
+      const before = frame.getBoundingClientRect()
+      frame.style.left = "600px"
+      frame.style.width = "320px"
+      const back = travel(frame, { from: explicit ? before : undefined, to: { left: 10, top: 20, width: 120, height: 90 } })
+      const start = frame.getBoundingClientRect()
       await new Promise(requestAnimationFrame)
       const next = frame.getBoundingClientRect().left
       const landed = await back.done
       const box = frame.getBoundingClientRect()
       back.stop()
-      return { before, next, landed, left: Math.round(box.left), width: Math.round(box.width), cleared: !frame.style.translate && !frame.style.scale }
-    })
+      return { before: before.left, start: Math.round(start.left), startWidth: Math.round(start.width), beforeWidth: Math.round(before.width), next, landed, left: Math.round(box.left), width: Math.round(box.width), cleared: !frame.style.translate && !frame.style.scale }
+    }, explicit)
+    assert.equal(result.start, Math.round(result.before))
+    assert.equal(result.startWidth, result.beforeWidth)
     assert.ok(result.next > result.before, `it still moves the way it went for a frame: ${result.before} then ${result.next}`)
     assert.deepEqual({ landed: result.landed, left: result.left, width: result.width }, { landed: true, left: 10, width: 120 })
     assert.equal(result.cleared, true, "stop clears a travel held at its target")
+    await context.close()
+  })
+
+  for (const css of ["transform: scale(2, 1.25)", "zoom: 2"]) test(`travel uses viewport boxes under ${css}`, async () => {
+    const { context, page } = await open()
+    const result = await page.evaluate(async (css) => {
+      const frame = document.querySelector("#frame")
+      const parent = document.body.appendChild(document.createElement("div"))
+      parent.style.cssText = css
+      parent.append(frame)
+      const from = { left: 10, top: 20, width: 120, height: 90 }
+      const to = { left: 35, top: 65, width: 170, height: 125 }
+      const read = () => {
+        const { left, top, width, height } = frame.getBoundingClientRect()
+        return [left, top, width, height].map(Math.round)
+      }
+      const moving = window.copies.a.travel(frame, { from, to })
+      const start = read()
+      await moving.done
+      return [start, read()]
+    }, css)
+    assert.deepEqual(result, [[10, 20, 120, 90], [35, 65, 170, 125]])
+    await context.close()
+  })
+
+  for (const delegated of [true, false]) test(`active travel settles when reduced motion turns on (delegated: ${delegated})`, async () => {
+    const { context, page } = await open()
+    await page.evaluate(async (delegated) => {
+      const { a, b } = window.copies
+      if (delegated) {
+        a.installMotion()
+        b.installMotion()
+      }
+      b.setMotionSlowFactor(20)
+      const frame = document.querySelector("#frame")
+      const from = { left: 10, top: 20, width: 120, height: 90 }
+      const moving = b.travel(frame, delegated ? { from } : { from, to: { ...from, left: 50 } })
+      moving.done.then(landed => { window.landed = landed })
+      await new Promise(requestAnimationFrame)
+      if (!delegated) b.forceReducedMotion(true)
+    }, delegated)
+    if (delegated) await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.waitForFunction(() => window.landed === true, null, { timeout: 1000 })
+    const [left, wrote] = await page.locator("#frame").evaluate(frame => [Math.round(frame.getBoundingClientRect().left), Boolean(frame.style.translate)])
+    assert.deepEqual([left, wrote], delegated ? [300, false] : [50, true])
     await context.close()
   })
 

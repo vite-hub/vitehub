@@ -1,3 +1,5 @@
+import { prefersReducedMotion } from "./reduced-motion.ts";
+
 /** The attributes whose change the motion layer reports to the `state` hook of an effect. */
 export const motionStateAttributes = [
   "aria-checked",
@@ -74,6 +76,7 @@ export interface MotionEffect {
 
 interface EffectRegistration {
   effect: MotionEffect;
+  isReduced: () => boolean;
   removeFromShared?: () => void;
 }
 
@@ -87,8 +90,8 @@ const changeListeners = new Set<() => void>();
  * an element that two copies cover moves once.
  */
 export interface SharedMotionLayer {
-  define(effect: MotionEffect): () => void;
-  install(root: Document | ShadowRoot | Element, effects: readonly MotionEffect[]): () => void;
+  define(effect: MotionEffect, isReduced: () => boolean): () => void;
+  install(root: Document | ShadowRoot | Element, effects: readonly MotionEffect[], isReduced: () => boolean): () => void;
 }
 
 const sharedKey = Symbol.for("vite-hub.motion.layer");
@@ -111,7 +114,7 @@ export function claimMotionLayer(layer: SharedMotionLayer): void {
 export function handOffMotionEffects(shared: SharedMotionLayer): void {
   const registrations = [...effects.values()];
   effects.clear();
-  for (const registration of registrations) registration.removeFromShared = shared.define(registration.effect);
+  for (const registration of registrations) registration.removeFromShared = shared.define(registration.effect, registration.isReduced);
 }
 
 /**
@@ -122,11 +125,11 @@ export function defineMotionEffect(effect: MotionEffect): () => void {
   const shared = otherMotionLayer();
   if (!shared) return defineOwnEffect(effect);
   handOffMotionEffects(shared);
-  return shared.define(effect);
+  return shared.define(effect, prefersReducedMotion);
 }
 
-export function defineOwnEffect(effect: MotionEffect): () => void {
-  const registration: EffectRegistration = { effect };
+export function defineOwnEffect(effect: MotionEffect, isReduced = prefersReducedMotion): () => void {
+  const registration: EffectRegistration = { effect, isReduced };
   effects.set(effect.name, registration);
   for (const listener of changeListeners) listener();
   return () => {
@@ -140,6 +143,10 @@ export function defineOwnEffect(effect: MotionEffect): () => void {
 /** The effects of the motion layer, in the order they were defined. */
 export function listMotionEffects(): MotionEffect[] {
   return [...effects.values()].map(registration => registration.effect);
+}
+
+export function motionEffectRegistrations(): EffectRegistration[] {
+  return [...effects.values()];
 }
 
 export function onMotionEffectsChange(listener: () => void): () => void {
