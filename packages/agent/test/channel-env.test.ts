@@ -1147,6 +1147,22 @@ describe("built-in Channel discovery", () => {
 })
 
 describe("Telegram adapter Env requirements", () => {
+  it.each(["vite-hub/channels/adapters", "vite-hub/agent/channels"])("discovers the required token in source that imports %s", async (importPath) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-channel-env-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), `
+        import { defineAgent } from "vite-hub/agent"
+        import { telegram } from "${importPath}"
+        export default defineAgent({ channels: { telegram: telegram({ mode: "webhook" }) } })
+      `)
+      expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken?.required).toBe(true)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it.each([
     ['async ["botToken"]() { return token }', false],
     ['async *["botToken"]() { yield token }', false],

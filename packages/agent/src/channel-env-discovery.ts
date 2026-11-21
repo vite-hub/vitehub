@@ -9,7 +9,7 @@ import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
 import type { ChannelEnvField } from "./channel-env.ts"
 
-const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/channels/adapters"])
+const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/channels/adapters", "vite-hub/agent/channels"])
 const capabilityFactoryModules = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
 const gatewayFactoryModules = new Set(["@vite-hub/gateways", "vite-hub/gateways"])
 const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
@@ -148,6 +148,7 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 /**
  * Find built-in Channel factory calls, such as `telegram({ ... })` imported from
  * `vite-hub/channels/adapters`, and bare factory references such as `channels: { telegram }`.
+ * Source inspection also recognizes the old import path before migration, without loading it.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
 export function discoverBuiltInChannelUses(
