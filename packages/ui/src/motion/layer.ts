@@ -1,13 +1,12 @@
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { claimMotionLayer, defineOwnEffect, handOffMotionEffects, listMotionEffects, motionEffectRegistrations, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
-import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
+import type { MotionContentChange, MotionEffect, MotionPress, MotionRoot, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
-/** What an install covers: the document, a shadow root, or an element and everything in it, such as the host of a bar. */
-export type MotionRoot = Document | ShadowRoot | Element;
+export type { MotionRoot } from "./registry.ts";
 
 const optOut = "[data-motion=\"none\"]";
-const roots = new Map<MotionRoot, number>();
+const roots = new Map<MotionRoot, { installs: number; watchers: Map<MotionEffect, () => void> }>();
 let observer: MutationObserver | undefined;
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
@@ -214,6 +213,18 @@ function observe(root: MotionRoot, observer: MutationObserver): void {
   });
 }
 
+function syncWatchers(root: MotionRoot, watchers: Map<MotionEffect, () => void>): void {
+  const effects = listMotionEffects();
+  for (const [effect, stop] of watchers) {
+    if (effects.includes(effect)) continue;
+    stop();
+    watchers.delete(effect);
+  }
+  for (const effect of effects) {
+    if (effect.watch && !watchers.has(effect)) watchers.set(effect, effect.watch(root));
+  }
+}
+
 function startDocument(): void {
   const options = { capture: true, passive: true };
   document.addEventListener("pointerdown", onPointerDown, options);
@@ -286,25 +297,31 @@ function installOwn(root: MotionRoot, effects: readonly MotionEffect[], isReduce
     const active = new MutationObserver(onMutations);
     observer = active;
     stopWatching.push(onMotionEffectsChange(() => {
-      for (const root of roots.keys()) observe(root, active);
+      for (const [root, { watchers }] of roots) {
+        observe(root, active);
+        syncWatchers(root, watchers);
+      }
     }));
   }
-  const installs = roots.get(root) ?? 0;
-  if (!installs) observe(root, observer);
-  roots.set(root, installs + 1);
+  const entry = roots.get(root);
+  if (entry) entry.installs++;
+  else {
+    const watchers = new Map<MotionEffect, () => void>();
+    observe(root, observer);
+    roots.set(root, { installs: 1, watchers });
+    syncWatchers(root, watchers);
+  }
   let stopped = false;
   return () => {
     if (stopped) return;
     stopped = true;
-    const current = roots.get(root)!;
-    if (current > 1) {
-      roots.set(root, current - 1);
-      return;
-    }
+    const current = roots.get(root);
+    if (!current || --current.installs > 0) return;
     roots.delete(root);
     const active = observer!;
     const pending = active.takeRecords();
     active.disconnect();
+    for (const stop of current.watchers.values()) stop();
     if (roots.size) {
       for (const root of roots.keys()) observe(root, active);
       if (pending.length) queueMicrotask(() => {

@@ -110,6 +110,35 @@ describe("copies of the motion layer", () => {
     await context.close()
   })
 
+  test("the shared layer tracks each root until its last install stops", async () => {
+    const { context, page } = await open()
+    const events = await page.evaluate(async () => {
+      const first = await import("./a/motion-core.ts")
+      const second = await import("./b/motion-core.ts")
+      const tabs = document.querySelector("#tabs")
+      const events = []
+      const stopDocument = first.installMotion(document, { effects: [] })
+      const remove = second.defineMotionEffect({
+        name: "watch-tabs",
+        selector: "[role=tab]",
+        watch(root) {
+          const name = root === document ? "document" : root.id
+          events.push(`start ${name}`)
+          return () => events.push(`stop ${name}`)
+        },
+      })
+      const stopFirst = first.installMotion(tabs, { effects: [] })
+      const stopSecond = second.installMotion(tabs, { effects: [] })
+      stopFirst()
+      stopDocument()
+      remove()
+      stopSecond()
+      return events
+    })
+    assert.deepEqual(events, ["start document", "start tabs", "stop document", "stop tabs"])
+    await context.close()
+  })
+
   test("delegated press effects follow the preference of the copy that defined them", async () => {
     const { context, page } = await open()
     const calls = await page.evaluate(() => {

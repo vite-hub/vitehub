@@ -17,6 +17,7 @@ export const motionStateAttributes = [
 ] as const;
 
 export type MotionStateAttribute = (typeof motionStateAttributes)[number];
+export type MotionRoot = Document | ShadowRoot | Element;
 
 export interface MotionStateChange {
   attribute: MotionStateAttribute;
@@ -58,6 +59,8 @@ export interface MotionEffect {
   name: string;
   /** The elements of the interaction, such as `[role=tab]`. The innermost element on the event path wins. */
   selector: string;
+  /** Starts tracking state in an installed root and returns its cleanup. */
+  watch?(root: MotionRoot): () => void;
   /**
    * A pointer went down on the element (main button only), or Space or Enter went down while it had focus. Return a
    * `MotionPress` to hear the rest of the press. Not called under reduced motion.
