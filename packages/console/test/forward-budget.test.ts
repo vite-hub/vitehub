@@ -60,6 +60,16 @@ function call(projectId: string): Promise<Response> {
 }
 
 describe("Console forward budget", () => {
+  it("attests only to the current verified account email, not the session email", async () => {
+    const { client } = await setup()
+    const stale = { email: "ada@example.com", emailVerified: true, id: "u-ada" } as const
+    const unverified = await consoleTeamCaller(stale, "t-ada")
+    expect(unverified).toMatchObject({ user: { email: "ada@example.com" } })
+    expect(unverified).not.toHaveProperty("user.emailVerified")
+    await client.execute("update user set email = 'new@example.com', email_verified = 1 where id = 'u-ada'")
+    expect(await consoleTeamCaller(stale, "t-ada")).toMatchObject({ user: { email: "new@example.com", emailVerified: true } })
+  })
+
   it("answers 429 with CONSOLE_FORWARD_RATE_LIMITED after the budget, and still sends calls to another project", async () => {
     const { app, other } = await setup()
     for (let index = 0; index < forwardBudget.limit; index++) expect((await call(app.id)).status).toBe(200)

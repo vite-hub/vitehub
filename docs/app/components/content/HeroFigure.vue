@@ -45,7 +45,7 @@ function toggle() {
 
 <template>
   <figure class="vh-hero-figure not-prose">
-    <div ref="host" class="vh-hero-figure-stage" role="img" :aria-label="label || undefined" />
+    <div ref="host" class="vh-hero-figure-stage" role="img" :aria-label="label || undefined" data-motion="none" />
     <figcaption class="vh-hero-figure-caption">
       <span :key="caption?.text" class="vh-hero-figure-text">{{ caption?.text }}</span>
       <div v-if="caption && !caption.still" class="vh-hero-figure-progress">

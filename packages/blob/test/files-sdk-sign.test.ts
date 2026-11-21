@@ -1,6 +1,7 @@
-import { generateKeyPairSync } from "node:crypto"
+import { readFileSync } from "node:fs"
+
 import { memory } from "files-sdk/memory"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createCloudflareDriver } from "../src/drivers/cloudflare.ts"
 import { createFilesSdkDriver } from "../src/drivers/files-sdk.ts"
@@ -9,6 +10,10 @@ import { createDriver as createS3Driver } from "../src/drivers/s3.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
 // These tests use the real files-sdk adapters and provider SDKs. Signing is local, so no request leaves the process.
+// The GCS key is a fixed test-only key, and the provider SDKs load before the tests start. Generating a 2048-bit RSA key
+// and loading the GCS SDK inside a test took longer than the test timeout on a busy host.
+const gcsPrivateKey = readFileSync(new URL("./fixtures/gcs-service-account-key.pem", import.meta.url), "utf8")
+
 function s3Storage(publicBaseUrl?: string) {
   return createBlobStorage(createS3Driver({
     bucket: "private-audio",
@@ -20,12 +25,11 @@ function s3Storage(publicBaseUrl?: string) {
 }
 
 function gcsStorage() {
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
   return createBlobStorage(createGcsDriver({
     bucket: "private-audio",
     credentials: {
       client_email: "signer@project.iam.gserviceaccount.com",
-      private_key: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+      private_key: gcsPrivateKey,
     },
     driver: "gcs",
     projectId: "project",
@@ -33,6 +37,8 @@ function gcsStorage() {
 }
 
 describe("signed requests on files-sdk drivers", () => {
+  beforeAll(() => Promise.all([import("files-sdk/gcs"), import("files-sdk/s3")]))
+
   it("signs an S3 read with the requested lifetime", async () => {
     const [error, signed] = await s3Storage().sign("users/a/source.mp3", { expiresIn: 600, method: "GET" })
 

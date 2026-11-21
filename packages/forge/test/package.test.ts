@@ -39,7 +39,7 @@ describe("published Forge package", () => {
         },
       })
       const { forgeProvider, NotFoundError } = await import(pathToFileURL(process.argv[1]).href)
-      for (const forge of ["github", "gitlab", "forgejo"]) {
+      for (const forge of ["github", "gitlab", "forgejo", "gitea"]) {
         const provider = await forgeProvider({
           forge,
           baseUrl: "https://forge.example.test",

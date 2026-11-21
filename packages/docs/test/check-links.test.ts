@@ -68,6 +68,22 @@ describe("built docs links", () => {
     );
   });
 
+  it.each(["/", "/portal/"])("rejects a trailing slash on a flat page, which Cloudflare redirects, under %s", (appBase) => {
+    output(
+      {
+        "index.html": `<a href="${appBase}guide/#intro">Guide</a><a href="${appBase}">Home</a>`,
+        "guide.html": '<h2 id="intro">Introduction</h2>',
+      },
+      (dir) => {
+        expect(() => checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase })).toThrow(
+          `links to ${appBase}guide/, but the page is ${appBase}guide, without the trailing slash`,
+        );
+        writeFileSync(join(dir, "index.html"), `<a href="${appBase}guide#intro">Guide</a><a href="${appBase}">Home</a>`);
+        expect(checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase }).pages).toBe(2);
+      },
+    );
+  });
+
   it.each(["/", "/portal/"])("resolves relative base URLs from the page URL under %s", (appBase) => {
     output(
       {
