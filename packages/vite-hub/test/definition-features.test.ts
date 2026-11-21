@@ -71,7 +71,7 @@ describe("resolveDefinitionFeatures", () => {
   })
 
   it("turns Agents on for a Channel file that receives webhooks", () => {
-    const stripe = "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })\n"
+    const stripe = "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: stripe() })\n"
     const alerts = "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: () => ({}) } })\n"
     expect(resolveDefinitionFeatures({}, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ agent: true, channels: true })
     expect(resolveDefinitionFeatures({ channels: {} }, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ agent: true, channels: {} })
@@ -82,7 +82,7 @@ describe("resolveDefinitionFeatures", () => {
   })
 
   it("asks for the Agent package when a webhook Channel needs it", () => {
-    const projectRoot = project({ "server/channels/payments.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n" })
+    const projectRoot = project({ "server/channels/payments.ts": "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n" })
     const restore = hidePackage("@vite-hub/agent")
     let error: unknown
     try {
@@ -101,7 +101,7 @@ describe("resolveDefinitionFeatures", () => {
   })
 
   it("only enables the webhook host for Channels under the configured root", () => {
-    const webhook = "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n"
+    const webhook = "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n"
     const alert = "export default { adapter: { kind: 'log', send: () => ({}) } }\n"
     const config = { channels: { projectRoot: "custom" } }
     const roots = (projectRoot: string) => ({ projectRoot, viteRoot: join(projectRoot, "app"), serverDirs: [join(projectRoot, "server")] })

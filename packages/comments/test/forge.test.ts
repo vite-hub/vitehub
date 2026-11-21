@@ -3,6 +3,7 @@ import { marked } from "marked"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { hasViteHubPageToolsHint } from "@vite-hub/internal/runtime/page-tools"
+import { setEvlogBridge } from "@vite-hub/internal/runtime/request-log"
 
 import { commentsSchema } from "../src/database.ts"
 import { createGitHubClient } from "../src/forge/github.ts"
@@ -204,6 +205,26 @@ describe("forge sync", () => {
     expect(first!.body.startsWith("Cut off.\n\n**#⁠1** on")).toBe(true)
     expect(reply).toMatchObject({ token: "app-token" })
     expect(reply!.body).toContain("**Grace** replied on #⁠1:\n\n> Agreed.")
+  })
+
+  it("logs a failed author token with a fixed message, never the error or the person, and keeps it alive with flush()", async () => {
+    const events: unknown[] = []
+    setEvlogBridge({ createLogger: fields => ({ info() {}, warn() {}, error: error => events.push(error), emit: () => { events.push(fields); return fields } }), drain: () => {} })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const github = fakeGitHub()
+    const comments = await forgeComments(github, { token: () => { throw Object.assign(new Error("Vault has no token for ada@acme.dev"), { code: "VAULT_MISSING" }) } })
+
+    try {
+      await comments.create({ page: "/forecast", anchor, context: context(), body: "Cut off.", author: ada })
+      await comments.flush()
+
+      expect(events).toEqual([{ action: "comments", message: "Comments could not get the forge token of an author", comments: { hook: "forgeSync", step: "author-token", code: "VAULT_MISSING" } }])
+      expect(JSON.stringify(events)).not.toMatch(/ada|Vault|Cut off/)
+      expect(warn).not.toHaveBeenCalled()
+    }
+    finally {
+      setEvlogBridge(undefined)
+    }
   })
 
   it("posts as a person who signed in with GitHub, with the token of their last request", async () => {

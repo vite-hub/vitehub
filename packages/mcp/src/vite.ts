@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeNitroPreset } from "@vite-hub/internal/deployment"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
@@ -36,7 +37,10 @@ export interface McpVitePluginOptions extends McpOptions {
   }
 }
 
-export type McpVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type McpVitePlugin = Plugin & {
+  nitro: { name: string, setup(nitro: { options: { dev: boolean, preset: string } }): void }
+  vitehub: ViteHubInspectionPluginMetadata
+}
 
 export const MCP_VITE_PLUGIN_NAME = "@vite-hub/mcp/vite"
 
@@ -116,9 +120,21 @@ function packageName(projectRoot: string): string | undefined {
   return typeof name === "string" && name ? name : undefined
 }
 
+// A tool call that elicits waits in the memory of one process, and the answer of the client comes in another request.
+// These presets serve every request from one process. Other hosts can send the answer to another instance.
+const oneProcessPresets = new Set(["bun", "deno-server", "node", "node-middleware", "node-server"])
+
+/** The preset of a build where `elicit()` cannot work, or `undefined` when it can. Dev runs in one process. */
+function elicitationUnsupportedHost({ dev, preset }: { dev: boolean, preset: string }): string | undefined {
+  if (dev) return undefined
+  const normalized = normalizeNitroPreset(preset)
+  return oneProcessPresets.has(normalized) ? undefined : normalized
+}
+
 interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> {
   auth: boolean | "optional"
   authMcp: string
+  elicitationUnsupportedHost: string | undefined
   name: string
   only?: "public"
   publicRoute: string | undefined
@@ -147,6 +163,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     ...options.publicRoute ? [`  publicRoute: ${JSON.stringify(options.publicRoute)},`] : [],
     ...options.instructions === undefined ? [] : [`  instructions: ${JSON.stringify(options.instructions)},`],
     ...options.serverInfo === undefined ? [] : [`  serverInfo: ${JSON.stringify(options.serverInfo)},`],
+    ...options.elicitationUnsupportedHost ? [`  elicitationUnsupportedHost: ${JSON.stringify(options.elicitationUnsupportedHost)},`] : [],
     field("tools", "tool"),
     ...files.prompts.length ? [field("prompts", "prompt")] : [],
     ...files.resources.length ? [field("resources", "resource")] : [],
@@ -196,18 +213,19 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   let projectRoot = process.cwd()
   let serverDirs: string[] = []
   let base = ""
+  let unsupportedHost: string | undefined
 
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
   const publicHandlerFile = () => resolve(projectRoot, generatedDir, "public.ts")
   const typesFile = () => resolve(projectRoot, ".vitehub/types/mcp.d.ts")
   const name = () => options.name ?? packageName(projectRoot) ?? "app"
-  const server = { instructions: options.instructions, serverInfo: options.serverInfo }
+  const server = () => ({ instructions: options.instructions, serverInfo: options.serverInfo, elicitationUnsupportedHost: unsupportedHost })
   const write = (writer: (file: string, contents: string) => unknown) => {
     const files = discoverAll({ rootDir: projectRoot, serverDirs })
     const publicPath = publicRoute ? `${base}${publicRoute}` : undefined
-    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
+    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server(), publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
     written.push(writer(typesFile(), renderTypes(typesFile(), files.hooks)))
-    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
+    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server(), publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }
   const fields = (kind: "prompts" | "resources" | "tools") => [
@@ -242,6 +260,13 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
           })),
         }, inspector("prompts"), inspector("resources")],
       }),
+    },
+    nitro: {
+      name: MCP_VITE_PLUGIN_NAME,
+      setup({ options }) {
+        unsupportedHost = elicitationUnsupportedHost(options)
+        write(writeFileIfChangedSync)
+      },
     },
     config(config) {
       projectRoot = resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))

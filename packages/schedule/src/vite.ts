@@ -400,7 +400,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
-          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
+          `import { logScheduleRuntimeError, normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
           `import { ${runStoreFactory} } from ${JSON.stringify(scheduleRuntimeModule)}`,
           `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
           ...(leaseDatabaseImport ? [`import { useLeases } from ${JSON.stringify(leaseDatabaseImport)}`] : []),
@@ -460,7 +460,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "      return",
           "    }",
           "    try {",
-          "      console.error('[vitehub:schedule]', runtimeError)",
+          "      logScheduleRuntimeError(error, runtimeError)",
           "    }",
           "    catch {}",
           "    try {",
@@ -547,6 +547,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   const crons = Object.fromEntries(netlify.schedules.map(schedule => [schedule.name, schedule.cron]))
   const timeZoneNames = netlify.schedules.filter(schedule => schedule.inTimeZone).map(schedule => schedule.name)
   const netlifyEntryRuntime = [
+    'import { useNitroApp } from "nitro/app"',
     `import scheduleRegistry from ${JSON.stringify(netlify.registryFile)}`,
     `import { executeStaticSchedule, isTimeZoneWakeDue, missingScheduleDefinitionError, scheduledWakeTime, unwrapScheduleDefinition } from ${JSON.stringify(netlify.runtimeImport)}`,
     "",
@@ -554,10 +555,11 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     `const timeZoneNames = new Set(${JSON.stringify(timeZoneNames)})`,
     "",
     "export async function runViteHubNetlifySchedule(name) {",
+    "  const scheduledAt = scheduledWakeTime(crons[name])",
+    "  await useNitroApp().ready",
     "  const loader = scheduleRegistry[name]",
     "  const definition = loader ? unwrapScheduleDefinition(await loader()) : undefined",
     "  if (!definition) throw missingScheduleDefinitionError(name)",
-    "  const scheduledAt = scheduledWakeTime(crons[name])",
     "  if (timeZoneNames.has(name) && !isTimeZoneWakeDue(definition, name, scheduledAt)) return",
     "  await executeStaticSchedule({ cron: crons[name], definition, name, scheduledAt })",
     "}",
@@ -741,7 +743,7 @@ async function inspectScheduleResources(definitions: DiscoveredScheduleDefinitio
     definition,
     host: "cloudflare",
     kind: "cloudflare-cron",
-    name: cron,
+    name: cronWithWeekdayNames(cron),
     note: inStandalone
       ? "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config of the standalone Schedule Worker."
       : "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",

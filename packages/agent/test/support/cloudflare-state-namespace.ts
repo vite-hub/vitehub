@@ -16,6 +16,17 @@ export function createFakeCloudflareStateNamespace(): ViteHubAgentStateDurableOb
       locks.set(threadId, lock)
       return lock
     },
+    acquireLockWith(threadId, ttlMs, mutations, keys) {
+      const lock = stub.acquireLock(threadId, ttlMs) as Lock | null
+      if (!lock) return { lock, values: [] }
+      stub.cacheMutateWithLock(threadId, lock.token, mutations)
+      return { lock, values: keys.map(key => values.get(key) || null) }
+    },
+    releaseLockWith(threadId, token, mutations, keys) {
+      const committed = stub.cacheMutateWithLock(threadId, token, mutations) as boolean
+      stub.releaseLock(threadId, token)
+      return { committed, values: keys.map(key => values.get(key) || null) }
+    },
     cacheMutateWithLock(threadId, token, mutations) {
       const held = locks.get(threadId)
       if (!held || held.token !== token || held.expiresAt <= Date.now()) return false

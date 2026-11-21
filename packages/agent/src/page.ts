@@ -59,7 +59,7 @@ export type JoinPageRoom = (definition: string, room: string, options: { baseURL
 
 /** A change the Agent made on this page. */
 export interface PageChange {
-  /** Names the change in `page.undo(id)`, the journal, and `vitehub invocations undo`. */
+  /** Names the change in `page.undo(id)`, the journal, and `vitehub agent invocations undo`. */
   id: string
   ref: string
   label?: string

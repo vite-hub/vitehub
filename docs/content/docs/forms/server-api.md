@@ -89,7 +89,7 @@ The schema of a form also draws an MCP elicitation and a chat modal, and checks 
 | MCP elicitation | `toElicitation(form, { message })` | `readElicitation(form, result)` |
 | Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })` | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
 
-`toElicitation()` returns the params of an MCP `elicitation/create` request in form mode. Send them through an MCP client session, such as `server.elicitInput()` of the MCP TypeScript SDK. The ViteHub MCP server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
+In a tool of the [ViteHub MCP server](/docs/mcp/server-api#ask-the-person-for-values), call `elicit(form, { message })` of the handler. It does both steps for you. For another MCP server, `toElicitation()` returns the params of an `elicitation/create` request in form mode. Send them through its session, such as `server.elicitInput()` of the MCP TypeScript SDK.
 
 ```ts [server/utils/ask-feedback.ts]
 import * as v from 'valibot'

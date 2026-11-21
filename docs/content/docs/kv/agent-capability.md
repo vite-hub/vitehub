@@ -83,7 +83,7 @@ When the handle returns `[error, value]`, the tool throws the error or returns t
 ## Verify KV access
 
 1. Start the Vite dev server.
-2. Run `vitehub agent get --agent support --json`. Check that `tools` has an entry with `name: "kv"`. It lists one entry per Capability, not per tool.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "kv"`. It lists one entry per Capability, not per tool.
 3. Run `vitehub agent dev "Read the key app:1" --agent support`. Check that the output shows a `[tool] kv_read` call.
 4. In read mode, ask the Agent to change a key. It must have no `kv_edit` tool.
 
