@@ -7,10 +7,6 @@ type PrimitiveId = (typeof landingPrimitives)[number]["id"];
 const grid = useTemplateRef<HTMLElement>("grid");
 const visible = ref(false);
 const activeId = ref<PrimitiveId | null>(null);
-const indicator = useSharedIndicator(grid);
-watch(activeId, (id) => {
-  if (!id) indicator.reset();
-});
 
 useIntersectionObserver(grid, ([entry]) => {
   visible.value = entry?.isIntersecting ?? false;
@@ -23,6 +19,7 @@ useIntersectionObserver(grid, ([entry]) => {
       ref="grid"
       class="primitive-grid grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7"
       aria-label="ViteHub APIs"
+      data-motion-select
       @pointerleave="activeId = null"
     >
       <li
@@ -34,11 +31,12 @@ useIntersectionObserver(grid, ([entry]) => {
           :to="primitive.to"
           data-focus-inset
           class="primitive-tile group"
+          :data-state="activeId === primitive.id ? 'active' : undefined"
           @pointerenter="activeId = primitive.id"
         >
           <div
             v-if="activeId === primitive.id"
-            :ref="indicator.track"
+            data-motion-indicator
             class="primitive-focus"
             aria-hidden="true"
           />

@@ -1,5 +1,6 @@
-import { defineComponent, getCurrentInstance, getCurrentScope, h, onMounted, onScopeDispose, type PropType, readonly, ref, type Ref } from "vue";
+import { defineComponent, getCurrentInstance, getCurrentScope, h, type MaybeRefOrGetter, onMounted, onScopeDispose, type PropType, readonly, ref, type Ref, toValue, watch } from "vue";
 import { useViteHubUIIcons } from "../config.ts";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { announce, prepareAnnouncer } from "../internal/announce.ts";
 
@@ -9,8 +10,8 @@ export type CopyButtonSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type CopyButtonVariant = "ghost" | "outline" | "soft" | "subtle" | "solid" | "link";
 
 export interface UseCopyOptions {
-  /** How long, in ms, `copied` and `failed` stay `true`. */
-  duration?: number;
+  /** How long, in ms, `copied` and `failed` stay `true`. A ref or a getter is read at each copy. */
+  duration?: MaybeRefOrGetter<number | undefined>;
 }
 
 export interface UseCopyReturn {
@@ -36,7 +37,7 @@ async function writeClipboard(value: CopyValue): Promise<void> {
 
 async function writeClipboardApi(text: string | Promise<string>): Promise<void> {
   const clipboard = globalThis.navigator?.clipboard;
-  if (typeof clipboard?.writeText !== "function") throw new Error("The clipboard is not available.");
+  if (typeof clipboard?.writeText !== "function") throw uiErrorDiagnostics.UI_CLIPBOARD_UNAVAILABLE();
   if (typeof text === "string") return clipboard.writeText(text);
   // Safari allows a write only during the click. A ClipboardItem takes the pending text, so the write starts now.
   if (typeof ClipboardItem === "function" && typeof clipboard.write === "function") {
@@ -75,7 +76,6 @@ function copyWithCommand(text: string): boolean {
  * "Copy link" in a menu. The caller shows the result, for example with a toast.
  */
 export function useCopy(options: UseCopyOptions = {}): UseCopyReturn {
-  const duration = options.duration ?? 2_000;
   const copied = ref(false);
   const failed = ref(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -95,17 +95,22 @@ export function useCopy(options: UseCopyOptions = {}): UseCopyReturn {
     timer = setTimeout(() => {
       copied.value = false;
       failed.value = false;
-    }, duration);
+    }, toValue(options.duration) ?? 2_000);
     return copied.value;
   }
 
   return { copy, copied: readonly(copied), failed: readonly(failed) };
 }
 
+/** Nuxt UI's `leading` slot props of `UButton`: `ui.leadingIcon()` gives the classes of its leading icon. */
+interface ButtonLeadingSlotProps {
+  ui?: { leadingIcon?: (options: { class?: unknown }) => string };
+}
+
 /**
  * A button that copies text. It shows `icon`, or the theme's `copy` icon, and swaps to the theme's `copyCheck` icon for
- * 2 seconds after a copy. It announces "Copied", or "Copy failed" when the browser refuses. Without a label it is an
- * icon-only button named "Copy".
+ * `duration` ms after a copy. Both icons stay in the button and cross-fade with the rules of `icon-swap.css`. It
+ * announces "Copied", or "Copy failed" when the browser refuses. Without a label it is an icon-only button named "Copy".
  */
 export const CopyButton = defineComponent({
   name: "CopyButton",
@@ -120,6 +125,10 @@ export const CopyButton = defineComponent({
     // SAFETY: Vue's runtime constructor cannot express these string literal unions.
     size: { default: undefined, type: String as PropType<CopyButtonSize> },
     variant: { default: "ghost", type: String as PropType<CopyButtonVariant> },
+    /** How long, in ms, the check shows after a copy. */
+    duration: { default: 2_000, type: Number },
+    /** Call a function `value` when the pointer enters the button or it gets focus, so the click copies text that is already loaded. */
+    preload: { default: false, type: Boolean },
   },
   emits: {
     copy: () => true,
@@ -127,8 +136,9 @@ export const CopyButton = defineComponent({
   },
   setup(props, { attrs, emit, slots }) {
     const UButton = useUIComponent("UButton");
+    const UIcon = useUIComponent("UIcon");
     const icons = useViteHubUIIcons();
-    const { copy, copied } = useCopy();
+    const { copy, copied } = useCopy({ duration: () => props.duration });
     const instance = getCurrentInstance();
     const element = (): Element | undefined => {
       const el: unknown = instance?.proxy?.$el;
@@ -136,20 +146,35 @@ export const CopyButton = defineComponent({
     };
     onMounted(() => prepareAnnouncer(element()));
 
+    // The text that a hover or a focus started to load, for the next click. A failed load is dropped, so the click tries again.
+    let preloaded: { text: string | Promise<string> } | undefined;
+    watch(() => props.value, () => (preloaded = undefined));
+    function preload() {
+      if (!props.preload || preloaded || typeof props.value !== "function") return;
+      const entry = { text: callValue(props.value) };
+      preloaded = entry;
+      if (typeof entry.text === "string") return;
+      entry.text.then(
+        (text) => {
+          if (preloaded === entry) entry.text = text;
+        },
+        () => {
+          if (preloaded === entry) preloaded = undefined;
+        },
+      );
+    }
+
     const loading = ref(false);
     async function onClick(event: MouseEvent) {
       const target = event.currentTarget instanceof Element ? event.currentTarget : element();
       let value = props.value;
       if (typeof value === "function") {
-        // Call it during the click, and show the loading icon only when the text has to load first.
-        try {
-          const text = value();
-          value = typeof text === "string" ? text : () => text;
-          loading.value = typeof text !== "string";
-        }
-        catch (error) {
-          value = () => Promise.reject(error);
-        }
+        // Call it during the click, and show the loading icon only when the text has to load first. A promise goes to
+        // the clipboard inside the click, so the browser accepts the write after the text loads.
+        const text = preloaded?.text ?? callValue(value);
+        preloaded = undefined;
+        value = typeof text === "string" ? text : () => text;
+        loading.value = typeof text !== "string";
       }
       const ok = await copy(value);
       loading.value = false;
@@ -158,12 +183,23 @@ export const CopyButton = defineComponent({
       else emit("error");
     }
 
+    // Both icons stay in the DOM, so the swap animates both ways. While the text loads, the button shows its own loading icon.
+    // Each icon has a wrapper that the swap animates, so a utility class on the icon, such as the theme's opacity, stays.
+    const leading = ({ ui }: ButtonLeadingSlotProps) => {
+      const iconClass = ui?.leadingIcon?.({ class: leadingIconClass(attrs.ui) });
+      return [h("span", { "aria-hidden": "true", "data-slot": "copy-button-icon" }, [
+        h("span", { "data-icon": "copy" }, [h(UIcon, { class: iconClass, name: props.icon ?? icons.value.copy })]),
+        h("span", { "data-icon": "check" }, [h(UIcon, { class: iconClass, name: icons.value.copyCheck })]),
+      ])];
+    };
+
     return () =>
       h(UButton, {
         ...attrs,
         "aria-label": props.ariaLabel ?? (props.label || slots.default ? undefined : "Copy"),
         "data-copied": copied.value ? "" : undefined,
         "data-slot": attrs["data-slot"] ?? "copy-button",
+        // The slot draws the icons. The button still needs `icon` to lay out the leading icon and its loading icon.
         icon: copied.value ? icons.value.copyCheck : props.icon ?? icons.value.copy,
         label: props.label,
         loading: loading.value,
@@ -176,10 +212,32 @@ export const CopyButton = defineComponent({
         onFocus: (event: FocusEvent) => {
           callListener(attrs.onFocus, event);
           if (event.currentTarget instanceof Element) prepareAnnouncer(event.currentTarget);
+          preload();
         },
-      }, slots.default ? { default: slots.default } : undefined);
+        onPointerenter: (event: PointerEvent) => {
+          callListener(attrs.onPointerenter, event);
+          preload();
+        },
+      }, {
+        ...(loading.value ? {} : { leading }),
+        ...(slots.default ? { default: slots.default } : {}),
+      });
   },
 });
+
+/** Calls a function `value`. A function that throws gives a rejected promise, so the copy reports the failure. */
+function callValue(value: () => string | Promise<string>): string | Promise<string> {
+  try {
+    return value();
+  }
+  catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+function leadingIconClass(ui: unknown): unknown {
+  return typeof ui === "object" && ui !== null && "leadingIcon" in ui ? ui.leadingIcon : undefined;
+}
 
 function callListener(listener: unknown, event: Event): void {
   if (Array.isArray(listener)) {

@@ -11,7 +11,7 @@ afterEach(() => {
 
 describe("Shell Workspace write receipts", () => {
   it("accepts the writable public facade and ignores its revision receipts", async () => {
-    registerWorkspace("shell-write-receipts", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("shell-write-receipts", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("shell-write-receipts", { mode: "write" })
     const fs = createWritableWorkspaceFs(workspace.fs)
 

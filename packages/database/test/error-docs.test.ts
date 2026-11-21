@@ -1,14 +1,8 @@
-import { readFile } from "node:fs/promises"
 import { expect, it } from "vitest"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
 
-it("documents each Database error code with a why, a fix, and a docs heading", async () => {
-  const page = await readFile(new URL("../../../docs/content/docs/database/limits-and-errors.md", import.meta.url), "utf8")
-
-  for (const code of Object.keys(databaseErrorDiagnostics)) {
-    expect(page, code).toContain(`\n### ${code}\n`)
-  }
+it("gives each Database error code a why, a fix, and its docs page", () => {
   const error = databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: "analytics" })
   expect(error.docs).toBe("https://vitehub.dev/docs/database/diagnostics/database_not_found")
   expect(error.why).toBe("The database \"analytics\" is not configured.")

@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 
 import { join, resolve } from "pathe"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
+import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
+import type { Duration } from "@vite-hub/runtime"
 import type { LocalQueueClient, LocalQueueDeliveryRules, LocalQueueJob, LocalQueueRules, LocalQueueStatus, QueueDefinition, QueueDeliveryErrorDetails, QueueEnqueueOptions, QueueJobStore } from "../types.ts"
 
 export type { LocalQueueClearFilter, LocalQueueDeliveryRules, LocalQueueJob, LocalQueueJobDetail, LocalQueueStatus, QueueJobsFilter, QueueJobStore } from "../types.ts"
@@ -47,6 +51,7 @@ interface StoredJob {
   state: "dead" | "done" | "pending"
 }
 
+/** One job for the engine. `vite dev` and the clients read `delay` and `retention` into seconds first. */
 export interface LocalQueueEntry {
   delaySeconds?: number
   id: string
@@ -156,10 +161,10 @@ function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?:
 export function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
   if (delaySeconds === undefined) return 0
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
-    throw new RangeError(`\`delaySeconds\` must be a number of seconds from 0, got ${String(delaySeconds)}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "delay", provider: providerNames[rules.rules], value: String(delaySeconds) })
   }
   if (rules.maxDelaySeconds !== undefined && delaySeconds > rules.maxDelaySeconds) {
-    throw new RangeError(`${providerNames[rules.rules]} accepts \`delaySeconds\` up to ${rules.maxDelaySeconds}, got ${delaySeconds}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "delay-max", max: rules.maxDelaySeconds, provider: providerNames[rules.rules], value: delaySeconds })
   }
   return delaySeconds * 1000
 }
@@ -169,27 +174,27 @@ function retentionMs(retentionSeconds: number | undefined, rules: LocalQueueDeli
   if (!retention) return undefined
   const seconds = retentionSeconds ?? retention.defaultSeconds
   if (!Number.isFinite(seconds) || seconds < retention.minSeconds || seconds > retention.maxSeconds) {
-    throw new RangeError(`${providerNames[rules.rules]} accepts \`retentionSeconds\` from ${retention.minSeconds} to ${retention.maxSeconds}, got ${String(seconds)}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "retention", max: retention.maxSeconds, min: retention.minSeconds, provider: providerNames[rules.rules], value: String(seconds) })
   }
   return seconds * 1000
 }
 
 function checkPayloadSize(bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.maxPayloadBytes !== undefined && bytes > rules.maxPayloadBytes) {
-    throw new RangeError(`${providerNames[rules.rules]} accepts a payload of up to ${rules.maxPayloadBytes} bytes, got ${bytes} bytes of JSON.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "payload", max: rules.maxPayloadBytes, provider: providerNames[rules.rules], value: bytes })
   }
 }
 
 function checkBatch(entries: readonly LocalQueueEntry[], bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.rules === "vercel" && entries.length === 0) {
-    throw new RangeError("Vercel requires at least one job in a `sendBatch()`.")
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-empty", provider: providerNames[rules.rules], value: 0 })
   }
   if (entries.length < 2) return
   if (rules.maxBatchJobs !== undefined && entries.length > rules.maxBatchJobs) {
-    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchJobs} jobs in one \`sendBatch()\`, got ${entries.length}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-jobs", max: rules.maxBatchJobs, provider: providerNames[rules.rules], value: entries.length })
   }
   if (rules.maxBatchBytes !== undefined && bytes > rules.maxBatchBytes) {
-    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchBytes} bytes in one \`sendBatch()\`, got ${bytes} bytes of JSON.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-bytes", max: rules.maxBatchBytes, provider: providerNames[rules.rules], value: bytes })
   }
 }
 
@@ -336,11 +341,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       try {
         const definition = await options.load(job.queue)
         if (!definition) throw options.missing(job.queue)
-        const limit = Number(definition.options?.concurrency ?? 1)
+        const limit = Number(definition.concurrency ?? 1)
         concurrency.set(job.queue, Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1)
         // The first job of a queue reads its limit, so start the other due jobs now.
         schedule()
-        checkQueueHandlerResponse(await definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload }))
+        await runInRunScopes(async () => {
+          checkQueueHandlerResponse(await definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload }))
+        })
         handled = true
       }
       catch (error) {
@@ -571,6 +578,7 @@ function unsupportedOptions(options: QueueEnqueueOptions, rules: LocalQueueDeliv
 }
 
 export function createLocalQueueClient(engine: LocalQueueEngine, queue: string): LocalQueueClient {
+  const round = engine.rules.rules === "vercel" || engine.rules.rules === "cloudflare" ? "ceil" : undefined
   return {
     provider: "local",
     native: engine,
@@ -579,25 +587,30 @@ export function createLocalQueueClient(engine: LocalQueueEngine, queue: string):
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = unsupportedOptions(normalized.options, engine.rules)
       if (optionsError) return [optionsError, undefined]
+      const [timeError, times] = readQueueTimes(normalized.options, round)
+      if (timeError) return [timeError, undefined]
       const [error, ids] = await queueProviderResult("local", "send", () => engine.enqueue(queue, [{
-        delaySeconds: normalized.options.delaySeconds,
+        ...times,
         id: normalized.id,
         idempotencyKey: normalized.options.idempotencyKey,
         payload: normalized.payload,
-        retentionSeconds: normalized.options.retentionSeconds,
       }]))
       if (error) return [error, undefined]
       return [undefined, { messageId: ids[0], status: "queued" }]
     },
     async sendBatch(items, options) {
-      const [error, ids] = await queueProviderResult("local", "send-batch", () => engine.enqueue(queue, items.map(item => ({
-        delaySeconds: item.delaySeconds ?? options?.delaySeconds,
-        id: createQueueMessageId(),
-        idempotencyKey: item.idempotencyKey,
-        payload: item.body,
-        // A Vercel app sends `retentionSeconds` in `vite dev`. The local rules have no retention and ignore it.
-        retentionSeconds: "retentionSeconds" in item && typeof item.retentionSeconds === "number" ? item.retentionSeconds : options && "retentionSeconds" in options && typeof options.retentionSeconds === "number" ? options.retentionSeconds : undefined,
-      }))))
+      const removed = queueRemovedOptionsError(engine.rules.rules, options, items)
+      if (removed) return [removed, undefined]
+      const entries: LocalQueueEntry[] = []
+      for (const item of items) {
+        // A Vercel app sends `retention` in `vite dev`. The local rules have no retention and ignore it.
+        const retention = ("retention" in item ? item.retention : undefined) ?? (options && "retention" in options ? options.retention : undefined)
+        // SAFETY: readQueueTimes() checks the value at runtime, and returns RUNTIME_DURATION_INVALID for a wrong one.
+        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: retention as Duration | number | undefined }, round)
+        if (timeError) return [timeError, undefined]
+        entries.push({ ...times, id: createQueueMessageId(), idempotencyKey: item.idempotencyKey, payload: item.body })
+      }
+      const [error, ids] = await queueProviderResult("local", "send-batch", () => engine.enqueue(queue, entries))
       if (error) return [error, undefined]
       return [undefined, ids.map(messageId => ({ messageId, status: "queued" as const }))]
     },

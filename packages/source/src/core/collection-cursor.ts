@@ -22,6 +22,7 @@ export class CollectionCursorError extends Diagnostic {
     super({
       cause: options?.cause,
       code: reason === "stale" ? "SOURCE_R0027" : "SOURCE_R0023",
+      fix: (reason === "stale" ? sourceErrorDiagnostics.SOURCE_R0027 : sourceErrorDiagnostics.SOURCE_R0023)({ message: "" }).fix,
       docs: `https://vitehub.dev/docs/source/diagnostics/${reason === "stale" ? "source_r0027" : "source_r0023"}`,
       why: message ?? (reason === "stale"
         ? "[vitehub] Collection cursor is stale. Its data or query changed; reload from the first page."
@@ -39,13 +40,14 @@ function encodeBase64Url(value: string): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")
 }
 
-function decodeBase64Url(value: string): string {
+/** The decoded text, or undefined for a value that is not canonical unpadded base64url. */
+function decodeBase64Url(value: string): string | undefined {
   // Collection cursors are emitted as unpadded base64url. Reject malformed
   // padding and lengths before host-specific decoders can silently accept them.
-  if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) throw new TypeError("Malformed base64url cursor")
+  if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) return
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
-  if (btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") !== value) throw new TypeError("Noncanonical base64url cursor")
+  if (btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") !== value) return
   return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
 }
 
@@ -98,20 +100,20 @@ async function decodeCursor<TCursorInput extends CollectionCursorValue, TCursorO
   if (value === undefined) return
   let decoded: unknown
   try {
-    decoded = JSON.parse(decodeBase64Url(value))
+    const text = decodeBase64Url(value)
+    decoded = text === undefined ? undefined : JSON.parse(text)
   } catch (cause) {
     throw new CollectionCursorError(undefined, { cause })
   }
   if (!isCursorValue(decoded)) throw new CollectionCursorError()
+  let cursor: TCursorOutput
   try {
-    const cursor = await parseCollectionSchema(schema, decoded)
-    if (!isCursorValue(cursor)) {
-      throw sourceErrorDiagnostics.SOURCE_R0007({ message: "Collection cursor schema returned an invalid value." })
-    }
-    return cursor
+    cursor = await parseCollectionSchema(schema, decoded)
   } catch (cause) {
     throw new CollectionCursorError(undefined, { cause })
   }
+  if (!isCursorValue(cursor)) throw new CollectionCursorError()
+  return cursor
 }
 
 /** Bind cursor transport and validation to the Collection's schema once. */

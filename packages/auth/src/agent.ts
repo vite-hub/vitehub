@@ -2,7 +2,8 @@ import {
   invalidAuthenticationErrorOptions,
   throwAuthenticationProviderError,
 } from "./errors.ts"
-import { getAuthenticationSession } from "./session.ts"
+import { authenticationRefusalError, getAuthenticationSession } from "./session.ts"
+import { prepareSessionCookies } from "./session-cookies.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -20,8 +21,8 @@ import { isRecord } from "@vite-hub/internal/object"
 // The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
 // One shared import also keeps Vitest module mocks in place for concurrent first calls. A failed import lets the next
 // call try again.
-let server: Promise<typeof import("./server.ts")> | undefined
-const loadServer = () => server ??= import("./server.ts").catch((error: unknown) => {
+let server: Promise<typeof import("./internal/server.ts")> | undefined
+const loadServer = () => server ??= import("./internal/server.ts").catch((error: unknown) => {
   server = undefined
   throw error
 })
@@ -186,13 +187,17 @@ async function defaultAuthenticatedSource(
 
   const { useAuth } = await loadServer()
   const auth = useAuth(context.request)
-  return await getAuthenticationSession(auth, {
+  const { refusal, session, setCookies } = await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
       disableCookieCache: true,
       disableRefresh: true,
     },
   })
+  // Without a refresh, Better Auth only deletes the cookies of an ended session. The Agent route sends them like a guard.
+  prepareSessionCookies(context.request, setCookies)
+  if (refusal) throw authenticationRefusalError(refusal)
+  return session
 }
 
 function readProviderField<T>(read: () => T): T {

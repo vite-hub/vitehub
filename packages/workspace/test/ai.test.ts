@@ -1,14 +1,19 @@
+import { execFile } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
-import { fetch, useWorkspace } from "../src/index.ts"
+import { url as urlSource, useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { getWorkspaceDependencyRuntimeLoaders, setWorkspaceDependencyRuntimeLoaders } from "../src/runtime/dependency-loaders.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
-import type { ShellExecutionProvider } from "@vite-hub/shell"
+import type { ShellDriver } from "@vite-hub/shell"
 import { createExecutionBudget } from "@vite-hub/runtime"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
@@ -21,14 +26,26 @@ async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command:
   return await tools.shell.execute!({ command }, { abortSignal, toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
 }
 
+/** A Session host that runs the real command, with a HOME whose `.profile` sets PATH as Debian's /etc/profile does. */
+async function profileResettingHost() {
+  const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-profile-"))
+  await writeFile(join(home, ".profile"), "export PATH=/from/profile\n")
+  const exec = async (command: string, args: string[] = []) => await new Promise<{ args: string[], command: string, exitCode: number, stderr: string, stdout: string }>((resolve) => {
+    execFile(command, args, { env: { ...process.env, HOME: home } }, (error, stdout, stderr) => {
+      resolve({ args, command, exitCode: error ? Number(error.code ?? 1) : 0, stderr, stdout })
+    })
+  })
+  return { cleanup: () => rm(home, { force: true, recursive: true }), exec }
+}
+
 function createMutableWorkspace() {
   return createWorkspace({
     name: "mutable",
-    store: { provider: "memory" },
+    store: { driver: "memory" },
   })
 }
 
-function createProvider(stdout: string): ShellExecutionProvider {
+function createDriver(stdout: string): ShellDriver {
   return {
     boundary: {
       cwd: true,
@@ -158,18 +175,18 @@ describe("createWorkspaceTools", () => {
     expect(runWorkspaceInspectionCommand).toHaveBeenCalledOnce()
   })
 
-  it("forwards tool cancellation to a custom shell provider", async () => {
+  it("forwards tool cancellation to a custom Shell driver", async () => {
     let signal: AbortSignal | undefined
-    const provider = createProvider("provider\n")
-    const exec = provider.exec
-    provider.exec = async (command, options) => {
+    const driver = createDriver("driver\n")
+    const exec = driver.exec
+    driver.exec = async (command, options) => {
       signal = options?.signal
       return await exec(command, options)
     }
-    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { executionProvider: provider })
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { shellDriver: driver })
     const controller = new AbortController()
 
-    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "provider\n" })
+    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "driver\n" })
     expect(signal).toBe(controller.signal)
   })
 
@@ -231,6 +248,20 @@ describe("createWorkspaceTools", () => {
     expect(budget.snapshot().usage.toolCalls).toBe(1)
   })
 
+  // A login shell reads the profiles, and Debian's /etc/profile sets PATH again, so commands on the app's PATH were gone.
+  it("runs Workspace Session commands without a login shell, so a profile keeps the PATH", async () => {
+    const host = await profileResettingHost()
+    try {
+      const workspace = createMutableWorkspace()
+      workspace.startSession = vi.fn(async () => ({ close: vi.fn(), exec: host.exec } as unknown as WorkspaceSession))
+      // `ls` is found on PATH. The profile sets PATH to a folder without it.
+      await expect(runShell(createWorkspaceTools(workspace), "ls")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    }
+    finally {
+      await host.cleanup()
+    }
+  })
+
   it("prefers executable Workspace Session shell execution", async () => {
     const workspace = createMutableWorkspace()
     await workspace.mkdir("models")
@@ -252,10 +283,10 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "session:sh -lc rg orders models /workspace\n",
+      stdout: "session:sh -c rg orders models /workspace\n",
     })
     expect(workspace.startSession).toHaveBeenCalledWith({ abortSignal: budget.signal, paths: ["models"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -270,16 +301,16 @@ describe("createWorkspaceTools", () => {
     expect(close).toHaveBeenCalled()
   })
 
-  it("uses an explicit shell execution provider when no executable Workspace Session is available", async () => {
+  it("uses an explicit Shell driver when no executable Workspace Session is available", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
     }), {
-      executionProvider: createProvider("provider\n"),
+      shellDriver: createDriver("driver\n"),
     })
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "provider\n",
+      stdout: "driver\n",
     })
   })
 
@@ -366,15 +397,18 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "cat README.md")).rejects.toThrow("toolCalls")
   })
 
-  it("accepts shell timeout through workspace tools", async () => {
-    const tools = createWorkspaceTools(createAssets({
-      "README.md": "# Docs\n",
-    }), { timeout: 5 })
+  it("passes the shell timeout of workspace tools to the Shell driver", async () => {
+    let timeout: number | undefined
+    const driver = createDriver("driver\n")
+    const exec = driver.exec
+    driver.exec = async (command, options) => {
+      timeout = options?.timeout
+      return await exec(command, options)
+    }
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { shellDriver: driver, timeout: 5 })
 
-    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "# Docs\n",
-    })
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "driver\n" })
+    expect(timeout).toBe(5)
   })
 
   it("returns model-readable feedback when shell call budget is exhausted", async () => {
@@ -418,13 +452,13 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           cookies: { auth_token: "secret" },
           querySchema,
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await workspace.writeFile("README.md", "# Docs\n")
     workspace.startSession = vi.fn(async () => ({
@@ -495,13 +529,13 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-post-source",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           bodySchema,
           method: "POST",
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await expect(runShell(createWorkspaceTools(workspace, { sourceRequests: true }), "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
@@ -519,10 +553,10 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source-query-shape",
       sources: {
-        pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
-        pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
+        pageTwo: urlSource({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
+        pageThree: urlSource({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     const tools = createWorkspaceTools(workspace, { operations: { list: false, read: false, search: true } })

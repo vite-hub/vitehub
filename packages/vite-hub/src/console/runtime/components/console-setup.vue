@@ -9,6 +9,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 import type { SetupCatalogFeature, SetupClient, SetupFeatureState, SetupLevel, SetupMissing, SetupPlanDocument, SetupPlanRequest, SetupStatusDocument } from "../client/setup";
 
@@ -385,6 +386,7 @@ onBeforeUnmount(() => events?.abort());
                 <p v-if="packages" class="text-xs text-muted">Packages: <code class="font-mono text-highlighted">{{ packages }}</code></p>
                 <p v-if="alsoChanges" class="text-xs text-muted">{{ alsoChanges }}</p>
                 <p v-if="plan?.restart" class="text-xs text-muted">The config changes, so the dev server restarts after Apply.</p>
+                <p v-else-if="plan?.restartRequired" class="text-xs text-muted">Restart the dev server after Apply to load the new feature configuration.</p>
               </template>
               <UAlert v-if="failure?.error" color="error" variant="subtle" :title="failure.error.message" :description="[failure.error.why === failure.error.message ? '' : failure.error.why, failure.error.fix].filter(Boolean).join(' ')" />
               <pre v-if="logs" class="max-h-56 overflow-auto rounded-md border border-default bg-elevated/50 p-3 font-mono text-xs leading-5 text-toned" aria-label="Install output" aria-live="polite">{{ logs }}</pre>
@@ -397,7 +399,7 @@ onBeforeUnmount(() => events?.abort());
 
             <template v-else-if="step === 'restart'">
               <p v-if="!restartFailed" role="status" class="flex items-center gap-2 text-sm text-muted">
-                <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
                 Restarting the dev server. The page reloads when it is back.
               </p>
               <UAlert v-else color="warning" variant="subtle" title="The dev server did not come back" description="The change is written. Restart the dev server by hand, then reload this page." />
@@ -405,7 +407,7 @@ onBeforeUnmount(() => events?.abort());
             </template>
 
             <template v-else-if="step === 'done'">
-              <UAlert color="success" variant="subtle" icon="i-lucide-check" :title="selectedState?.enabled === 'on' ? `${selected.title} is on` : `${selected.title} is off`" :description="result?.changes?.length ? `Changed ${result.changes.map(change => change.path).join(', ')}.${result.restart ? ' The dev server restarted.' : ' No restart needed.'}` : 'No files changed.'" />
+              <UAlert color="success" variant="subtle" icon="i-lucide-check" :title="result?.restartRequired ? 'Restart the dev server' : selectedState?.enabled === 'on' ? `${selected.title} is on` : `${selected.title} is off`" :description="result?.changes?.length ? `Changed ${result.changes.map(change => change.path).join(', ')}.${result.restart ? ' The dev server restarted.' : result.restartRequired ? ' Restart to load the new feature configuration.' : ' No restart needed.'}` : 'No files changed.'" />
               <ul v-if="result?.nextSteps?.length" class="grid list-disc gap-1 ps-5 text-xs text-muted">
                 <li v-for="next in result.nextSteps" :key="next">{{ next }}</li>
               </ul>

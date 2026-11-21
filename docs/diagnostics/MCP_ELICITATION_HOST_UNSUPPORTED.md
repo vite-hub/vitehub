@@ -1,6 +1,6 @@
 ---
 description: "Fix MCP_ELICITATION_HOST_UNSUPPORTED in ViteHub. A tool calls elicit() in a build for a host where the answer of the client can reach another server instance."
-seo.title: "MCP_ELICITATION_HOST_UNSUPPORTED: host cannot elicit"
+seo.title: "MCP_ELICITATION_HOST_UNSUPPORTED"
 ---
 
 `elicit()` of an MCP tool throws `MCP_ELICITATION_HOST_UNSUPPORTED`. The app is built for a host where the answer of the MCP client can reach another server instance than the tool call that waits for it. The message names the host. The Agent reads the code and the message as a tool error.

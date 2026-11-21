@@ -6,13 +6,15 @@ navigation.order: 5
 icon: i-lucide-book-open
 ---
 
-## `@vite-hub/web-container`
+Each `vite-hub/web-container/*` path re-exports the same path of `@vite-hub/web-container`. The Vite plugin has only the `@vite-hub/web-container/vite` path.
 
-Runs in the browser. `vite-hub/web-container` re-exports it.
+## `vite-hub/web-container`
+
+Runs in the browser.
 
 ### `bootWebContainer(options?)`
 
-Boots a WebContainer, mounts the snapshot and the files, and resolves with a container. Throws `WebContainerUnsupportedError` when the page cannot run one.
+Boots a WebContainer, mounts the snapshot and the files, and resolves with a container. Throws `WEB_CONTAINER_UNSUPPORTED` when the page cannot run one.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -74,7 +76,7 @@ Turns `{ "server/index.js": "..." }` into the nested tree that a WebContainer mo
 | `webContainerHeaders` | `{ "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" }`, for Nitro route rules in production. |
 | `matchesWebContainerRoute(pathname, routes)` | Returns `true` when `pathname` matches one of the route patterns. |
 
-## `@vite-hub/web-container/snapshot`
+## `vite-hub/web-container/snapshot`
 
 Runs in Node at build time, on Linux, macOS, or WSL.
 
@@ -93,13 +95,11 @@ Installs the dependencies of an app as npm in a WebContainer does, and resolves 
 
 Compresses a snapshot with gzip and splits it into parts of at most `partBytes` (default 20 MiB).
 
-## `@vite-hub/web-container/env`
+## `vite-hub/web-container/env`
 
 `isWebContainer()` returns `true` when the code runs inside a WebContainer.
 
-## `@vite-hub/web-container/connect`
-
-`vite-hub/web-container/connect` re-exports it.
+## `vite-hub/web-container/connect`
 
 | Export | Description |
 | --- | --- |

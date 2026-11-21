@@ -1,14 +1,16 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
 
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
+// The composables stay out of this plugin, so a page that uses no Auth composable and no Auth page guard does not
+// download them. The plugin installs its hooks through the bridge, and the browser guard loads them on demand.
+import { setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler } from "../nuxt-bridge.ts"
 
-import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
-import type { RequestFetch } from "../vue.ts"
+import type { AuthPageGuardConfig, AuthPageMeta } from "../nuxt-types.ts"
+import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
@@ -121,18 +123,24 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     setNuxtErrorFactory(createError)
     // During server rendering, client calls such as `listSessions()` reach the app in-process with the visitor's cookie.
     if (!("window" in globalThis)) setRequestFetchResolver(currentRequestFetch)
-    const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
+    const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | Partial<AuthPageGuardConfig> } }
     const config = runtimeConfig.public?.vitehubAuth
-    const redirects = (config || undefined)?.redirects ?? {}
+    const signInPage = config ? config.signInPage : "/login"
+    const afterSignIn = (config || undefined)?.afterSignIn ?? "/"
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
     const guardOf = (to: RouteLike) => {
       const meta = to.meta.auth
       if (config === false || meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
-      return (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+      return (loggedIn: boolean, signedOut = false) => {
+        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? afterSignIn) : undefined
+        if (loggedIn) return
+        if (redirectTo || signInPage !== null) return navigateTo({ path: redirectTo ?? signInPage ?? "/login", query: { redirect: to.fullPath } })
+        if (signedOut) return showError({ statusCode: 401, statusMessage: "Signed out" })
+        // The Auth route starts the provider sign-in and comes back to `?redirect=`, a path below `app.baseURL`.
+        const signIn = `${resolveAuthMountPath(config?.basePath ?? "/api/auth", runtimeConfig.app?.baseURL)}/sign-in`
+        return navigateTo(`${signIn}?${new URLSearchParams({ redirect: to.fullPath })}`, { external: true })
       }
     }
     if ("window" in globalThis) {
@@ -143,7 +151,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         // Nuxt throws for a URL on another site without `external`.
         if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
         // The guard runs only when the route changes, so do its work for the page on screen.
-        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false)
+        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false, true)
       }))
     }
     if (config === false) return
@@ -175,7 +183,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     // On the server, one resolver serves all requests. It finds the read of the request through the request's Nuxt app.
     setSessionSeedResolver((read) => {
       if (stale) return undefined
-      // Read the state directly: on Nuxt 5, `runWithContext()` returns a Promise even for a sync callback.
+      // Read the state directly: on the server, `runWithContext()` returns a Promise even for a sync callback.
       // Outside a Nuxt context, such as module scope, the session is unknown.
       try {
         const app = read ? tryUseNuxtApp() as NuxtApp | undefined : undefined
@@ -191,19 +199,18 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const decide = guardOf(to)
       if (!decide) return
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
-      // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
+      // navigations read the session into the state that `useUserSession()` and `useAbility()` share, so the page and
       // the guard see the same answer.
       const session = serverSession?.()
+      // Keep the Nuxt app for the session read and the navigation after it answers.
+      const app = tryUseNuxtApp() as NuxtApp | undefined
+      const inApp = <T>(run: () => T): T => app ? app.runWithContext(run) : run()
       const loggedIn = !serverSession
-        ? useUserSession().refresh().then(current => Boolean(current?.session && current?.user))
+        ? import("../vue.ts").then(({ useUserSession }) => inApp(() => useUserSession().refresh())).then(current => Boolean(current?.session && current?.user))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
-      // Keep the Nuxt app for the navigation after the session read answers.
-      const app = tryUseNuxtApp() as NuxtApp | undefined
-      return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
+      return loggedIn.then(value => inApp(() => decide(value)))
     }, { global: true })
-    // `useAuthClient()` finds the shared default client here, also outside a component.
-    return { provide: { vitehubAuthClient: authClient } }
   },
 })
 

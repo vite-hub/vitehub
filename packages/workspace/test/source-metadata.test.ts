@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { custom, fetch, file, github, glob, markdown, mcpResources } from "../src/index.ts"
+import { custom, file, github, glob, markdown, mcpResources, url as urlSource } from "../src/index.ts"
 import {
   normalizeWorkspaceSourceMetadata,
   normalizeWorkspaceSourcesMetadata,
@@ -121,12 +121,12 @@ describe("Workspace Source metadata", () => {
         cache: { maxAge: 60 },
         repo: "vite-hub/vitehub",
       }),
-      request: fetch({
+      request: urlSource({
         method: "POST",
         url: "https://status.example.com/query",
       }),
       rootFile: file("AGENTS.md"),
-      status: fetch({
+      status: urlSource({
         url: "https://status.example.com/health",
         workspacePath: "external/status.json",
       }),
@@ -218,14 +218,14 @@ describe("Workspace Source metadata", () => {
       "docs/README.md",
       ".vitehub/sources/docs.json",
     ])
-    expect(workspaceSourceGrantPaths("status", fetch({
+    expect(workspaceSourceGrantPaths("status", urlSource({
       url: "https://status.example.com/health",
       workspacePath: "external/status/health.json",
     }))).toEqual([
       "external/status/health.json",
       ".vitehub/sources/status.json",
     ])
-    expect(workspaceSourceGrantPaths("request", fetch({
+    expect(workspaceSourceGrantPaths("request", urlSource({
       method: "POST",
       url: "https://status.example.com/query",
     }))).toEqual([
@@ -264,13 +264,13 @@ describe("Workspace Source metadata", () => {
     const resolved = await resolveWorkspaceSources({
       name: "customer-status",
       sources: {
-        status: fetch(({ selectedWorkspaceScope }) => ({
+        status: urlSource(({ selectedWorkspaceScope }) => ({
           responseType: "text",
           url: "https://status.example.com/health",
           workspacePath: `customers/${selectedWorkspaceScope?.name}/status.txt`,
         })),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }, {
       invocation,
       selectedWorkspaceScope: {
@@ -288,7 +288,7 @@ describe("Workspace Source metadata", () => {
     vi.stubGlobal("fetch", request)
     registerWorkspace("customer-status", {
       sources: resolved.sources,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     expect(status).toMatchObject({
@@ -310,7 +310,7 @@ describe("Workspace Source metadata", () => {
           mount: "docs",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }, {
       invocation,
       selectedWorkspaceScope: {
@@ -324,7 +324,7 @@ describe("Workspace Source metadata", () => {
     expect(Object.prototype.hasOwnProperty.call(resolved.sources, "__proto__")).toBe(true)
     registerWorkspace("prototype-source", {
       sources: resolved.sources,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await expect(useWorkspace("prototype-source").fs.readFile("docs/value.txt")).resolves.toBe("prototype")
   })
@@ -345,7 +345,7 @@ describe("Workspace Source metadata", () => {
           server: mcpClient,
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     const workspace = useWorkspace("source-forms")
 

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/content",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Comark Content runtime integration for ViteHub Sources, with editable document collections on Workspace history.",
   "keywords": [
     "comark",
@@ -91,35 +91,36 @@
     "test": "vp run --cache -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
-    "@comark/html": "catalog:markdown-ui",
+    "@mdream/js": "catalog:markdown",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
-    "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-image": "catalog:realtime",
-    "@tiptap/extension-list": "catalog:realtime",
-    "@tiptap/extension-table": "catalog:realtime",
-    "@tiptap/pm": "catalog:realtime",
-    "@tiptap/starter-kit": "catalog:realtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",
-    "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
-    "comark-ui": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "nostics": "catalog:runtime",
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@libsql/client": "catalog:database",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "publint": "catalog:tooling",
@@ -131,13 +132,40 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@comark/html": "catalog:markdown-ui",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-image": {
+      "optional": true
+    },
+    "@tiptap/extension-list": {
+      "optional": true
+    },
+    "@tiptap/extension-table": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },
@@ -155,6 +183,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

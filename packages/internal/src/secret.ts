@@ -1,3 +1,5 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+
 const secretEncoder = new TextEncoder()
 
 /**
@@ -40,13 +42,13 @@ export function readViteHubSecret(env: Readonly<Record<string, unknown>>): strin
 /**
  * Derives a 32-byte secret for one purpose from the root secret, hex-encoded. It uses HKDF-SHA256 with the salt
  * `vitehub` and the purpose as `info`. The result is stable while the root is unchanged and distinct for every purpose.
- * Throws a `TypeError` when the root is shorter than 32 characters or the purpose is empty. It uses no Node API.
+ * Throws a coded error when the root is shorter than 32 characters or the purpose is empty. It uses no Node API.
  */
 export async function deriveViteHubSecret(root: string, purpose: string): Promise<string> {
   if (root.length < viteHubSecretMinimumLength) {
-    throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`)
+    throw internalErrorDiagnostics.INTERNAL_SECRET_TOO_SHORT({ minimum: viteHubSecretMinimumLength })
   }
-  if (!purpose) throw new TypeError("[vitehub] A derived secret requires a purpose.")
+  if (!purpose) throw internalErrorDiagnostics.INTERNAL_SECRET_PURPOSE_MISSING()
   const key = await globalThis.crypto.subtle.importKey("raw", secretEncoder.encode(root), "HKDF", false, ["deriveBits"])
   return hex(await globalThis.crypto.subtle.deriveBits({
     hash: "SHA-256",
@@ -110,4 +112,50 @@ export async function verifyViteHubHmacSignature(
   const received = header.slice(prefix.length)
   if (format.encoding === "base64") return isViteHubSecretEqual(received, btoa(String.fromCharCode(...digest)))
   return isViteHubSecretEqual(received.toLowerCase(), hex(digest.buffer))
+}
+
+/** How old a signed Stripe timestamp can be, in seconds, when the caller sets no tolerance. Stripe's SDKs use 300. */
+export const stripeSignatureToleranceSeconds = 300
+
+/**
+ * Checks a `Stripe-Signature` header: `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1`
+ * passes, as Stripe sends one for each active secret while you roll a secret. A timestamp older than
+ * `toleranceSeconds` before `receivedAt` (milliseconds, default now) fails. It compares in constant time and uses no
+ * Node API.
+ */
+export async function verifyViteHubStripeSignature(
+  secret: string | null | undefined,
+  header: string | null | undefined,
+  body: Uint8Array,
+  options: { receivedAt?: number, toleranceSeconds?: number } = {},
+): Promise<boolean> {
+  const toleranceSeconds = options.toleranceSeconds ?? stripeSignatureToleranceSeconds
+  if (!secret || !header || !Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
+  let timestamp: string | undefined
+  let signatureCount = 0
+  const signatures: string[] = []
+  for (const part of header.split(",")) {
+    const separator = part.indexOf("=")
+    if (separator <= 0) continue
+    const key = part.slice(0, separator).trim()
+    const value = part.slice(separator + 1).trim()
+    if (key === "t") timestamp = value
+    else if (key === "v1") {
+      if (++signatureCount > 32) return false
+      if (/^[a-f0-9]{64}$/.test(value)) signatures.push(value)
+    }
+  }
+  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
+  const timestampSeconds = Number(timestamp)
+  if (!Number.isSafeInteger(timestampSeconds)) return false
+  if (Math.floor((options.receivedAt ?? Date.now()) / 1000) - timestampSeconds > toleranceSeconds) return false
+  const prefix = secretEncoder.encode(`${timestamp}.`)
+  const payload = new Uint8Array(prefix.length + body.length)
+  payload.set(prefix)
+  payload.set(body, prefix.length)
+  const expected = hex((await viteHubHmacSha256(secret, payload)).buffer)
+  // Compare with every signature, so the time does not show which one matched.
+  let verified = false
+  for (const signature of signatures) verified = isViteHubSecretEqual(signature, expected) || verified
+  return verified
 }

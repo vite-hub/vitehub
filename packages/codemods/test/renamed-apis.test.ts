@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { detectCodemods, formatReport, runCodemod, upgradeCodemods } from "../src/index.ts"
+import { detectCodemods, formatReport, runCodemod, runMigration, upgradeCodemods } from "../src/index.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/renamed-apis-test/", import.meta.url))
@@ -23,12 +23,49 @@ async function migrate(files: Record<string, string>) {
 }
 
 describe("renamed-apis", () => {
+  it("renames createSource to useSource and lists the removed Source registry", async () => {
+    const { after, run } = await migrate({
+      "server/api/docs.get.ts": "import { createSource, glob } from 'vite-hub/source'\nexport default () => createSource(glob({ cwd: 'docs' })).keys()\n",
+      "server/api/both.get.ts": "import { createSource, useSource } from '@vite-hub/source'\nexport default () => [createSource(docs), useSource('docs')]\n",
+      "server/sources.ts": "import { registerSources, file } from 'vite-hub/source'\nregisterSources({ readme: file('README.md') })\n",
+    })
+    expect(after["server/api/docs.get.ts"]).toBe("import { useSource, glob } from 'vite-hub/source'\nexport default () => useSource(glob({ cwd: 'docs' })).keys()\n")
+    expect(after["server/api/both.get.ts"]).toBe("import { useSource as createSource, useSource } from '@vite-hub/source'\nexport default () => [createSource(docs), useSource('docs')]\n")
+    expect(after["server/sources.ts"]).toBeUndefined()
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "server/sources.ts", line: 1, message: expect.stringContaining("server/sources/<name>.ts") }))
+  })
+
+  it("lists Source files from the old tutorial without removing their named exports", async () => {
+    const { after, run } = await migrate({
+      "server/sources/docs.ts": "import { glob } from 'vite-hub/source'\nexport const docs = glob({ cwd: 'docs' })\n",
+      "server/sources/team/handbook.ts": "export { docs as default } from '../docs'\n",
+      "server/sources/team/types.ts": "export default interface Docs { title: string }\n",
+      "server/api/docs.get.ts": "import { createSource } from 'vite-hub/source'\nimport { docs } from '../sources/docs'\nexport default () => createSource(docs).keys()\n",
+    })
+    expect(after["server/api/docs.get.ts"]).toContain("useSource(docs)")
+    expect(after["server/sources/docs.ts"]).toBeUndefined()
+    expect(run.result.followUps).toEqual([
+      expect.objectContaining({ file: "server/sources/docs.ts", message: expect.stringContaining("keep any named exports") }),
+      expect.objectContaining({ file: "server/sources/team/types.ts", message: expect.stringContaining("must now default-export a Source") }),
+    ])
+  })
+
+  it.each([
+    ["import { createSource } from 'vite-hub/source'\nconst useSource = 1\n", "import { useSource as createSource } from 'vite-hub/source'\nconst useSource = 1\n"],
+    ["import { createSource } from 'vite-hub/source'\nfunction read(useSource) { return createSource(docs) }\n", "import { useSource as createSource } from 'vite-hub/source'\nfunction read(useSource) { return createSource(docs) }\n"],
+    ["const { createSource, useSource } = await import('vite-hub/source')\n", "const { useSource: createSource, useSource } = await import('vite-hub/source')\n"],
+    ["const [{ createSource, useSource }] = await Promise.all([import('vite-hub/source')])\n", "const [{ useSource: createSource, useSource }] = await Promise.all([import('vite-hub/source')])\n"],
+  ])("keeps the createSource binding when useSource is already in use: %s", async (input, expected) => {
+    const { after } = await migrate({ "server/api/docs.get.ts": `${input}createSource(docs)\n` })
+    expect(after["server/api/docs.get.ts"]).toBe(`${expected}createSource(docs)\n`)
+  })
+
   it("composes root accessors and API renames in the release upgrade", async () => {
     const { cwd } = await migrate({
       "server/api/a.ts": "import { deriveSecret } from '#vitehub/env/server'\nimport { db } from 'vite-hub/database/drizzle'\nimport { kv } from 'vite-hub/kv'\nexport const secret = deriveSecret('app', event)\nexport const remove = () => kv.del('a')\nexport { db }\n",
       "vite.config.ts": "import { hubDb } from '@vite-hub/database/vite'\nimport { hubKv } from '@vite-hub/kv/vite'\nexport default { plugins: [hubDb(), hubKv()] }\n",
     })
-    for (const codemod of upgradeCodemods) await runCodemod(codemod.name, { cwd, dryRun: false })
+    await runMigration({ cwd, codemods: upgradeCodemods })
     const route = await readFile(join(cwd, "server/api/a.ts"), "utf8")
     expect(route).toContain("from 'vite-hub/env'")
     expect(route).toContain("from 'vite-hub/database'")
@@ -54,6 +91,21 @@ describe("renamed-apis", () => {
     expect((await detectCodemods(cwd)).map(entry => [entry.codemod.name, entry.detection.reason])).toEqual([["renamed-apis", "server/api/a.ts uses del()"]])
     const current = await migrate({ "server/api/a.ts": "import { kv } from 'vite-hub/kv'\nexport default () => kv.delete('a')\n" })
     expect(await detectCodemods(current.cwd)).toEqual([])
+  })
+
+  it("renames the Workspace fetch() Source to url()", async () => {
+    const { after } = await migrate({
+      "server/workspaces/status.ts": "import { defineWorkspace, fetch } from 'vite-hub/workspace'\nexport default defineWorkspace({ sources: { status: fetch({ url: 'https://status.example.com/api', workspacePath: 'status.json' }) } })\n",
+      "server/workspaces/inventory.ts": "import { fetch as source } from '@vite-hub/workspace'\nexport const inventory = source({ url: 'https://example.com/inventory' })\n",
+      "server/api/ping.ts": "export default () => fetch('https://example.com')\n",
+      "server/workspaces/shadowed.ts": "import { fetch } from 'vite-hub/workspace'\nconst url = 'global'\nexport const status = (url) => fetch({ url })\n",
+      "server/workspaces/dynamic.ts": "export const ping = () => fetch('https://example.com')\nexport async function status(url) { const { fetch = fallback } = await import('vite-hub/workspace'); return fetch({ url }) }\n",
+    })
+    expect(after["server/workspaces/status.ts"]).toBe("import { defineWorkspace, url as fetch } from 'vite-hub/workspace'\nexport default defineWorkspace({ sources: { status: fetch({ url: 'https://status.example.com/api', workspacePath: 'status.json' }) } })\n")
+    expect(after["server/workspaces/inventory.ts"]).toBe("import { url as source } from '@vite-hub/workspace'\nexport const inventory = source({ url: 'https://example.com/inventory' })\n")
+    expect(after["server/api/ping.ts"]).toBeUndefined()
+    expect(after["server/workspaces/shadowed.ts"]).toBe("import { url as fetch } from 'vite-hub/workspace'\nconst url = 'global'\nexport const status = (url) => fetch({ url })\n")
+    expect(after["server/workspaces/dynamic.ts"]).toBe("export const ping = () => fetch('https://example.com')\nexport async function status(url) { const { url: fetch = fallback } = await import('vite-hub/workspace'); return fetch({ url }) }\n")
   })
 
   it("keeps the import name when the file declares it again", async () => {
@@ -159,7 +211,18 @@ describe("renamed-apis", () => {
 
   it("lists a NUXT_APP_SECRET env file without printing its value", async () => {
     const { run } = await migrate({ ".env": "OTHER=1\nNUXT_APP_SECRET=do-not-print-this-value\n", ".dev.vars": "NUXT_APP_SECRET=x\nVITEHUB_SECRET=y\n" })
-    expect(run.result.followUps).toEqual([{ file: ".env", line: 2, message: expect.stringContaining("Set `VITEHUB_SECRET`") }])
+    expect(run.result.followUps).toEqual([{ file: ".env", line: 2, message: expect.stringContaining("also set `VITEHUB_SECRET` to it") }])
     expect(formatReport(run)).not.toContain("do-not-print-this-value")
+  })
+
+  it("does not tell an app to drop a NUXT_APP_SECRET that another module reads", async () => {
+    const { run } = await migrate({
+      ".env.example": "NUXT_APP_SECRET=\n",
+      "package.json": "{\"dependencies\":{\"nuxt-og-image\":\"^5.0.0\",\"vite-hub\":\"0.0.9\"}}\n",
+    })
+    const [followUp] = run.result.followUps
+    expect(followUp?.message).toContain("If ViteHub used this value")
+    expect(followUp?.message).toContain("Keep `NUXT_APP_SECRET` when another module")
+    expect(followUp?.message).not.toContain("no longer reads")
   })
 })

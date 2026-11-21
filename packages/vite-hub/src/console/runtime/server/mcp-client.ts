@@ -8,6 +8,7 @@ import { consoleMcpCallbackPath } from "../mcp-client.ts"
 import { readConsoleOperationUser } from "./access.ts"
 import { consoleMcpRecords, resetConsoleMcpRecords } from "./mcp-client-store.ts"
 import { consoleRequestError, consolePublicURL } from "./request.ts"
+import { consoleDiagnostic } from "../diagnostics.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
@@ -179,7 +180,7 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
   const pending = (): PendingAuthorization => oauth.pending ??= { expiresAt: Date.now() + pendingLifetimeMs, state: randomId() }
   const metadata: OAuthClientMetadata = {
     client_name: "ViteHub Console",
-    client_uri: "https://vitehub.dev/docs/development/console",
+    client_uri: "https://vitehub.dev/docs/console/mcp-client",
     grant_types: ["authorization_code", "refresh_token"],
     redirect_uris: [oauth.redirectUrl],
     response_types: ["code"],
@@ -264,10 +265,13 @@ function serverInfo(client: Client, protocolVersion: string | undefined): Consol
 /** What a `401` asked for in `WWW-Authenticate`: where its resource metadata is, and which scope. */
 type Challenge = ReturnType<typeof extractWWWAuthenticateParams>
 
-class SignedOutError extends Error {
-  constructor(message: string, readonly challenge?: Challenge) {
-    super(message)
-  }
+/** `CONSOLE_MCP_SIGNED_OUT`, with the `401` challenge that a new sign-in starts from. */
+function signedOutError(message: string, challenge?: Challenge) {
+  return Object.assign(consoleRequestError(409, message, "CONSOLE_MCP_SIGNED_OUT"), { challenge })
+}
+
+function isSignedOut(error: unknown): error is ReturnType<typeof signedOutError> {
+  return error instanceof Error && Reflect.get(error, "code") === "CONSOLE_MCP_SIGNED_OUT"
 }
 
 interface ClientOptions { fresh?: boolean, timeoutMs?: number }
@@ -376,7 +380,7 @@ async function runClient<T>(caller: ConsoleMcpCaller, connection: StoredConnecti
       connection.status = "signed-out"
       connection.error = { bearer: "The server rejected this token.", console: "ViteHub MCP did not accept your Console session.", none: "The server asks for credentials.", oauth: "The server rejected the grant. Sign in again." }[connection.auth]
       delete connection.sessionId
-      throw new SignedOutError(connection.error, challenge)
+      throw signedOutError(connection.error, challenge)
     }
     if (error instanceof McpError) throw error
     connection.status = "failed"
@@ -560,7 +564,7 @@ async function authorize(connection: StoredConnection, prompt: "login" | undefin
       delete connection.error
       return oauth.pending.url
     }
-    throw new Error("The authorization server did not start a sign-in.")
+    throw consoleDiagnostic("CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not start a sign-in.")
   }
   catch (error) {
     delete oauth.pending
@@ -600,8 +604,7 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
     return { connection: describe(connection) }
   }
   catch (error) {
-    if (!(error instanceof SignedOutError)) throw error
-    if (connection.auth !== "none") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
+    if (!isSignedOut(error) || connection.auth !== "none") throw error
     // Without a token, a server that asks for credentials gets the MCP authorization flow.
     connection.auth = "oauth"
     connection.oauth = { redirectUrl: `${origin}${mount}${consoleMcpCallbackPath}` }
@@ -662,7 +665,7 @@ async function finishSignIn(caller: ConsoleMcpCaller, connection: StoredConnecti
   return withClientOperation(connection, async () => {
     try {
       const result = await auth(oauthProvider(connection), { authorizationCode: input.code, fetchFn: withTimeout(requestTimeoutMs, connection.consoleOrigin), serverUrl: connection.url })
-      if (result !== "AUTHORIZED") throw new Error("The authorization server did not issue a token.")
+      if (result !== "AUTHORIZED") throw consoleDiagnostic("CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not issue a token.")
     }
     catch (error) {
       delete oauth.pending
@@ -673,13 +676,7 @@ async function finishSignIn(caller: ConsoleMcpCaller, connection: StoredConnecti
     if (pending === oauth.pending) delete oauth.pending
     connection.identity = await readIdentity(connection)
     if (!connection.labelled) connection.label = connection.identity?.name ?? connection.identity?.email ?? connection.label
-    try {
-      await runClient(caller, connection, async () => {}, { fresh: true })
-    }
-    catch (error) {
-      if (error instanceof SignedOutError) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
-      throw error
-    }
+    await runClient(caller, connection, async () => {}, { fresh: true })
     return describe(connection)
   })
 }
@@ -694,8 +691,7 @@ export async function reconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id:
       await withClient(caller, connection, async () => {}, { fresh: true })
     }
     catch (error) {
-      if (!(error instanceof SignedOutError)) throw error
-      if (connection.auth !== "oauth") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
+      if (!isSignedOut(error) || connection.auth !== "oauth") throw error
       return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
     }
     return { connection: describe(connection) }
@@ -770,11 +766,6 @@ const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: 
   "tools": { field: "tools", method: "tools/list" },
 }
 
-function signedOut(error: unknown): never {
-  if (error instanceof SignedOutError) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
-  throw error
-}
-
 /** One page of tools, resources, resource templates, or prompts. */
 export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { cursor?: string, id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
   return withConnection(caller, input.id, async (connection) => {
@@ -789,7 +780,7 @@ export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { cur
     catch (error) {
       // A server without this capability answers "method not found". It has none of these items.
       if (error instanceof McpError && error.code === -32601) return { connection: describe(connection), items: [] }
-      return signedOut(error)
+      throw error
     }
   })
 }
@@ -803,7 +794,7 @@ async function outcome(caller: ConsoleMcpCaller, id: string, request: { method: 
       return { connection: describe(connection), durationMs: Math.round(performance.now() - startedAt), result }
     }
     catch (error) {
-      if (!(error instanceof McpError)) return signedOut(error)
+      if (!(error instanceof McpError)) throw error
       connection.status = "connected"
       return {
         connection: describe(connection),

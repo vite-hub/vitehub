@@ -16,9 +16,9 @@ export default {
     host: "node",
     queue: true,
     rateLimit: true,
-    realtime: { authority: "memory" },
+    realtime: { driver: "memory" },
     schedule: { runtime: { driver: "process", intervalMs: 1000 } },
     // OpenWorkflow reads DATABASE_URL when the server starts.
-    workflow: { provider: "openworkflow" },
+    workflow: { driver: "openworkflow" },
   },
 }

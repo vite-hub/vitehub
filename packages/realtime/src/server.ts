@@ -1,6 +1,6 @@
 import { assertAuthOrigin } from "@vite-hub/auth/internal/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
-import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
+import { HTTPError, defineEventHandler, defineWebSocketHandler } from "nitro/h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
@@ -214,11 +214,8 @@ function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
-export class RealtimeWriteRejected extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "RealtimeWriteRejected"
-  }
+function isWriteRejected(error: unknown): error is Error {
+  return error instanceof Error && Reflect.get(error, "code") === "REALTIME_WRITE_REJECTED"
 }
 
 export interface RealtimeSyncOptions {
@@ -250,13 +247,13 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
     const before = Y.snapshot(candidate)
     apply(candidate)
     if (candidate.store.pendingStructs || candidate.store.pendingDs) {
-      throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "missing-state" })
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "read-only", ...(typeof options.readOnly === "string" ? { readOnly: options.readOnly } : {}) })
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
-      throw new RealtimeWriteRejected("Realtime document status is written by the server.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "status" })
     }
     if (Y.encodeStateAsUpdate(candidate).byteLength > (options.maxStateBytes ?? maxRoomStateBytes)) {
       throw realtimeErrorDiagnostics.REALTIME_DOCUMENT_TOO_LARGE()
@@ -374,7 +371,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition
   if (cached) return cached
   assertRealtimeCheckpoint(definition)
   const document = definition.document
-  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
+  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace, document.checkpointAuthor)
   const persistence = definition.persistence === false
     ? false as const
     : {
@@ -537,23 +534,26 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
     const legacyUpdate = storedUpdate(row.update_blob)
     if (!legacyUpdate) continue
     const blob = Uint8Array.from(legacyUpdate).buffer
-    try {
-      if (!clientUpdateColumn) throw new Error("client_update column unavailable")
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
-        key,
-        blob,
-      )
+    if (clientUpdateColumn) {
+      try {
+        sql.exec(
+          "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
+          key,
+          blob,
+        )
+        continue
+      }
+      catch {
+        // Fall back to the two-column journal schema below.
+      }
     }
-    catch {
-      // Hosts that reject ALTER TABLE may still expose the intermediate
-      // two-column journal schema. Preserve those rows so the room can open.
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
-        key,
-        blob,
-      )
-    }
+    // Hosts that reject ALTER TABLE may still expose the intermediate
+    // two-column journal schema. Preserve those rows so the room can open.
+    sql.exec(
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+      key,
+      blob,
+    )
   }
 }
 
@@ -620,7 +620,7 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
 }
 
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
-  if (definition.auth && !definition.identify) {
+  if (definition.authorize === true && !definition.identify) {
     let auth
     try {
       auth = await assertAuthOrigin(request, event)
@@ -639,22 +639,27 @@ async function identify(request: Request, event: H3Event, definitionName: string
   // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
   // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
   // `origins` lets other origins in for definitions that read a credential the page sends.
-  if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+  const foreign = !!origin && origin !== forwardedRequestOrigin(request)
+  const readsCallbackSession = typeof definition.authorize === "function" && !definition.identify && !!origin && (!foreign || !definition.origins)
+  if (foreign && !readsCallbackSession && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
     throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
   }
   if (definition.identify) {
     const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
-    if (definition.auth && !user) throw new HTTPError({ status: 401 })
+    if (definition.authorize === true && !user) throw new HTTPError({ status: 401 })
     return user
   }
   // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
-  if (definition.document !== false || definition.scope !== "user") return null
+  const readsSession = typeof definition.authorize === "function"
+    ? readsCallbackSession
+    : definition.document === false && definition.scope === "user"
+  if (!readsSession) return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
   }
   catch (error) {
-    if (isMissingAuth(error)) return null
+    if (!foreign && isMissingAuth(error)) return null
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })
@@ -670,10 +675,11 @@ async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (definition.authorize) return (await definition.authorize(context)) !== false
-  // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
-  // `access: "public"`.
-  return definition.auth === true || definition.access === "public"
+  // `authorize: true`: identify() already required a user.
+  if (definition.authorize === true) return true
+  // Only `true` allows. A callback that returns nothing, such as one that checks only `write`, denies.
+  if (definition.authorize) return (await definition.authorize(context)) === true
+  return definition.access === "public"
 }
 
 function errorMessage(error: unknown): string {
@@ -1182,8 +1188,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       try {
         if (await bus.writeRoom(key, record, record.epoch)) return
         console.error("[vitehub] Realtime room record compare-and-set failed.", key)
-        // Internal invariant: compare-and-set rejection is caught here and retried before the room save reports failure.
-        throw new Error("Realtime room record compare-and-set failed.")
+        // The loop retries it. After the last attempt, the room save reports it.
+        throw realtimeErrorDiagnostics.REALTIME_ROOM_WRITE_CONFLICT()
       }
       catch (error) { failure = error }
     }
@@ -1411,7 +1417,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
-    // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
+    // Full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
     try {
       room.sql.exec(
@@ -2007,7 +2013,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       snapshot = await adapter.checkpoint!(room.context, {
         digest: saved.digest,
         message: configured === true ? undefined : configured?.message,
-        user: user ?? saved.savedBy ?? undefined,
+        user: user ?? undefined,
       })
     }
     catch (error) {
@@ -2050,7 +2056,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
-      throw new HTTPError({ status: 403 })
+      throw new HTTPError({ status: request.user ? 403 : 401 })
     }
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
@@ -2072,7 +2078,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const request = await requestContext(event)
-    if (!(await request.access("read"))) throw new HTTPError({ status: 403 })
+    if (!(await request.access("read"))) throw new HTTPError({ status: request.user ? 403 : 401 })
     const writable = !request.workspaceEvents && !!request.resolved && await request.access("write")
     const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
     const room: Room = request.workspaceEvents
@@ -2132,8 +2138,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       catch (error) {
         // The deletes of another editor version arrive on their own when it renders. Closing would make the browser
         // reconnect and send them again, so drop them and keep the connection open for live updates.
-        if (error instanceof RealtimeWriteRejected && otherEditor) return
-        if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
+        if (isWriteRejected(error) && otherEditor) return
+        if (isWriteRejected(error)) peer.close(realtimeForbiddenWriteCloseCode, error.message)
         else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
       }
     }

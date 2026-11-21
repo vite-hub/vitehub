@@ -35,7 +35,7 @@ afterEach(() => {
 })
 
 function store(options: { token?: string } = {}) {
-  return createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", root: "", ...options }, "docs")
+  return createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", root: "", ...options }, "docs")
 }
 
 it("reads the repository as the GitHub App installation when VITEHUB_GITHUB_APP_ID is set", async () => {

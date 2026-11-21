@@ -1,16 +1,16 @@
-import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId } from "vue"
 
-import { fieldErrors, formRoute, submitForm } from "./client.ts"
-import { formFields, isLongText } from "./fields.ts"
+import { fieldErrors, formSubmitError, formRoute, submitForm } from "./client.ts"
+import { formsDiagnostics } from "./errors.ts"
+import { checkForm, coerceFormFields, formFields, isLongText } from "./fields.ts"
 
-import type { FormSchema, FormStore } from "@formisch/vue"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { PropType, Ref, VNode } from "vue"
 import type { FormAnchor, FormFieldErrors, FormSubmitError, SubmitFormOptions } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
 
-export { FormSubmitError, fieldErrors, formRoute, submitForm } from "./client.ts"
+export { fieldErrors, formRoute, submitForm } from "./client.ts"
+export type { FormSubmitError } from "./client.ts"
 export type { FormAnchor, FormFieldErrors, FormIssue, SubmitFormOptions } from "./client.ts"
 
 /** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
@@ -62,94 +62,56 @@ function firstControl(form: HTMLFormElement, names: FormFieldErrors): HTMLElemen
  * ```
  */
 export function useFormAction(name: string, options: SubmitFormOptions = {}): FormActionState {
+  const { send, ...state } = formSender(name, options)
+  async function submit(event: SubmitEvent) {
+    event.preventDefault()
+    // `currentTarget` is null after the first await.
+    const form = event.currentTarget
+    if (!(form instanceof HTMLFormElement)) return
+    if (await send(form, event.submitter)) form.reset()
+  }
+  return { submit, ...state }
+}
+
+/** The state of `useFormAction()`, with `send()` for a form element that the caller already holds, as `AutoForm` does. */
+function formSender(name: string, options: SubmitFormOptions) {
   const errors = ref<FormFieldErrors>({})
   const sent = ref<string | true>()
   const error = ref<FormSubmitError>()
   const pending = ref(false)
-  async function submit(event: SubmitEvent) {
-    event.preventDefault()
+  /** Sends the controls of `form`. True after a success. */
+  async function send(form: HTMLFormElement, submitter: HTMLElement | null): Promise<boolean> {
     // A second click on a slow network would store the message twice.
-    if (pending.value) return
-    // `currentTarget` is null after the first await.
-    const form = event.currentTarget
-    if (!(form instanceof HTMLFormElement)) return
+    if (pending.value) return false
     pending.value = true
     sent.value = undefined
     error.value = undefined
     errors.value = {}
     // The submitter's own name and value count, as in a browser post. `FormData` throws for a submitter of another form.
-    const submitter = event.submitter && "form" in event.submitter && event.submitter.form === form ? event.submitter : null
-    const [failure, data] = await submitForm(name, new FormData(form, submitter), options).finally(() => { pending.value = false })
+    const own = submitter && "form" in submitter && submitter.form === form ? submitter : null
+    const [failure, data] = await submitForm(name, new FormData(form, own), options).finally(() => { pending.value = false })
     if (!failure) {
       sent.value = data.id ?? true
-      form.reset()
-      return
+      return true
     }
     error.value = failure
     errors.value = fieldErrors(failure)
     // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
     await nextTick()
     firstControl(form, errors.value)?.focus()
+    return false
   }
   function clear(field?: string) {
     if (field === undefined) errors.value = {}
     else if (field in errors.value) errors.value = Object.fromEntries(Object.entries(errors.value).filter(([key]) => key !== field))
   }
-  return { submit, errors, sent, error, pending, clear }
+  return { send, errors, sent, error, pending, clear }
 }
 
-/** What `useFormSubmit()` returns. */
-export interface FormSubmitState {
-  /**
-   * Sends the input of the form, not the output of its schema, since the server validates the same schema again. Pass
-   * fields that are not in the form, such as a honeypot, as `extra`: `<Form :of="form" @submit="() => send()">`.
-   */
-  send: (extra?: Record<string, unknown>) => Promise<void>
-  /** The id of the stored submission after a success. */
-  sent: Ref<string | true | undefined>
-  /** The last failure. Field issues are also set on the Formisch form, under their field. */
-  error: Ref<FormSubmitError | undefined>
-}
-
-/**
- * Sends a Formisch form to `server/forms/<name>.ts`. A 400 puts each server issue under its field with Formisch
- * `setErrors()`, and an issue of the whole form on the form. A success resets the form.
- */
-export function useFormSubmit<TSchema extends FormSchema>(name: string, form: FormStore<TSchema>, options: SubmitFormOptions = {}): FormSubmitState {
-  const sent = ref<string | true>()
-  const error = ref<FormSubmitError>()
-  let pending = false
-  async function send(extra: Record<string, unknown> = {}) {
-    // A second click on a slow network would store the message twice.
-    if (pending) return
-    pending = true
-    sent.value = undefined
-    error.value = undefined
-    const [failure, data] = await submitForm(name, { ...getInput(form), ...extra }, options).finally(() => { pending = false })
-    if (!failure) {
-      sent.value = data.id ?? true
-      reset(form)
-      return
-    }
-    error.value = failure
-    const formIssues = failure.issues.filter(issue => issue.path.length === 0).map(issue => issue.message)
-    // SAFETY: the server validated the same schema, so its issue paths are paths of this form. Formisch types a path
-    // from the schema, and these come from JSON.
-    const setFieldErrors = setErrors as (form: FormStore<TSchema>, config: { path: (string | number)[], errors: [string] }) => void
-    for (const issue of failure.issues) {
-      if (issue.path.length) setFieldErrors(form, { path: issue.path, errors: [issue.message] })
-    }
-    // Move focus to the first field with a server issue, as Formisch does for its own validation.
-    const first = failure.issues.find(issue => issue.path.length)
-    // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
-    if (first) {
-      await nextTick()
-      ;(focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
-    }
-    const message = formIssues[0] ?? (failure.issues.length ? undefined : failure.message)
-    if (message) setErrors(form, { errors: [message, ...formIssues.slice(1)] })
-  }
-  return { send, sent, error }
+/** The message of a failure for the whole form: an issue without a path, or the message when no field has an issue. */
+function formMessage(failure: FormSubmitError | undefined): string | undefined {
+  if (!failure) return undefined
+  return failure.issues.find(issue => issue.path.length === 0)?.message ?? (failure.issues.length ? undefined : failure.message)
 }
 
 /** One field that `AutoForm` draws. */
@@ -175,7 +137,7 @@ export interface AutoFormField {
  */
 export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode
-  if (root?.type !== "object" || !root.entries) throw new TypeError("[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).")
+  if (root?.type !== "object" || !root.entries) throw formsDiagnostics.FORMS_AUTOFORM_SCHEMA_INVALID()
   return formFields(schema as StandardSchemaV1).map((field) => {
     const { name: key, label, description, required, minLength, maxLength } = field
     const base: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) }
@@ -192,35 +154,34 @@ export function describeFormFields(schema: unknown): AutoFormField[] {
 const AutoFormControl = defineComponent({
   name: "AutoFormControl",
   props: {
-    form: { type: Object as PropType<FormStore>, required: true },
     field: { type: Object as PropType<AutoFormField>, required: true },
     id: { type: String, required: true },
+    // Any value of the field, so no runtime type check.
+    value: { type: null as unknown as PropType<unknown>, required: false },
+    error: { type: String, default: undefined },
   },
-  setup(props) {
-    // SAFETY: describeFormFields() reads the keys from the schema of this form.
-    const store = useField(props.form, { path: [props.field.key] as never })
+  emits: { edit: (_value: unknown) => true },
+  setup(props, { emit }) {
     return () => {
-      const { field, id } = props
+      const { field, id, value, error } = props
       const errorId = `${id}-error`
       const helpId = `${id}-help`
-      const described = [field.description ? helpId : undefined, store.errors ? errorId : undefined].filter(Boolean).join(" ") || undefined
+      const described = [field.description ? helpId : undefined, error ? errorId : undefined].filter(Boolean).join(" ") || undefined
       const common = {
-        ...store.props,
         name: field.key,
         id,
         required: field.required,
-        "aria-invalid": store.errors ? "true" : undefined,
+        "aria-invalid": error ? "true" : undefined,
         "aria-describedby": described,
       }
-      const value: unknown = store.input
       let control: VNode
       if (field.control === "checkbox") {
-        control = h("input", { ...common, type: "checkbox", checked: value === true, onChange: (event: Event) => { store.input = (event.target as HTMLInputElement).checked as never } })
+        control = h("input", { ...common, type: "checkbox", checked: value === true, onChange: (event: Event) => emit("edit", (event.target as HTMLInputElement).checked) })
       }
       else if (field.control === "select") {
         // The option text is its value, so a post without JavaScript sends it. A number option goes back as a number.
         const options = field.options ?? []
-        control = h("select", { ...common, value: value === undefined || value === null ? "" : String(value), onChange: (event: Event) => { const text = (event.target as HTMLSelectElement).value; store.input = options.find(option => String(option) === text) as never } }, [
+        control = h("select", { ...common, value: value === undefined || value === null ? "" : String(value), onChange: (event: Event) => { const text = (event.target as HTMLSelectElement).value; emit("edit", options.find(option => String(option) === text)) } }, [
           // An optional select can go back to empty.
           // `selected` on the options, since a server-rendered select has no value: the browser would show the first option.
           h("option", { value: "", disabled: field.required, selected: value === undefined || value === null || value === "" }, "Choose one"),
@@ -241,7 +202,7 @@ const AutoFormControl = defineComponent({
           value: value ?? "",
           onInput: (event: Event) => {
             const raw = (event.target as HTMLInputElement).value
-            store.input = (field.inputType === "number" ? (raw === "" ? undefined : Number(raw)) : raw) as never
+            emit("edit", field.inputType === "number" ? (raw === "" ? undefined : Number(raw)) : raw)
           },
         })
       }
@@ -251,11 +212,68 @@ const AutoFormControl = defineComponent({
           : [h("label", { for: id }, field.label), control],
         field.description ? h("p", { id: helpId, "data-help": "" }, field.description) : null,
         // No alert role: focus moves to the first invalid field, which reads its error through `aria-describedby`.
-        store.errors ? h("p", { id: errorId, "data-error": "" }, store.errors[0]) : null,
+        error ? h("p", { id: errorId, "data-error": "" }, error) : null,
       ])
     }
   },
 })
+
+/**
+ * The honeypot field of `defineForm()`: an input that people do not see and bots fill. Put it inside your own `<form>`,
+ * such as a Nuxt UI `UForm`. A form that `useFormAction()` sends reads it by its name. When you send an object with
+ * `submitForm()`, bind it with `v-model` and send its value under the same name.
+ *
+ * ```vue
+ * <form method="post" :action="formRoute('contact')" @submit="submit">
+ *   <FormHoneypot />
+ * </form>
+ * ```
+ */
+export const FormHoneypot = defineComponent({
+  name: "FormHoneypot",
+  props: {
+    /** The `honeypot` of `defineForm()`. */
+    name: { type: String, default: "website" },
+    modelValue: { type: String, default: undefined },
+  },
+  emits: { "update:modelValue": (_value: string) => true },
+  setup(props, { emit }) {
+    // Without `v-model`, the input keeps its own value across renders.
+    const own = ref("")
+    return () => h("input", {
+      name: props.name,
+      value: props.modelValue ?? own.value,
+      onInput: (event: Event) => {
+        const value = (event.target as HTMLInputElement).value
+        own.value = value
+        emit("update:modelValue", value)
+      },
+      // Out of the tab order and the accessibility tree, and off screen: `display: none` is easy for a bot to skip.
+      tabindex: -1,
+      autocomplete: "off",
+      "aria-hidden": "true",
+      style: "position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden",
+    })
+  },
+})
+
+/** The first values of the fields: the default of the schema, else `false` for a checkbox, so a required boolean validates. */
+function initialValues(schema: unknown, fields: readonly AutoFormField[]): Record<string, unknown> {
+  const entries = (schema as SchemaNode).entries ?? {}
+  return Object.fromEntries(fields.map((field) => {
+    let node: SchemaNode | undefined = entries[field.key]
+    let value: unknown
+    while (node) {
+      const fallback = node.default
+      // Valibot calls a default function with no dataset when it reads the default of a schema.
+      value = typeof fallback === "function" ? fallback() : fallback
+      if (value !== undefined || !["optional", "nullish", "nullable", "exact_optional", "undefinedable"].includes(node.type)) break
+      node = node.wrapped
+    }
+    if (value instanceof Promise) return [field.key, field.control === "checkbox" ? false : undefined]
+    return [field.key, value === undefined && field.control === "checkbox" ? false : value]
+  }))
+}
 
 /**
  * A whole form from a Valibot object schema: labels, inputs, the honeypot, field errors, a submit button, and a
@@ -271,7 +289,7 @@ export const AutoForm = defineComponent({
     /** The form name: the file `server/forms/<name>.ts`. */
     name: { type: String, required: true },
     /** The Valibot object schema of the form, the same that `defineForm()` uses. */
-    schema: { type: Object as PropType<FormSchema>, required: true },
+    schema: { type: Object as PropType<StandardSchemaV1<Record<string, unknown>>>, required: true },
     submitLabel: { type: String, default: "Send" },
     sentMessage: { type: String, default: "Thanks. Your message was sent." },
     /**
@@ -289,14 +307,24 @@ export const AutoForm = defineComponent({
   },
   emits: { sent: (id: string | true) => Boolean(id) },
   setup(props, { emit, slots }) {
-    // An unchecked checkbox is `false`, not missing, so a required boolean validates.
-    const form = useForm({ schema: props.schema, emptyInput: { boolean: false } })
     const fields = computed(() => describeFormFields(props.schema))
-    const trap = ref("")
-    const { send, sent } = useFormSubmit(props.name, form, {
+    const values = ref(initialValues(props.schema, fields.value))
+    const { send, sent, errors: serverErrors, error: serverError, pending, clear } = formSender(props.name, {
       get anchor() { return props.anchor },
       get base() { return props.base },
     } as SubmitFormOptions)
+    // The errors of the check in the browser, which runs the schema on the same values that the server reads.
+    const checkErrors = ref<FormFieldErrors>({})
+    const formError = ref<string>()
+    // True while the check in the browser runs, so the button shows that it is busy while a slow check runs.
+    const checking = ref(false)
+    // After the first submit, every edit checks the form again, so a corrected field loses its error as the user types.
+    let submitted = false
+    // Counts the edits, so a check that started before an edit does not send the form.
+    let edits = 0
+    // Counts the checks, so the result of an older check does not replace a newer one.
+    let checks = 0
+    const formElement = ref<HTMLFormElement>()
     // A post without JavaScript comes back with `?form=<name>.sent` or `?form=<name>.error`. Show it in the status region.
     const resultOf = (value: string | null | undefined): "sent" | "error" | undefined => value === `${props.name}.sent` ? "sent" : value === `${props.name}.error` ? "error" : undefined
     const returned = ref(resultOf(props.result))
@@ -334,60 +362,84 @@ export const AutoForm = defineComponent({
       if (sent.value || returned.value === "sent") return slots.sent?.() ?? props.sentMessage
       return returned.value === "error" ? props.errorMessage : undefined
     }
-    // The event form of `handleSubmit()`, so it cancels the browser post.
-    const submit = handleSubmit(form, async (_output: unknown, _event: SubmitEvent) => {
-      await send(props.honeypot ? { [props.honeypot]: trap.value } : {})
-      if (sent.value) emit("sent", sent.value)
-    })
+    /**
+     * Runs the schema on the controls of the form, decoded as the server decodes a post: the same values that the
+     * server checks. A check that throws, such as a failed request of an async check, is a message for the whole form.
+     */
+    async function check(form: HTMLFormElement): Promise<FormSubmitError | undefined> {
+      const input: Record<string, unknown> = {}
+      for (const [key, value] of new FormData(form)) {
+        if (key !== props.honeypot && typeof value === "string") input[key] = value
+      }
+      coerceFormFields(props.schema, input)
+      const [failure] = await checkForm(props.schema, input).catch((error: unknown) => [formSubmitError(error instanceof Error ? error.message : String(error), 0)] as const)
+      return failure
+    }
+    function show(failure: FormSubmitError | undefined) {
+      checkErrors.value = fieldErrors(failure)
+      formError.value = formMessage(failure)
+    }
+    async function checkAgain(form: HTMLFormElement) {
+      const run = ++checks
+      const failure = await check(form)
+      if (run === checks) show(failure)
+    }
+    function edit(key: string, value: unknown) {
+      values.value = { ...values.value, [key]: value }
+      edits++
+      clear(key)
+      if (submitted && formElement.value) void checkAgain(formElement.value)
+    }
     // The button stays focusable while it sends, so a second submit is ignored here instead.
-    // Reactive, so the button shows that it is busy while a slow check runs.
-    const checking = ref(false)
-    // Pre-validation is outside Formisch's submission lifecycle. Track edits through it, including an edit that
-    // restores the old value, so an outdated attempt cannot start a fresh submission after its check finishes.
-    let inputRevision = 0
-    watch(() => getInput(form), () => { inputRevision++ }, { deep: true, flush: "sync" })
+    const busy = () => checking.value || pending.value
     const onSubmit = async (event: SubmitEvent) => {
       event.preventDefault()
-      if (form.isSubmitting || checking.value) return
+      // `currentTarget` is null after the first await.
+      const form = event.currentTarget
+      if (!(form instanceof HTMLFormElement) || busy()) return
       // A new send replaces the result of an earlier post without JavaScript.
       returned.value = undefined
-      // Formisch `handleSubmit()` focuses the first invalid field before Vue renders its error. Validate and render
-      // first, so the field already points to its error when `handleSubmit()` focuses it. It also marks the form
-      // submitted, so a corrected field validates again as the user types.
+      submitted = true
       checking.value = true
-      const revision = inputRevision
-      try {
-        // A schema check that throws is left to `handleSubmit()`, which shows it as the form error.
-        const result = await validate(form).catch(() => undefined)
-        if (!result?.success) await nextTick()
-        if (inputRevision !== revision) return
-        await submit(event)
+      const edited = edits
+      // A check that an earlier edit started must not replace the result of this one.
+      checks++
+      const failure = await check(form)
+      checking.value = false
+      // An edit during the check makes this attempt old. A fresh click sends the current values.
+      if (edited !== edits) return
+      show(failure)
+      if (failure) {
+        // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
+        await nextTick()
+        firstControl(form, checkErrors.value)?.focus()
+        return
       }
-      finally {
-        checking.value = false
-      }
+      const success = await send(form, event.submitter)
+      formError.value = formMessage(serverError.value)
+      if (!success || !sent.value) return
+      values.value = initialValues(props.schema, fields.value)
+      submitted = false
+      emit("sent", sent.value)
     }
     // One id for each instance, so two forms of one name on a page keep their labels apart.
     const prefix = `vitehub-form-${props.name}-${useId()}`
     // `method` and `action` post the form to its route before the app hydrates, or without JavaScript.
-    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: mounted.value, onSubmit }, [
-      ...fields.value.map(field => h(AutoFormControl, { key: field.key, form, field, id: `${prefix}-${field.key}` })),
-      props.honeypot
-        ? h("input", {
-            name: props.honeypot,
-            value: trap.value,
-            onInput: (event: Event) => { trap.value = (event.target as HTMLInputElement).value },
-            tabindex: -1,
-            autocomplete: "off",
-            "aria-hidden": "true",
-            style: "position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden",
-          })
-        : null,
-      form.errors ? h("p", { "data-error": "", role: "alert" }, form.errors[0]) : null,
+    return () => h("form", { "data-vitehub-form": props.name, method: "post", action: formRoute(props.name, props.base), novalidate: mounted.value, onSubmit, ref: formElement }, [
+      ...fields.value.map(field => h(AutoFormControl, {
+        key: field.key,
+        field,
+        id: `${prefix}-${field.key}`,
+        value: values.value[field.key],
+        error: checkErrors.value[field.key] ?? serverErrors.value[field.key],
+        onEdit: (value: unknown) => edit(field.key, value),
+      })),
+      props.honeypot ? h(FormHoneypot, { name: props.honeypot }) : null,
+      formError.value ? h("p", { "data-error": "", role: "alert" }, formError.value) : null,
       // The live region is always there, so screen readers announce the text when it appears.
       h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status", tabindex: "-1", ref: statusElement }, status()),
       // The label stays the same while it sends, so the button keeps its width. `aria-busy` tells that it sends.
-      h("button", { type: "submit", "aria-disabled": form.isSubmitting || checking.value ? "true" : undefined, "aria-busy": form.isSubmitting || checking.value ? "true" : undefined }, props.submitLabel),
+      h("button", { type: "submit", "aria-disabled": busy() ? "true" : undefined, "aria-busy": busy() ? "true" : undefined }, props.submitLabel),
     ])
   },
 })

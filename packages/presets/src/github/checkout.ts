@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { recordProviderCheckout } from '@vite-hub/agent'
+import { invariantError } from '@vite-hub/internal/invariant'
+import { presetsErrorDiagnostics } from '../error-diagnostics.ts'
 
 const exec = promisify(execFile)
 
@@ -56,10 +58,10 @@ async function separateCheckouts(checkout: string, target: string): Promise<{ so
     return !relation || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation))
   }
   if (overlaps(source, destination) || overlaps(destination, source)) {
-    throw new Error('Provider workspace must be separate from prepared checkout.')
+    throw presetsErrorDiagnostics.PRESETS_WORKSPACE_OVERLAPS_CHECKOUT()
   }
   if (!(await lstat(join(source, '.git'))).isDirectory()) {
-    throw new Error('Expected independent prepared Git clone.')
+    throw invariantError('the GitHub host passes its own clone, which has a .git directory')
   }
   return { source, destination }
 }
@@ -68,13 +70,13 @@ function assertRemotesWithoutCredentials(urls: Iterable<string>): void {
   for (const remote of urls) {
     if (URL.canParse(remote)) {
       const url = new URL(remote)
-      if (url.username || url.password) throw new Error('Prepared checkout remotes must not contain credentials.')
+      if (url.username || url.password) throw invariantError('the GitHub host sets each remote of its clone to a github.com URL without credentials')
     }
   }
 }
 
 function assertProviderCheckout(matches: boolean): void {
-  if (!matches) throw new Error('Provider checkout head or remote mismatch.')
+  if (!matches) throw invariantError('the copy of the host clone has the head and remotes of that clone')
 }
 
 /** Restore PR checkout history in a separate materialized provider workspace. */
@@ -112,7 +114,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     return undefined
   })
   if (destinationGit && !destinationGit.isDirectory()) {
-    throw new Error('Provider workspace must use an independent Git directory.')
+    throw presetsErrorDiagnostics.PRESETS_WORKSPACE_GIT_INVALID()
   }
   const baselineBackup = await mkdtemp(join(tmpdir(), 'vitehub-baseline-'))
   let replacingMetadata = false

@@ -102,6 +102,15 @@ export function docsAppPath(path: string, appBase = "/"): string {
   return base ? `/${base}${path}` : path
 }
 
+/**
+ * The one URL that search engines index for an app path: the site origin, the app base, and no trailing slash or
+ * `/index`. The home of the app keeps its slash, as `https://example.com/portal/`: Nitro serves an app below its base
+ * only. The canonical link, the sitemap, and the trailing-slash redirect all use it, so they name one URL per page.
+ */
+export function docsCanonicalUrl(siteUrl: string, path: string, appBase = "/"): string {
+  return `${siteUrl}${docsAppPath(normalizeDocsPath(path), appBase)}`
+}
+
 /** A docs base with one leading slash and no trailing slash: `docs/` is `/docs`, and `/` stays `/`. */
 export function normalizeDocsBase(base: string): string {
   const trimmed = base.replace(/\/+$/, "")
@@ -122,6 +131,27 @@ export function findDocsPage<Page extends DocsAppPage = DocsPage>(manifest: Docs
   }
   const page = docsManifestPages(manifest).find(candidate => candidate.path === normalized)
   return page ? { page, section: null } : null
+}
+
+/** Loaders of the panels the app manifest leaves out, by the URL of each panel's Overview. */
+export type DocsPanelLoaders = Record<string, () => Promise<{ default: DocsAppPage[] }>>
+
+/**
+ * Adds the pages of every panel that holds `path` to the app manifest, so the panel's sidebar and its pages resolve.
+ * Pages that the manifest already has stay as they are, so loading twice, or a full manifest, changes nothing.
+ */
+export async function loadDocsPanels(manifest: DocsManifest<DocsAppPage>, path: string, loaders: DocsPanelLoaders): Promise<void> {
+  const normalized = normalizeDocsPath(path)
+  const section = docsSectionForPath(manifest, normalized)
+  if (!section) return
+  for (const panel of section.pages.filter(page => page.panel && (normalized === page.path || normalized.startsWith(`${page.path}/`)))) {
+    const load = loaders[panel.path]
+    if (!load) continue
+    // The browser and the server keep each loaded module, so a second visit does not fetch the panel again.
+    const { default: pages } = await load()
+    const known = new Set(section.pages.map(page => page.path))
+    section.pages.push(...pages.filter(page => !known.has(page.path)))
+  }
 }
 
 /** The section that owns a path, such as `kv` for `/docs/kv/configure`. */
@@ -335,7 +365,7 @@ export function docsSectionPanels<Page extends DocsAppPage = DocsPage>(section: 
   return section.pages
     // A panel inside another panel belongs to that panel's sidebar, not to the section's.
     .filter(page => page.panel && page.navigation && !section.pages.some(outer => outer.panel && page.id.startsWith(`${outer.id}/`)))
-    .map(page => ({ page, count: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }))
+    .map(page => ({ page, count: page.panelSize ?? docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }))
 }
 
 /**
@@ -362,7 +392,7 @@ export function docsIndexedPages(manifest: DocsManifest): DocsPage[] {
  * ranks as a heading under its section, so a long tail of generated pages, such as error codes, stays below the real pages.
  */
 export function docsUnindexedSearchSections(manifest: DocsManifest): DocsSearchSection[] {
-  const record = (page: DocsPage, titles: string[]): DocsSearchSection => ({ id: page.path, title: page.sourceTitle, titles, level: 2, content: page.description ?? "" })
+  const record = (page: DocsPage, titles: string[]): DocsSearchSection => ({ id: page.path, title: page.sourceTitle, titles, level: 2, content: page.description ?? "", indexed: false })
   return [
     ...manifest.sections.flatMap(section => section.pages.filter(page => !docsPageIndexed(page)).map(page => record(page, [section.title]))),
     ...[...(manifest.root ? [manifest.root] : []), ...manifest.pages].filter(page => !docsPageIndexed(page)).map(page => record(page, [])),
@@ -602,8 +632,11 @@ export function createDocsSearch(records: readonly DocsSearchSection[]): (query:
       if (entry.title.join(" ") === words.join(" ")) score += titleWeight / 2
       hits.push({ entry, inTitles, score })
     }
+    // A page that search engines skip, such as the error code SCHEDULE_OS_CRON_UNSUPPORTED for "schedule cron",
+    // comes after a guide that matches as well. Its short title would otherwise win the tie.
     hits.sort((left, right) =>
       right.inTitles - left.inTitles
+      || Number(left.entry.record.indexed === false) - Number(right.entry.record.indexed === false)
       || right.score - left.score
       || left.entry.title.length - right.entry.title.length
       || left.entry.order - right.entry.order)

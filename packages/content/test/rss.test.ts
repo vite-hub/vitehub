@@ -491,8 +491,8 @@ describe("seo.rss for collections", () => {
   it("answers 404 when rss is off and rejects invalid options", async () => {
     const content = await site(false)
     expect((await defineContentRssHandler(content).fetch(new Request("https://example.com/rss.xml"))).status).toBe(404)
-    await expect(site({ limit: 0 })).rejects.toMatchObject({ code: "CONTENT_R0006" })
-    await expect(site("yes")).rejects.toMatchObject({ code: "CONTENT_R0006" })
+    await expect(site({ limit: 0 })).rejects.toMatchObject({ code: "CONTENT_SEO_OPTIONS_INVALID" })
+    await expect(site("yes")).rejects.toMatchObject({ code: "CONTENT_SEO_OPTIONS_INVALID" })
   })
 })
 

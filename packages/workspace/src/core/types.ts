@@ -141,8 +141,19 @@ export interface WorkspacePlugin {
   hooks?: WorkspaceHooks
 }
 
+/** The person that a snapshot or a history commit records as its author. */
+export interface WorkspaceAuthor {
+  name: string
+  email: string
+}
+
 export interface SnapshotOptions {
   name?: string
+  /**
+   * Who made the change, such as the signed-in user. The GitHub and Cloudflare Artifacts Stores write it as the Git
+   * commit author. Stores with retained history keep it as `metadata.author` of the revision.
+   */
+  author?: WorkspaceAuthor
 }
 
 export interface DiffOptions {
@@ -264,9 +275,13 @@ export interface WorkspaceNameMap extends ViteHubWorkspaceNameMap {}
 export interface WorkspaceSourceResolutionContextMap extends ViteHubWorkspaceSourceResolutionContextMap {}
 
 export type WorkspaceName = [keyof ViteHubWorkspaceNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceNameMap, string>
+declare const validatedWorkspaceName: unique symbol
+/** A name checked against the runtime Workspace registry by `isWorkspaceName()`. */
+export type ValidatedWorkspaceName = string & { readonly [validatedWorkspaceName]: true }
+export type WorkspaceLookupName = WorkspaceName | ValidatedWorkspaceName
 export type WorkspaceScopeName = [keyof ViteHubWorkspaceScopeNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceScopeNameMap, string>
 
-export type WorkspaceAssetPath<Name extends WorkspaceName = WorkspaceName> =
+export type WorkspaceAssetPath<Name extends WorkspaceLookupName = WorkspaceName> =
   Name extends keyof ViteHubWorkspaceAssetMap
     ? Extract<ViteHubWorkspaceAssetMap[Name], string>
     : string
@@ -369,6 +384,8 @@ export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   ifHead: string | null
   /** Expected heads of other refs that must remain unchanged for the commit. */
   ifHeads?: Record<string, string | null>
+  /** Observe a rejection of this commit's own `ifHead` condition. The commit still throws the error. */
+  onHeadConflict?: (error: unknown) => void
   /**
    * With `ifHead: null`, start the new ref from this revision instead of from the ref that `history.forksFrom(ref)`
    * names. Only Stores with `forksFrom` accept it. The caller has read the files of that revision.
@@ -426,6 +443,20 @@ export interface WorkspaceRevisionView {
    * them from one archive of the commit. Stores without it read each file on its own.
    */
   preload?(paths: readonly string[]): Promise<void>
+  /**
+   * The last revision that changed each path on the first-parent history, including deletions. A null value means
+   * the path has no change. A missing key means the Store could not prove the answer. To resolve missing keys,
+   * or when a Store does not implement this method, compare each revision's files with those of its first parent.
+   */
+  lastChanged?(paths: readonly string[]): Promise<ReadonlyMap<string, WorkspaceLastChange | null>>
+}
+
+/** The revision that last changed a path, as `WorkspaceRevisionView.lastChanged()` answers. */
+export interface WorkspaceLastChange {
+  /** The revision id: the commit sha for the GitHub Store. */
+  id: string
+  /** When the revision was made, as an ISO date: the commit's author date for the GitHub Store. */
+  createdAt: string
 }
 
 /** An open pull request on a forge, for a Store whose refs are branches. */
@@ -534,8 +565,17 @@ export interface WorkspaceHistoryExtensions {
   openPullRequest?(options: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest>
 }
 
+export interface WorkspaceHistoryDiffOptions {
+  /** The older revision id. Leave it out to list every file of `to` as added. */
+  from?: string
+  /** The newer revision id. Revisions can be on different refs. */
+  to: string
+}
+
 export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
+  /** The files that were added, modified, or removed from `from` to `to`, sorted by path. Changes to bytes or retained attributes count as modifications. */
+  diff(options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff>
 }
 
 /** Run the Workspace commit policy on a prepared merge before the Store advances its destination ref. */
@@ -552,8 +592,8 @@ export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<Work
 export interface WorkspaceDiffEntry {
   path: string
   type: "added" | "modified" | "removed"
-  before?: WorkspaceSnapshot["entries"][string]
-  after?: WorkspaceSnapshot["entries"][string]
+  before?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
+  after?: WorkspaceSnapshot["entries"][string] & { mediaType?: string }
 }
 
 export interface WorkspaceDiff {
@@ -746,6 +786,11 @@ export interface WorkspaceSource {
   resolve?: WorkspaceSourceResolver
   resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
+  /**
+   * The build calls it for a `lazy` or `startup` Source, which the app reads after deploy. It throws when the Source
+   * cannot reach its data with the credentials of the build, so a revoked token fails the build and not the first read.
+   */
+  checkAccess?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
@@ -864,16 +909,16 @@ export interface LocalWorkspaceStoreOptions {
    * write locks in memory. Use it only when one process owns the root.
    */
   locks?: "filesystem" | "process"
-  provider?: "local"
+  driver?: "local"
   root?: string
 }
 
 export interface MemoryWorkspaceStoreOptions {
-  provider: "memory"
+  driver: "memory"
 }
 
 export interface CloudflareArtifactsWorkspaceStoreOptions {
-  provider: "cloudflare-artifacts"
+  driver: "cloudflare"
   binding?: string
   namespace?: string
   repo?: string
@@ -882,7 +927,7 @@ export interface CloudflareArtifactsWorkspaceStoreOptions {
 }
 
 export interface VercelBlobWorkspaceStoreOptions {
-  provider: "vercel-blob"
+  driver: "vercel"
   token?: string
   /**
    * A namespace under `_vitehub/workspaces/`. For example, `handbook`
@@ -904,7 +949,7 @@ export interface GitHubWorkspaceRefs {
 }
 
 export interface GitHubWorkspaceStoreOptions {
-  provider: "github"
+  driver: "github"
   branch?: GitHubWorkspaceOption
   /**
    * An opaque value that the store target carries for consumers that keep their own rows next to the Workspace, such as a
@@ -912,8 +957,8 @@ export interface GitHubWorkspaceStoreOptions {
    */
   database?: unknown
   refs?: GitHubWorkspaceRefs
+  /** The repository, as `owner/name`. Defaults to `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`. */
   repo?: GitHubWorkspaceOption
-  repository?: GitHubWorkspaceOption
   /** The folder of the Workspace in the repository. An empty string is the repository root. Defaults to `.vitehub/workspaces/<workspace>`. */
   root?: GitHubWorkspaceOption
   token?: GitHubWorkspaceOption

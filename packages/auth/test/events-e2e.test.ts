@@ -3,6 +3,7 @@ import { getMigrations } from "better-auth/db/migration"
 import { APIError } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { admin, organization, siwe, twoFactor } from "better-auth/plugins"
+import { toResponse } from "@vite-hub/runtime"
 import { createDatabaseAuthEventStore } from "../src/index.ts"
 import { aggregateAuthEvents, createBetterAuthOptions, getAuthForDefinition, handleAuthRequest, listAuthEvents } from "../src/internal/server.ts"
 import { hubAuth } from "../src/vite.ts"
@@ -10,6 +11,7 @@ import { runViteHubCli } from "../../cli/src/index.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthDefinition, AuthRuntimeOptions } from "../src/types.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
+import { requestEvent } from "./request-event.ts"
 
 const origin = "http://localhost:3000"
 const databases: ReturnType<typeof eventDatabase>[] = []
@@ -45,6 +47,19 @@ async function setup(overrides: AuthRuntimeOptions = {}) {
 }
 
 describe("auth events with real Better Auth and Node SQLite", () => {
+  it("gives events.authorize the event that handleAuthRequest() got", async () => {
+    const seen: unknown[] = []
+    const database = eventDatabase(); databases.push(database)
+    const app = await setup({ events: { store: createDatabaseAuthEventStore({ db: database.db }), authorize: ({ event }) => seen.push(event) > 0 } })
+    const user = await app.signUp("reader")
+    const request = new Request(`${origin}/api/auth/vitehub/events`, { headers: { cookie: user.cookie, origin } })
+    // The client address that the host reports makes handleAuthRequest() give Better Auth another Request.
+    Object.defineProperty(request, "ip", { value: "192.0.2.7" })
+    const event = requestEvent(request)
+    expect((await handleAuthRequest(app.definition, event)).status).toBe(200)
+    expect(seen).toEqual([event])
+  })
+
   it("records signup, signin, admin actions, revoke, signout and aggregates through code and CLI", async () => {
     const { definition, store, request, signUp, sqlite, userHook } = await setup()
     const owner = await signUp("owner")
@@ -63,7 +78,9 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect((await request("admin/unban-user", { userId: user.id }, owner.cookie)).status).toBe(200)
     const newSignIn = await request("sign-in/email", { email: "member@example.com", password: "passwordpassword" })
     expect((await request("sign-out", {}, cookies(newSignIn))).status).toBe(200)
-    const page = await listAuthEvents({ limit: 200 }, definition)
+    const [listError, page] = await listAuthEvents({ limit: 200 }, definition)
+    expect(listError).toBeUndefined()
+    if (!page) throw listError
     expect(page.events.map(event => event.type)).toEqual(expect.arrayContaining(["user.signed_up", "user.signed_in", "sign_in.failed", "user.updated", "user.role_changed", "session.revoked", "user.banned", "user.unbanned", "user.signed_out"]))
     expect(page.events.find(event => event.type === "user.banned")).toMatchObject({ actor: `user:${owner.id}`, userId: user.id, metadata: {} })
     expect(page.events.find(event => event.type === "user.updated")?.metadata).toEqual({ fields: ["name"] })
@@ -72,7 +89,22 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect(JSON.stringify(page)).not.toContain(user.token)
     expect(page.events.find(event => event.type === "sign_in.failed")).toMatchObject({ userId: null, actor: "system" })
     const window = { from: new Date(Date.now() - 86400_000).toISOString(), to: new Date(Date.now() + 1000).toISOString() }
-    expect((await aggregateAuthEvents(window, definition)).totals).toEqual({ signUps: 2, signIns: 4, activeUsers: 2, methods: { "email-password": 4 } })
+    expect((await aggregateAuthEvents(window, definition))[1]?.totals).toEqual({ signUps: 2, signIns: 4, activeUsers: 2, methods: { "email-password": 4 } })
+    const [cursorError] = await listAuthEvents({ cursor: "%" }, definition)
+    expect(cursorError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
+    expect(toResponse(cursorError).status).toBe(400)
+    for (const bound of ["from", "to"]) {
+      const [boundError] = await listAuthEvents({ [bound]: "2026-10-01T00:00:00+05" }, definition)
+      expect(boundError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
+      expect(toResponse(boundError).status).toBe(400)
+    }
+    const [windowError] = await aggregateAuthEvents({ from: window.to, to: window.from }, definition)
+    expect(windowError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
+    const failingRead = vi.spyOn(store, "list").mockRejectedValueOnce(new Error("database is locked"))
+    const [readError] = await listAuthEvents({}, definition)
+    expect(readError).toMatchObject({ code: "AUTH_EVENT_READ_FAILED", cause: expect.objectContaining({ message: "database is locked" }) })
+    expect(toResponse(readError).status).toBe(500)
+    failingRead.mockRestore()
     expect((await request("vitehub/events")).status).toBe(401)
     expect((await request("vitehub/events?cursor=%25", undefined, owner.cookie)).status).toBe(400)
     const plainUser = await signUp("plain")

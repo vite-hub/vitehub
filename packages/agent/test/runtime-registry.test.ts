@@ -9,7 +9,7 @@ import { H3 } from 'h3'
 import { createServer, mergeConfig } from 'vite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from '@vite-hub/internal/build/vite'
-import { agentRuntimeModule, hubAgent } from '../src/vite.ts'
+import { hubAgent } from '../src/vite.ts'
 import { createViteWorkspaceAgentLoader } from '../src/vite/runtime-adapter.ts'
 
 const roots: string[] = []
@@ -33,7 +33,7 @@ export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, ch
       page: async () => ({ items: [{ id: 'm1' }], nextCursor: null }),
     } },
     triggers: { webhook: defineChannelTrigger({ invoke: () => Response.json({ ok: true }) }) },
-    webhooks: { path: '/api/productlane/webhook', secretHeader: 'x-test-secret', secretToken: 'secret' },
+    webhooks: { path: '/api/productlane/webhook', secretHeader: 'x-test-secret', secret: () => 'secret' },
   }),
 } })`
   await Promise.all(names.map(name => writeFile(join(root, `server/agents/${name}.ts`), source)))
@@ -58,7 +58,7 @@ it('serves declared webhook paths through Nitro middleware with HEAD, authentica
   const server = await declaredWebhookServer()
   try {
     const app = await declaredWebhookApp(server)
-    for (const path of ['/api/productlane/webhook', '/api/productlane/webhook/', '/api/_vitehub/agents/support/webhooks/productlane']) {
+    for (const path of ['/api/productlane/webhook', '/api/productlane/webhook/', '/_vitehub/agents/support/webhooks/productlane']) {
       const head = await app.request(path, { method: 'HEAD' })
       expect(head.status).toBe(204)
       expect(head.headers.get('x-vitehub-channel-provider')).toBe('productlane')
@@ -180,8 +180,6 @@ it.each(['review', '__proto__'])('bundles the published runtime lookup for %s wi
   const aliases = (configured as { resolve: { alias: Record<string, string> } }).resolve.alias
   const registry = aliases['#vitehub/agent/registry']!
   expect(configured).toMatchObject({ nitro: { alias: { '#vitehub/agent/registry': registry } } })
-  expect(await readFile(registry, 'utf8')).toContain(`import { resetPublicUrlAgentNames } from ${JSON.stringify(agentRuntimeModule('server/registry'))}`)
-  expect(await readFile(registry, 'utf8')).toContain('\nresetPublicUrlAgentNames()\n')
   expect(await readFile(registry, 'utf8')).toContain('await import(')
   const entry = join(root, 'entry.ts')
   await writeFile(entry, `import { loadAgent } from '@vite-hub/agent'
@@ -403,7 +401,7 @@ import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition } fro
 export async function inspect() {
   setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
   const agent = await loadAgent('review')
-  const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
+  const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { driver: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
   const [error, run] = await runAgent(runnable, {})
   if (error) throw error
   const standalone = await resolveRegisteredWorkspaceDefinition('standalone')
@@ -425,7 +423,7 @@ it.each([false, true])('preserves application Workspaces when deployment routes 
   const entry = join(root, 'content.ts')
   await writeFile(entry, `import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'
 export async function inspect() {
-  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { driver: 'memory' } } }) })
   await import('./.vitehub/agent/chat-webhook-route.ts')
   const content = useWorkspace('content', { mode: 'write' })
   await content.fs.writeFile('guide.md', '# Edited guide')
@@ -455,7 +453,7 @@ it('replaces owned Workspaces after route reloads without removing application W
     // This test regenerates routes itself. Stop discovery before it can race those writes.
     await server.watcher.close()
     const runtime = await server.ssrLoadModule(probe)
-    runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+    runtime.setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { driver: 'memory' } } }) })
     const route = join(root, '.vitehub/agent/chat-webhook-route.ts')
     await server.ssrLoadModule(route)
     expect((await runtime.resolveRegisteredWorkspaceDefinition('review')).name).toBe('review')

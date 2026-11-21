@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from "node:util"
 import { parseCronExpression } from "cron-schedule"
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir, ownModule } from "@vite-hub/internal/build/paths"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -19,7 +19,7 @@ import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 import { utcCronForTimeZone } from "./time-zone-cron.ts"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
@@ -48,14 +48,14 @@ function isVercelCron(value: unknown): value is { path: string, schedule: string
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
 }
 
-export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
+export function resolveSchedulePublicEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
   const packageRoot = dirname(fileURLToPath(resolveImport(`${schedulePackageName}/package.json`)))
-  return resolve(packageRoot, "dist/definition.js")
+  return resolve(packageRoot, "dist/index.js")
 }
 
 // Generated Schedule functions import the static runtime by path. It is not a package export.
 const scheduleRuntimeEntry = ownModule(import.meta.url, "runtime/static")
-const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
+const schedulePublicEntry = resolveSchedulePublicEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -133,7 +133,7 @@ async function publishRetainedProviderSources(artifacts: GeneratedScheduleArtifa
 
 export interface ScheduleWorkflowRuntime {
   bundleAlias: Record<string, string>
-  bundlePlugins?: Plugin[]
+  bundlePlugins?: Rolldown.Plugin[]
   native: boolean
   registryFile: string
   /** File paths of the Workflow runtime modules that the Schedule function imports. */
@@ -318,7 +318,12 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "export default async function scheduleHandler(req, res) {",
           "  const cronSecret = process.env.CRON_SECRET",
           "  const authorization = req.headers?.authorization || req.headers?.Authorization",
-          "  if (cronSecret && !isScheduleCronAuthorized(authorization, cronSecret)) {",
+          "  if (!cronSecret) {",
+          "    res.statusCode = 401",
+          "    res.end('Unauthorized. Set CRON_SECRET in the Vercel project to run Schedules.')",
+          "    return",
+          "  }",
+          "  if (!isScheduleCronAuthorized(authorization, cronSecret)) {",
           "    res.statusCode = 401",
           "    res.end('Unauthorized.')",
           "    return",
@@ -336,7 +341,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "  }",
           ...(workflowRuntime
             ? [
-                "  setWorkflowRuntimeConfig({ provider: 'vercel' })",
+                "  setWorkflowRuntimeConfig({ driver: 'vercel' })",
                 "  setWorkflowRuntimeRegistry(workflowRegistry)",
               ]
             : []),
@@ -443,13 +448,12 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
   ].join("\n")
 }
 
-function createScheduleDefinitionAliasPlugin(): Plugin {
+function createSchedulePublicAliasPlugin(): Rolldown.Plugin {
   return {
-    name: "vitehub-schedule-definition-alias",
-    setup(build) {
-      build.onResolve({ filter: /^@vite-hub\/schedule$/ }, () => ({
-        path: scheduleDefinitionEntry,
-      }))
+    name: "vitehub-schedule-public-alias",
+    // `vite-hub/schedule` re-exports `@vite-hub/schedule`. Bundle both, so the output does not need the `vite-hub` package.
+    resolveId(source) {
+      if (source === "@vite-hub/schedule" || source === "vite-hub/schedule") return schedulePublicEntry
     },
   }
 }
@@ -543,10 +547,10 @@ export async function writeVercelScheduleFunctions(options: {
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
       define: options.bundleDefines,
-      external: options.bundleExternal,
+      external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
       format: "esm",
       platform: "node",
-      plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
+      plugins: [createSchedulePublicAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
       workingDir: options.sourceRootDir ?? options.rootDir,
@@ -759,10 +763,10 @@ async function writeNetlifyScheduleFunctions(options: {
           await bundleEsmEntry(wrapperFile, output.file, {
             alias: options.bundleAlias,
             define: options.bundleDefines,
-            external: options.bundleExternal,
+            external: [cloudflareRuntimeExternal, ...(options.bundleExternal ?? [])],
             format: "esm",
             platform: "node",
-            plugins: [createScheduleDefinitionAliasPlugin()],
+            plugins: [createSchedulePublicAliasPlugin()],
             rootDir: options.sourceRootDir ?? options.rootDir,
             signal: options.signal,
             workingDir: options.sourceRootDir ?? options.rootDir,
@@ -881,7 +885,7 @@ async function writeCloudflareScheduleOutput(options: {
       external: [cloudflareRuntimeExternal, "node:*"],
       format: "esm",
       platform: "neutral",
-      plugins: [createScheduleDefinitionAliasPlugin()],
+      plugins: [createSchedulePublicAliasPlugin()],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
     }),
@@ -1003,7 +1007,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
           format: "esm",
           packages: "external",
           platform: "neutral",
-          plugins: [createScheduleDefinitionAliasPlugin()],
+          plugins: [createSchedulePublicAliasPlugin()],
           rootDir: options.sourceRootDir ?? options.rootDir,
           signal: options.signal,
         })

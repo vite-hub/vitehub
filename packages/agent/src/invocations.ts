@@ -3,6 +3,7 @@ import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocation
 import { isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
@@ -15,6 +16,7 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentInvocationReference, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { invocationDiagnostics } from "./invocation-diagnostics.ts"
 import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
@@ -38,6 +40,12 @@ const MAX_USAGE_RECORD_CALLS = 4_096
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
+// A message history and the trigger message have their own budget, apart from the other attributes.
+const MAX_INPUT_MESSAGES = 256
+const MAX_INPUT_MESSAGE_ITEMS = 16_384
+// A history message, its parts, a part's data, and a data field such as the `modelText` of a Channel message header.
+const MAX_INPUT_MESSAGE_DEPTH = 8
+const INPUT_MESSAGES_STRING_LENGTH_FACTOR = 4
 const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
 const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
 export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
@@ -380,6 +388,11 @@ interface AgentInvocationBindOptions {
   agentName?: string
   cancellationDriver?: AgentInvocationCancellationDriver
   deferClaim?: boolean
+  /**
+   * A Workflow attempt of an Agent turn. A record that an earlier attempt left `running` may have started its Driver,
+   * so this attempt does not start the Driver again, even when the earlier claim has expired. See {@link AgentInvocationJournal.driverInterrupted}.
+   */
+  driverAtMostOnce?: boolean
   /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
@@ -429,13 +442,6 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
-export class AgentInvocationClaimConflict extends Error {
-  constructor() {
-    super("Invocation already exists or is claimed.")
-    this.name = "AgentInvocationClaimConflict"
-  }
-}
-
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Aborts when a user requests cancellation of this Invocation. */
   abortSignal: AbortSignal
@@ -443,6 +449,11 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   /** Whether this journal holds the store execution claim, lost it, or could not reach the store. */
   readonly createdNew: boolean
   readonly reusedTerminal: boolean
+  /**
+   * An earlier attempt of this turn reached `running`, so its Driver may have started, even if the record is now `failed`.
+   * An expired claim does not prove that the Driver stopped. Only set when the bind used `driverAtMostOnce`; the Driver must not start.
+   */
+  readonly driverInterrupted: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
   /** The record `id` of this Invocation. */
@@ -756,8 +767,9 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 interface ObservationBudget {
-  deferredText?: Array<() => void>
   collectionItems?: number
+  /** Set when the item or string budget, not a per-value limit, cut a value. */
+  exhausted?: boolean
   items: number
   maxDepth?: number
   stringLength: number
@@ -909,6 +921,7 @@ function boundedObservationValue(
   }
   if (budget.items <= 0) {
     budget.truncated = true
+    budget.exhausted = true
     return "[truncated]"
   }
   budget.items--
@@ -917,12 +930,14 @@ function boundedObservationValue(
     return null
   }
   if (typeof value === "string") {
-    if (budget.stringLength <= 0) {
+    if (budget.stringLength <= 0 && value.length) {
       budget.truncated = true
+      budget.exhausted = true
       return "[truncated]"
     }
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
     if (length < value.length) budget.truncated = true
+    if (budget.stringLength < Math.min(value.length, maxStringLength)) budget.exhausted = true
     budget.stringLength -= length
     return value.slice(0, length)
   }
@@ -944,6 +959,7 @@ function boundedObservationValue(
   if (isArray(value)) {
     const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
+    if (budget.items < Math.min(value.length, collectionItems)) budget.exhausted = true
     return Array.from({ length }, (_, index) => {
       if (!Object.hasOwn(value, index)) {
         budget.truncated = true
@@ -1085,24 +1101,45 @@ function boundedObservationValue(
     .filter(([, child]) => child !== undefined)
   const length = Math.min(entries.length, collectionItems, budget.items)
   if (length < entries.length) budget.truncated = true
-  const result: Record<string, unknown> = Object.fromEntries(entries
+  if (budget.items < Math.min(entries.length, collectionItems)) budget.exhausted = true
+  return Object.fromEntries(entries
     .slice(0, length)
-    .flatMap(([key, child]) => {
+    .map(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-      // Reserve message structure across the array before allocating text bodies.
-      if (budget.deferredText && (key === "text" || key === "content") && typeof child === "string" && budget.items > 0) {
-        budget.items--
-        budget.deferredText.push(() => {
-          const length = Math.min(child.length, maxStringLength, budget.stringLength)
-          if (length < child.length) budget.truncated = true
-          budget.stringLength -= length
-          result[key] = length || !child.length ? child.slice(0, length) : "[truncated]"
-        })
-        return [[key, ""]]
-      }
-      return [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]]
+      return [boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]
     }))
-  return result
+}
+
+/**
+ * Bounds a message history with its own budget, newest message first, so the messages next to the trigger survive.
+ * Each message is kept whole or left out together with every earlier message. The newest message is always kept,
+ * shortened when it alone fills the budget. `omitted` counts the earlier messages that were left out.
+ */
+function boundedInputMessages(
+  messages: readonly unknown[],
+  maxStringLength: number,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): { messages: unknown[], omitted: number, truncated: boolean } {
+  const budget: ObservationBudget = {
+    items: MAX_INPUT_MESSAGE_ITEMS,
+    collectionItems: MAX_INPUT_MESSAGE_ITEMS,
+    maxDepth: MAX_INPUT_MESSAGE_DEPTH,
+    stringLength: maxStringLength * INPUT_MESSAGES_STRING_LENGTH_FACTOR,
+    truncated: false,
+  }
+  const kept: unknown[] = []
+  for (let index = messages.length - 1; index >= 0 && kept.length < MAX_INPUT_MESSAGES; index--) {
+    const trial: ObservationBudget = { ...budget, exhausted: false, truncated: false }
+    const message = Object.hasOwn(messages, index) ? messages[index] : undefined
+    const bounded = boundedObservationValue(message, trial, 1, maxStringLength, builtIns)
+    if (trial.exhausted && kept.length) break
+    kept.push(bounded)
+    budget.items = trial.items
+    budget.stringLength = trial.stringLength
+    budget.truncated ||= trial.truncated
+  }
+  const omitted = messages.length - kept.length
+  return { messages: kept.reverse(), omitted, truncated: budget.truncated || omitted > 0 }
 }
 
 function boundedObservationPayload(
@@ -1128,14 +1165,18 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
-  if ((key === "input.messages" || key === "input.prompt") && Array.isArray(value)) {
-    const messageBudget: ObservationBudget & { deferredText: Array<() => void> } = { ...budget, deferredText: [] }
-    const messages = boundedObservationValue(value, messageBudget, 0, maxStringLength, builtIns)
-    for (const writeText of messageBudget.deferredText) writeText()
-    budget.items = messageBudget.items
-    budget.stringLength = messageBudget.stringLength
-    budget.truncated ||= messageBudget.truncated
-    return messages
+  if (key === "input.trigger.message") {
+    // The message that started the run is stored whole, apart from the history and the other attributes.
+    const triggerBudget: ObservationBudget = {
+      items: MAX_INPUT_MESSAGE_ITEMS,
+      collectionItems: MAX_INPUT_MESSAGE_ITEMS,
+      maxDepth: MAX_INPUT_MESSAGE_DEPTH,
+      stringLength: maxStringLength,
+      truncated: false,
+    }
+    const message = boundedObservationValue(value, triggerBudget, 0, maxStringLength, builtIns)
+    budget.truncated ||= triggerBudget.truncated
+    return message
   }
   if (key === "message.content") {
     // Message chunks can fill the capture limit without consuming identity metadata space.
@@ -1263,25 +1304,24 @@ function boundedObservation(
     ? {
         ...Object.fromEntries(ordinaryAttributes
           .slice(0, ordinaryAttributeLimit)
-        .flatMap(([key, value]) => {
+        .flatMap(([key, value]): Array<[string, unknown]> => {
+          // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
+          const maxStringLength = key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH
+          if ((key === "input.messages" || key === "input.prompt") && Array.isArray(value)) {
+            const history = boundedInputMessages(value, maxStringLength, builtIns)
+            // Input histories often lose only hidden part data. Name that apart from message text.
+            if (history.truncated) truncatedAttributes.add(sameVisibleMessageText(value, history.messages) ? `${key}.parts` : key)
+            return [
+              [key, history.messages],
+              ...history.omitted ? [[`${key}.omitted`, history.omitted], [`${key}.total`, value.length]] satisfies Array<[string, number]> : [],
+            ]
+          }
           const truncatedBefore = budget.truncated
           budget.truncated = key.length > MAX_METADATA_STRING_LENGTH
-          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(
-            key,
-            value,
-            budget,
-            // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
-            key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
-            builtIns,
-          )
-          if (budget.truncated) {
-            // Input histories often lose only hidden part data. Name that apart from message text.
-            const hiddenPartsOnly = (key === "input.messages" || key === "input.prompt")
-              && sameVisibleMessageText(value, bounded)
-            truncatedAttributes.add(hiddenPartsOnly ? `${key}.parts` : boundedString(key)!)
-          }
+          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(key, value, budget, maxStringLength, builtIns)
+          if (budget.truncated) truncatedAttributes.add(boundedString(key)!)
           budget.truncated ||= truncatedBefore
-          return value === undefined ? [] : [[boundedString(key), bounded]]
+          return value === undefined ? [] : [[boundedString(key)!, bounded]]
         })),
         ...canonicalAttributes,
       }
@@ -2101,7 +2141,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       throw error
     })
     const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
-    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+    if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store open", ms: STORE_OPEN_TIMEOUT_MS })
   })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
     if (openStore) {
@@ -2119,7 +2159,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
     const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
-      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store operation", ms: storeTimeoutMs })
     }
     return result as T
   }
@@ -2225,6 +2265,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatRenewal: Promise<unknown> = Promise.resolve()
       let workflowDispatchAllowed = false
       let createdNew = false
+      let driverInterrupted = false
       let creationTimedOut = false
       let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
       let runningPersisted = false
@@ -2327,6 +2368,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 boundToTerminalRecord = finished
                 workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
                 createdNew = result.created
+                // startedAt survives terminal transitions and error redaction. A failed Workflow
+                // attempt that reached running must not enter the reused-terminal dispatch path.
+                driverInterrupted = bindOptions.driverAtMostOnce === true && !result.created
+                  && (result.record.status === "running" || (result.record.status === "failed" && result.record.startedAt !== undefined))
                 created = true
                 cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
                   || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
@@ -2701,6 +2746,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
+        get driverInterrupted() { return driverInterrupted },
         get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStore(() => store.getSummary(recordId))
@@ -2792,12 +2838,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             .filter(observation => !pendingOutcomeKeys.has(observationPersistenceKey(observation)))
             .map(observationPersistenceKey)
           pendingObservations.length = 0
-          if (runningRequested && !runningPersisted) {
+          // A Workflow attempt that stopped before its Driver because the running state was not written leaves the
+          // record pending: `running` would tell the retry that the Driver started, and a failure is not an outcome,
+          // since the Workflow retries the turn. The recovery Workflow records the failure when no attempt is left.
+          const stoppedBeforeDriver = bindOptions.driverAtMostOnce === true && runningRequested && !runningPersisted && !driverDispatched
+          if (runningRequested && !runningPersisted && !stoppedBeforeDriver) {
             runningPersisted = await update({ cancelNotEnforcedBy: cancelNotEnforcedBy ?? null, cancelWarningPending: cancellationDriver?.enforced === false && !driverDispatched, cancelWarningOwnerId: cancellationOwnerId, status: "running", timestamp: new Date().toISOString() })
           }
           // A queue stop is an interruption, not an outcome. The queue runs the delivery again under
           // this run ID, so keep the record open for that run. A cancellation request still wins.
-          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error) ? {} : { status }
+          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = (status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error))
+            || (status === "failed" && stoppedBeforeDriver)
+            ? {}
+            : { status }
           const failure = outcome.status ? redactedError(error) : undefined
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
@@ -2846,6 +2899,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStore(() => store.release(recordId, claimId)))
             ownsRecord = false
+            // A failure with a retry pending is not the end of the Invocation: the retry reports its own outcome.
+            if (finishInput.status === "failed" && !finishInput.retryPending) {
+              await emitRunFailed({ event: "invocation.failed", agent: agentName ?? null, invocationId: recordId, error: toRunFailedError(failure ?? "The Agent Invocation failed."), failedAt: finishInput.timestamp })
+            }
             const recoveries = terminalObservationRecoveries.splice(0)
             const observations = terminalRetryObservations.splice(0)
             if (recoveries.length > 0 || observations.length > 0) {
@@ -2925,7 +2982,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (strict && cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
             throw agentDiagnostics.AGENT_R0973({ message: "[vitehub] Initial custom Driver cancellation state could not be persisted." })
           }
-          if (runningRetry) return false
+          // A Workflow attempt never starts its Driver without the running state, so nothing waits for this write.
+          if (runningRetry || bindOptions.driverAtMostOnce) return false
           runningRetry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && Date.now() < deadline) {
@@ -2943,19 +3001,21 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         startsUnconfirmed() {
           // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
           const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
-          if (reopenFailed || strict || conflict || cancellation.signal.aborted) return false
+          // A Workflow retry reads `running` as "the Driver may have started". A Driver that started on a `pending`
+          // record would run again on that retry, so a Workflow attempt fails instead.
+          if (reopenFailed || strict || conflict || cancellation.signal.aborted || bindOptions.driverAtMostOnce) return false
           warnUnconfirmed("running state")
           return true
         },
         dispatchAllowed() {
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           return !strict || ownsRecord
         },
         driverStarted() {
           // Keep the final ownership check adjacent to the dispatch marker.
           // A renewal can confirm a claim loss after the caller's check but
           // before this boundary is reached; do not start the Driver then.
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           if (finished || finishing || driverDispatched) return true
           driverDispatched = true
           if (!cancellationDriver || cancellationDriver.enforced) return true
@@ -3081,7 +3141,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
         const result = await storeOperation(operation, storeTimeoutMs, true)
-        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "cancellation store operation", ms: storeTimeoutMs })
         return result
       }
       const timestamp = new Date().toISOString()
@@ -3163,7 +3223,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
@@ -3185,7 +3245,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
@@ -3208,7 +3268,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {

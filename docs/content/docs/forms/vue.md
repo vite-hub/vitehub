@@ -1,16 +1,12 @@
 ---
 title: Forms in Vue
-description: Draw a whole form from its schema with AutoForm, send your own native form with useFormAction(), or a Formisch form with useFormSubmit().
+description: Draw a form from its schema with AutoForm, send your own form with useFormAction() or Formisch, and add the spam trap with FormHoneypot.
 navigation.title: Vue
 navigation.order: 8
 icon: i-lucide-panels-top-left
 ---
 
-`vite-hub/forms/vue` needs `vue` and `@formisch/vue`:
-
-```bash [terminal]
-pnpm add @formisch/vue
-```
+`vite-hub/forms/vue` needs only `vue`. Only `vite-hub/forms/formisch` needs `@formisch/vue`.
 
 ## `AutoForm`
 
@@ -84,7 +80,7 @@ With [ui-sdk](https://ui-sdk.dev), a `Field` shows the error of its control. `:i
 <script setup lang="ts">
 import { Field, FieldError, FieldLabel } from '@ui-sdk/vue/field'
 import { Input } from '@ui-sdk/vue/input'
-import { formRoute, useFormAction } from 'vite-hub/forms/vue'
+import { FormHoneypot, formRoute, useFormAction } from 'vite-hub/forms/vue'
 
 const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 </script>
@@ -92,6 +88,7 @@ const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 <template>
   <!-- `method` and `action` post the form before the app loads, or without JavaScript -->
   <form method="post" :action="formRoute('contact')" @submit="submit">
+    <FormHoneypot />
     <Field name="email" :invalid="errors.email ? true : undefined">
       <FieldLabel>Email</FieldLabel>
       <Input type="email" required @value-change="clear('email')" />
@@ -114,16 +111,52 @@ const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 | `pending` | `true` while the form sends. |
 | `clear(name?)` | Removes the error of one field, or of every field. |
 
-`vite-hub/forms/vue` also loads `@formisch/vue` for `AutoForm`, so install it as above.
+## `FormHoneypot`
+
+`defineForm()` drops a message when its honeypot field, `website` by default, is filled. People do not see the field, but many bots fill every input. `AutoForm` draws the field for you. In your own markup, put `<FormHoneypot />` inside the form. Pass `name` when `defineForm()` uses another `honeypot`.
+
+A native form sends the field by its name. When you send an object with `submitForm()`, such as from a Nuxt UI `UForm`, bind the field with `v-model` and send its value:
+
+```vue [app/components/ContactForm.vue] fragment
+<script setup lang="ts">
+import type { FormSubmitEvent } from '@nuxt/ui'
+import { submitForm } from 'vite-hub/forms/client'
+import { FormHoneypot } from 'vite-hub/forms/vue'
+
+const state = reactive({ email: '', message: '' })
+const website = ref('')
+
+async function onSubmit(event: FormSubmitEvent<ContactInput>) {
+  const [error] = await submitForm('contact', { ...event.data, website: website.value })
+  if (!error) state.message = ''
+}
+</script>
+
+<template>
+  <UForm :schema="ContactSchema" :state="state" @submit="onSubmit">
+    <FormHoneypot v-model="website" />
+    <!-- Your fields -->
+  </UForm>
+</template>
+```
+
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `name` | `website` | The `honeypot` of `defineForm()`. |
+| `v-model` | | The value of the field, for a form that sends an object. |
 
 ## `useFormSubmit()`
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the input of the form, puts each server error under its field, and resets the form after a success. Nuxt imports it for you.
+If your app uses [Formisch](https://formisch.dev), use `useFormSubmit()` from `vite-hub/forms/formisch`. It sends the input of the form, puts each server error under its field, and resets the form after a success. Install `@formisch/vue` first. When it is installed, Nuxt imports `useFormSubmit()` for you.
+
+```bash [terminal]
+pnpm add @formisch/vue
+```
 
 ```vue [app/components/FeedbackForm.vue] fragment
 <script setup lang="ts">
 import { Field, Form, useForm } from '@formisch/vue'
-import { useFormSubmit } from 'vite-hub/forms/vue'
+import { useFormSubmit } from 'vite-hub/forms/formisch'
 
 const form = useForm({ schema: FeedbackSchema })
 const { send, sent } = useFormSubmit('feedback', form)
@@ -146,4 +179,4 @@ const { send, sent } = useFormSubmit('feedback', form)
 </template>
 ```
 
-Without Vue, `submitForm(name, values)` from `vite-hub/forms/client` posts the values and returns `[error, data]`. `values` is an object, or the `FormData` of a form. `error.issues` holds the error of each field, and `fieldErrors(error)` gives them by field name.
+Without Vue, `submitForm(name, values)` from `vite-hub/forms/client` posts the values and returns `[error, data]`. `values` is an object, or the `FormData` of a form. A retry after a failure with the same values sends the same `Idempotency-Key`, so the server stores the message once. See [Retries](/docs/forms/server-api#retries). `error.issues` holds the error of each field, and `fieldErrors(error)` gives them by field name.

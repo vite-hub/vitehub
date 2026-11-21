@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   custom,
-  fetch,
+  url as urlSource,
   file,
   github,
   mcpResources,
@@ -467,7 +467,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -498,7 +498,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch(resolveFetch),
+        inventoryHealthSummary: urlSource(resolveFetch),
       },
     }
 
@@ -554,12 +554,12 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        hiddenInventory: fetch({
+        hiddenInventory: urlSource({
           url: "https://portal.example.com/runtime/hidden-inventory",
         }),
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               query: { region: "eu" },
               url: "https://portal.example.com/runtime/inventory-health",
             })
@@ -595,7 +595,7 @@ describe("Workspace Source Resolution", () => {
     const requestFactory = vi.fn(({ selectedWorkspaceScope }) => ({
       headers: { "x-scope": selectedWorkspaceScope?.name },
     }))
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const querySchema = {
       "~standard": {
         jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
@@ -610,7 +610,7 @@ describe("Workspace Source Resolution", () => {
       sources: {
         inventoryHealthSummary: custom({
           async resolve() {
-            return fetch({
+            return urlSource({
               cookies: { auth_token: "secret" },
               querySchema,
               request: requestFactory,
@@ -668,11 +668,11 @@ describe("Workspace Source Resolution", () => {
       headers: { "content-type": "application/json" },
       status: 200,
     }))
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
         portal: custom({
@@ -758,14 +758,14 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
     }
 
     const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
-      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      facade(createWorkspace({ name: "support", store: { driver: "memory" } })),
       definition,
       scope("status", ["status/summary.json"]),
     )
@@ -779,7 +779,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventory: fetch({
+        inventory: urlSource({
           url: "https://portal.example.com/runtime/inventory-health",
           workspacePath: "status/summary.json",
         }),
@@ -787,7 +787,7 @@ describe("Workspace Source Resolution", () => {
     }
 
     const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
-      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      facade(createWorkspace({ name: "support", store: { driver: "memory" } })),
       definition,
       scope("status", ["status/summary.json"]),
     )
@@ -830,7 +830,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("keeps sources whose concrete paths intersect the selected Access paths", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -897,7 +897,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("docs/private.md", "stale secret\n")
     const getItem = vi.fn(async (key: string) => ({
       content: key === "public.md" ? "public\n" : "secret\n",
@@ -966,7 +966,7 @@ describe("Workspace Source Resolution", () => {
     }
 
     const { workspace } = await createWorkspaceSourceResolutionFacade(
-      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      facade(createWorkspace({ name: "support", store: { driver: "memory" } })),
       definition,
       { ...scope("docs", ["resources/nuxt-com/documentation-pages.json"]), overlay: true },
     )
@@ -979,7 +979,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("layers resolved source-backed paths over the base Workspace without persistent cross-scope materialization", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("notes.md", "base workspace\n")
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1001,7 +1001,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("preserves base Workspace files for non-lazy sources in overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("docs/README.md", "# Docs\n")
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1027,7 +1027,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("does not serve stale base files as lazy source output in overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("ingestion/acme/old.sql", "stale\n")
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1065,7 +1065,7 @@ describe("Workspace Source Resolution", () => {
           getItem,
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["docs"] })
@@ -1096,7 +1096,7 @@ describe("Workspace Source Resolution", () => {
           async getItem(key) { return { key, content: `${key}\n` } },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["docs"] })
@@ -1128,7 +1128,7 @@ describe("Workspace Source Resolution", () => {
           async getItem(key) { return { key, content: `${key}\n` } },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["root"] })
@@ -1154,7 +1154,7 @@ describe("Workspace Source Resolution", () => {
           async getItem(key) { return { key, content: `${key}\n` } },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["docs"] })
@@ -1186,7 +1186,7 @@ describe("Workspace Source Resolution", () => {
           async getItem(key) { return { key, content: `${key}\n` } },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["docs"] })
@@ -1240,7 +1240,7 @@ describe("Workspace Source Resolution", () => {
           async getItem(key) { throw new Error(`unresolved source read: ${key}`) },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }
     const base = createWorkspace(definition)
     await base.materializeSources?.({ sources: ["docs"] })
@@ -1255,7 +1255,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("keeps source-backed paths read-only in writable overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       rules: {
@@ -1303,7 +1303,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("requires a Source write grant for every writable overlay mutation", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("artifacts/draft.md", "draft")
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1353,7 +1353,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("accepts unregistered custom writable facades while guarding Source paths", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const registered = writableFacade(base)
     const facade: WritableWorkspaceFacade = { ...registered, fs: { ...registered.fs } }
     expect(await resolveWorkspaceMetadataTarget(facade)).toBeUndefined()
@@ -1378,7 +1378,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("preserves a custom history checkpoint receiver", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     class History {
       #base = base
       #history = writableFacade(base).history
@@ -1387,6 +1387,7 @@ describe("Workspace Source Resolution", () => {
       async refs() { return await this.#history.refs() }
       async open(id: string) { return await this.#history.open(id) }
       async usage() { return await this.#history.usage() }
+      async diff(options: Parameters<WritableWorkspaceFacade["history"]["diff"]>[0]) { return await this.#history.diff(options) }
       async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
       async checkpoint() { return await this.#base.snapshot() }
       async rebase() {}
@@ -1397,11 +1398,12 @@ describe("Workspace Source Resolution", () => {
     const history = (resolved.workspace as WritableWorkspaceFacade).history
     await expect(history.checkpoint()).resolves.toMatchObject({})
     await expect(history.head()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    await expect(history.diff({ to: "revision" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
     await expect(history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
   })
 
   it.each([false, true])("keeps parent Source guards during nested sync and ordinary writes (wrapped: %s)", async (wrapped) => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const parent = await createWorkspaceSourceResolutionFacade(writableFacade(base), {
       name: "support",
       sources: { protected: custom({
@@ -1433,7 +1435,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("retains same Source sync authority in scoped nested views", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const source = custom({
       mount: "docs",
       sync: { stale: "remove" },
@@ -1457,7 +1459,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("retains sync authority when scoped resolution recreates a Source binding", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition = {
       name: "support",
       sources: {
@@ -1490,7 +1492,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it.each([false, true])("retains the parent guard for a forged matching fingerprint (resolved: %s)", async (resolved) => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const original = custom({
       fingerprint: { provider: "docs" },
       mount: "docs",
@@ -1519,7 +1521,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it.each([false, true])("keeps the guard when fingerprint property order changes (nested: %s)", async (nested) => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     let resolution = 0
     const definition = {
       name: "support",
@@ -1573,7 +1575,7 @@ describe("Workspace Source Resolution", () => {
       right: Object.defineProperty({}, "value", { enumerable: true, get() { throw new Error("unexpected read") } }),
     },
   ])("retains the parent guard for $name fingerprints", async ({ left, right }) => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     let resolution = 0
     const definition = {
       name: "support",
@@ -1602,7 +1604,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("keeps the guard when resolved Source fingerprints contain distinct Dates", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     let resolution = 0
     const definition = {
       name: "support",
@@ -1633,7 +1635,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("keeps the guard when resolved Source fingerprints use distinct toJSON values", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     let resolution = 0
     const definition = {
       name: "support",
@@ -1668,7 +1670,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("rejects overlay rebases that take remote content under a Source mount", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const rebase = vi.fn(async (_options?: { takeRemote?: string[] }) => {})
     const facade = writableFacade(base)
     facade.history.rebase = rebase
@@ -1702,7 +1704,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("syncs contributed sources through writable overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -1733,7 +1735,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("persists Source Sync state across writable overlay facades", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     let keys = ["README.md", "old.md"]
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1779,7 +1781,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("preserves readonly overlay sessions for resolved sources", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -1825,7 +1827,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("routes source-backed executable shell searches through readonly overlay sessions", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -1885,7 +1887,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("preserves top-level Workspace Session starters on readonly source overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const startSession = vi.fn(async () => ({ close: vi.fn() }))
     const scopedFacade = {
       ...facade(base),
@@ -1921,7 +1923,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("starts writable overlay sessions from contributed sources and rules", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       rules: {
@@ -1956,7 +1958,7 @@ describe("Workspace Source Resolution", () => {
   })
 
   it("forwards Workspace Session path options in writable overlays", async () => {
-    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const base = createWorkspace({ name: "support", store: { driver: "memory" } })
     await base.writeFile("artifacts/allowed.md", "ok")
     await base.writeFile("secrets/private.md", "secret")
     const definition: WorkspaceDefinition = {

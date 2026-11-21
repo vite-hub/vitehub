@@ -1,17 +1,18 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
-import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
+import type { H3Event } from "h3"
+import type { AccessAuthorize, AnonymousAccessAuthorize, Duration, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
 export type BlobDriver =
   | "azure"
-  | "cloudflare-r2"
+  | "cloudflare"
   | "fs"
   | "gcs"
   | "minio"
   | "netlify-blobs"
   | "s3"
-  | "vercel-blob"
+  | "vercel"
 export type BlobType = "audio" | "blob" | "image" | "pdf" | "text" | "video" | `${string}/${string}`
 export type SizeUnit = "B" | "GB" | "KB" | "MB"
 type PowOf2 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024
@@ -53,25 +54,53 @@ export interface BlobPutOptions {
   prefix?: string
 }
 
+/**
+ * A condition of one `put()`. The store checks it and writes in one step, so a write from another process between your
+ * read and your write makes the `put()` fail with `BLOB_CONFLICT` and keeps the other write.
+ */
+export type BlobPutCondition =
+  | {
+    /** Write only when the stored object still has this `httpEtag`, from `head()`, `put()`, or `list()` of the same store. */
+    ifMatch?: string
+    overwrite?: true
+  }
+  | {
+    ifMatch?: never
+    /** `false` writes only when no object exists at the pathname. Defaults to `true`. */
+    overwrite: false
+  }
+
+/** The condition of `put()` as a driver gets it. */
+export type BlobDriverPutCondition = { type: "create" } | { type: "replace", etag: string }
+
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
 export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
- * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
+ * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, the removal of a non-empty folder, or a
+ * `put()` whose `ifMatch` or `overwrite: false` condition does not hold.
+ * `BLOB_INVALID_CURSOR` reports a list `cursor` that no `list()` result of the store returned.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
-export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 
+/**
+ * Options of `blob.sign()`. `expiresIn` is how long the link works: a whole number of seconds, or a duration such as
+ * `"15m"`.
+ */
 export type BlobSignOptions =
-  | { expiresIn: number, method: "GET" }
+  | { expiresIn: number | Duration, method: "GET" }
   | {
     contentType?: string
     createOnly?: boolean
-    expiresIn: number
-    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel-blob` drivers bind it. */
+    expiresIn: number | Duration
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
+
+/** What a driver's `sign()` gets: `expiresIn` is always whole seconds. */
+export type BlobDriverSignOptions = BlobSignOptions & { expiresIn: number }
 
 export interface BlobSignedRequest {
   headers: Record<string, string>
@@ -123,6 +152,7 @@ export interface BlobDriverStream {
 }
 
 export interface BlobDriverAdapter<TOptions> {
+  checkHealth?(): Promise<void>
   /** Canonical identity for drivers that resolve pathname aliases. */
   canonicalPathname?(pathname: string): string
   name: string
@@ -144,9 +174,14 @@ export interface BlobDriverAdapter<TOptions> {
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+  /**
+   * Write only when `condition` holds, checked and written in one step. Returns `null` when it does not hold. Without
+   * it, a conditional `put()` fails with `BLOB_PUT_CONDITION_UNSUPPORTED`.
+   */
+  putIf?(pathname: string, body: BlobPutBody, options: BlobPutOptions, condition: BlobDriverPutCondition): Promise<BlobObject | null>
   resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
   /** `store` names the Blob Store, for a driver that signs links to the app itself. */
-  sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
+  sign?(pathname: string, options: BlobDriverSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
 /**
@@ -164,8 +199,13 @@ export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
   formKey?: string
-  /** Accept more than one file. Defaults to `true`. */
+  /** Accept more than one file. Defaults to `true`. `false` is the same as `maxFiles: 1`. */
   multiple?: boolean
+  /**
+   * The most files that `formKey` accepts. A request with more files gets an H3 400 error before the extra files are
+   * read. Defaults to no limit.
+   */
+  maxFiles?: number
   /** Validate each file with `ensureBlob()` before it is stored. */
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */
@@ -350,6 +390,18 @@ export interface BlobCopyOptions {
   overwrite?: boolean
 }
 
+/** Options of `delete({ prefix })`. */
+export interface BlobDeletePrefixOptions {
+  /** Delete every object whose pathname starts with this prefix, such as `"runs/42/"`. It must not be empty. */
+  prefix: string
+}
+
+/** Result of `delete({ prefix })`. */
+export interface BlobDeletePrefixResult {
+  /** Number of objects that the delete found and removed. */
+  deleted: number
+}
+
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
@@ -360,9 +412,16 @@ export interface BlobStorage {
    * the `fs` driver copies the file. R2 streams the object from the binding. Netlify Blobs reads and writes it.
    */
   copy(from: string, to: string, options?: BlobCopyOptions): Promise<Result<BlobObject, BlobErrorCode>>
-  /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
+  /** Start a multipart upload. Supported by the `fs`, `cloudflare` (binding), and `vercel` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
+  /** Delete one or more objects. A missing object is not an error. */
   delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  /**
+   * Delete every object under `prefix`, page by page, on every driver. Returns how many objects it deleted. Objects under
+   * the reserved `.vitehub/` and `_vitehub/derived|media/` paths stay unless the prefix itself is in one of them. An
+   * empty prefix fails with `BLOB_R0034`, so a missing value never empties a store.
+   */
+  delete(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
   get(pathname: string): Promise<Result<Blob | null, BlobErrorCode>>
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
   handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>
@@ -376,7 +435,12 @@ export interface BlobStorage {
   handleUpload(event: BlobUploadEvent, options: BlobUploadOptions): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
   head(pathname: string): Promise<Result<BlobObject | null, BlobErrorCode>>
   list(options?: BlobListOptions): Promise<Result<BlobListResult, BlobErrorCode>>
-  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<Result<BlobObject, BlobErrorCode>>
+  /**
+   * Write an object. With `ifMatch` or `overwrite: false`, the write happens only when the condition holds, and
+   * otherwise returns `BLOB_CONFLICT`. Every driver checks the condition in the provider, except `fs`, which checks it
+   * in the process: two processes that write one `fs` store can still overwrite each other.
+   */
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions & BlobPutCondition): Promise<Result<BlobObject, BlobErrorCode>>
   /** Continue a multipart upload in a later request. */
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
@@ -436,7 +500,7 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   binding?: string
   bucketName?: string
   defaultUrlExpiresIn?: number
-  driver: "cloudflare-r2"
+  driver: "cloudflare"
   /** Jurisdiction of the bucket. Sets the wrangler binding, the provisioning request, and the S3 API host. */
   jurisdiction?: CloudflareR2Jurisdiction
   publicBaseUrl?: string
@@ -450,7 +514,7 @@ export interface FsBlobStoreConfig {
   remote?: boolean
   /**
    * Origin of the links that `sign()` returns, such as `https://app.example`. Add the base URL of the app when it has
-   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`.
+   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`.
    */
   urlBaseUrl?: string
 }
@@ -459,7 +523,7 @@ export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
-  driver: "vercel-blob"
+  driver: "vercel"
   token?: string
 }
 
@@ -605,10 +669,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
-export type BlobServeAuthorize = AccessAuthorize
+export type BlobServeAuthorize = AccessAuthorize<H3Event>
 
 /** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
-export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>
 
 export interface BlobServeConfig {
   access?: "public"

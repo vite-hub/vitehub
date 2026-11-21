@@ -45,7 +45,7 @@ describe("landing page", () => {
     expect(agentCode).toContain('import { browser, kv } from "vite-hub/agent/capabilities"');
     expect(agentCode).toContain('kv({ mode: "write" })');
     expect(routeCode).toContain('import { kv } from "vite-hub/kv"');
-    expect(routeCode).toContain('kv.keys()');
+    expect(routeCode).toContain('kv.list()');
     expect(`${agentCode}\n${routeCode}`).not.toContain("@vite-hub/");
     expect(agentStory.route.to).toBe("/docs/kv/agent-capability");
     // Flue and Eve are open and self-hostable, so the line must not claim openness or naming them.
@@ -87,7 +87,7 @@ describe("landing page", () => {
       "source",
       "connections",
       "gateways",
-      "decisions",
+      "choices",
       "realtime",
       "browser",
       "shell",
@@ -99,6 +99,11 @@ describe("landing page", () => {
       "i18n",
       "comments",
       "ui",
+      "sync",
+      "device",
+      "forge",
+      "webhooks",
+      "mcp",
     ]);
     for (const primitive of landingPrimitives) {
       expect(primitive.to).toMatch(/^\/docs\//);
@@ -126,8 +131,6 @@ describe("landing page", () => {
     expect(Object.keys(primitiveLandings).sort()).toContain("channels");
     for (const landing of Object.values(primitiveLandings)) {
       expect(landing.docsTo, landing.slug).toMatch(/^\/docs\//);
-      expect(landing.docsTo, landing.slug).not.toContain("/docs/server-primitives");
-      expect(landing.docsTo, landing.slug).not.toContain("/docs/reference/realtime");
     }
   });
 

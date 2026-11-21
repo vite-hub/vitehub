@@ -5,7 +5,21 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
-  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org", "vite-hub/nuxt"],
+  // The site serves /_vitehub/rpc so that a ViteHub Console can link it. Only calls that the Console signs with the key
+  // in a VITEHUB_CONSOLE_KEY_<NAME> secret pass. Site access in that Console signs the team in to comment on pages
+  // (server/auth.ts).
+  vitehub: {
+    host: "cloudflare",
+    auth: true,
+    database: true,
+    // Comments without attachments: no R2 bucket, KV namespace, or Workspace for the docs.
+    blob: false,
+    kv: false,
+    workspace: false,
+    console: true,
+    publicUrl: "https://vitehub.dev",
+  },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
@@ -38,7 +52,7 @@ export default defineNuxtConfig({
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
-    mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
+    mcp: { name: "vitehub", guide: "/docs/console/mcp" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",
@@ -160,20 +174,12 @@ export default defineNuxtConfig({
   css: ["~/assets/main.css"],
   postcss: {
     plugins: {
-      cssnano: {
-        // postcss-calc 10.1.1 rejects comark-chat's valid nested calc() fallback. Let browsers evaluate it.
-        preset: ["default", { calc: false }],
-      },
+      cssnano: {},
     },
   },
   vite: {
     resolve: {
       alias: [
-        // Keep Shiki's WebAssembly in the Worker bundle; Cloudflare deployments do not ship node_modules.
-        // `shiki/wasm` resolves to onig.wasm under the `unwasm` condition of the Cloudflare server build.
-        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
         { find: "debug", replacement: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)) },
         { find: "extend", replacement: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)) },
       ],
@@ -191,101 +197,28 @@ export default defineNuxtConfig({
     serverBundle: {
       collections: ["lucide", "simple-icons", "vscode-icons"],
     },
-    // Server-rendered icons come with their CSS. Icons that appear only in the browser and are not listed here load from
-    // the server bundle on first use, so the client bundle stays small instead of holding every icon in the source.
+    // Every icon that the site draws is in the client bundle, so no page waits for the `/api/_nuxt_icon` endpoint.
+    // @vite-hub/docs adds the icons that pages name, the scan adds the icons in app files, and the list names the icons
+    // that other packages draw.
     clientBundle: {
+      scan: { globInclude: ["app/**/*.{vue,ts}"] },
       icons: [
-        "lucide:activity",
-        "lucide:app-window",
-        "lucide:audio-lines",
-        "lucide:badge-check",
-        "lucide:book-marked",
-        "lucide:book-open",
-        "lucide:bot",
-        "lucide:box",
-        "lucide:brain",
         "lucide:calendar-check",
         "lucide:calendar-plus",
         "lucide:calendar-x",
-        "lucide:chart-no-axes-column",
-        "lucide:check",
-        "lucide:chevron-down",
-        "lucide:chevron-right",
-        "lucide:chevron-up",
-        "lucide:circle-alert",
         "lucide:circle-play",
         "lucide:clipboard-list",
-        "lucide:cloud",
-        "lucide:cloud-upload",
-        "lucide:code",
-        "lucide:code-2",
-        "lucide:copy",
-        "lucide:cpu",
-        "lucide:database",
         "lucide:door-open",
-        "lucide:download",
-        "lucide:file",
-        "lucide:file-code",
-        "lucide:file-search",
-        "lucide:file-text",
-        "lucide:files",
-        "lucide:folder",
-        "lucide:folder-open",
         "lucide:folder-plus",
-        "lucide:gauge",
-        "lucide:git-branch",
-        "lucide:git-compare",
-        "lucide:git-pull-request",
         "lucide:graduation-cap",
         "lucide:hard-drive-download",
         "lucide:hard-drive-upload",
-        "lucide:hash",
-        "lucide:heading",
         "lucide:id-card",
-        "lucide:key-round",
-        "lucide:layout-grid",
-        "lucide:layout-template",
-        "lucide:library",
-        "lucide:lightbulb",
-        "lucide:list",
-        "lucide:list-checks",
-        "lucide:list-ordered",
-        "lucide:map",
         "lucide:menu",
         "lucide:message-circle-code",
-        "lucide:message-square-text",
-        "lucide:messages-square",
-        "lucide:monitor",
         "lucide:moon",
-        "lucide:network",
-        "lucide:package",
-        "lucide:paperclip",
-        "lucide:plug",
-        "lucide:radio",
-        "lucide:rocket",
-        "lucide:route",
-        "lucide:scroll-text",
-        "lucide:search",
-        "lucide:send",
-        "lucide:server",
-        "lucide:shield-alert",
-        "lucide:shield-check",
-        "lucide:sliders-horizontal",
         "lucide:square-terminal",
-        "lucide:stethoscope",
         "lucide:sun",
-        "lucide:terminal",
-        "lucide:text-align-start",
-        "lucide:triangle",
-        "lucide:user-check",
-        "lucide:users-round",
-        "lucide:workflow",
-        "lucide:wrench",
-        "lucide:x",
-        "lucide:zap",
-        "simple-icons:cloudflare",
-        "simple-icons:discord",
-        "simple-icons:vercel",
         "vscode-icons:file-type-js-official",
         "vscode-icons:file-type-text",
         "vscode-icons:file-type-toml",
@@ -312,13 +245,6 @@ export default defineNuxtConfig({
         workers_dev: false,
         preview_urls: true,
         upload_source_maps: false,
-        d1_databases: [
-          {
-            binding: "DB",
-            database_id: "4a8731af-1899-4d41-ac8b-6870167ead95",
-            database_name: "vitehub-docs",
-          },
-        ],
         routes: [
           {
             pattern: "vitehub.dev",

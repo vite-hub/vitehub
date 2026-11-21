@@ -5,7 +5,7 @@ import { inspectVercelWorkflowRun, setVercelWorkflowRuntimeLoader, setVercelWork
 import type { VercelRun } from "../src/runtime/vercel.ts"
 
 const native = Object.assign(async () => "done", { workflowId: "workflow-pagination" })
-const definition = { handler: native, options: { native } }
+const definition = { handler: native, native }
 
 function installStepsList(list: (options: unknown) => Promise<{ cursor?: string | null, data: unknown[], hasMore: boolean }>) {
   const run: VercelRun = {
@@ -124,6 +124,6 @@ it("preserves Vercel run dates created in another realm", async () => {
     start: async () => run,
   }, { getWorld: async () => ({ steps: { list: async () => ({ data: [], hasMore: false }) } }) })
 
-  await expect(inspectVercelWorkflowRun("cross-realm-date", { handler: native, options: { native } }, run.runId))
+  await expect(inspectVercelWorkflowRun("cross-realm-date", { handler: native, native }, run.runId))
     .resolves.toMatchObject({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
 })

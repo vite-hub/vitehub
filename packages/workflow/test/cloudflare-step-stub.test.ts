@@ -1,7 +1,6 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import type { WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 
 type RemoteMethod = (...args: unknown[]) => Promise<unknown>
@@ -38,24 +37,26 @@ function createRpcStepStub(methods: Record<string, RemoteMethod>) {
 }
 
 describe("Cloudflare Workflow step stub", () => {
-  it("keeps the step stub usable for step.do and step.sleep", async () => {
+  it("keeps the step stub usable for step.do, step.sleep, and step.sleepUntil", async () => {
     const { calls, stub } = createRpcStepStub({
       do: async (_name, _options, run) => await (run as () => Promise<unknown>)(),
       sleep: async () => undefined,
+      sleepUntil: async () => undefined,
     })
 
     const result = await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1", payload: { name: "ada" } },
       name: "nap",
       registry: {
         nap: async () => ({
           default: {
-            options: { rootStep: false },
-            handler: async (payload: { name: string }, context: { step?: WorkflowProviderStep }) => {
-              const greeting = await context.step!.do!("greet", {}, () => `hello ${payload.name}`)
-              await context.step!.sleep!("nap", "1 second")
+            rootStep: false,
+            handler: async (context: Pick<WorkflowExecutionContext<{ name: string }>, "payload" | "sleep"> & { step?: WorkflowProviderStep }) => {
+              const greeting = await context.step!.do!("greet", {}, () => `hello ${context.payload.name}`)
+              await context.sleep("1 second")
+              await context.sleep(new Date(0))
               return greeting
             },
           },
@@ -64,7 +65,7 @@ describe("Cloudflare Workflow step stub", () => {
       step: stub,
     })
 
-    expect(calls).toEqual(["do", "sleep"])
-    expect(isSerializedResponse(result) && await deserializeResponse(result).text()).toBe("hello ada")
+    expect(calls).toEqual(["do", "sleep", "sleepUntil"])
+    expect(result).toBe("hello ada")
   })
 })

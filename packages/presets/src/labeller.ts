@@ -2,10 +2,11 @@ import { ask } from "@vite-hub/gateways"
 import { defineAgent, type AgentDefinition, type AgentInvoker, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
 import { gmail, gmailClient } from "@vite-hub/agent/channels"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
-import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
+import type { GmailChannel, GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
 import { channelMessageContextKey } from "@vite-hub/agent/channels"
 import * as v from "valibot"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
+import { presetsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 
 export interface LabellerLabel extends GmailLabelSettings {}
@@ -81,12 +82,12 @@ const maxHeaderValueLength = 1_000
 const reservedLabels = new Set(["NONE", "INBOX", "TRASH", "SPAM", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT", "ALL", "CATEGORY_PERSONAL", "CATEGORY_SOCIAL", "CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS"])
 
 function validateLabels(labels: Readonly<Record<string, LabellerLabel>>): void {
-  if (!isRuntimeObject(labels) || Array.isArray(labels)) throw new TypeError("[vitehub] Labeller labels must be an object.")
+  if (!isRuntimeObject(labels) || Array.isArray(labels)) throw presetsErrorDiagnostics.PRESETS_LABELLER_LABELS_INVALID()
   for (const [name, value] of Object.entries(labels)) {
     if (!name.trim() || name.length > 225 || /\p{Cc}/u.test(name) || reservedLabels.has(name.toUpperCase())) {
-      throw new TypeError(`[vitehub] Labeller label "${name}" is reserved or invalid.`)
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_LABEL_NAME_INVALID({ name })
     }
-    if (!isRuntimeObject(value) || Array.isArray(value)) throw new TypeError(`[vitehub] Labeller label "${name}" must be an object.`)
+    if (!isRuntimeObject(value) || Array.isArray(value)) throw presetsErrorDiagnostics.PRESETS_LABELLER_LABEL_SETTINGS_INVALID({ name })
   }
 }
 
@@ -94,7 +95,7 @@ function patternList(value: LabellerPattern | undefined): readonly string[] | un
   if (value === undefined) return
   const values = Array.isArray(value) ? value : [value]
   if (!values.length || values.some(item => !hasRuntimeType(item, "string") || item.length === 0 || item.length > maxPatternLength)) {
-    throw new TypeError(`[vitehub] Labeller patterns must be non-empty strings of at most ${maxPatternLength} characters.`)
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_PATTERN_INVALID({ max: maxPatternLength })
   }
   return values
 }
@@ -103,7 +104,7 @@ function compilePattern(value: string): RegExp | undefined {
   const regex = /^\/(.*)\/([a-z]*)$/.exec(value)
   if (!regex) return
   if (regex[1]!.length > maxPatternLength || /[^imsu]/.test(regex[2]!)) {
-    throw new TypeError("[vitehub] Labeller regex patterns use only bounded syntax and the i, m, s, and u flags.")
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_REGEX_FLAGS_INVALID()
   }
   const source = regex[1]!
   for (let index = 0; index < source.length; index++) {
@@ -111,15 +112,15 @@ function compilePattern(value: string): RegExp | undefined {
     if (character === "\\") {
       const escaped = source[++index]
       if (!escaped || !"\\^$.*+?()[]{}|/".includes(escaped)) {
-        throw new TypeError("[vitehub] Labeller regex patterns may only escape literal regex characters.")
+        throw presetsErrorDiagnostics.PRESETS_LABELLER_REGEX_ESCAPE_INVALID()
       }
     }
     else if ("()[]{}*+?".includes(character)) {
-      throw new TypeError("[vitehub] Labeller regex patterns may not use repetition or grouping.")
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_REGEX_SYNTAX_UNSUPPORTED()
     }
   }
   try { return new RegExp(source, regex[2]!) }
-  catch { throw new TypeError("[vitehub] Labeller regex pattern is invalid.") }
+  catch { throw presetsErrorDiagnostics.PRESETS_LABELLER_REGEX_INVALID() }
 }
 
 function matchesText(value: string | readonly string[], pattern: LabellerPattern | undefined): boolean {
@@ -173,62 +174,62 @@ function selectedConfidence(result: LabellerResult): number | undefined {
 function validateAction(name: string, action: LabellerAction): void {
   for (const key of ["archive", "read", "star", "trash"] as const) {
     if (action[key] !== undefined && !hasRuntimeType(action[key], "boolean")) {
-      throw new TypeError(`[vitehub] Labeller ${name} ${key} must be a boolean.`)
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_ACTION_FLAG_INVALID({ name, key })
     }
   }
 }
 
 function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<string, LabellerLabel>>, depth = 0): void {
-  if (depth > 8) throw new TypeError("[vitehub] Labeller rules may nest at most eight not clauses.")
-  if (!isRuntimeObject(rule)) throw new TypeError(`[vitehub] Labeller rule "${name}" must be an object.`)
+  if (depth > 8) throw presetsErrorDiagnostics.PRESETS_LABELLER_RULE_NESTING_TOO_DEEP()
+  if (!isRuntimeObject(rule)) throw presetsErrorDiagnostics.PRESETS_LABELLER_RULE_INVALID({ name })
   validateAction(`rule "${name}"`, rule)
   for (const field of [rule.from, rule.to, rule.subject, rule.body, rule.listId, rule.hasLabel]) {
     for (const pattern of patternList(field) || []) compilePattern(pattern)
   }
   for (const [header, value] of Object.entries(rule.header || {})) {
-    if (!header.trim() || header.length > maxHeaderValueLength) throw new TypeError(`[vitehub] Labeller rule "${name}" has an invalid header name.`)
+    if (!header.trim() || header.length > maxHeaderValueLength) throw presetsErrorDiagnostics.PRESETS_LABELLER_RULE_HEADER_INVALID({ name })
     for (const pattern of patternList(value) || []) compilePattern(pattern)
   }
   if (rule.label !== undefined && (!Object.hasOwn(labels, rule.label) || !rule.label.trim())) {
-    throw new TypeError(`[vitehub] Labeller rule "${name}" refers to an undeclared label.`)
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_RULE_LABEL_UNDECLARED({ name })
   }
   if (rule.label === undefined && (rule.archive === true || rule.read === true || rule.star === true || rule.trash === true)) {
-    throw new TypeError(`[vitehub] Labeller rule "${name}" must declare a label before enabling actions.`)
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_RULE_LABEL_MISSING({ name })
   }
   if (rule.not) validateRule(`${name}.not`, rule.not, labels, depth + 1)
 }
 
 function validateOptions(options: LabellerOptions): void {
   for (const key of ["dryRun", "hideUnmanagedLabels", "relabel", "trashEnabled"] as const) {
-    if (!hasRuntimeType(options[key], "boolean")) throw new TypeError(`[vitehub] Labeller ${key} must be a boolean.`)
+    if (!hasRuntimeType(options[key], "boolean")) throw presetsErrorDiagnostics.PRESETS_LABELLER_OPTION_NOT_BOOLEAN({ key })
   }
   validateLabels(options.labels)
   const labelCount = Object.keys(options.labels).length
-  if (labelCount < 1 || labelCount > 254) throw new TypeError("[vitehub] Labeller labels must contain between 1 and 254 labels.")
+  if (labelCount < 1 || labelCount > 254) throw presetsErrorDiagnostics.PRESETS_LABELLER_LABEL_COUNT_INVALID()
   if (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1 || options.bodyLimit > maxBodyLimit) {
-    throw new TypeError(`[vitehub] Labeller bodyLimit must be an integer from 1 to ${maxBodyLimit}.`)
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_BODY_LIMIT_INVALID({ max: maxBodyLimit })
   }
   if (!Number.isFinite(options.minConfidence) || options.minConfidence < 0 || options.minConfidence > 1) {
-    throw new TypeError("[vitehub] Labeller minConfidence must be between 0 and 1.")
+    throw presetsErrorDiagnostics.PRESETS_LABELLER_MIN_CONFIDENCE_INVALID()
   }
-  if (!isRuntimeObject(options.rules) || Array.isArray(options.rules)) throw new TypeError("[vitehub] Labeller rules must be an object.")
+  if (!isRuntimeObject(options.rules) || Array.isArray(options.rules)) throw presetsErrorDiagnostics.PRESETS_LABELLER_RULES_INVALID()
   for (const [name, rule] of Object.entries(options.rules || {})) validateRule(name, rule, options.labels)
-  if (!isRuntimeObject(options.actions) || Array.isArray(options.actions)) throw new TypeError("[vitehub] Labeller actions must be an object.")
+  if (!isRuntimeObject(options.actions) || Array.isArray(options.actions)) throw presetsErrorDiagnostics.PRESETS_LABELLER_ACTIONS_INVALID()
   for (const [label, action] of Object.entries(options.actions || {})) {
-    if (!Object.hasOwn(options.labels, label)) throw new TypeError(`[vitehub] Labeller action "${label}" refers to an undeclared label.`)
-    if (!isRuntimeObject(action) || Array.isArray(action)) throw new TypeError(`[vitehub] Labeller action "${label}" must be an object.`)
+    if (!Object.hasOwn(options.labels, label)) throw presetsErrorDiagnostics.PRESETS_LABELLER_ACTION_LABEL_UNDECLARED({ label })
+    if (!isRuntimeObject(action) || Array.isArray(action)) throw presetsErrorDiagnostics.PRESETS_LABELLER_ACTION_INVALID({ label })
     validateAction(`action "${label}"`, action)
   }
-  if (!isRuntimeObject(options.cleanup) || Array.isArray(options.cleanup)) throw new TypeError("[vitehub] Labeller cleanup must be an object.")
+  if (!isRuntimeObject(options.cleanup) || Array.isArray(options.cleanup)) throw presetsErrorDiagnostics.PRESETS_LABELLER_CLEANUP_INVALID()
   for (const [name, rule] of Object.entries(options.cleanup)) {
     if (!isRuntimeObject(rule) || !hasRuntimeType(rule.label, "string") || !Object.hasOwn(options.labels, rule.label)) {
-      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" refers to an undeclared label.`)
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_CLEANUP_LABEL_UNDECLARED({ name })
     }
     if (/["\\\p{Cc}]/u.test(rule.label)) {
-      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" needs a label name without quotes, backslashes, or control characters.`)
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_CLEANUP_LABEL_NAME_INVALID({ name })
     }
     if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
-      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" needs olderThan as a positive whole number of days.`)
+      throw presetsErrorDiagnostics.PRESETS_LABELLER_CLEANUP_OLDER_THAN_INVALID({ name })
     }
   }
 }
@@ -239,7 +240,7 @@ function decision(message: GmailMessage, rules: Readonly<Record<string, Labeller
   }
 }
 
-type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision>
+type LabellerDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentInvoker, AgentInvocationContextValues, LabellerResult | LabellerDecision> & { readonly channels: { readonly gmail: GmailChannel } }
 export type LabellerAgent = ConfiguredAgentDefinition<LabellerOptions, LabellerDefinition>
 
 // defineAgent materializes the template once before consumers supply their options.
@@ -270,7 +271,9 @@ export const labeller: LabellerAgent = defineAgent({
     if (materializingTemplate) {
       materializingTemplate = false
       return defineAgent({
-        driver: { run: (): LabellerResult => { throw new TypeError("[vitehub] Labeller labels must contain between 1 and 254 labels.") } },
+        // The template has its Gmail Channel too, so `channels.gmail` exists on every Labeller Agent.
+        channels: { gmail: gmail({ dryRun: true }) },
+        driver: { run: (): LabellerResult => { throw presetsErrorDiagnostics.PRESETS_LABELLER_LABEL_COUNT_INVALID() } },
         intercept: (): LabellerDecision | undefined => undefined,
       })
     }
@@ -356,7 +359,7 @@ const messageList = v.object({ messages: v.optional(v.array(v.object({ id: v.str
  */
 export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupLabellerResult> {
   const channel = agent.channels?.gmail
-  if (!channel) throw new TypeError("[vitehub] cleanupLabeller() expects an Agent that extends labeller.")
+  if (!channel) throw presetsErrorDiagnostics.PRESETS_LABELLER_CLEANUP_AGENT_INVALID()
   const apply = options.apply === true && agent.options.dryRun === false && agent.options.trashEnabled === true
   const rules = Object.entries(agent.options.cleanup)
   if (!rules.length) return { applied: apply, rules: [] }

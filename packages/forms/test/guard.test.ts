@@ -5,7 +5,7 @@ import { guardRequest } from "../src/guard.ts"
 const origin = "https://site.test"
 
 function post(body: Record<string, unknown>, headers: Record<string, string> = {}) {
-  return new Request(`${origin}/api/_vitehub/comments/threads`, {
+  return new Request(`${origin}/_vitehub/comments/threads`, {
     method: "POST",
     headers: { "content-type": "application/json", origin, ...headers },
     body: JSON.stringify(body),
@@ -30,7 +30,7 @@ function streamedPost(text: string, type: string) {
     body,
     duplex: "half",
   }
-  return { request: new Request(`${origin}/api/_vitehub/comments/threads`, init), cancel }
+  return { request: new Request(`${origin}/_vitehub/comments/threads`, init), cancel }
 }
 
 describe("guardRequest", () => {
@@ -59,7 +59,7 @@ describe("guardRequest", () => {
     const [passed, guarded] = await guardRequest(post({ body: "Yo" }), { key: "comments:create", check }, { rateLimit })
     expect([passed, guarded?.body]).toEqual([undefined, { body: "Yo" }])
     // A browser form without JavaScript goes back to its page.
-    const html = new Request(`${origin}/api/_vitehub/forms/contact`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html", origin, referer: `${origin}/pricing` }, body: "message=Hi" })
+    const html = new Request(`${origin}/_vitehub/forms/contact`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "text/html", origin, referer: `${origin}/pricing` }, body: "message=Hi" })
     const [back] = await guardRequest(html, { key: "form:contact", check: () => ({ status: 403, message: "No." }) })
     expect([back?.status, back?.headers.get("location")]).toEqual([303, "/pricing?form=error"])
   })

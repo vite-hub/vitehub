@@ -161,10 +161,21 @@ describe("hubComments", () => {
     expect(source).toContain('import { commentsPostgresSchema as schema } from "vite-hub/comments/database/postgres"')
     expect(source).toContain('dialect: "postgresql"')
     // The page tool stays unless the app turns the overlay off.
-    expect(source).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js')
+    expect(source).toContain('overlay: "/_vitehub/comments/assets/overlay.js')
     const off = hubComments({ overlay: false })
     await configHook(off)({ nitro: { plugins: [] }, root })
     expect(await readFile(file, "utf8")).toContain("overlay: false")
+  })
+
+  it("passes checkRateLimit to the runtime only when Rate Limit counts in a shared store", async () => {
+    const root = await project(true)
+    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    await configHook(hubComments({ rateLimit: true, imports: { rateLimit: "vite-hub/rate-limit" } }))({ nitro: { plugins: [] }, root })
+    const shared = await readFile(file, "utf8")
+    expect(shared).toContain('import { checkRateLimit } from "vite-hub/rate-limit"')
+    expect(shared).toContain("rateLimit: checkRateLimit")
+    await configHook(hubComments())({ nitro: { plugins: [] }, root })
+    expect(await readFile(file, "utf8")).not.toContain("checkRateLimit")
   })
 
   it("fails the build when the app has no Database", async () => {

@@ -1,11 +1,11 @@
 # @vite-hub/cli
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcli&icon=npm)](https://npmx.dev/package/@vite-hub/cli)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fcli&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/cli)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/cli)](https://npmx.dev/package/@vite-hub/cli)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/cli)](https://npmx.dev/package/@vite-hub/cli)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
-`@vite-hub/cli` runs the development commands contributed by a ViteHub project's active Vite plugins. It loads the local Vite or Nuxt config, combines their command namespaces, and adds the built-in `inspect` and `provision` namespaces.
+`@vite-hub/cli` runs the development commands contributed by a ViteHub project's active Vite plugins. It loads the local Vite or Nuxt config, combines their command namespaces, and adds the built-in `inspect` and `provision` namespaces. User docs: [CLI](https://vitehub.dev/docs/cli).
 
 ## Choose the package
 
@@ -18,7 +18,7 @@ pnpm vitehub --help
 
 `@vite-hub/cli` has no binary of its own. A custom entry calls `runViteHubCliEntrypoint()`, as the `vitehub` binary of `vite-hub` does. It requires Vite, and Nuxt when the project has a Nuxt config but no Vite config.
 
-`@vite-hub/cli` requires Node.js 22.18 or newer. The current `vite-hub` distribution requires Node.js 22.22 or newer.
+`@vite-hub/cli` and `vite-hub` require Node.js 24.15 or newer.
 
 Print the installed CLI version without loading project config:
 
@@ -45,19 +45,20 @@ The CLI owns the `inspect` namespace. Plugin command contributions with that nam
 Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
-  inspect      Inspect discovered Definitions, host resources, and generated Provider Output.
+  inspect      Inspect discovered Definitions, host resources, server routes, and generated Provider Output.
   provision    Idempotently create missing provider resources.
 ```
 
 ## Inspect the project
 
-`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. Both commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
+`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. `inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with each method, path, owner, and handler file. Routes in `server/routes` and `server/api` are not listed. These three commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. `provision run` and `provision status` load the config of a build for their `--host` the same way as `vitehub deploy --host`: with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, so a config that picks its stores with `detectHost()` plans the resources of that host. Other commands use development configuration.
 
 ```sh
 pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect definitions --json
 pnpm vitehub inspect output --json
 pnpm vitehub inspect resources --json
+pnpm vitehub inspect routes
 ```
 
 Human output is the default. `--json` prints a stable object. Both forms redact secret-like keys, Worker `vars` values, and URLs with embedded credentials.
@@ -69,9 +70,56 @@ pnpm vitehub agent --help
 pnpm vitehub agent invocations --help
 ```
 
-The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
+The Agent integration contributes `get`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
 
-See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
+See the [complete command index](https://vitehub.dev/docs/cli#commands) for command availability and the task each command performs.
+
+## Update ViteHub packages
+
+`vitehub update` moves `vite-hub` and every `@vite-hub/*` package to one version: the latest npm release, or the pkg.pr.new build of a commit with `--preview <commit>`. It edits the dependencies of every workspace package, npm, Yarn, Bun, and pnpm overrides, and catalogs, then installs. With pnpm it adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude` for a release, and sets `blockExoticSubdeps: false` for a preview.
+
+```sh
+pnpm vitehub update
+pnpm vitehub update --preview 01898b8 --dry-run
+```
+
+## Link and deploy several hosts
+
+`vitehub link` and `vitehub deploy` run before the CLI loads the project config. One app can link one project on each host. `.vitehub/link.json` keeps a target for each host and the default host:
+
+```sh
+pnpm vitehub link --host cloudflare
+pnpm vitehub link --host vercel
+pnpm vitehub deploy                # the default target, cloudflare
+pnpm vitehub deploy --host vercel
+```
+
+The first linked host is the default. `vitehub link --host <host> --default` changes it. `vitehub deploy --host <host>` builds with `VITEHUB_HOST=<host>`, and that host wins over `host` in `vitehub()`. With several targets and no default, deploy needs `--host`. Resources such as D1, KV, R2, and libSQL are separate on each host. See [Link a project to its host](https://vitehub.dev/docs/cli/project#link-a-project-to-its-host).
+
+On Cloudflare and Vercel, `vitehub deploy` first runs the provision plan of the host with the same credentials, including a `wrangler login`. It lists the resources it creates, asks first unless you pass `--yes`, and records their ids in `.vitehub/provision.json` before the build, so a second deploy creates nothing. `--no-provision` skips it. See [Create the host resources](https://vitehub.dev/docs/cli/project#create-the-host-resources).
+
+## Check and push host env
+
+`vitehub env diff` and `vitehub env push` read the env names that the last build wrote to `deployment.json` and the variables of the linked host target. They run before the CLI loads the project config, and they run the host CLI with your login.
+
+```sh
+pnpm vitehub env diff                     # missing required, missing optional, extra
+pnpm vitehub env push --yes               # values from the shell, then .env.production
+pnpm vitehub env diff --host vercel --stage preview
+```
+
+`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It decrypts dotenvx `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>`. It reads the files in the build's Vite `envDir`, refuses a plaintext secret from a file that git tracks or does not ignore (also through `$NAME` expansion and symlinks), sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
+
+`vitehub deploy` runs the same check after provisioning and the build, before migrations, env writes, or publishing code. `vitehub deploy` reads stage `production`, and `vitehub deploy --preview` reads stage `preview`. A required name that is on neither the host nor a local value stops the deploy. Deploy sets the names that the host lacks from their local values, and `--push-env` also replaces the names that the host has. Cloudflare gets the values with the new version through `wrangler deploy --secrets-file`. With `--yes`, deploy generates a missing `VITEHUB_SECRET`. See [Check Env before a deploy](https://vitehub.dev/docs/cli/project#check-env-before-a-deploy).
+
+After the upload, `vitehub deploy` requests the paths of `deploy.check` in `vitehub()`, and the health route with `health`, on the deployed URL. When one does not answer with a `2xx` status, it exits with `SETUP_DEPLOY_CHECK_FAILED` and prints the command that rolls production back to the deployment it replaced, such as `npx wrangler rollback <version-id> --name my-app --yes`. With `deploy: { indexNow: true }` and a string `publicUrl`, a production deploy that passed its checks sends the URLs of `/sitemap.xml` to IndexNow. `--no-check` and `--no-index-now` skip them. See [Check the deployed app](https://vitehub.dev/docs/cli/project#check-the-deployed-app).
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host, for a deploy that your own workflow runs. It does not set up CI deploy. The repository comes from `--repo owner/name` or the git remote `origin`, `--environment <name>` targets a GitHub deployment environment, and the token comes from `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`, or the GitHub App of `@vite-hub/forge`. Each value is sealed with the repository public key before it leaves the CLI.
+
+```sh
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --environment production --yes
+```
 
 ## Run the CLI from code
 
@@ -105,9 +153,11 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 - Root and namespace help is human-readable text, not a structured output contract. Use `inspect ... --json` for machine-readable output.
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.
-- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass a provider explicitly. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
+- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass `--host cloudflare` or `--host vercel`. It reads the credentials as `vitehub deploy` does: environment variables first, then a `wrangler login`. The old `--provider` flag exits with a `fix:` line. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
 - `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It marks a recorded id as `not declared` when no current Definition uses it, for example after a rename, and prints a `fix:` line that says how to delete the resource on the host. It never applies actions, deletes resources, or edits `.vitehub/provision.json`. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
 
 Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config. After a rename, status defers deletion guidance if a current declaration's resource cannot be verified against config, including when the new key already has a stale id. Verify D1 and KV ids against provider resource names and bindings before deleting anything. `provision run` refreshes R2 and Queue identities for comparison with config. R2 resource identities include jurisdiction; older entries with only a bucket name require checking the jurisdiction manually and receive no deletion guidance while an R2 Store remains declared.
 
-Read the [CLI guide](https://vitehub.dev/docs/development/cli) for every public command, examples, and troubleshooting.
+Read the [CLI guide](https://vitehub.dev/docs/cli) for every public command, examples, and troubleshooting.
+
+Cloudflare deploys always re-supply the stage’s local values, including existing Worker secrets, to prevent inheritance from a preview upload. Every existing secret needs a local stage value; otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`. This includes a previously generated `VITEHUB_SECRET`; supply a locally managed value for subsequent deploys.

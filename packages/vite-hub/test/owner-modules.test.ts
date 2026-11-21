@@ -22,7 +22,7 @@ it.each(["cts", "cjs"])("checks Content and all implicit CMS owners through a re
     await writeFile(join(root, `server/content.${extension}`), 'export { default } from "./definition"\n')
     await writeFile(join(root, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n')
     await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["content", "cms", "database", "workspace"])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["content", "cms", "database", "workspace"], {}, false)
   }
   finally {
     await rm(root, { recursive: true, force: true })
@@ -35,7 +35,7 @@ it("includes Database in the first Comments package check", async () => {
     await mkdir(join(root, "server"))
     await writeFile(join(root, "server/comments.ts"), "export const comments = {}\n")
     await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["comments", "database"])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["comments", "database"], {}, false)
   }
   finally {
     await rm(root, { recursive: true, force: true })
@@ -48,7 +48,33 @@ it.each([undefined, false])("checks Forms with database: %s", async (database) =
     await mkdir(join(root, "server/forms"), { recursive: true })
     await writeFile(join(root, "server/forms/contact.ts"), "export default {}\n")
     await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin({ database })] }, "build")
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(database === false ? ["forms"] : ["forms", "database"])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(database === false ? ["forms"] : ["forms", "database"], {}, false)
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each([undefined, false])("checks Sync and the Database with database: %s", async (database) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-sync-"))
+  try {
+    await mkdir(join(root, "server/sync"), { recursive: true })
+    await writeFile(join(root, "server/sync/todos.ts"), "export default {}\n")
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin({ database })] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["sync", "database"], {}, false)
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("checks Sync and Webhooks together with their Database owner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-sync-webhooks-"))
+  try {
+    await mkdir(join(root, "server/sync"), { recursive: true })
+    await mkdir(join(root, "server/webhooks"), { recursive: true })
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["sync", "database", "webhooks"], {}, false)
   }
   finally {
     await rm(root, { recursive: true, force: true })
@@ -76,7 +102,9 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/browser", "browser"],
     ["vite-hub/channels", "channels"],
     ["vite-hub/connections/google", "connections"],
-    ["vite-hub/decisions/vue", "decisions"],
+    ["vite-hub/choices/vue", "choices"],
+    ["vite-hub/device", "device"],
+    ["vite-hub/device/vue", "device"],
     ["vite-hub/email", "email"],
     ["vite-hub/gateways/ai-sdk", "gateways"],
     ["vite-hub/kv", "kv"],
@@ -85,6 +113,8 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/queue", "queue"],
     ["vite-hub/rate-limit", "rateLimit"],
     ["vite-hub/sandbox/task", "sandboxTask"],
+    ["vite-hub/sync", "sync"],
+    ["vite-hub/sync/vue", "sync"],
     ["vite-hub/workflow", "workflow"],
   ] as const) {
     vi.mocked(assertFeaturePackages).mockClear()

@@ -17,14 +17,14 @@ corepack pnpm dev
 Open <http://127.0.0.1:4731/docs/getting-started/install>, select **Ask** (or press `⌘I`), and ask "How do I install Lumen?". Without a ChatGPT grant, the panel shows **Connect ChatGPT** and the sign-in command. The same request from a terminal:
 
 ```sh
-curl -s -X POST http://127.0.0.1:4731/api/_vitehub/agents/docs/chat \
+curl -s -X POST http://127.0.0.1:4731/_vitehub/agents/docs/chat \
   -H 'content-type: application/json' \
   --data '{"id":"t1","page":"/docs/getting-started/install","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"How do I install Lumen?"}]}]}'
 ```
 
 It answers HTTP 503 with `{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."}`.
 
-Without `@openai/codex` in this app, the same request answers `AGENT_R1025` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent info --agent docs` inspects the Agent.
+Without `@openai/codex` in this app, the same request answers `AGENT_R1026` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent get --agent docs` inspects the Agent.
 
 The app has no Database Definition. Connections and the CMS store their data in the implicit `default` Database, and `corepack pnpm vitehub inspect definitions --kind database` shows which plugins need it.
 

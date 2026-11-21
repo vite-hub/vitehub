@@ -11,7 +11,6 @@ import { readDocsFile } from "./files.ts"
 import type { ContentDocumentsRuntime, ContentRuntime } from "@vite-hub/content"
 import type { DocsMarkdownCopy } from "../agent-copy.ts"
 import type { DocsDocument } from "../markdown.ts"
-import type { DocsPublicConfig } from "../nuxt.ts"
 import type { DocsPage } from "../types.ts"
 
 type ContentSource = Extract<NonNullable<Parameters<typeof defineContent>[0]>["sources"], object>[string]
@@ -47,7 +46,7 @@ export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
   const found = findDocsPage(manifest, path === "/index" ? "/" : path)
   // One copy per page: `/raw/docs/kv/index.md` is not the copy of `/docs/kv`.
   if (!found || docsRawPath(found.page.path) !== rawPath) return null
-  const config = useRuntimeConfig().public.docs as DocsPublicConfig
+  const config = useRuntimeConfig().public.docs
   const text = await readDocsFile(found.page.source ?? "docs", found.page.file)
   if (text === null) return null
   const copy = await docsPageCopy(found.page, String(text), `${config.site.url}${config.appBase.replace(/\/+$/, "")}`)
@@ -60,7 +59,7 @@ export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
  * the sitemap pages, and the MCP server.
  */
 export function docsContent(): DocsContent {
-  const config = useRuntimeConfig().public.docs as DocsPublicConfig
+  const config = useRuntimeConfig().public.docs
   // The public origin with the app base, such as `https://docs.example.com/portal`. Empty keeps links relative.
   const siteUrl = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
   if (content?.siteUrl === siteUrl) return content.runtime
@@ -89,7 +88,7 @@ export function docsContent(): DocsContent {
     seo: {
       ...config.site.url ? { site: siteUrl } : {},
       sitemap: true,
-      markdown: { prefix: "/raw" },
+      markdown: { prefix: "/raw", pages: config.markdownPages },
       llms: { title: config.site.name, ...config.site.description ? { description: config.site.description } : {}, ...agent.llms },
       mcp: config.mcp ? { name: config.mcp.name } : false,
     },

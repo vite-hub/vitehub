@@ -4,7 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
 
-import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestError, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRequestResult, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
 import { requestRealtimeRoom } from "../src/server.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
 import { defineRealtime } from "../src/index.ts"
@@ -17,18 +17,24 @@ describe("realtime client result types", () => {
     expectTypeOf<RealtimeRequestErrorCode>().toEqualTypeOf<
       | "REALTIME_DISABLED"
       | "REALTIME_DISCONNECTED"
+      | "REALTIME_INVALID_DOCUMENT"
       | "REALTIME_INVALID_RESPONSE"
       | "REALTIME_MISSING_DOCUMENT"
+      | "REALTIME_READ_ONLY"
       | "REALTIME_REQUEST_FAILED"
+      | "REALTIME_SOURCE_CHANGED"
+      | "REALTIME_SYNC_PENDING"
     >()
-    expectTypeOf(realtime.save).returns.toEqualTypeOf<Promise<Result<RealtimeSaved, RealtimeRequestErrorCode>>>()
-    expectTypeOf(realtime.history.checkpoint).returns.toEqualTypeOf<Promise<Result<RealtimeCheckpoint, RealtimeRequestErrorCode>>>()
-    expectTypeOf(realtime.refresh).returns.toEqualTypeOf<Promise<Result<{ digest: string | null, reseeded: boolean }, RealtimeRequestErrorCode>>>()
+    expectTypeOf(realtime.save).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeSaved>>>()
+    expectTypeOf(realtime.history.checkpoint).returns.toEqualTypeOf<Promise<RealtimeRequestResult<RealtimeCheckpoint>>>()
+    expectTypeOf(realtime.refresh).returns.toEqualTypeOf<Promise<RealtimeRequestResult<{ digest: string | null, reseeded: boolean }>>>()
+    expectTypeOf<RealtimeRequestResult<RealtimeSaved>>().toExtend<Result<RealtimeSaved, RealtimeRequestErrorCode>>()
   })
 
   it("narrows a checkpoint result by the error element", async () => {
     const [error, checkpoint] = await realtime.history.checkpoint()
     if (error) {
+      expectTypeOf(error).toEqualTypeOf<RealtimeRequestError>()
       expectTypeOf(error.code).toEqualTypeOf<RealtimeRequestErrorCode>()
       expectTypeOf(checkpoint).toEqualTypeOf<undefined>()
       // @ts-expect-error A room error goes into the WebSocket stream, not into the request tuple.
@@ -36,6 +42,15 @@ describe("realtime client result types", () => {
       return
     }
     expectTypeOf(checkpoint).toEqualTypeOf<RealtimeCheckpoint>()
+  })
+
+  it("types the HTTP status of a failed request", async () => {
+    const [error] = await realtime.history.checkpoint()
+    if (error?.code === "REALTIME_REQUEST_FAILED") {
+      expectTypeOf(error.data.status).toEqualTypeOf<number | undefined>()
+      void (error.data.status === 409)
+    }
+    if (error && error.code !== "REALTIME_REQUEST_FAILED") expectTypeOf(error.data).toEqualTypeOf<undefined>()
   })
 })
 
@@ -72,33 +87,45 @@ describe("realtime caret types", () => {
 })
 
 describe("realtime definition types", () => {
-  it("gives identify() and authorize() a request event with Standard Context and its H3 context", () => {
-    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<ViteHubContext<{ context: Record<string, unknown> }>>()
+  it("gives identify(), origins(), and authorize() the H3 event of the request, with Standard Context", () => {
+    expectTypeOf<RealtimeRequestContext["event"]>().toExtend<H3Event>()
     expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
     expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
-    expectTypeOf<H3Event>().toExtend<RealtimeRequestEvent>()
+    expectTypeOf<RealtimeRequestEvent>().toExtend<ViteHubContext>()
+    // An app's access helpers take the H3 event, as Drop's presence checks do.
+    const findMember = (event: H3Event, request: Request) => event.context.member === request.headers.get("x-member")
+    defineRealtime({
+      document: false,
+      origins: ({ event, request }) => findMember(event, request),
+      identify: ({ event, request }) => findMember(event, request) ? { id: "maxi" } : null,
+      authorize: ({ event, request }) => findMember(event, request),
+    })
   })
 
   it("leaves document options out of a definition without a document", () => {
-    defineRealtime({ auth: true, document: false })
+    defineRealtime({ authorize: true, document: false })
     // @ts-expect-error A room without a document never saves.
-    defineRealtime({ auth: true, document: false, persistence: false })
+    defineRealtime({ authorize: true, document: false, persistence: false })
     // @ts-expect-error A room without a document has no history.
-    defineRealtime({ auth: true, document: false, history: { checkpoint: true } })
+    defineRealtime({ authorize: true, document: false, history: { checkpoint: true } })
   })
 
   it("requires one access rule", () => {
-    defineRealtime({ auth: true, document: { workspace: "docs" } })
+    defineRealtime({ authorize: true, document: { workspace: "docs" } })
     defineRealtime({ authorize: ({ mode }) => mode === "read", document: { workspace: "docs" } })
-    defineRealtime({ auth: true, authorize: ({ user }) => user?.id === "ana", document: false })
+    defineRealtime({ authorize: ({ user }) => user?.id === "ana", document: false })
     defineRealtime({ access: "public", document: { workspace: "docs" }, identify: () => null })
     // @ts-expect-error A definition must say who can read and write its rooms.
     defineRealtime({ document: { workspace: "docs" } })
     // @ts-expect-error identify() alone lets anonymous users in, so it is not an access rule.
     defineRealtime({ document: false, identify: () => null })
     // @ts-expect-error Public rooms have no other access rule.
-    defineRealtime({ access: "public", auth: true, document: false })
+    defineRealtime({ access: "public", authorize: true, document: false })
+    // @ts-expect-error `authorize: true` replaced `auth: true`.
+    defineRealtime({ auth: true, document: false })
     // @ts-expect-error Public rooms have no other access rule.
     defineRealtime({ access: "public", authorize: () => true, document: false })
+    // @ts-expect-error authorize() returns true to allow; a path that returns nothing would deny.
+    defineRealtime({ authorize: ({ mode }) => { if (mode === "write") return true }, document: false })
   })
 })

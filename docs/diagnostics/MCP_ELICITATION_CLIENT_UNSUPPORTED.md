@@ -1,6 +1,6 @@
 ---
 description: "Fix MCP_ELICITATION_CLIENT_UNSUPPORTED in ViteHub. A tool calls elicit(), but the MCP client cannot ask the person for input."
-seo.title: "MCP_ELICITATION_CLIENT_UNSUPPORTED: client cannot elicit"
+seo.title: "MCP_ELICITATION_CLIENT_UNSUPPORTED"
 ---
 
 `elicit()` of an MCP tool throws `MCP_ELICITATION_CLIENT_UNSUPPORTED`. The tool wants to ask the person for values, but the MCP client did not declare the `elicitation` capability when it connected. The Agent reads the code and the message as a tool error.

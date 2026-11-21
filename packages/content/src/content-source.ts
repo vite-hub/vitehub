@@ -2,13 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import { comarkContent, memory } from "comark-content"
 import type { ContentGetOptions, ContentOptions, JsonSchema, ParsedSource, Source as ComarkContentSource } from "comark-content"
-import { createSource, useSource } from "@vite-hub/source"
+import { useSource } from "@vite-hub/source"
 import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { withContentSnapshot } from "./snapshots.ts"
 
-import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentDocumentUrl, ContentMarkdownCopy } from "./documents.ts"
 import type { ContentSnapshotLoader } from "./snapshots.ts"
 
 export interface ContentSourceOptions {
@@ -62,7 +62,7 @@ export interface ContentSourceMarkdownPage {
 }
 
 /** A Markdown copy: the text, or the text and a footer that only the copy at `<url>.md` ends with. */
-export type ContentSourceMarkdown = string | { markdown: string, footer?: string }
+export type ContentSourceMarkdown = ContentMarkdownCopy
 
 /** The page options of a Source with a `url`. */
 export interface ContentSourceRoute {
@@ -265,7 +265,7 @@ function createContentSourceFactory(
             const currentReader = () => isSourceName(sourceInput)
               ? useSource(sourceInput)
               : isSourceDefinition(sourceInput)
-                ? createSource(sourceInput)
+                ? useSource(sourceInput)
                 : isRuntimeFunction(sourceInput)
                   ? sourceInput()
                   : sourceInput
@@ -292,7 +292,7 @@ function createContentSourceFactory(
         const known = state.latestItems?.get(path)
         if (!known || itemsPromise || options.commits) return
         // One reader per load keeps every read of a load on one revision.
-        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? createSource(sourceInput) : undefined
+        knownReader ??= isSourceName(sourceInput) ? useSource(sourceInput) : isSourceDefinition(sourceInput) ? useSource(sourceInput) : undefined
         if (!knownReader) return
         // A failed read, such as a deleted file, falls back to the full load, which reports real errors.
         try {
@@ -381,7 +381,7 @@ export function contentSourceKind(input: ContentSourceInput): string | undefined
  */
 export async function contentSourceKeys(input: ContentSourceInput): Promise<string[]> {
   const definition = contentSourceDefinition(input)
-  return definition ? await createSource(definition).keys() : []
+  return definition ? await useSource(definition).keys() : []
 }
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
@@ -390,13 +390,13 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   const { url = inherited?.url, label = inherited?.label, seo = inherited?.seo, markdown = inherited?.markdown, prefix, schema } = options
   const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
   if ((label !== undefined && (String(label) !== label || !label.trim())) || (seo !== undefined && !isRuntimeFunction(seo)) || (markdown !== undefined && !isRuntimeFunction(markdown))) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) takes label as text, and seo and markdown as functions." })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: "[vitehub] contentSource({ label, seo, markdown }) takes label as text, and seo and markdown as functions." })
   }
   if (url === undefined && (label !== undefined || seo !== undefined || markdown !== undefined)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) needs a url, such as '/:id': they describe the pages of the Source." })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: "[vitehub] contentSource({ label, seo, markdown }) needs a url, such as '/:id': they describe the pages of the Source." })
   }
   let source: ComarkContentSource
   if (isComarkContentSource(input)) {

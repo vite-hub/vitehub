@@ -152,7 +152,8 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   const container = shallowRef<ViteHubWebContainer>();
   const previewUrl = ref<string>();
   const logs = shallowRef<WebContainerLogs>(Object.assign([], { offset: 0 }));
-  const online = ref(browserWindow()?.navigator.onLine ?? true);
+  // The server renders online. The browser state applies with the boot, after mount in a component.
+  const online = ref(true);
 
   const modified = computed(() => {
     const current = files.value;
@@ -356,7 +357,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       }
       catch (cause) {
         const error = toError(cause);
-        failure.value = error.name === "WebContainerUnsupportedError" ? { kind: "unsupported", error } : { kind: "boot", error };
+        failure.value = Reflect.get(error, "code") === "WEB_CONTAINER_UNSUPPORTED" ? { kind: "unsupported", error } : { kind: "boot", error };
         status.value = failure.value.kind === "unsupported" ? "unsupported" : "error";
       }
       finally {
@@ -429,6 +430,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   if (getCurrentScope()) onScopeDispose(teardown);
 
   const start = () => {
+    if (browser) online.value = browser.navigator.onLine;
     support.value = checkWebContainerSupport();
     if (options.immediate !== false) void boot();
   };

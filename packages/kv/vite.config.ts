@@ -6,6 +6,7 @@ export default defineConfig({
   pack: {
     ...packDefaults,
     // unstorage's root declarations import every driver's options. Unused drivers must not pull optional SDK types into KV's declarations.
+    // Remove when unstorage releases a fix (https://github.com/unjs/unstorage/issues/721).
     // Preserve package sideEffects metadata for other modules so ambient declarations stay out of runtime chunks.
     treeshake: { moduleSideEffects: id => id.startsWith("unstorage/drivers/") ? false : undefined },
     deps: {

@@ -21,7 +21,7 @@ export interface StandaloneChannel {
   inbound: boolean
   /** The Channel name from the shared discovery catalog. */
   name: string
-  /** `/api/_vitehub/channels/<name>`, then the adapter's declared paths and aliases. */
+  /** `/_vitehub/channels/<name>`, then the adapter's declared paths and aliases. */
   paths: string[]
 }
 
@@ -35,7 +35,7 @@ const webhookAdapterFactories = new Set(["stripe", "webhook"])
 
 /** The webhook route that every Channel with an HTTP sender adapter gets, next to its own `path`. */
 export function channelWebhookRoute(name: string): string {
-  return `/api/_vitehub/channels/${name}`
+  return `/_vitehub/channels/${name}`
 }
 
 function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
@@ -48,7 +48,7 @@ function standaloneChannelError(file: string, message: string): Error {
 
 /**
  * Reads the webhook routes of a Channel module without running it. A `defineChannel({ adapter })` from
- * `vite-hub/channels` gets `/api/_vitehub/channels/<name>`. With a `webhook()` or `stripe()` adapter it receives
+ * `vite-hub/channels` gets `/_vitehub/channels/<name>`. With a `webhook()` or `stripe()` adapter it receives
  * webhooks without an Agent. Routes include the adapter's `path` and `aliases`, or its Agent `webhooks`
  * registrations, whether one object or an array. Returns undefined for other modules.
  */
@@ -195,7 +195,7 @@ export function standaloneChannelWebhookAliases(
       if (existing) {
         if (aliases[existing.path]) continue
         if (existing.target?.agent === channel.agent && existing.target?.webhook === channel.name) continue
-        throw standaloneChannelError(channel.handler, `the webhook path ${JSON.stringify(path)} is already routed to ${JSON.stringify(`${existing.target?.agent}/${existing.target?.webhook}`)}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_WEBHOOK_PATH_TAKEN({ channel: channel.handler, path, target: `${existing.target?.agent}/${existing.target?.webhook}` })
       }
       const target = { agent: channel.agent, webhook: channel.name }
       normalized.set(normalizeAliasPath(path), { path, target })

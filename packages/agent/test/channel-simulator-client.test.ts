@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { channelSimulatorClient } from "../src/internal/channel-simulator/client.ts"
+import { channelSimulatorClient } from "../src/internal/channel-simulator/client.injected.ts"
 
 import type { SimulatorDocument, SimulatorEvent, SimulatorForm, SimulatorTextArea } from "../src/internal/channel-simulator/types.ts"
 
@@ -10,7 +10,6 @@ class Element implements SimulatorForm, SimulatorTextArea {
   clientHeight = 0
   scrollHeight = 0
   scrollTop = 0
-  style = { height: "" }
   textContent = ""
   value = ""
   listeners = new Map<string, (event: SimulatorEvent) => void>()

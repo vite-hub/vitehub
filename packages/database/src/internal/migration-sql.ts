@@ -11,12 +11,56 @@ export interface DataLossStatement {
 /** Columns of each table before a migration, from the previous Drizzle snapshot. `undefined` when the snapshot is missing. */
 export type TableColumns = ReadonlyMap<string, readonly string[]>
 
+/** A foreign key whose ON DELETE action changes rows of `table` when the table it references is dropped. */
+export interface ReferencingKey {
+  table: string
+  columns: readonly string[]
+  /** `CASCADE`, `SET NULL`, or `SET DEFAULT`. */
+  onDelete: string
+}
+
+/** The foreign keys that reference each table before a migration, by referenced table in lower case. */
+export type TableReferences = ReadonlyMap<string, readonly ReferencingKey[]>
+
 const identifier = String.raw`(?:"(?:[^"]|"")+"|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
 const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
 /** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
+  return scanSqlStatements(sql).statements
+}
+
+/**
+ * Adds Drizzle's `--> statement-breakpoint` between the statements of a hand-written file, which Wrangler runs as one
+ * script. Drizzle runs each part with one libSQL `execute()`, which runs only the first statement and drops the rest
+ * without an error. A file that has breakpoints, or one statement, stays as it is, so its hash does not change. The
+ * statements of a trigger body stay together.
+ */
+export function addStatementBreakpoints(sql: string): string {
+  if (sql.includes("--> statement-breakpoint")) return sql
+  const { ends, statements } = scanSqlStatements(sql)
+  if (statements.length < 2) return sql
+  const cuts: number[] = []
+  let trigger = false
+  for (const [index, statement] of statements.entries()) {
+    if (/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
+    if (trigger && !/^END\s*;$/i.test(statement)) continue
+    trigger = false
+    if (index < statements.length - 1) cuts.push(ends[index]!)
+  }
+  let result = ""
+  let start = 0
+  for (const cut of cuts) {
+    result += `${sql.slice(start, cut)}\n--> statement-breakpoint\n`
+    start = cut
+  }
+  return result + sql.slice(start)
+}
+
+/** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
+function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
+  const ends: number[] = []
   const statements: string[] = []
   let current = ""
   let quote: "'" | '"' | "`" | "]" | undefined
@@ -60,14 +104,17 @@ export function splitSqlStatements(sql: string): string[] {
       continue
     }
     if (char === ";") {
-      if (current.trim()) statements.push(`${current.trim()};`)
+      if (current.trim()) {
+        statements.push(`${current.trim()};`)
+        ends.push(index + 1)
+      }
       current = ""
       continue
     }
     current += char
   }
   if (current.trim()) statements.push(current.trim())
-  return statements
+  return { ends, statements }
 }
 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
@@ -135,30 +182,61 @@ function describeRebuild(table: string, rebuild: Rebuild, before: TableColumns |
 }
 
 /**
+ * A rebuild drops the old table. D1 always enforces foreign keys, and ViteHub runs SQLite and libSQL migrations in one
+ * transaction, where `PRAGMA foreign_keys=OFF` does nothing, so the drop runs the ON DELETE action of each table that
+ * references the rebuilt one.
+ */
+function describeReferencingRows(table: string, references: TableReferences | undefined): { reason: string, tables: string[] } | undefined {
+  const keys: ReferencingKey[] = []
+  const visited = new Set([table.toLowerCase()])
+  const visit = (parent: string) => {
+    for (const key of references?.get(parent) ?? []) {
+      if (key.table.toLowerCase() === table.toLowerCase()) continue
+      keys.push(key)
+      // SET NULL and SET DEFAULT change rows without deleting them, so only CASCADE propagates ON DELETE actions.
+      const child = key.table.toLowerCase()
+      if (key.onDelete === "CASCADE" && !visited.has(child)) {
+        visited.add(child)
+        visit(child)
+      }
+    }
+  }
+  visit(table.toLowerCase())
+  if (!keys.length) return
+  const actions = keys.map(key => `${key.onDelete === "CASCADE" ? "deletes the rows of" : "clears"} "${key.table}"."${key.columns.join(`", "`)}" (ON DELETE ${key.onDelete})`)
+  return { reason: `rebuilds table "${table}", and dropping the old table ${actions.join(", ")}`, tables: [...new Set(keys.map(key => tableKey(key.table)))] }
+}
+
+/**
  * Lists the statements of one migration that remove rows, columns, or tables.
  * `before` holds the columns of each table before the migration, so a SQLite table rebuild that keeps every column is safe.
  */
-export function findDataLoss(statements: readonly string[], before?: TableColumns): DataLossStatement[] {
+export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences): DataLossStatement[] {
   const split = statements.flatMap(splitSqlStatements)
   const rebuilds = findRebuilds(split)
   const found: DataLossStatement[] = []
   for (const statement of split) {
-    const loss = classifyStatement(statement, rebuilds, before)
+    const loss = classifyStatement(statement, rebuilds, before, references)
     if (loss) found.push({ ...loss, statement })
   }
   return found
 }
 
-function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined): Omit<DataLossStatement, "statement"> | undefined {
+function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined, references: TableReferences | undefined): Omit<DataLossStatement, "statement"> | undefined {
   let match = statement.match(dropTable)
   if (match) {
     const losses = [...match[1]!.matchAll(new RegExp(qualifiedName, "g"))].flatMap(([name]) => {
       const table = unquote(name)
       const rebuild = rebuilds.get(table.toLowerCase())
-      const reason = rebuild ? describeRebuild(table, rebuild, before) : `drops table "${table}"`
-      return reason ? [{ reason, table: tableKey(name) }] : []
+      if (!rebuild) return [{ reason: `drops table "${table}"`, tables: [tableKey(name)] }]
+      const reason = describeRebuild(table, rebuild, before)
+      const referencing = describeReferencingRows(table, references)
+      return [
+        ...(reason ? [{ reason, tables: [tableKey(name)] }] : []),
+        ...(referencing ? [referencing] : []),
+      ]
     })
-    return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.map(loss => loss.table) } : undefined
+    return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.flatMap(loss => loss.tables) } : undefined
   }
   if ((match = statement.match(alterDrop))) return { reason: `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
   if ((match = statement.match(truncate))) {

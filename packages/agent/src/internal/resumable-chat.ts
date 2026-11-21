@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 interface ResumableChatProcessConfig<TContext> {
   owner: (context: TContext) => string | Promise<string>
@@ -211,7 +212,7 @@ export function createResumableChatProcessCustody<TContext>(
     return {
       kind: "claimed",
       complete(response, completion) {
-        if (run.setupSettled) throw agentDiagnostics.AGENT_R0568({ message: "[vitehub] Resumable Chat claim was already settled." })
+        invariant(!run.setupSettled, "the web chat route calls complete() once, before it settles the Resumable Chat claim in another way")
         const headers = new Headers(response.headers)
         headers.set("x-vitehub-message-id", completion.messageId || "")
         headers.set("x-vitehub-run-id", completion.runId || "")

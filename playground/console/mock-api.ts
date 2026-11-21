@@ -23,7 +23,7 @@ import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
 import { servedSkillsConsoleSection } from "../../packages/vite-hub/src/skills/console.ts"
-import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
+import { playgroundCommentsSection, playgroundConsoleContributions, playgroundWebhooksSection } from "./sections.ts"
 
 // SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
 const fixture = fixtureDocument as { invocations: AgentInvocationStoreCreateInput[] }
@@ -59,6 +59,7 @@ const sections = [
   "workflows",
   "queues",
   "schedules",
+  "webhooks",
   "comments",
   "site",
 ] as const;
@@ -169,7 +170,7 @@ async function captureEmailOutbox(): Promise<void> {
   }, provider: "resend" }) })
   const failing = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: {
     name: "resend",
-    send: () => ({ data: null, error: emailProviderError("resend", "AUTH", "Resend rejected the API key.") }),
+    send: () => [emailProviderError("resend", "AUTH", "Resend rejected the API key."), undefined],
   }, provider: "resend" }) })
   await capture.send({
     attachments: [{ content: "date,amount\n2026-09-01,42.00\n", contentType: "text/csv", filename: "usage-september.csv" }],
@@ -221,7 +222,7 @@ const scheduleRecords = [
       { label: "Manual", value: "Enabled" },
       { label: "File", value: "server/schedules/nightly-digest.ts" },
       { label: "Source", value: "schedule" },
-      { label: "Runs", value: "Use `vitehub schedule runs nightly-digest` to list runs that this runtime recorded." },
+      { label: "Runs", value: "Use `vitehub schedule runs list nightly-digest` to list runs that this runtime recorded." },
     ],
     id: "definition:nightly-digest",
     runnable: true,
@@ -418,6 +419,17 @@ function playgroundFailure(request: IncomingMessage, path: string): number | und
   return undefined
 }
 
+/**
+ * Keeps only some sections, so a contributor can see the Console of a smaller app, such as the "Add a primitive" list.
+ * Set the `playground-sections` cookie to section ids, such as `comments,databases`.
+ */
+function playgroundSections(request: IncomingMessage): readonly string[] {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-sections="))
+  if (!cookie) return sections
+  const kept = new Set(decodeURIComponent(cookie.slice("playground-sections=".length)).split(","))
+  return sections.filter(section => kept.has(section))
+}
+
 const playgroundFailureMessages: Record<number, string> = {
   401: "The app does not accept the signature of this Console.",
   403: "This account cannot read this Console section.",
@@ -437,9 +449,9 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/_vitehub/api/env") {
+  if (path === "/_vitehub/api/env" || path === "/_vitehub/api/env-inspect") {
     // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
-    const envEntries = [
+    const envEntries: Array<{ path?: string, names?: string[], source: string, provider?: string, secret: boolean, required: boolean, hasDefault: boolean, type?: string }> = [
       { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
       { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
@@ -463,13 +475,32 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       { source: "literal", secret: false, required: false, hasDefault: false },
       { source: "literal", secret: false, required: false, hasDefault: false },
     ]
-    // `?status=1` answers like inspectServerEnv: two required values are missing and the vault fails once.
+    // Env declarations read the canonical name first, then the name without the prefix, as `describeServerEnv()` lists them.
+    const hostName = (path: string) => path.replace(/^env\.server\./, "").split(".").map(part => part.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()).join("_")
+    const described = envEntries.map(entry => entry.source === "env" && entry.path ? { ...entry, names: [`VITEHUB_${hostName(entry.path)}`, hostName(entry.path)] } : entry)
+    if (path === "/_vitehub/api/env") {
+      json(response, { entries: described })
+      return true
+    }
+    // `env.inspect` answers like the Env operation: two required values are missing and the vault fails once.
     const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
-    json(response, { entries: envEntries, status: url.searchParams.has("status") ? envEntries.map(entry => ({
-      blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
-      path: entry.path,
-      status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
-    })) : undefined })
+    const entries = described.map((entry) => {
+      const status = missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available"
+      // A value from the host comes from one of its names: the short name for most, the canonical one for a few.
+      const name = status === "available" ? entry.names?.[entry.path === "env.server.executor.url" ? 0 : 1] : undefined
+      return {
+        blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
+        ...(entry.path ? { path: entry.path } : {}),
+        ...(entry.names ? { names: entry.names } : {}),
+        ...(name ? { name } : {}),
+        source: entry.source,
+        ...(entry.provider ? { provider: entry.provider } : {}),
+        required: entry.required,
+        secret: entry.secret,
+        status,
+      }
+    })
+    json(response, { entries, host: "cloudflare", ok: !entries.some(entry => entry.blocking) })
     return true
   }
   if (path === "/_vitehub/api/logs") {
@@ -479,7 +510,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, playgroundWebhooksSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
     return true
   }
 

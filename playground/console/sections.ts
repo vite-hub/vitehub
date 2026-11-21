@@ -27,7 +27,7 @@ export const playgroundConsoleContributions = [
         { key: "captured", label: "Captured" },
       ],
       kind: "record-table",
-      notice: "Messages come from the in-memory development outbox of this server runtime on each request. The outbox exists only in `vite dev`, keeps the newest messages up to its limit, and a restart clears it. HTML is shown as escaped source and is never rendered. Use `vitehub email outbox show <id> --html` for the full source.",
+      notice: "Messages come from the in-memory development outbox of this server runtime on each request. The outbox exists only in `vite dev`, keeps the newest messages up to its limit, and a restart clears it. HTML is shown as escaped source and is never rendered. Use `vitehub email outbox get <id> --html` for the full source.",
     },
   },
   {
@@ -129,5 +129,21 @@ export const playgroundCommentsSection = {
     notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy, everyone the Console admits to Comments reads every thread. `vitehub comments list` lists the same threads.",
     operation: "comments.list",
     pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
+  },
+} as const
+
+/**
+ * The Webhooks section of an app with `server/webhooks/` or member endpoints. The build adds it then, so it is not in the
+ * list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to `webhooksConsoleSection`.
+ * `webhooks-fixture.ts` answers its operations.
+ */
+export const playgroundWebhooksSection = {
+  description: "See, test, flush, and redeliver the webhooks that the app sends.",
+  icon: "i-vitehub-webhooks",
+  id: "webhooks",
+  label: "Webhooks",
+  view: {
+    kind: "webhooks",
+    notice: "The list comes from the webhooks.* operations. The Console shows the names of the URL and secret variables and the host of each URL, never the full URL or the secret. Admins see member endpoints read-only and can disable one. Only the member who owns an endpoint can redeliver to it. `vitehub webhooks` and the webhooks MCP tools do the same.",
   },
 } as const

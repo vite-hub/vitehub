@@ -10,7 +10,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=20" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=21" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -21,7 +21,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
     const person = event instanceof Request ? /person=(\w+)/.exec(event.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
-  const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/api/_vitehub/comments".length)
+  const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/_vitehub/comments".length)
   defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay: overlay.slice(base.length), base, session })(nitroApp)
   console.warn = warn
 }
@@ -109,13 +109,13 @@ describe("Comments page tool", () => {
   })
 
   it("finds the API from the mounted overlay URL", () => {
-    expect(commentsApiRoute("https://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/api/_vitehub/comments")
-    expect(commentsApiRoute("https://site.test/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/api/_vitehub/comments")
+    expect(commentsApiRoute("https://site.test/portal/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/_vitehub/comments")
+    expect(commentsApiRoute("https://site.test/_vitehub/comments/assets/overlay.js?v=1")).toBe("/_vitehub/comments")
   })
 
   it.each(["", "/portal"])("adds one loader on Nitro 3 under mount %s, never on Console or API routes", async (mount) => {
     const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html; charset=utf-8" } }) }
-    const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
+    const overlay = `${mount}/_vitehub/comments/assets/overlay.js`
     install(nitroApp, {}, overlay)
     install(nitroApp, {}, overlay)
     const page = async (path: string, cookie = "") => (await nitroApp.fetch(new Request(`http://site.test${path}`, { headers: { cookie } }))).text()

@@ -5,7 +5,7 @@ const files: PrimitiveProjectFile[] = [
     path: "shell.ts",
     language: "typescript",
     content: `import { createShellRuntime } from "vite-hub/shell";
-import { createJustBashProvider } from "vite-hub/shell/providers/just-bash";
+import { createJustBashDriver } from "vite-hub/shell/providers/just-bash";
 import { InMemoryFs } from "just-bash";
 
 const fs = Object.assign(new InMemoryFs({
@@ -14,7 +14,7 @@ const fs = Object.assign(new InMemoryFs({
 
 const shell = createShellRuntime({
   policy: { maxOutputLength: 10_000, timeout: 30_000 },
-  provider: createJustBashProvider({
+  driver: createJustBashDriver({
     commands: ["pwd", "ls", "cat"],
     cwd: "/workspace",
     fs,
@@ -32,7 +32,7 @@ console.log(observation.stdout);
       private: true,
       type: "module",
       scripts: { start: "node shell.ts" },
-      engines: { node: ">=22.22.0" },
+      engines: { node: ">=24.15.0" },
       dependencies: { "vite-hub": "^0.0.4", "just-bash": "^3.6.0" },
     }, null, 2),
   },
@@ -41,13 +41,13 @@ console.log(observation.stdout);
     language: "markdown",
     content: `# Shell runtime example
 
-Run \`pnpm install\`, then \`pnpm start\` with Node.js 22.22 or later.
+Run \`pnpm install\`, then \`pnpm start\` with Node.js 24.15 or later.
 
-This server-side example uses the Shell runtime and an explicit Just Bash provider.
+This server-side example uses the Shell runtime and an explicit Just Bash driver.
 The same API can be called from server code in a Vite, Nitro, or Nuxt application.
 Shell has no framework plugin, module, or file discovery integration.
 
-The provider uses a writable in-memory filesystem, permits pwd, ls, and cat,
+The driver uses a writable in-memory filesystem, permits pwd, ls, and cat,
 and has no network access. It is not an operating-system isolation boundary.
 `,
   },

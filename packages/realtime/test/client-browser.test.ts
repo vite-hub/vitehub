@@ -60,7 +60,7 @@ describe("prebuilt browser client", () => {
     const other = new awarenessProtocol.Awareness(new Y.Doc())
     try {
       const socket = FakeSocket.sockets[0]!
-      expect(socket.url).toBe(`wss://app.example/api/_vitehub/realtime/presence/boards/42?ticket=t&clientId=${room.clientId}`)
+      expect(socket.url).toBe(`wss://app.example/_vitehub/realtime/presence/boards/42?ticket=t&clientId=${room.clientId}`)
       socket.open()
       expect(room.status()).toBe("connected")
 

@@ -2,14 +2,15 @@ import * as v from "valibot"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { FormSubmitError, chatModalErrors, checkForm, createMemoryFormsStore, defineForm, formFields, handleFormRequest, readChatModal, toChatModal } from "../src/index.ts"
+import { formSubmitError } from "../src/client.ts"
+import { chatModalErrors, checkForm, createMemoryFormsStore, defineForm, formFields, handleFormRequest, readChatModal, toChatModal } from "../src/index.ts"
 
 describe("a schema with no JSON Schema", () => {
   const Custom = z.object({ name: z.custom<string>(value => typeof value === "string") })
 
   it("still validates a form-data post", async () => {
     const store = createMemoryFormsStore()
-    const response = await handleFormRequest("custom", defineForm({ schema: Custom }), new Request("https://site.test/api/_vitehub/forms/custom", {
+    const response = await handleFormRequest("custom", defineForm({ schema: Custom }), new Request("https://site.test/_vitehub/forms/custom", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: "name=Ada",
@@ -50,7 +51,7 @@ describe("chatModalErrors", () => {
   })
 
   it("keeps the error of the first field before the error of the whole form", () => {
-    const error = new FormSubmitError("Check the form and try again.", 400, [{ message: "Required.", path: ["start"] }, { message: "Start must be before end.", path: [] }])
+    const error = formSubmitError("Check the form and try again.", 400, [{ message: "Required.", path: ["start"] }, { message: "Start must be before end.", path: [] }])
     expect(chatModalErrors(error, Range).errors).toEqual({ start: "Required. Start must be before end." })
   })
 })

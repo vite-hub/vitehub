@@ -11,7 +11,7 @@ export default defineConfig({
     copy: [{ from: "src/registry-module.d.ts", to: "dist" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "#vitehub/schedule/registry"],
+      neverBundle: ["vite", "#vitehub/schedule/registry"],
       onlyBundle: false,
     },
     plugins: [{
@@ -30,6 +30,7 @@ export default defineConfig({
       "src/durability.ts",
       "src/index.ts",
       "src/operations.ts",
+      "src/os.ts",
       "src/runtime.ts",
       "src/runtime/console.ts",
       "src/runtime/kv.ts",

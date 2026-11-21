@@ -473,7 +473,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })
     await expect(failure(actions.save({ ...hello, body: 1 } as never, editor))).resolves.toMatchObject({ status: 400 })
-    await expect(failure(actions.save({ ...hello, id: "../escape" }, editor))).resolves.toMatchObject({ status: 400, code: "CONTENT_R0008" })
+    await expect(failure(actions.save({ ...hello, id: "../escape" }, editor))).resolves.toMatchObject({ status: 400, code: "CONTENT_DOCUMENT_ID_INVALID" })
     await expect(failure(actions.get(null as never, editor))).resolves.toMatchObject({ status: 400 })
   })
 
@@ -559,7 +559,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 
   it("requires the defineContent() runtime as the default export", () => {
     expect(() => createContentConsoleActions({})).toThrow("must default-export the defineContent() runtime")
-    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(TypeError)
+    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(expect.objectContaining({ code: "CONTENT_RUNTIME_EXPORT_INVALID" }))
   })
 })
 

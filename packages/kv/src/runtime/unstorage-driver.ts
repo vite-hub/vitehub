@@ -25,6 +25,11 @@ export default function createKVStorageDriver(options: KVStorageDriverOptions = 
   const base = normalizeKey(options.base)
   const prefix = base ? `${base}:` : ""
   const key = (name: string | undefined) => prefix + normalizeKey(name)
+  // Unstorage asks for the keys below a base, so the KV text prefix ends with a separator.
+  const below = (name: string | undefined) => {
+    const value = key(name)
+    return value && !value.endsWith(":") ? `${value}:` : value
+  }
   const store = () => options.store === undefined ? kv : kv.store(options.store)
   return {
     name: "vitehub-kv",
@@ -34,11 +39,12 @@ export default function createKVStorageDriver(options: KVStorageDriverOptions = 
     getItem: name => unwrap(store().get(key(name), { type: "text" })),
     // Raw entries are stored as base64 text; reading them as text would decode the bytes as UTF-8 and mangle them.
     getItemRaw: name => unwrap(store().get(key(name), { type: "bytes" })),
-    setItem: (name, value, opts: TransactionOptions) => unwrap(store().set(key(name), value, opts)),
+    // Nitro sends `{ ttl }` or no options. KV accepts no other option.
+    setItem: (name, value, opts: TransactionOptions) => unwrap(store().set(key(name), value, typeof opts?.ttl === "number" ? { ttl: opts.ttl } : undefined)),
     removeItem: name => unwrap(store().delete(key(name))),
     async getKeys(keyBase) {
-      return (await unwrap(store().keys(key(keyBase)))).map(name => name.slice(prefix.length))
+      return (await unwrap(store().list({ prefix: below(keyBase) }))).keys.map(name => name.slice(prefix.length))
     },
-    clear: keyBase => unwrap(store().clear(key(keyBase))),
+    clear: keyBase => unwrap(store().clear({ prefix: below(keyBase) })),
   }
 }

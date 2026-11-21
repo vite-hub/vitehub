@@ -1,7 +1,7 @@
 import { hostReadableStream, isResponse } from "./internal/response.ts"
 
 import { isRuntimeObject } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
+import { getViteHubErrorShape, isExecutionBudgetExceededError } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
@@ -747,6 +747,10 @@ export function toAgentStreamEvent(
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
+  if (type === "reasoning-delta" && typeof value.text === "string" && typeof value.id === "string" && /^reasoning(?:_summary)?_text:/.test(value.id)) {
+    // Only the provider Driver's reasoning event, by its `providerTextDeltaId` prefix. AI SDK reasoning chunks stay hidden.
+    return { ...(typeof value.id === "string" ? { id: value.id } : {}), text: value.text, type: "reasoning-delta" }
+  }
   if (type === "data" || type.startsWith("data-")) {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.transient === "boolean" ? { transient: value.transient } : {}), type: type as "data" | `data-${string}` }
@@ -944,9 +948,9 @@ function safeStreamErrorString(error: unknown): string {
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 function isBudgetExhaustionEvent(event: StreamEvent): boolean {
-  // SAFETY: Stream events carry this private marker only when the runtime attached an ExecutionBudgetExceededError.
+  // SAFETY: Stream events carry this private marker only when the runtime attached a RUNTIME_EXECUTION_BUDGET_EXCEEDED error.
   return event.type === "error"
-    && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+    && isExecutionBudgetExceededError((event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol])
 }
 
 async function* streamChunksToEvents(

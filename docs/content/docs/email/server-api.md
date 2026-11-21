@@ -8,15 +8,15 @@ icon: i-lucide-code-2
 
 ## Public imports
 
-Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email` in the Vite config.
+Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare`, or `log` in the Vite config. `email.canSend` is `false` with `log` or without Email. See [Run without a provider](/docs/email/configure#run-without-a-provider).
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `email`, `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/email` | `email` (`email.send()`, `email.canSend`), `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
 | `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
-| `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
+| `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend, Cloudflare Email, and log drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
@@ -25,7 +25,7 @@ The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable 
 
 ## Message contract
 
-`email.send()` and `createEmail()` clients take an `EmailMessage`.
+`email.send()` and `createEmail()` clients take an `EmailMessage`. `email.send()` also takes a template name and its `data` instead of a body. See [Send a template](#send-a-template).
 
 | Field | Type | Required | Behavior |
 | --- | --- | --- | --- |
@@ -43,7 +43,7 @@ The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable 
 
 `EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. The Cloudflare Email driver returns an error for the fields marked Resend only.
 
-A message without `text` and `html` does not compile, and `send()` returns `EMAIL_INVALID_MESSAGE` for it. ViteHub does not render provider templates, React, JSX, MJML, Handlebars, or Liquid. Render the body yourself, for example with [`renderEmailMarkdown()`](#compose-dynamic-markdown) or `render()` from `@react-email/render`, and pass the result:
+A message without `text`, `html`, or `template` does not compile, and `send()` returns `EMAIL_INVALID_MESSAGE` for it. ViteHub does not render provider templates, React, JSX, MJML, Handlebars, or Liquid. Render the body yourself, for example with [`renderEmailMarkdown()`](#compose-dynamic-markdown) or `render()` from `@react-email/render`, and pass the result:
 
 ```ts [server/welcome.ts]
 import { email } from 'vite-hub/email'
@@ -101,28 +101,27 @@ export async function sendWelcome(name: string, to: string) {
 
 `html` is the rendered HTML. `text` is the filled Markdown. Text clients can read it, but it can keep Markdown markers such as `**`. Pass your own `text` when you need plain text without markers.
 
-### Discover application email templates
+### Send a template
 
 Put templates under `server/emails`. ViteHub finds Markdown files in all
-subfolders and creates a typed `#vitehub/emails/<name>` import for each.
+subfolders. Pass the template name as `template` and its values as `data`.
+`email.send()` renders the HTML and text body, then sends the message.
 
 ```md [server/emails/welcome.md]
 # Welcome {{ data.user.name }}
 
-Your workspace is ready.
+::if{:condition="data.trial"}
+Your trial is active.
+::
 ```
 
-```ts [server/welcome.ts] fragment
-import renderWelcome from '#vitehub/emails/welcome'
-import { renderEmailMarkdown } from 'vite-hub/email/markdown'
+```ts [server/welcome.ts]
 import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {
-  const markdown = await renderWelcome({ user: { name } })
-  const body = await renderEmailMarkdown(markdown)
-
   const [error, sent] = await email.send({
-    ...body,
+    template: 'welcome',
+    data: { user: { name } },
     from: 'verified-sender@example.com',
     to,
     subject: 'Your workspace is ready',
@@ -132,9 +131,28 @@ export async function sendWelcome(name: string, to: string) {
 }
 ```
 
-`server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
-ViteHub writes the module types to `.vitehub/types/email.d.ts` and bundles the
-templates for builds under `.vitehub/email/templates`.
+TypeScript completes `template` with the names under `server/emails`, and types
+`data` from the `data.*` values that the template reads:
+
+| In the template | Type in `data` |
+| --- | --- |
+| `{{ data.x }}` or a bound attribute such as `{:href="data.x"}` | `string \| number \| boolean` |
+| `:insert{:markdown="data.x"}` | `string` |
+| `::if{:condition="data.x"}` and the other condition props | Optional `unknown` |
+| A value that the template reads only inside an `::if` branch | Optional, and also takes `null`, such as a database column with no value |
+
+An unknown name, a missing value, or a value of the wrong type does not compile.
+When `data` does not fit at runtime, `send()` returns
+`EMAIL_TEMPLATE_RENDER_FAILED`. A name that no template has throws
+`EMAIL_TEMPLATE_NOT_FOUND`. A message with `template` cannot also set `html` or
+`text`. `createEmail()` clients do not render templates.
+
+`server/emails/monthly/recap.md` is the template `monthly/recap`. To render a
+template without sending it, import `#vitehub/emails/monthly/recap`. It
+exports an async function that takes the same `data` and returns Markdown.
+ViteHub writes the template types to `.vitehub/types/email-templates.d.ts` and
+`.vitehub/types/email.d.ts`, and bundles the templates for builds under
+`.vitehub/email/templates`. An app without templates gets no template types.
 
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |

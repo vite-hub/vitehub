@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Readable, Writable } from "node:stream"
+import { pathToFileURL } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -18,7 +21,7 @@ import {
 } from "../src/dev-endpoint.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { ViteHubDevRequestGrant, ViteHubNitroDevServer } from "../src/dev-endpoint.ts"
+import type { ViteHubDevRequestGrant, ViteHubNitroDevHandlerSource, ViteHubNitroDevServer } from "../src/dev-endpoint.ts"
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
@@ -61,7 +64,7 @@ function guarded(init: { body?: string, headers?: Record<string, string>, method
 async function call(middleware: Middleware, init: { body?: string, headers?: Record<string, string>, method: string }) {
   const done = new EventEmitter()
   const chunks: Buffer[] = []
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string | string[]> = {}
   const res = Object.assign(new Writable({
     write(chunk, _encoding, callback) {
       chunks.push(Buffer.from(chunk))
@@ -72,7 +75,7 @@ async function call(middleware: Middleware, init: { body?: string, headers?: Rec
       callback()
     },
   }), {
-    setHeader(name: string, value: string) {
+    setHeader(name: string, value: string | string[]) {
       headers[name] = value
     },
     statusCode: 200,
@@ -224,6 +227,15 @@ describe("Nitro dev forwarding", () => {
     expect(result).toMatchObject({ body: "firstsecond", headers: { "content-type": "text/plain" }, status: 201 })
   })
 
+  it("forwards every Set-Cookie value of the runtime response", async () => {
+    const cookies = ["session=abc; HttpOnly; Path=/", "vitehub_session=1; Path=/"]
+    const response = new Response("{}", { headers: [["set-cookie", cookies[0]!], ["set-cookie", cookies[1]!], ["content-type", "application/json"]] })
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch: async () => response } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute })
+    const result = await call(middlewares[0]!, { body: "{}", headers: json, method: "POST" })
+    expect(result.headers).toMatchObject({ "content-type": "application/json", "set-cookie": cookies })
+  })
+
   it("adds trusted runtime headers without forwarding incoming credentials", async () => {
     const dispatchFetch = vi.fn(async (_request: Request) => new Response())
     await forwardViteHubDevRequestToNitro({ environments: { nitro: { dispatchFetch } } }, ...guarded({ body: "{}", headers: { "x-runtime-token": "forged", authorization: "incoming-secret" }, method: "POST" }), {
@@ -291,7 +303,7 @@ describe("Nitro dev endpoint", () => {
     const [, otherGrant] = guarded({ body: "{}", method: "POST" })
     const req = incoming({ body: "{}", headers: json, method: "POST" })
     await expect(forwardViteHubDevRequestToNitro({ environments: { nitro: { dispatchFetch } } }, req, otherGrant, { ...guard, runtimeRoute }))
-      .rejects.toThrow("requires the grant of a checked dev request")
+      .rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" })
     expect(dispatchFetch).not.toHaveBeenCalled()
   })
 
@@ -382,7 +394,7 @@ describe("Nitro dev handler", () => {
   it("rejects a forged grant, a missing grant, and a grant of another request", async () => {
     const request = nitroRequest()
     const { grant } = await validateViteHubNitroDevRequest(nitroRequest(), guard)
-    const message = "[vitehub] This dev-only operation requires the grant of a checked dev request."
+    const message = expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("the grant of the dev request") })
     // SAFETY: the test forges a grant at runtime, as JavaScript callers can.
     expect(() => assertViteHubDevRequestGrant({ label: "Test Dev" } as unknown as ViteHubDevRequestGrant, request)).toThrow(message)
     // SAFETY: the test passes no grant at runtime, as JavaScript callers can.
@@ -420,25 +432,29 @@ describe("Nitro dev handler", () => {
     expect(await response.json()).toEqual({ ok: true })
   })
 
-  it("renders a Fetchable route that passes the Request to the owner export", () => {
-    expect(renderViteHubNitroDevHandler({ export: "handleTestDevRequest", module: "@vite-hub/test/runtime/console" })).toBe([
-      "import { handleTestDevRequest as handleViteHubDevRequest } from \"@vite-hub/test/runtime/console\"",
-      "",
-      "export default {",
-      "  fetch: request => handleViteHubDevRequest(request),",
-      "}",
-      "",
-    ].join("\n"))
-    expect(renderViteHubNitroDevHandler({ arguments: ['runtime-"key'], export: "handleTestDevRequest", module: "test" })).toContain('handleViteHubDevRequest(request, "runtime-\\\"key")')
-    expect(renderViteHubNitroDevHandler({ context: { serverId: "a" }, contextModules: { registry: "#test/registry" }, export: "handleTestDevRequest", module: "test" })).toBe([
-      "import { handleTestDevRequest as handleViteHubDevRequest } from \"test\"",
-      "import viteHubDevContext0 from \"#test/registry\"",
-      "",
-      "export default {",
-      "  fetch: request => handleViteHubDevRequest(request, { ...{\"serverId\":\"a\"}, \"registry\": viteHubDevContext0 }),",
-      "}",
-      "",
-    ].join("\n"))
-    expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(TypeError)
+  it("renders a Fetchable route that passes the Request to the owner export", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-nitro-dev-route-"))
+    try {
+      await writeFile(join(directory, "owner.mjs"), "export const handleTestDevRequest = (...args) => args\n", "utf8")
+      await writeFile(join(directory, "registry.mjs"), "export default \"registry\"\n", "utf8")
+      const load = async (name: string, source: ViteHubNitroDevHandlerSource) => {
+        const file = join(directory, `${name}.mjs`)
+        await writeFile(file, renderViteHubNitroDevHandler(source), "utf8")
+        // SAFETY: The rendered route default-exports a Fetchable, and the stub owner export returns its arguments.
+        return (await import(pathToFileURL(file).href)).default as { fetch: (request: Request) => unknown[] }
+      }
+      const request = new Request(`http://localhost${runtimeRoute}`)
+      const plain = (await load("plain", { export: "handleTestDevRequest", module: "./owner.mjs" })).fetch(request)
+      expect(plain).toHaveLength(1)
+      expect(plain[0]).toBe(request)
+      const [received, context, argument] = (await load("context", { arguments: ['runtime-"key'], context: { serverId: "a" }, contextModules: { registry: "./registry.mjs" }, export: "handleTestDevRequest", module: "./owner.mjs" })).fetch(request)
+      expect(received).toBe(request)
+      expect(context).toEqual({ registry: "registry", serverId: "a" })
+      expect(argument).toBe('runtime-"key')
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+    expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 })

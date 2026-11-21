@@ -1,19 +1,19 @@
 ---
 title: Realtime configuration
-description: Choose the room authority, control saves, and check what each host supports.
+description: Choose the Realtime driver, control saves, and check what each host supports.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-## Choose a room authority
+## Choose a driver
 
-A room authority holds a document's live Yjs state, and makes sure that every
-client of a document edits the same state. Set it with `realtime.authority`
+A room driver holds a document's live Yjs state, and makes sure that every
+client of a document edits the same state. Set it with `realtime.driver`
 in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
-[Get started](/docs/realtime/get-started#configure-realtime).
+[Get started](/docs/realtime/get-started#define-realtime).
 
-| Authority | Use |
+| Driver | Use |
 | --- | --- |
 | `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare host or hosting environment, such as `host: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
@@ -33,7 +33,7 @@ itself. The server prints its choice when it starts:
 ```
 
 ViteHub rejects the `memory`, `postgres`, and `redis` authorities on other
-deploy hosts, and the `cloudflare` authority with a deploy host that is not
+deploy hosts, and the `cloudflare` driver with a deploy host that is not
 Cloudflare.
 
 ## Share rooms across Node instances
@@ -48,10 +48,8 @@ on instance B then edit the same document and see each other.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
     database: true,
-    realtime: true,
   },
 })
 ```
@@ -66,10 +64,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
-      realtime: true,
     }),
     nitro(),
   ],
@@ -85,10 +81,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
-      realtime: true,
     }),
   ],
 })
@@ -161,7 +155,7 @@ holds a lock.
 
 ## Develop locally
 
-The dev server holds rooms in its own process, with every authority. Nitro's
+The dev server holds rooms in its own process, with every driver. Nitro's
 Cloudflare dev runtime reads your own wrangler config, which lacks the
 generated `$DurableObject` binding, so the room handler opens memory rooms.
 Auth, `authorize()`, and document adapters run as in production. To test
@@ -174,17 +168,17 @@ upgrades never reach Nitro. There, build and preview to test rooms.
 
 ## Host support
 
-| Host | Authority | Live state | What survives a restart |
+| Host | Driver | Live state | What survives a restart |
 | --- | --- | --- | --- |
 | Node, Docker (several instances) | `redis` or `postgres`, which `auto` picks | In the memory of each instance, shared through the bus. | What the document adapter saved, and the shared room record. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). |
 | Node, Docker (one process) | `memory`, which `auto` picks without `REDIS_URL` or a Postgres Default Database | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
 | Cloudflare Workers | `cloudflare` | One Durable Object per document, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
-| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
+| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_DRIVER` or `REALTIME_DRIVER_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
 database for CRDT updates causes races and load. WordPress removed
-HTTP-polling collaboration from 7.0 for those reasons. On hosts without an
-authority, use a single-writer flow, or a Workspace or Content lease.
+HTTP-polling collaboration from 7.0 for those reasons. On hosts without a
+driver, use a single-writer flow, or a Workspace or Content lease.
 
 ## Builds without Realtime
 
@@ -203,7 +197,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-`isRealtimeAvailable()` returns `true` in a build with a room authority, and
+`isRealtimeAvailable()` returns `true` in a build with a Realtime driver, and
 on the dev server.
 
 ## Control saves
@@ -216,7 +210,7 @@ continue, and at once when the last client leaves.
 import { defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 1_000, maxWait: 5_000 },
 })
@@ -250,4 +244,4 @@ export default defineRealtime({
 
 `vitehub inspect definitions` lists each Realtime Definition with its document
 adapter, editor codec, identity, authorization, persistence, history, and room
-authority. It reads the files without running them.
+driver. It reads the files without running them.

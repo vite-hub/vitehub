@@ -14,6 +14,7 @@ import type {
 } from './internal/shared/cloudflare-target'
 import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertCloudflareInstanceTypeFits, readSandboxTaskSize, resolveCloudflareSandboxTaskInstanceType, type SandboxTaskSizeOptions } from './size.ts'
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
@@ -21,10 +22,11 @@ export const defaultCloudflareSandboxMigrationTag = 'v1'
 const defaultCloudflareSandboxMaxInstances = 12
 const cloudflareSandboxNodeImage = '24-bookworm-slim'
 // The command-line tools the 0.x cloudflare/sandbox image installed.
-const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps unzip wget zip'
-const durableObjectModule = '@vite-hub/sandbox/_internal/cloudflare'
+const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps tini unzip wget zip'
+const durableObjectModule = '@vite-hub/sandbox/internal/cloudflare'
 
 // @cloudflare/sandbox 1.0 exports only the `import` condition, so `require.resolve` cannot find it.
+// Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
 function resolveModule(id: string) {
   return resolvePathSync(id, { conditions: ['workerd', 'worker', 'import', 'default'], url: import.meta.url })
 }
@@ -46,9 +48,10 @@ function resolveCloudflareSandboxVersion() {
   return pkg.version
 }
 
-export type CloudflareSandboxEntrypointOptions = {
+export type CloudflareSandboxEntrypointOptions = SandboxTaskSizeOptions & {
   binding?: string
   className?: string
+  maxInstances?: number
   migrationTag?: string
   name?: string
 }
@@ -59,11 +62,16 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
     className: options.className || defaultCloudflareSandboxClassName,
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
     name: options.name || undefined,
+    cpu: options.cpu,
+    memory: options.memory,
+    maxInstances: options.maxInstances,
   }
 }
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
-  const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
+  const { binding, className, migrationTag, name, ...size } = resolveCloudflareSandboxEntrypointOptions(options)
+  const instanceType = resolveCloudflareSandboxTaskInstanceType(size)
+  const { maxInstances } = readSandboxTaskSize(size)
   if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0006({ message: '[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.' })
   }
@@ -90,16 +98,23 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
     containers.push({
       class_name: className,
       image,
-      instance_type: 'lite',
-      max_instances: defaultCloudflareSandboxMaxInstances,
+      instance_type: instanceType,
+      max_instances: maxInstances ?? defaultCloudflareSandboxMaxInstances,
       ...(name ? { name } : {}),
     })
   }
   else {
+    // The app owns this entry. ViteHub fills only the fields that it leaves out.
     const container = containers.find(entry => entry.class_name === className)!
     container.image ??= image
+    if (container.instance_type === undefined)
+      container.instance_type = instanceType
+    else
+      assertCloudflareInstanceTypeFits(container.instance_type, size, className)
     if (typeof container.max_instances !== 'number')
-      container.max_instances = defaultCloudflareSandboxMaxInstances
+      container.max_instances = maxInstances ?? defaultCloudflareSandboxMaxInstances
+    else if (maxInstances !== undefined && maxInstances !== container.max_instances)
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT({ className, configured: container.max_instances, requested: maxInstances })
     if (name)
       container.name ??= name
   }
@@ -118,8 +133,14 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
   }
 }
 
+/** The Worker entrypoint that sends the allowed outbound requests of a Sandbox Container on unchanged. */
+export function cloudflareSandboxOutboundEntrypoint(className: string) {
+  return `${className}Outbound`
+}
+
 function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypointOptions = {}): Plugin {
   const { className } = resolveCloudflareSandboxEntrypointOptions(options)
+  const outboundEntrypoint = cloudflareSandboxOutboundEntrypoint(className)
   const cloudflareSandboxEntrypoint = resolveCloudflareSandboxEntrypoint()
   const durableObjectEntrypoint = resolveModule(durableObjectModule)
   const moduleId = 'virtual:vitehub-sandbox-task-cloudflare-exports'
@@ -135,7 +156,7 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       })
     },
     resolveId: {
-      filter: { id: /^(?:virtual:vitehub-sandbox-task-cloudflare-exports|@cloudflare\/sandbox|@vite-hub\/sandbox\/_internal\/cloudflare)$/ },
+      filter: { id: /^(?:virtual:vitehub-sandbox-task-cloudflare-exports|@cloudflare\/sandbox|@vite-hub\/sandbox\/internal\/cloudflare)$/ },
       handler(id) {
         if (id === moduleId)
           return resolvedModuleId
@@ -150,11 +171,12 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       handler(id) {
         if (id === resolvedModuleId) {
           return [
-            `import { DurableObject } from 'cloudflare:workers'`,
+            `import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'`,
             `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
-            `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
+            `import { createCloudflareSandboxDurableObject, createCloudflareSandboxOutbound } from '${durableObjectModule}'`,
             ``,
-            `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`,
+            `export class ${outboundEntrypoint} extends createCloudflareSandboxOutbound({ WorkerEntrypoint }) {}`,
+            `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: '${outboundEntrypoint}', SandboxFileError }) {}`,
             ``,
           ].join('\n')
         }
@@ -164,9 +186,10 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       if (!chunk.isEntry)
         return null
       const exportedNames = new Set(chunk.exports)
-      const missingExports = [className].filter(name => !exportedNames.has(name))
-      if (!missingExports.length)
+      // An entry that already exports the class owns its Durable Object, so ViteHub adds nothing.
+      if (exportedNames.has(className))
         return null
+      const missingExports = [className, outboundEntrypoint].filter(name => !exportedNames.has(name))
       const exportsPath = relative(dirname(chunk.fileName), 'sandbox-task-cloudflare-exports.mjs').replace(/\\/g, '/')
       const importPath = exportsPath.startsWith('.') ? exportsPath : `./${exportsPath}`
 
@@ -205,6 +228,8 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
       'COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim',
       'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn && mkdir -p /workspace',
       'WORKDIR /workspace',
+      // Commands run through `exec`, so their orphans move to PID 1. tini reaps them.
+      'ENTRYPOINT ["/usr/bin/tini", "--"]',
       'CMD ["sleep", "infinity"]',
       '',
     ].join('\n'),

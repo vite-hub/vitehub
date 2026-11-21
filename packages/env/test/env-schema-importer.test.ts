@@ -55,7 +55,8 @@ describe("envSchema()", () => {
     const error = capture(() => contract(source));
     expect(error).toMatchObject({
       code: "ENV_DECLARATION_INVALID",
-      cause: { message: expect.stringMatching(diagnostic) },
+      // The ENV_B0006 diagnostic of the parser stays as the cause, so its code and fix stay visible.
+      cause: { message: expect.stringMatching(diagnostic), cause: { code: "ENV_B0006" } },
     });
     expect(String(error.cause)).not.toContain("private-schema-marker");
     expect(JSON.stringify(error)).not.toContain("private-schema-marker");
@@ -120,7 +121,7 @@ describe("envSchema()", () => {
           VITEHUB_TOKEN: "wrong-canonical",
         })),
     ).toMatchObject({ rawToken: "exact-raw", token: "exact-custom" });
-    expect(describeServerEnv(registry).entries.every((entry) => !entry.canonicalName)).toBe(true);
+    expect(describeServerEnv(registry).entries.map((entry) => entry.names)).toEqual([["RAW_TOKEN"], ["VITEHUB_CUSTOM_TOKEN"]]);
   });
 
   it("resolves typed defaults, optional empties, URL strings and secret wrappers", () => {

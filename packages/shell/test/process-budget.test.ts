@@ -2,15 +2,15 @@ import { createExecutionBudget } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import { createShellRuntime } from "../src/index.ts"
-import type { ShellExecutionProvider } from "../src/index.ts"
+import type { ShellDriver } from "../src/index.ts"
 
-function createSession(startImplementation?: ShellExecutionProvider["startProcess"]) {
+function createSession(startImplementation?: ShellDriver["startProcess"]) {
   const startProcess = vi.fn(async (command: string) => ({
     id: command,
     command,
     async stop() { return { event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" } },
   }))
-  const provider: ShellExecutionProvider = {
+  const driver: ShellDriver = {
     boundary: {
       cwd: true,
       env: true,
@@ -23,14 +23,14 @@ function createSession(startImplementation?: ShellExecutionProvider["startProces
     async exec() { return { event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" } },
     startProcess: startImplementation ?? startProcess,
   }
-  return { session: createShellRuntime({ provider }).createSession(), startProcess }
+  return { session: createShellRuntime({ driver }).createSession(), startProcess }
 }
 
 describe("background process execution budgets", () => {
   it.each([
     { maxToolCalls: 0 },
     { maxInputBytes: 1 },
-  ])("rejects a process before provider dispatch when the budget is exhausted: %j", async (limits) => {
+  ])("rejects a process before driver dispatch when the budget is exhausted: %j", async (limits) => {
     const budget = createExecutionBudget(limits)
     const { session, startProcess } = createSession()
     try {
@@ -43,25 +43,25 @@ describe("background process execution budgets", () => {
     }
   })
 
-  it.each(["budget", "caller", "budget only"] as const)("aborts pending provider startup on %s cancellation", async (source) => {
+  it.each(["budget", "caller", "budget only"] as const)("aborts pending driver startup on %s cancellation", async (source) => {
     const budget = createExecutionBudget({ maxToolCalls: 1 })
     const caller = new AbortController()
-    let providerSignal: AbortSignal | undefined
+    let driverSignal: AbortSignal | undefined
     let rejectStart!: (reason: unknown) => void
     const { session } = createSession(async (_command, options) => new Promise((_resolve, reject) => {
       rejectStart = reject
-      providerSignal = options?.signal
-      providerSignal?.addEventListener("abort", () => reject(providerSignal?.reason), { once: true })
+      driverSignal = options?.signal
+      driverSignal?.addEventListener("abort", () => reject(driverSignal?.reason), { once: true })
     }))
     const pending = session.startProcess("worker", { budget, signal: source === "budget only" ? undefined : caller.signal })
     const reason = new Error("startup cancelled")
     const rejected = expect(pending).rejects.toBe(reason)
     try {
-      expect(providerSignal?.aborted).toBe(false)
+      expect(driverSignal?.aborted).toBe(false)
       const disposed = session.dispose()
       if (source === "caller") caller.abort(reason)
       else budget.cancel(reason)
-      expect(providerSignal?.aborted).toBe(true)
+      expect(driverSignal?.aborted).toBe(true)
       await rejected
       await disposed
       expect(await session.listProcesses()).toEqual([])

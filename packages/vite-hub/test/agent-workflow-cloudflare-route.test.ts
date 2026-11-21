@@ -69,7 +69,7 @@ beforeAll(async () => {
     "})",
     "",
   ].join("\n"))
-  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare", agent: true })], root })
+  const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ host: "cloudflare", agent: true, workflow: true })], root })
   await builder.buildApp()
 
   const server = join(root, ".output/server")
@@ -113,10 +113,7 @@ it.each([
   await expect.poll(async () => (await instance.status()).status, { interval: 100, timeout: 60_000 }).toMatch(/^(?:complete|errored|terminated)$/)
   const status = await instance.status()
   expect({ error: status.error, status: status.status }).toEqual({ error: undefined, status: "complete" })
-  // The Workflow stores the Agent's text reply as a portable Response.
-  const output = status.output as { body?: { data?: string }, status?: number }
-  expect(output.status).toBe(200)
-  expect(Buffer.from(output.body?.data ?? "", "base64").toString()).toBe(`Hello from ${name}`)
+  expect(status.output).toBe(`Hello from ${name}`)
 }, 120_000)
 
 it("rejects another Agent that uses the Workflow name of a discovered Agent", async () => {

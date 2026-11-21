@@ -1,16 +1,17 @@
 import { existsSync } from "node:fs"
 import { join, matchesGlob, resolve } from "node:path"
 
-import { defineContent } from "@vite-hub/content"
-import { createSource, glob } from "@vite-hub/source"
+import { contentSource, defineContent } from "@vite-hub/content"
+import { glob, useSource } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
-import { docsManifestPages, normalizeDocsBase } from "./navigation.ts"
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
-import type { ContentRuntime } from "@vite-hub/content"
+import type { ContentCheckOptions, ContentRuntime, ContentSourceInput } from "@vite-hub/content"
 import type { Source } from "@vite-hub/source"
 import type { DocsSectionFile } from "./schema.ts"
 import type { z } from "zod"
@@ -68,45 +69,55 @@ export function resolveDocsSources(inputs: readonly DocsSourceInput[], rootDir: 
     const { source, ...options } = typeof input === "string" || isContentSource(input) ? { source: input } : input
     const mount = normalizeDocsBase(options.mount ?? "/")
     if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
-      throw new Error(`Invalid docs source mount: ${mount}`);
+      throw docsErrorDiagnostics.DOCS_SOURCE_MOUNT_INVALID({ mount });
     return typeof source === "string" ? { ...options, dir: resolve(rootDir, source) } : { ...options, source }
   })
 }
 
-/** A page whose frontmatter or section file does not match the schema. The build stops on it. */
-export class DocsContentError extends Error {
-  constructor(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
-    const details = issues
-      .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
-    super(`Invalid docs frontmatter in ${file}: ${details}`)
-    this.name = "DocsContentError"
-  }
+/** A page whose frontmatter or section file does not match the schema: `DOCS_CONTENT_INVALID`. The build stops on it. */
+function docsContentError(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
+  const details = issues
+    .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
+    .join("; ")
+  return docsErrorDiagnostics.DOCS_CONTENT_INVALID({ details, file })
 }
 
 /** The name of the Content Source of a docs source. Content names allow no `-`, so it is not the page's `docs-<index>`. */
-const contentName = (index: number) => `docs_${index}`
+export const contentName = (index: number): string => `docs_${index}`
 
 /**
  * One Content Source per docs source, with its Markdown pages and its `.navigation.yml` files as YAML documents. A
  * folder is a `glob()` Source of those files. A Content Source, such as `github()`, is read as it is, from `rootDir`.
  */
-export function createDocsContent(sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[], rootDir: string = process.cwd()): ContentRuntime {
+export function createDocsContent(
+  sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[],
+  rootDir: string = process.cwd(),
+  options: DocsContentOptions = {},
+): ContentRuntime {
   return defineContent({
     route: false,
     live: false,
     // A `.navigation.yml` that does not parse stops the build, like a page whose frontmatter does not parse.
     plugins: [yaml({ onError: "throw" })],
-    sources: Object.fromEntries(sources.map(({ dir, source }, index) => [
-      contentName(index),
-      source
-        ? () => createSource(source, { rootDir })
+    ...options.check ? { check: options.check } : {},
+    sources: Object.fromEntries(sources.map(({ dir, source }, index) => {
+      const input: ContentSourceInput = source
+        ? () => useSource(source, { rootDir })
         // A folder that does not exist yet has no pages.
         : dir && existsSync(dir)
-          ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
-          : { items: async () => [] },
-    ])),
+          ? () => useSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
+          : { items: async () => [] }
+      const url = options.url
+      return [contentName(index), url ? contentSource(input, { url: ({ id }) => url(index, id) }) : input]
+    })),
   })
+}
+
+/** What `createDocsContent()` adds for `content.check()`. */
+export interface DocsContentOptions {
+  /** The page URL of a document of the source at `index`, by its Content id, such as `guide/start`, or null for no page. */
+  url?: (index: number, id: string) => string | null
+  check?: ContentCheckOptions
 }
 
 interface DocsContentFile {
@@ -124,7 +135,7 @@ interface DocsContentFile {
 /**
  * The pages and `.navigation.yml` files of each docs source, from `content.list()`. Content keys a document by its
  * URL, so it lists one of two files with the same URL, such as `guide.md` and `guide/index.md`, and no empty file.
- * Those are read from the Source, so the manifest still names both files or the empty one in a `DocsContentError`.
+ * Those are read from the Source, so the manifest still names both files or the empty one in a `DOCS_CONTENT_INVALID` error.
  */
 async function listDocsContent(content: ContentRuntime, sources: readonly ResolvedDocsSource[]): Promise<DocsContentFile[]> {
   const files: DocsContentFile[] = []
@@ -183,7 +194,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
     }
     const previous = files.get(logical);
     if (previous)
-      throw new DocsContentError(entry.label, [
+      throw docsContentError(entry.label, [
         { path: ["path"], message: `${logical} is also produced by ${previous.label}` },
       ]);
     files.set(logical, entry);
@@ -268,7 +279,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   for (const page of docsManifestPages(manifest)) {
     const existing = paths.get(page.path)
     if (existing)
-      throw new DocsContentError(join(options.dir, page.file), [
+      throw docsContentError(join(options.dir, page.file), [
         { path: ["path"], message: `${page.path} is also produced by ${existing}` },
       ]);
     paths.set(page.path, page.file)
@@ -278,7 +289,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
 
 function parse<TOutput>(file: string, schema: z.ZodType<TOutput>, input: unknown): TOutput {
   const result = schema.safeParse(input)
-  if (!result.success) throw new DocsContentError(file, result.error.issues)
+  if (!result.success) throw docsContentError(file, result.error.issues)
   return result.data
 }
 
@@ -292,17 +303,22 @@ function idOf(file: string): string {
   );
 }
 
-/**
- * The module that the app imports as `#docs/manifest`: each page with only its `DocsAppPage` fields, since every page
- * of the site loads it. The page route returns the other fields of the current page. A `sourceTitle` equal to `title`
- * is left out of the JSON and filled back when the module loads.
- */
-export function docsAppManifestSource(manifest: DocsManifest): string {
-  const page = (full: DocsPage): Omit<DocsAppPage, "sourceTitle"> & { sourceTitle?: string } => ({
+/** The pages of one panel, which the app loads when a reader opens it. */
+export interface DocsAppPanel {
+  /** URL of the panel's Overview, such as `/docs/kv/diagnostics`. */
+  path: string
+  /** Id of the section that holds the panel. */
+  section: string
+  pages: DocsAppPage[]
+}
+
+/** A page with only its `DocsAppPage` fields. */
+function appPage(full: DocsPage): DocsAppPage {
+  return {
     id: full.id,
     path: full.path,
     title: full.title,
-    sourceTitle: full.sourceTitle === full.title ? undefined : full.sourceTitle,
+    sourceTitle: full.sourceTitle,
     description: full.description,
     icon: full.icon,
     layout: full.layout,
@@ -315,17 +331,59 @@ export function docsAppManifestSource(manifest: DocsManifest): string {
     navigation: full.navigation,
     panel: full.panel,
     order: full.order,
-  })
-  const app = {
-    ...manifest,
-    root: manifest.root && page(manifest.root),
-    sections: manifest.sections.map(section => ({ ...section, pages: section.pages.map(page) })),
-    pages: manifest.pages.map(page),
   }
+}
+
+/**
+ * The manifest that every page of the app loads, and the panels it loads on demand. Only a panel's own sidebar lists
+ * the pages inside it, such as the thousands of generated diagnostics pages, so they stay out of the other pages. A
+ * panel's Overview stays, with the number of listed pages inside it. A section with a panel inside another panel keeps
+ * all its pages, since loading one panel would not restore the order of the other's sidebar.
+ */
+export function docsAppManifest(manifest: DocsManifest, options: { panels: boolean }): { manifest: DocsManifest<DocsAppPage>, panels: DocsAppPanel[] } {
+  const panels: DocsAppPanel[] = []
+  const sections = manifest.sections.map((section) => {
+    const overviews = section.pages.filter(page => page.panel)
+    const nested = overviews.some(panel => overviews.some(outer => panel.id.startsWith(`${outer.id}/`)))
+    if (!options.panels || !overviews.length || nested) return { ...section, pages: section.pages.map(appPage) }
+    for (const panel of overviews) {
+      const pages = docsPanelPages(section, panel).filter(page => page.id !== panel.id)
+      if (pages.length) panels.push({ path: panel.path, section: section.id, pages: pages.map(appPage) })
+    }
+    const pages = section.pages.filter(page => page.panel || !docsPanelOf(section, page)).map(page => page.panel
+      ? { ...appPage(page), panelSize: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }
+      : appPage(page))
+    return { ...section, pages }
+  })
+  return {
+    manifest: { ...manifest, root: manifest.root && appPage(manifest.root), sections, pages: manifest.pages.map(appPage) },
+    panels,
+  }
+}
+
+/** JSON of app pages. A `sourceTitle` equal to `title` is left out, and the module fills it back when it loads. */
+function appJson(value: unknown): string {
+  // `JSON.parse` of a string parses much faster than an object literal of the same size.
+  const json = JSON.stringify(value, (_key, field: unknown) => field && typeof field === "object" && "sourceTitle" in field && "title" in field && field.sourceTitle === field.title ? { ...field, sourceTitle: undefined } : field)
+  return JSON.stringify(json)
+}
+
+/** The module that the app imports as `#docs/manifest`. */
+export function docsAppManifestSource(manifest: DocsManifest<DocsAppPage>): string {
   return [
-    `const manifest = JSON.parse(${JSON.stringify(JSON.stringify(app))})`,
+    `const manifest = JSON.parse(${appJson(manifest)})`,
     "for (const page of [manifest.root, ...manifest.sections.flatMap(section => section.pages), ...manifest.pages]) if (page) page.sourceTitle ??= page.title",
     "export default manifest",
+    "",
+  ].join("\n")
+}
+
+/** The module of one panel's pages. */
+export function docsAppPanelSource(panel: DocsAppPanel): string {
+  return [
+    `const pages = JSON.parse(${appJson(panel.pages)})`,
+    "for (const page of pages) page.sourceTitle ??= page.title",
+    "export default pages",
     "",
   ].join("\n")
 }

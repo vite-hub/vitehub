@@ -173,6 +173,34 @@ describe("Babysitter PR workspaces", () => {
     expect((await workspaces.sweep(status)).removed).toEqual([{ name: "acme+app+4", reason: "budget" }]);
   });
 
+  it("deletes every provider session that no pass can continue, and a finished PR's last one", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-pr-workspaces-sessions-"));
+    roots.push(root);
+    const deleted: string[] = [];
+    const workspaces = createPullRequestWorkspaces({ root, resumeThreads: true, deleteSession: async (repository, number, session) => {
+      deleted.push(`${repository}#${number}:${session}`);
+    } });
+    const pass = async (result: Omit<PullRequestWorkspaceRecord, "head" | "ok">) => {
+      const entry = await workspaces.acquire("acme/app", 7);
+      await entry.record({ head: "a".repeat(40), ok: true, ...result });
+      await entry.release();
+    };
+    // A pass that waits can be resumed, so its session stays.
+    await pass({ resumable: true, session: "run-1" });
+    expect(deleted).toEqual([]);
+    // A pass that resumed it keeps the same session.
+    await pass({ resumable: true, session: "run-1" });
+    expect(deleted).toEqual([]);
+    // A new thread ends the previous one, and a pass that cannot be resumed ends its own.
+    await pass({ resumable: false, session: "run-2" });
+    expect(deleted).toEqual(["acme/app#7:run-1", "acme/app#7:run-2"]);
+    await pass({ resumable: true, session: "run-3" });
+
+    deleted.length = 0;
+    await workspaces.sweep(async () => "terminal");
+    expect(deleted).toEqual(["acme/app#7:run-3"]);
+  });
+
   it("continues the provider thread only after a warm pass that pushed or waited on the same base and release", () => {
     const previous = { head: "a", base: "b", ok: true, resumable: true, release: "1", session: "run-1" };
     expect(providerSessionDecision(previous, "warm", { base: "b", release: "1" })).toEqual({ resume: true, reason: "resumed" });

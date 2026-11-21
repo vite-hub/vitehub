@@ -24,6 +24,7 @@ export type {
   CommentsDefinition,
   CommentsGitHubAccess,
   CommentsPeople,
+  CommentsRateLimit,
   CommentsReadAttachmentContext,
   CommentsStoreAttachmentContext,
   CommentSubjectDefinition,
@@ -147,6 +148,16 @@ export interface ReplyInput {
   author: CommentUser
   mentions?: string[]
   attachments?: string[]
+  /** A retry key. A second reply with the same key and author in the same thread returns the first message. */
+  requestId?: string
+}
+
+export interface FindCommentThreadInput {
+  /** The subject that the create named. Or set `page`. */
+  subject?: CommentSubject
+  /** An app path, for a thread on a page. */
+  page?: string
+  requestId: string
 }
 
 export interface ReplyOptions {

@@ -59,6 +59,19 @@ export type BabysitterMerge =
      * branch is in the repository itself qualify, so a fork's draft stays a draft.
      */
     markDraftsReady?: readonly string[];
+    /**
+     * A branch, by repository (`owner/name`), that receives a fork PR's head when a required check never
+     * reported on it, such as `{ "acme/app": "preview/pr-{number}" }`. Checks that run only on pushes to
+     * the repository itself, like pkg.pr.new, then report on the head. `{number}` is the PR number. The
+     * host pushes only a head that a reviewer with write access approved and whose `.github` folder is the
+     * base branch's, because a push runs the pushed commit's workflows with the repository's permissions.
+     */
+    forkHeadBranches?: Record<string, string>;
+    /**
+     * Merge a ready pull request into its parent's branch when its base is the head branch of another
+     * open pull request in the same repository, so the stack lands with the parent. Default `true`.
+     */
+    foldStacks?: boolean;
   };
 
 export type ResolvedBabysitterMerge =
@@ -69,8 +82,11 @@ export type ResolvedBabysitterMerge =
     method: BabysitterMergeMethod;
     ready?: BabysitterMergeReady;
     markDraftsReady?: ReadonlySet<string>;
+    foldStacks: boolean;
     /** Lowercase check names by lowercase repository. */
     bypassInheritedChecks?: ReadonlyMap<string, ReadonlySet<string>>;
+    /** Branch templates by lowercase repository. */
+    forkHeadBranches?: ReadonlyMap<string, string>;
   };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
@@ -253,11 +269,11 @@ function approvedIfOutsideGate({ head, snapshot }: BabysitterMergeReadinessInput
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
   if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
-  if (merge === "direct") return { mode: "direct", method: "squash", ready: approvedIfOutside };
+  if (merge === "direct") return { mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true };
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {
     const method = merge.method ?? "squash";
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
-      throw new TypeError('[vitehub] Babysitter merge.method must be "squash", "merge", or "rebase".');
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.method", expected: '"squash", "merge", or "rebase"' });
     }
     if (merge.ready !== undefined && merge.ready !== "approved-if-outside" && !hasRuntimeType(merge.ready, "function")) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.ready", expected: 'a function or "approved-if-outside"' });
@@ -269,6 +285,9 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     const trusted = merge.trustedAuthors;
     if (trusted !== undefined && (!Array.isArray(trusted) || !trusted.every(login => hasRuntimeType(login, "string") && login.trim()))) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.trustedAuthors", expected: 'a list of GitHub logins, such as ["renovate[bot]"]' });
+    }
+    if (merge.foldStacks !== undefined && !hasRuntimeType(merge.foldStacks, "boolean")) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.foldStacks", expected: "a boolean" });
     }
     const builtIn = merge.ready === undefined || merge.ready === "approved-if-outside";
     if (trusted?.length && !builtIn) {
@@ -286,9 +305,20 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
         if (checks.length) bypassInheritedChecks.set(repository.toLowerCase(), new Set(checks.map((check: string) => check.toLowerCase())));
       }
     }
-    return { mode: "direct", method, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {} };
+    const forkHeadBranches = new Map<string, string>();
+    if (merge.forkHeadBranches !== undefined) {
+      const expected = 'an object of branch names by repository, such as { "acme/app": "preview/pr-{number}" }';
+      if (!isRuntimeRecord(merge.forkHeadBranches) || Array.isArray(merge.forkHeadBranches)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.forkHeadBranches", expected });
+      for (const [repository, branch] of Object.entries(merge.forkHeadBranches)) {
+        if (!hasRuntimeType(branch, "string") || !branch.includes("{number}") || !/^[\w.{}/-]+$/.test(branch)) {
+          throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: `merge.forkHeadBranches["${repository}"]`, expected: 'a branch name with {number}, such as "preview/pr-{number}"' });
+        }
+        forkHeadBranches.set(repository.toLowerCase(), branch);
+      }
+    }
+    return { mode: "direct", method, foldStacks: merge.foldStacks ?? true, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {}, ...forkHeadBranches.size ? { forkHeadBranches } : {} };
   }
-  throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
+  throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge", expected: 'false, "auto", "direct", or { strategy: "direct" }' });
 }
 
 /** The current-head check runs and statuses retained in an inbox snapshot. */
@@ -336,8 +366,8 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
   const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
   // A pass that assessed this head with every feedback item covered also judged the review checks, whose
-  // verdict comes from the same reviews. The exact evidence key still drifted after such passes: #2156
-  // took three passes on one head. So the key gates only other failures.
+  // verdict comes from the same reviews. The exact evidence key can still drift after such passes and
+  // cost more passes on one head. So the key gates only other failures.
   const otherFailure = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !reviewChecks.has(check.name.toLowerCase()))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !reviewChecks.has(status.context.toLowerCase()));
   const reviewChecksAssessed = failedChecks && !otherFailure && !unassessed && hasRuntimeType(assessment.reviewedEvidenceKey, "string");
@@ -355,7 +385,7 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
 }
 
 /** GitHub's live PR must agree immediately before the merge. */
-export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { automatedReviewSettled?: boolean; reviews?: readonly GitHubEvidence[] } = {}): MergeDecision {
+export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { automatedReviewSettled?: boolean; reviews?: readonly GitHubEvidence[]; foldInto?: string } = {}): MergeDecision {
   if (!isRuntimeRecord(live)) return no("pull request unavailable");
   const liveHead = isRuntimeRecord(live.head) ? live.head.sha : undefined;
   const base = isRuntimeRecord(live.base) ? live.base : undefined;
@@ -376,9 +406,11 @@ export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { 
     }
   }
   // A stacked PR keeps its old base after the parent merges when merged branches are kept.
-  // Merging it there would strand the change outside the default branch.
+  // Merging it there would strand the change outside the default branch. A fold names the
+  // open parent's branch that the caller verified.
   const defaultBranch = repository?.default_branch;
-  if (!hasRuntimeType(defaultBranch, "string") || base?.ref !== defaultBranch) return no(`base ${String(base?.ref ?? "unknown")} is not the default branch`);
+  const target = reviewPolicy.foldInto ?? defaultBranch;
+  if (!hasRuntimeType(target, "string") || base?.ref !== target) return no(`base ${String(base?.ref ?? "unknown")} is not the default branch`);
   // GitHub uses "unstable" for failing optional checks. The required-check policy and
   // explicit assessment already gate those; GitHub still enforces branch rules atomically.
   if (live.mergeable_state !== "clean" && live.mergeable_state !== "unstable") return no(`mergeable_state ${String(live.mergeable_state ?? "unknown")}`);

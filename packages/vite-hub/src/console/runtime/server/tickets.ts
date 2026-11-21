@@ -4,13 +4,15 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
-import { consoleImpersonation, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
+import { consoleImpersonation, readConsoleAccessUser, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
-import { consoleErrorResult, consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { consoleErrorResult, consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
+import { consoleSiteKeys, consoleSiteKV } from "./site-session.ts"
 
 import type { AuthConsole } from "@vite-hub/auth/console-runtime"
+import type { ConsoleSiteKV } from "./site-session.ts"
 
 /**
  * One-time tickets open a page of the app in the browser for the person who called the Console. Content preview and
@@ -70,28 +72,42 @@ export interface ConsoleTicketStore {
 /** A store that also lists and removes tickets, for guest invites. */
 export type ConsoleRecordStore = Required<ConsoleTicketStore>
 
-const memoryKey: unique symbol = Symbol.for("vitehub.console.tickets")
-// SAFETY: This module owns the process slot, so separately bundled Console chunks share one store.
-const memoryScope = globalThis as typeof globalThis & { [memoryKey]?: Map<string, { value: string, expiresAt: number }> }
-
-/** Tickets in the memory of this process. Only a development server uses it: another instance would not see them. */
-function memoryTicketStore(): ConsoleTicketStore {
-  const tickets = memoryScope[memoryKey] ??= new Map()
+/**
+ * Tickets in a KV store: the app's default KV store without Auth, or the memory of a development server. Each value
+ * keeps its expiry, because a store can keep a key a little after its TTL. `consume` is `getAndDelete()`.
+ */
+function kvTicketStore(kv: ConsoleSiteKV): ConsoleRecordStore {
+  const read = (stored: string | null | undefined): { value: string, expiresAt: number } | undefined => {
+    if (!stored) return undefined
+    try {
+      const parsed: unknown = JSON.parse(stored)
+      const value: unknown = Reflect.get(Object(parsed), "value")
+      const expiresAt: unknown = Reflect.get(Object(parsed), "expiresAt")
+      return typeof value === "string" && typeof expiresAt === "number" && expiresAt > Date.now() ? { value, expiresAt } : undefined
+    }
+    catch {
+      return undefined
+    }
+  }
+  const unwrap = <T>([error, value]: readonly [unknown, T]): T => {
+    if (error) throw error
+    return value
+  }
   return {
     async save(identifier, value, expiresAt) {
-      for (const [key, entry] of tickets) if (entry.expiresAt <= Date.now()) tickets.delete(key)
-      tickets.set(identifier, { value, expiresAt: expiresAt.getTime() })
+      const ttl = Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 1000))
+      unwrap(await kv.set(identifier, JSON.stringify({ value, expiresAt: expiresAt.getTime() }), { ttl }))
     },
     async consume(identifier) {
-      const entry = tickets.get(identifier)
-      tickets.delete(identifier)
-      return entry && entry.expiresAt > Date.now() ? entry.value : null
+      return read(unwrap(await kv.getAndDelete(identifier, { type: "text" })))?.value ?? null
     },
     async list(prefix) {
-      return [...tickets].filter(([key, entry]) => key.startsWith(prefix) && entry.expiresAt > Date.now()).map(([identifier, entry]) => ({ identifier, value: entry.value, expiresAt: new Date(entry.expiresAt) }))
+      const keys = await consoleSiteKeys(kv, prefix)
+      const rows = await Promise.all(keys.map(async identifier => ({ identifier, entry: read(unwrap(await kv.get(identifier, { type: "text" }))) })))
+      return rows.flatMap(({ identifier, entry }) => entry ? [{ identifier, value: entry.value, expiresAt: new Date(entry.expiresAt) }] : [])
     },
     async remove(identifier) {
-      tickets.delete(identifier)
+      unwrap(await kv.delete(identifier))
     },
   }
 }
@@ -145,23 +161,21 @@ export async function authFailure(error: Parameters<typeof import("./auth.ts").a
 }
 
 /**
- * The shared store of tickets: Better Auth's verification table when the app has Auth with a database. A development
- * server without it keeps tickets in memory. Otherwise tickets fail closed with `CONSOLE_TICKET_STORE_MISSING`.
+ * The shared store of tickets: Better Auth's verification table when the app has Auth with a database. Otherwise the
+ * KV store of Site access: the app's default KV store with an atomic `getAndDelete()`, or memory on a development
+ * server. Without either, tickets fail closed with `CONSOLE_TICKET_STORE_MISSING`.
  */
 async function ticketStore(request: Request, event?: ConsoleRequestEvent): Promise<ConsoleTicketStore> {
   if (installedStore) return installedStore
   const api = await authConsole(request, event)
-  const fallback = (): ConsoleTicketStore => {
-    if (isConsoleDevelopmentRuntime()) return memoryTicketStore()
-    throw consoleRequestError(500, "One-time links need a store that every instance of the app shares, and the app has none.", "CONSOLE_TICKET_STORE_MISSING")
-  }
-  if (!api) return fallback()
+  const fallback = async (): Promise<ConsoleRecordStore> => kvTicketStore(await consoleSiteKV())
+  if (!api) return await fallback()
   const shared = authTicketStore(api)
   // Auth without a database answers AUTH_CONSOLE_UNAVAILABLE. Each call decides the same way, so both use one store.
   const unavailable = (error: unknown) => Reflect.get(Object(error), "code") === "AUTH_CONSOLE_UNAVAILABLE"
   const method = <K extends keyof ConsoleRecordStore>(name: K): ConsoleRecordStore[K] => {
-    const call = (...args: unknown[]) => Reflect.apply(shared[name], shared, args).catch((error: unknown) => {
-      if (unavailable(error)) return Reflect.apply(fallback()[name] as (...input: unknown[]) => unknown, undefined, args)
+    const call = (...args: unknown[]) => Reflect.apply(shared[name], shared, args).catch(async (error: unknown) => {
+      if (unavailable(error)) return Reflect.apply((await fallback())[name] as (...input: unknown[]) => unknown, undefined, args)
       throw error
     })
     // SAFETY: `call` forwards the arguments and the answer of the method with this name.
@@ -200,6 +214,12 @@ export function appBase(request: Request): string {
   return pathname.endsWith(operationRpcPath) ? pathname.slice(0, -operationRpcPath.length) : ""
 }
 
+/** Why a call without a person, such as a `vitehub` command against a deployed app, gets no ticket. */
+const noPerson: Partial<Record<ConsoleTicketPurpose, string>> = {
+  "page.member": "Opening the site signs the browser in as the app user with the email of the person who asks, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
+  "page.guest": "An invite records the Console member who made it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
+}
+
 /**
  * Make a ticket for the person of a checked Console call. The operation that calls this has checked the section, the
  * grant, and the target. Tickets that act on the app session, such as impersonation, need the email of the person.
@@ -213,7 +233,7 @@ export async function issueConsoleTicket(
   const { request } = context
   if (!request) throw consoleRequestError(400, "A one-time link needs the request of the call.")
   const user = await readConsoleOperationUser(context.access)
-  if (!user?.id) throw consoleRequestError(403, "A one-time link opens the app as the person who asks for it, and this call names no person. Open it from the ViteHub Console.", "CONSOLE_ACCESS_DENIED")
+  if (!user?.id) throw consoleRequestError(403, noPerson[purpose] ?? consoleDiagnosticBody("CONSOLE_TICKET_NO_PERSON").message, "CONSOLE_TICKET_NO_PERSON")
   const [email, name, image]: unknown[] = ["email", "name", "image"].map(field => Reflect.get(user, field))
   const person = {
     id: user.id,
@@ -225,6 +245,8 @@ export async function issueConsoleTicket(
     throw consoleRequestError(403, "Impersonation checks that the browser is signed in to the app with the email of your Console account, and your Console account has no email. Sign in to the Console with GitHub.", "CONSOLE_ACCESS_DENIED")
   }
   if (purpose === "page.member" && !person.email) {
+    // Without a signed person, the caller is the local developer of a development server, who has no email.
+    if (!readConsoleAccessUser(context.access)) throw consoleRequestError(403, "Opening the site signs the browser in as the app user with your email, and the development server knows you only as the local developer, without an email.", "CONSOLE_TICKET_NO_PERSON")
     throw consoleRequestError(403, "Opening the site signs the browser in as the app user with the email of your Console account, and your Console account has no email. Sign in to the Console with GitHub.", "CONSOLE_ACCESS_DENIED")
   }
   const store = await ticketStore(request, isRequestEvent(context.event) ? context.event : undefined)
@@ -258,15 +280,17 @@ function problemPage(problem: { code: string, message: string, fix?: string, sta
   return new Response(page, { headers: { ...pageHeaders, "content-security-policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" }, status: problem.status })
 }
 
-export function ticketProblem(status: number, code: ConsoleDiagnosticCode, message?: string): Response {
-  return problemPage({ ...consoleDiagnosticBody(code, message), status })
+/** The page of a refused ticket. `fix` replaces the general fix of the code when the caller knows a better one. */
+export function ticketProblem(status: number, code: ConsoleDiagnosticCode, message?: string, fix?: string): Response {
+  return problemPage({ ...consoleDiagnosticBody(code, message), ...(fix ? { fix } : {}), status })
 }
 
 /** A failure after the ticket was taken, as a page. A failure without an HTTP status is a bug: it is logged. */
 function failurePage(error: unknown): Response {
   const result = consoleErrorResult(error)
   if (result.status >= 500) globalThis.console.error("[vitehub] A one-time link failed.", error)
-  return problemPage(result.status >= 500 ? { ...consoleDiagnosticBody(result.code === "CONSOLE_TICKET_STORE_MISSING" ? "CONSOLE_TICKET_STORE_MISSING" : "CONSOLE_REQUEST_FAILED"), status: result.status } : result)
+  const setup = result.code === "CONSOLE_TICKET_STORE_MISSING" || result.code === "CONSOLE_SITE_SECRET_MISSING" ? result.code : "CONSOLE_REQUEST_FAILED"
+  return problemPage(result.status >= 500 ? { ...consoleDiagnosticBody(setup), status: result.status } : result)
 }
 
 export function seeOther(location: string, headers: Headers = new Headers()): Response {

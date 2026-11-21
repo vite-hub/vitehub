@@ -1,6 +1,6 @@
 ---
 title: Source server API
-description: Open Source readers, register and combine Sources, cache readers, and serve typed Collections.
+description: Open Source readers, name Sources with files, combine Sources, cache readers, and serve typed Collections.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -12,17 +12,17 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `createSource`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, and split items into parts. |
-| `registerSource`, `registerSources`, `clearSources`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
+| `defineSource`, `splitSource` from `vite-hub/source` | Define loaders and split items into parts. |
+| `useSource` from `vite-hub/source` | Open a reader for a Source in `server/sources/<name>.ts` by its name, or for a Source value. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file`, `files`, `glob`, `markdown`, and `github` from `vite-hub/source`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each entry also exports the option types of its loaders. `mcpResources` has its own entry because it loads the MCP SDK. |
 | `defineCollection`, `array` from `vite-hub/source` | Turn an array or a custom loader into a typed, paginated HTTP read model. |
 | `table` from `vite-hub/source/drizzle` | Turn a Drizzle table into a Collection. It needs `drizzle-orm`. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
-| `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
+| `hubSource` from `vite-hub/source/vite` | Finds Sources, Collections, and Content, and generates their types and routes. `vitehub()` and the Nuxt module add it. |
 | `useDatabase` from `vite-hub/database` | Get a database and its generated schema for `table()`. |
-| `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Read name, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
 
@@ -40,11 +40,10 @@ Source, Source Reader, Source Item, revision, cache, and error types are exporte
 | `source.list(prefix?)` | File readers only. Direct child files and folders below a prefix. |
 
 ```ts [server/api/docs.get.ts] fragment
-import { createSource } from 'vite-hub/source'
-import { docs } from '../sources/docs'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
-  const reader = createSource(docs)
+  const reader = useSource('docs')
 
   return {
     files: await reader.keys(),
@@ -53,57 +52,47 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Register Sources
+## Name Sources with files
 
-Register Sources only to look them up by name. `createSource()` calls do not need it.
+Each file in `server/sources/` defines one Source as its default export. The path of the file below `server/sources/`, without the extension, is the name of the Source.
 
-```ts [server/sources.ts]
-import { registerSources, file, github } from 'vite-hub/source'
+```ts [server/sources/handbook.ts]
+import { github } from 'vite-hub/source'
 
-export const sources = {
-  readme: file('README.md'),
-  docs: github({
-    repo: 'acme/docs',
-    ref: 'main',
-    root: 'docs',
-    include: ['**/*.md'],
-  }),
-}
-
-registerSources(sources)
-
-declare global {
-  interface ViteHubSourceMap {
-    readme: typeof sources.readme
-    docs: typeof sources.docs
-  }
-}
+export default github({
+  repo: 'acme/handbook',
+  ref: 'main',
+  root: 'docs',
+  include: ['**/*.md'],
+})
 ```
 
-Import the module that registers Sources before you call `useSource()`:
-
-```ts [server/api/readme.get.ts]
+```ts [server/api/handbook.get.ts]
 import { defineEventHandler } from 'h3'
-import '../sources'
 import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
-  const readme = useSource('readme')
+  const handbook = useSource('handbook')
 
   return {
-    text: await readme.read('README.md'),
+    files: await handbook.keys(),
   }
 })
 ```
 
-For typed lookup, declare `ViteHubSourceMap` entries as `typeof` each definition. The Vite plugin does not scan a `server/sources` folder or generate this map. `RegisteredSource<'docs'>` gives the definition type of a registered name.
+- You can create the reader at module scope. Read from it in a handler or plugin callback. The first read looks up the name and loads the file. It rejects with `SOURCE_NOT_FOUND` if the name is not registered.
+- The generated `.vitehub` types map each name to the type of its Source. A name without a file is a type error.
+- `server/sources/team/handbook.ts` is the Source `team/handbook`.
+- In Nuxt, `useSource` is auto-imported in server code.
+- `useSource()` also takes a Source value, such as `useSource(github({ repo: 'acme/handbook' }))`, for a Source that has no file.
+- `RegisteredSource<'handbook'>` gives the Source type of a name.
 
 ## Split items into parts
 
 Use `splitSource()` when one file holds many items, such as Markdown sections or CSV rows. `split()` gets one parent item and returns its parts. Each part becomes an item with the key `<parent key>#<part key>`.
 
 ```ts [server/sections.ts]
-import { createSource, splitSource, glob } from 'vite-hub/source'
+import { splitSource, glob, useSource } from 'vite-hub/source'
 
 export const sections = splitSource({
   source: glob({ cwd: 'docs', include: '**/*.md' }),
@@ -113,13 +102,13 @@ export const sections = splitSource({
     .map(section => ({ key: section.slice(0, section.indexOf('\n')), content: section })),
 })
 
-const reader = createSource(sections)
+const reader = useSource(sections)
 await reader.keys()
 // ['guide.md#Install', 'guide.md#Usage']
 await reader.read('guide.md#Usage')
 ```
 
-Content, Workspaces, and `createSource()` accept a split Source. A part without `path` keeps the parent's. `get()` reads only that part's parent; `keys()` and `items()` read all parents. Part keys must be unique per parent and without `#`.
+Content, Workspaces, and `useSource()` accept a split Source. A part without `path` keeps the parent's. `get()` reads only that part's parent; `keys()` and `items()` read all parents. Part keys must be unique per parent and without `#`.
 
 ## Cache a Source reader
 
@@ -174,6 +163,7 @@ import { table } from 'vite-hub/source/drizzle'
 const { db, schema } = useDatabase('default')
 
 export const articles = defineCollection({
+  access: 'public',
   source: table({
     db,
     table: schema.articles,
@@ -195,6 +185,8 @@ export const articles = defineCollection({
 
 `column` and `tieBreaker` must be non-null columns, and `tieBreaker` unique. `table()` applies `where` before the cursor condition, orders both columns the same way, fetches one extra row, and hides the cursor from clients. Omit `querySchema` and `where` without filters.
 
+`table()` selects every column. A public Collection (`access: 'public'`) over it must set `transform` and return only the public fields. Without `transform`, `defineCollection()` throws `SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED`, so a column such as a password hash never reaches the route.
+
 Pass a loader function to `defineCollection` when the data is not one Drizzle table, such as a Source reader, SDK, HTTP API, or joined query. The loader then handles its own cursor.
 
 ```ts [server/collections/articles.ts]
@@ -213,6 +205,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
   if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
   return await response.json() as Article[]
 }, {
+  access: 'public',
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
   defaultLimit: 25,
@@ -229,7 +222,8 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 | `defaultLimit`, `maxLimit` | Page size without `limit` (default `50`), and the largest `limit` (default `100`). |
 | `querySchema` | Standard Schema for filter input. Its output type goes to the loader. |
 | `transform` | Maps a server row to the client item, and sets the client item type. |
-| `authorize` | `true` or an Auth access callback ([Protect a Collection](#protect-a-collection)). |
+| `authorize` | Required unless `access: 'public'` or `route: false`. `true` or an Auth access callback ([Protect a Collection](#protect-a-collection)). `false` throws `SOURCE_COLLECTION_AUTHORIZE_FALSE`. |
+| `access` | `'public'` lets anyone read the route without sign-in. Do not set it with `authorize`. |
 
 The Collection asks the loader for one extra row, enforces the limits, and turns the last row into a cursor. Only `transform()` output reaches the client, so private columns and provider objects stay out.
 
@@ -241,6 +235,7 @@ When all the data fits in memory, use `array()`. It filters, searches, sorts, an
 import { array, defineCollection } from 'vite-hub/source'
 
 export const articles = defineCollection({
+  access: 'public',
   source: array(() => loadArticles(), {
     filters: ['category', 'authors.name'],
     search: ['title', 'summary'],
@@ -278,7 +273,8 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
-- Set `route: false` to keep a Collection server-only. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
+- Each routed Collection must set `authorize` or `access: 'public'`. Without one, `defineCollection()` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
+- Set `route: false` to keep a Collection server-only. Then neither is needed. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
 
 To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
 
@@ -289,17 +285,17 @@ import { articles } from '../collections/articles'
 export default defineCollectionHandler(articles)
 ```
 
-A Collection with `authorize` also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`.
+A Collection with `authorize: true` or a callback also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`. A Collection object without `authorize` or `access: 'public'` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
 
 `useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` moves the cursor. For a small Collection, `all: true` fetches every page in the background. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when present.
 
 ### Protect a Collection
 
 ::warning
-A Collection route is public unless it sets `authorize`.
+A routed Collection must set `authorize` or `access: 'public'`. `access: 'public'` lets anyone read the route, so set it only when every item is safe for anyone to read.
 ::
 
-`authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+`authorize: true` requires a signed-in [Auth](/docs/auth) session. A callback gets `{ request, session, user }` and returns `true`, `false`, or a `Response`. `access: 'public'` needs no Auth.
 
 ```ts [server/collections/drafts.ts]
 import { useDatabase } from 'vite-hub/database'
@@ -334,7 +330,7 @@ export function useDraftsSignedOut() {
 }
 ```
 
-Enable Auth and add `server/auth.ts` before you use `authorize`. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.
+Enable Auth and add `server/auth.ts` before you use `authorize: true` or a callback. Without Auth, the route cannot read a session and denies every request with `SOURCE_R0025`.
 
 ### Inspect Collections
 

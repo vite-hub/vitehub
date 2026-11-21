@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { glob } from "tinyglobby"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { migrateViteHubOptions } from "./transform.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
@@ -27,14 +27,14 @@ const renamedTypes: Record<string, string> = {
   EnvViteUserConfig: "EnvOptions, passed to vitehub({ env })",
   KVModuleOptions: "KVOptions",
   LogsEvlogOptions: "ObservabilityEvlogOptions",
-  LogsOptions: "ObservabilityLogsOptions",
+  ObservabilityLogsOptions: "LogsOptions",
   QueueModuleOptions: "QueueOptions",
   RateLimitModuleOptions: "RateLimitOptions",
   RealtimeModuleOptions: "RealtimeOptions",
   SandboxTaskPublicOptions: "SandboxTaskOptions",
   ScheduleVitePluginOptions: "ScheduleOptions",
   ViteHubAgentOptions: "AgentOptions",
-  ViteHubCloudflareOptions: "CloudflareOptions",
+  ViteHubCloudflareOptions: "nothing: `vitehub deploy` uploads the Worker secrets",
   ViteHubConfig: "nothing: set the host in vitehub({ host })",
   ViteHubConnectionsOptions: "ConnectionsOptions",
   WorkflowModuleOptions: "WorkflowOptions",
@@ -74,7 +74,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (result.changed) edits.push({ path: file, before, after: result.code })
   }
   followUps.push(...await renamedTypeReferences(cwd))
-  if (!edits.length && !followUps.length) throw new CodemodError("No vite.config or nuxt.config sets logs, contentImportBase, or a top-level env, so there is nothing to migrate.")
+  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config sets preset, sandbox, devtools, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
   return {
     summary: edits.length
       ? `Moved vite-hub options in ${edits.length} config file${edits.length === 1 ? "" : "s"}.`
@@ -88,7 +88,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const vitehubOptions: Codemod = {
   name: "vitehub-options",
-  description: "Moves logs into observability, Env declarations into vitehub({ env }), and removes contentImportBase",
+  description: "Renames preset to host, moves observability.logs to logs and Env declarations into vitehub({ env }), and removes devtools and contentImportBase",
   usage: "[dir]",
   async detect({ cwd }) {
     for (const file of await configFiles(cwd)) {

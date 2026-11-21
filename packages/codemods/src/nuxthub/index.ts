@@ -14,8 +14,11 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 import type { Dialect, HubDatabaseOptions } from "./config.ts"
 import type { SchemaMove } from "./database.ts"
 
-/** The lowest Drizzle ORM and Kit that `@vite-hub/database` accepts. */
-const drizzleMinimum = "1.0.0-rc.5"
+/**
+ * The Drizzle ORM and Kit versions that `@vite-hub/database` accepts. Not `^1.0.0-rc.5`: Drizzle publishes snapshot
+ * builds such as `1.0.0-rc.5-ab785fc`, which that range allows and which sort above the release.
+ */
+const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
 
 /** The command that runs a package binary, from the install command. */
 function runner(installCommand: string): string {
@@ -75,10 +78,12 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
   const sources = await rewriteSources({ cwd, features, schema, skip })
 
+  // `vite-hub` resolves each feature from its own package, and the build fails while one is missing.
+  const featurePackages = [features.database && "@vite-hub/database", features.kv && "@vite-hub/kv", features.blob && "@vite-hub/blob"].filter(name => typeof name === "string")
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
-    add: features.database ? ["vite-hub", "@vite-hub/database"] : ["vite-hub"],
-    atLeast: features.database ? { "drizzle-orm": drizzleMinimum, "drizzle-kit": drizzleMinimum } : undefined,
+    add: ["vite-hub", ...featurePackages],
+    within: features.database ? { "drizzle-orm": drizzleRange, "drizzle-kit": drizzleRange } : undefined,
   })
   const run = runner(packageResult.installCommand)
 
@@ -98,7 +103,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   ]
   if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
   if (features.cache) notes.push("Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.")
-  const installed = features.database ? "vite-hub and @vite-hub/database" : "vite-hub"
+  const installed = new Intl.ListFormat("en", { type: "conjunction" }).format(["vite-hub", ...featurePackages])
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
